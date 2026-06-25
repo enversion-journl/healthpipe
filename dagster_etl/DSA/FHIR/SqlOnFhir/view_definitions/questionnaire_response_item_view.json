@@ -1,0 +1,54 @@
+{
+  "resourceType": "ViewDefinition",
+  "name": "questionnaire_response_item_view",
+  "resource": "QuestionnaireResponse",
+  "status": "active",
+  "select": [
+    {
+      "column": [
+        {"name": "qr_id", "path": "id"},
+        {"name": "questionnaire", "path": "questionnaire"}
+      ]
+    },
+    {
+      "forEach": "item",
+      "column": [
+        {"name": "link_id", "path": "linkId"},
+        {"name": "item_key", "path": "id"},
+        {"name": "text", "path": "text"},
+        {"name": "element_nummer", "path": "extension.where(url='http://regionsyddanmark.dk/fhir/StructureDefinition/sfiInstanceMeta').extension.where(url='elementNummer').valueInteger.first()"},
+        {"name": "klynge_id", "path": "extension.where(url='http://regionsyddanmark.dk/fhir/StructureDefinition/sfiInstanceMeta').extension.where(url='klyngeId').valueInteger.first()"},
+        {"name": "klynge_id_hierarki", "path": "extension.where(url='http://regionsyddanmark.dk/fhir/StructureDefinition/sfiInstanceMeta').extension.where(url='klyngeIdHierarki').valueString.first()"},
+        {"name": "klynge_valg_ledetekst", "path": "extension.where(url='http://regionsyddanmark.dk/fhir/StructureDefinition/sfiInstanceMeta').extension.where(url='klyngeValgLedetekst').valueString.first()"},
+        {"name": "klynge_parent_id", "path": "extension.where(url='http://regionsyddanmark.dk/fhir/StructureDefinition/sfiInstanceMeta').extension.where(url='klyngeParentId').valueInteger.first()"},
+        {"name": "repetition_id", "path": "extension.where(url='http://regionsyddanmark.dk/fhir/StructureDefinition/sfiInstanceMeta').extension.where(url='repetitionId').valueInteger.first()"},
+        {"name": "element_kode", "path": "extension.where(url='http://regionsyddanmark.dk/fhir/StructureDefinition/sfiInstanceMeta').extension.where(url='elementKode').valueString.first()"},
+        {"name": "element_original_kode", "path": "extension.where(url='http://regionsyddanmark.dk/fhir/StructureDefinition/sfiInstanceMeta').extension.where(url='elementOriginalKode').valueString.first()"},
+        {"name": "element_administrativ_enhed_id", "path": "extension.where(url='http://regionsyddanmark.dk/fhir/StructureDefinition/sfiInstanceMeta').extension.where(url='elementAdminEnhedId').valueString.first()"},
+        {"name": "repetition_id_hierarki", "path": "extension.where(url='http://regionsyddanmark.dk/fhir/StructureDefinition/sfiInstanceMeta').extension.where(url='repetitionIdHierarki').valueString.first()"},
+        {"name": "opdateret_tid", "path": "extension.where(url='http://regionsyddanmark.dk/fhir/StructureDefinition/sfiInstanceMeta').extension.where(url='opdateretTid').valueString.first()"},
+        {"name": "xml_status", "path": "extension.where(url='http://regionsyddanmark.dk/fhir/StructureDefinition/sfiInstanceMeta').extension.where(url='xmlStatus').valueInteger.first()"},
+        {"name": "xml_status_text", "path": "extension.where(url='http://regionsyddanmark.dk/fhir/StructureDefinition/sfiInstanceMeta').extension.where(url='xmlStatusText').valueString.first()"}
+      ],
+      "select": [
+        {
+          "forEachOrNull": "answer",
+          "column": [
+            {"name": "answer_index", "path": "'0'"},
+            {"name": "value_type", "path": "'fhir_value'"},
+            {"name": "value_int", "path": "valueInteger"},
+            {"name": "value_dec", "path": "valueDecimal"},
+            {"name": "value_string", "path": "valueString"},
+            {"name": "value_datetime", "path": "valueDateTime"},
+            {"name": "value_bool", "path": "valueBoolean"},
+            {"name": "value_quantity", "path": "valueQuantity.value"},
+            {"name": "value_unit", "path": "valueQuantity.unit"},
+            {"name": "value_coding_system", "path": "valueCoding.system"},
+            {"name": "value_coding_code", "path": "valueCoding.code"},
+            {"name": "value_coding_display", "path": "valueCoding.display"}
+          ]
+        }
+      ]
+    }
+  ]
+}

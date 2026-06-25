@@ -1,0 +1,29 @@
+{
+  "resourceType": "ViewDefinition",
+  "name": "patient_address_view",
+  "resource": "Patient",
+  "status": "active",
+  "select": [
+    {
+      "column": [
+        {"name": "patient_id", "path": "id"}
+      ]
+    },
+    {
+      "forEachOrNull": "address",
+      "column": [
+        {"name": "address_period_start", "path": "period.start"},
+        {"name": "address_period_end", "path": "period.end"},
+        {"name": "address_use", "path": "use"},
+        {"name": "address_official", "path": "extension.where(url='http://hl7.org/fhir/StructureDefinition/address-official').valueBoolean"},
+        {"name": "address_line", "path": "line.first()"},
+        {"name": "address_postal_code", "path": "postalCode"},
+        {"name": "address_city", "path": "city"},
+        {"name": "address_country", "path": "country"},
+        {"name": "municipality_code", "path": "extension.where(url='http://hl7.dk/fhir/core/StructureDefinition/dk-core-municipalityCodes').valueCodeableConcept.coding.code.first()"},
+        {"name": "region_code", "path": "extension.where(url='http://hl7.dk/fhir/core/StructureDefinition/dk-core-RegionalSubDivisionCodes').valueCodeableConcept.coding.code.first()"},
+        {"name": "kvhx", "path": "extension.where(url='http://regionsyddanmark.dk/fhir/StructureDefinition/addressKvhx').valueString"}
+      ]
+    }
+  ]
+}

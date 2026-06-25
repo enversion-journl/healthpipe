@@ -1,0 +1,53 @@
+<?xml version="1.0" ?>
+<Afdelingsydelsesresultat>
+  <Kontekst>
+    <Oprettet>
+      <Bruger>test_user</Bruger>
+      <PersId>10000004</PersId>
+      <Rolle>Sygeplejerske</Rolle>
+      <AdministrativEnhed>TEST SHS Kirurgi Sengeafs. B (Aabenraa)</AdministrativEnhed>
+      <AdministrativEnhedId>01.07.08.D.1</AdministrativEnhedId>
+      <Tidspunkt>2026-05-01T16:44:00</Tidspunkt>
+      <Tidsstempel>1777646640000</Tidsstempel>
+    </Oprettet>
+    <Aendret>
+      <Bruger>test_user</Bruger>
+      <PersId>10000004</PersId>
+      <Rolle>Sygeplejerske</Rolle>
+      <AdministrativEnhed>TEST SHS Kirurgi Sengeafs. B (Aabenraa)</AdministrativEnhed>
+      <AdministrativEnhedId>01.07.08.D.1</AdministrativEnhedId>
+      <Tidspunkt>2026-05-01T16:44:00</Tidspunkt>
+      <Tidsstempel>1777646640000</Tidsstempel>
+    </Aendret>
+    <Besluttet>
+      <Bruger>test_user</Bruger>
+      <PersId>10000004</PersId>
+      <Rolle>Sygeplejerske</Rolle>
+      <AdministrativEnhed>TEST SHS Kirurgi Sengeafs. B (Aabenraa)</AdministrativEnhed>
+      <AdministrativEnhedId>01.07.08.D.1</AdministrativEnhedId>
+      <Tidspunkt>2026-05-01T16:44:00</Tidspunkt>
+      <Tidsstempel>1777646640000</Tidsstempel>
+    </Besluttet>
+    <Status>Besluttet</Status>
+  </Kontekst>
+  <Overskrift>Ernæring</Overskrift>
+  <Ledetekst>Ernæring</Ledetekst>
+  <Type>SO16Ernaer</Type>
+  <Kladde>False</Kladde>
+  <Repetition>
+    <Klynge type="sekvens">
+      <Navn>SO16ErnaerAppetitSekv</Navn>
+      <Ledetekst>Appetit</Ledetekst>
+      <Sekvens>
+        <Repetition>
+          <Element type="string">
+            <Navn>SO16ErnaerAppetit</Navn>
+            <Ledetekst>Supplerende</Ledetekst>
+            <Vaerdi>Spiser dårligt, har kvalme.</Vaerdi>
+            <ElementId>RM_Generelle2:edSO16ErnaerAppetit</ElementId>
+          </Element>
+        </Repetition>
+      </Sekvens>
+    </Klynge>
+  </Repetition>
+</Afdelingsydelsesresultat>

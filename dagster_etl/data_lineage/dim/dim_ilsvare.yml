@@ -1,0 +1,45 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: dimension
+  TableName: dim.IlsVare
+  Domain: [ERP]
+  Description: "ILS varedimension med varestamdata fra ILS"
+  Grain: "Én række pr. ILS-vare"
+
+  SourceSystems:
+    - ils: [dbo.vare, dbo.vareart, dbo.varegrp, dbo.varetype, dbo.momskd]
+
+  Columns:
+    DW_EK_IlsVare:        { Type: PK, DataType: INT }
+    CleanCode_IlsVare:    { DataType: NVARCHAR(100) }
+    Varenummer:            { DataType: NVARCHAR(100), Source: [ils.dbo.vare.vnr] }
+    Varenavn:              { DataType: NVARCHAR(MAX), Source: [ils.dbo.vare.navn] }
+    Varenavn2:             { DataType: NVARCHAR(MAX), Source: [ils.dbo.vare.navn2] }
+    Varenavn_Concat:       { DataType: NVARCHAR(MAX), Source: [ils.dbo.vare.navn_conc] }
+    Varestr:               { DataType: NVARCHAR(255), Source: [ils.dbo.vare.varestr] }
+    Basisenhed:            { DataType: NVARCHAR(50), Source: [ils.dbo.vare.basisenh] }
+    Vareart:               { DataType: NVARCHAR(50), Source: [ils.dbo.vare.vareart] }
+    Vareart_Navn:          { DataType: NVARCHAR(255), Source: [ils.dbo.vareart.navn] }
+    Varegruppe:            { DataType: NVARCHAR(50), Source: [ils.dbo.vare.varegrp] }
+    Varegruppe_Navn:       { DataType: NVARCHAR(255), Source: [ils.dbo.varegrp.navn] }
+    Varetype:              { DataType: NVARCHAR(50), Source: [ils.dbo.vare.varetype] }
+    Varetype_Navn:         { DataType: NVARCHAR(255), Source: [ils.dbo.varetype.navn] }
+    Momskode:              { DataType: NVARCHAR(50), Source: [ils.dbo.vare.momskd] }
+    Momskode_Navn:         { DataType: NVARCHAR(255), Source: [ils.dbo.momskd.navn] }
+    Momsprocent:           { DataType: DECIMAL(18,4), Source: [ils.dbo.momskd.procent] }
+    DW_EK_Dato_Oprettet:  { Type: FK, DataType: INT, Source: [ils.dbo.vare.opretdto] }
+    Datotid_Oprettet:      { DataType: DATETIME2, Source: [ils.dbo.vare.opretdto] }
+    DW_EK_UNSPSC:
+      Type: FK
+      DataType: INT
+      Description: "FK til dim.UNSPSC via map.UNSPSC (kilde: ils.dbo.vare.unspc)"
+    DW_EK_UNSPSC_Intern:
+      Type: FK
+      DataType: INT
+      Description: "FK til dim.UNSPSC via map.UNSPSC (kilde: ils.dbo.vare.unspsc2, '.0'-suffiks trimmet)"
+    Aktiv:                 { DataType: BIT, Source: [ils.dbo.vare.aktiv] }

@@ -1,0 +1,33 @@
+{
+  "resourceType": "ViewDefinition",
+  "name": "servicerequest_view",
+  "resource": "ServiceRequest",
+  "status": "active",
+  "select": [
+    {
+      "column": [
+        {"name": "service_request_id", "path": "id"},
+        {"name": "identifier_system", "path": "identifier.system.first()"},
+        {"name": "identifier_value", "path": "identifier.value.first()"},
+        {"name": "patient_id", "path": "subject.id"},
+        {"name": "episode_of_care_id", "path": "extension.where(url='http://regionsyddanmark.dk/fhir/StructureDefinition/episodeOfCare').valueReference.id.first()"},
+        {"name": "encounter_id", "path": "encounter.id.first()"},
+        {"name": "status", "path": "status"},
+        {"name": "intent", "path": "intent"},
+        {"name": "priority", "path": "priority"},
+        {"name": "category_code", "path": "category.coding.code.first()"},
+        {"name": "category_display", "path": "category.coding.display.first()"},
+        {"name": "code", "path": "code.coding.code.first()"},
+        {"name": "code_system", "path": "code.coding.system.first()"},
+        {"name": "code_display", "path": "code.coding.display.first()"},
+        {"name": "authored_on", "path": "authoredOn"},
+        {"name": "occurrence_start", "path": "occurrencePeriod.start"},
+        {"name": "occurrence_end", "path": "occurrencePeriod.end"},
+        {"name": "requester_id", "path": "requester.id"},
+        {"name": "performer_id", "path": "performer.id.first()"},
+        {"name": "source_table", "path": "extension.extension.where(url='sourceTable').valueString.first()"},
+        {"name": "is_deleted", "path": "extension.where(url='urn:fhir:isDeleted').valueInteger"}
+      ]
+    }
+  ]
+}

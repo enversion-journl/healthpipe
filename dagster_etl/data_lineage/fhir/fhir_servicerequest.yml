@@ -1,0 +1,44 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fhir
+  TableName: fhir.ServiceRequest
+  Domain: [FHIR]
+  Description: "FHIR ServiceRequest resource -- henvisninger og RIS rekvisitioner"
+  Grain: "One row per ServiceRequest from HENVISNING or RIS_YDELSE service group"
+  FhirResource: ServiceRequest
+
+  SourceSystems:
+    - ifdb_henvisning: [IFDB.HENVISNING]
+    - ifdb_henvisning_historik: [IFDB.HENVISNING_HISTORIK]
+    - ifdb_referralinformation: [IFDB.REFERRALINFORMATION]
+    - ifdb_ris_ydelse: [IFDB.RIS_YDELSE]
+
+  Columns:
+    service_request_id: { Type: PK, DataType: NVARCHAR(255), FhirPath: "id", Source: [ifdb_henvisning.IFDB.HENVISNING.OBJEKT_ID, ifdb_ris_ydelse.IFDB.RIS_YDELSE.OBJEKT_ID] }
+    identifier_system:  { DataType: NVARCHAR(255), FhirPath: "identifier.system" }
+    identifier_value:   { DataType: NVARCHAR(255), FhirPath: "identifier.value", Source: [ifdb_henvisning.IFDB.HENVISNING.OBJEKT_ID, ifdb_ris_ydelse.IFDB.RIS_YDELSE.OBJEKT_ID] }
+    patient_id:         { DataType: NVARCHAR(255), FhirPath: "subject.id", Source: [ifdb_henvisning.IFDB.HENVISNING.PATIENT_ID, ifdb_ris_ydelse.IFDB.RIS_YDELSE.PATIENT_ID] }
+    episode_of_care_id: { DataType: NVARCHAR(255), FhirPath: "extension.where(url='http://regionsyddanmark.dk/fhir/StructureDefinition/episodeOfCare').valueReference.id", Source: [ifdb_henvisning.IFDB.HENVISNING.EPISODE_OF_CARE_ID, ifdb_ris_ydelse.IFDB.RIS_YDELSE.EPISODE_OF_CARE_ID] }
+    encounter_id:       { DataType: NVARCHAR(255), FhirPath: "encounter.id", Source: [ifdb_ris_ydelse.IFDB.RIS_YDELSE.ENCOUNTER_ID] }
+    status:             { DataType: NVARCHAR(50), FhirPath: "status", Source: [ifdb_henvisning.IFDB.HENVISNING.STATUS_KODE, ifdb_ris_ydelse.IFDB.RIS_YDELSE.STATE] }
+    intent:             { DataType: NVARCHAR(50), FhirPath: "intent" }
+    priority:           { DataType: NVARCHAR(50), FhirPath: "priority", Source: [ifdb_henvisning.IFDB.HENVISNING.INDKALDELSESPRIORIT_KODE] }
+    category_code:      { DataType: NVARCHAR(255), FhirPath: "category.coding.code", Source: [ifdb_henvisning.IFDB.HENVISNING.TYPE_KODE, ifdb_ris_ydelse.IFDB.RIS_YDELSE.TYPE] }
+    category_display:   { DataType: NVARCHAR(500), FhirPath: "category.coding.display", Source: [ifdb_henvisning.IFDB.HENVISNING.TYPE_KODETEKST, ifdb_ris_ydelse.IFDB.RIS_YDELSE.TYPE] }
+    code:               { DataType: NVARCHAR(255), FhirPath: "code.coding.code", Source: [ifdb_ris_ydelse.IFDB.RIS_YDELSE.XML] }
+    code_system:        { DataType: NVARCHAR(500), FhirPath: "code.coding.system" }
+    code_display:       { DataType: NVARCHAR(500), FhirPath: "code.coding.display" }
+    authored_on:        { DataType: NVARCHAR(50), FhirPath: "authoredOn", Source: [ifdb_henvisning.IFDB.HENVISNING.HENVISNINGSDATO, ifdb_henvisning.IFDB.HENVISNING.AFSENDELSESDATO] }
+    occurrence_start:   { DataType: NVARCHAR(50), FhirPath: "occurrencePeriod.start", Source: [ifdb_ris_ydelse.IFDB.RIS_YDELSE.PERIOD_START] }
+    occurrence_end:     { DataType: NVARCHAR(50), FhirPath: "occurrencePeriod.end", Source: [ifdb_henvisning.IFDB.HENVISNING.SLUTDATO, ifdb_ris_ydelse.IFDB.RIS_YDELSE.PERIOD_END] }
+    requester_id:       { DataType: NVARCHAR(255), FhirPath: "requester.id", Source: [ifdb_henvisning.IFDB.HENVISNING.HENVIST_FRA_AFDELING_SORKODE, ifdb_referralinformation.IFDB.REFERRALINFORMATION.REFERRAL_ORG_SORCODE] }
+    performer_id:       { DataType: NVARCHAR(255), FhirPath: "performer.id", Source: [ifdb_henvisning.IFDB.HENVISNING.HENVIST_TIL_AFDELING_SORKODE, ifdb_ris_ydelse.IFDB.RIS_YDELSE.UDFOERT_ADMENHED_SORCODE] }
+    source_table:       { DataType: NVARCHAR(100), FhirPath: "extension.extension.where(url='sourceTable').valueString" }
+    is_deleted:         { DataType: INT, FhirPath: "extension.where(url='urn:fhir:isDeleted').valueInteger", Source: [ifdb_henvisning.IFDB.HENVISNING.SLETTET, ifdb_ris_ydelse.IFDB.RIS_YDELSE.SLETTET] }
+    last_updated:       { DataType: DATETIME2, FhirPath: "r.ts" }
+    created_at:         { DataType: DATETIME2, FhirPath: "r.cts" }

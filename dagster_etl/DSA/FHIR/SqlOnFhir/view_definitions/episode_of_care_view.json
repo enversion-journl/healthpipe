@@ -1,0 +1,68 @@
+{
+  "resourceType": "ViewDefinition",
+  "name": "episode_of_care_view",
+  "resource": "EpisodeOfCare",
+  "status": "active",
+  "select": [
+    {
+      "column": [
+        {
+          "name": "episode_of_care_id",
+          "path": "id"
+        },
+        {
+          "name": "patient_id",
+          "path": "patient.id"
+        },
+        {
+          "name": "status",
+          "path": "status"
+        },
+        {
+          "name": "type_code",
+          "path": "type.coding.code.first()"
+        },
+        {
+          "name": "type_display",
+          "path": "type.coding.display.first()"
+        },
+        {
+          "name": "period_start",
+          "path": "period.start"
+        },
+        {
+          "name": "period_end",
+          "path": "period.end"
+        },
+        {
+          "name": "managing_organization_id",
+          "path": "managingOrganization.id"
+        },
+        {
+          "name": "identifier_value",
+          "path": "identifier.where(system='urn:source:ifdb:episode_of_care_id').value.first()"
+        },
+        {
+          "name": "previous_episode_of_care_id",
+          "path": "extension.where(url='http://regionsyddanmark.dk/fhir/StructureDefinition/previousEpisodeOfCare').valueReference.id.first()"
+        },
+        {
+          "name": "previous_eoc_ref_type_code",
+          "path": "extension.where(url='urn:source:ifdb:previous_eoc_ref_type_code').valueString.first()"
+        },
+        {
+          "name": "healthissue_id",
+          "path": "extension.where(url='urn:source:ifdb:healthissue_id').valueString.first()"
+        },
+        {
+          "name": "discharge_disposition_code",
+          "path": "extension.where(url='urn:source:ifdb:discharge_disposition_code').valueString.first()"
+        },
+        {
+          "name": "is_deleted",
+          "path": "extension('urn:fhir:isDeleted').valueInteger.first()"
+        }
+      ]
+    }
+  ]
+}

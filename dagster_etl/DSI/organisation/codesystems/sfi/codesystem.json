@@ -1,0 +1,85 @@
+{
+  "resourceType": "CodeSystem",
+  "url": "urn:dk:ifdb:sfi",
+  "version": "20260513-initial",
+  "name": "IFDBSFI",
+  "title": "IFDB SFI - Sundhedsfagligt Indhold fra IFDB aktivitetsresultater",
+  "description": "Semantisk nøgle for sundhedsfagligt indhold i IFDB aktivitetsresultat-XML. Bruges som klinisk kode i Observation.code og Questionnaire.item.code, og som element_system/element_code i SQL-on-FHIR-projektioner. SFI-koder er baseret på XML ElementId når det findes, med deterministisk fallback for elementer uden stabil id.",
+  "status": "active",
+  "hierarchyMeaning": "is-a",
+  "publisher": "Region Syddanmark",
+  "date": "2026-05-13",
+  "content": "not-present",
+  "property": [
+    {
+      "code": "datatype",
+      "description": "Forventet FHIR-datatype for elementets værdi (integer, decimal, quantity, string, boolean, datetime, coding)",
+      "type": "string"
+    },
+    {
+      "code": "unit",
+      "description": "Måleenhed for numeriske værdier (mmHg, bpm, %, etc.), hvis relevant",
+      "type": "string"
+    },
+    {
+      "code": "sfi_path",
+      "description": "Kanonisk strukturel sti i XML-hierarkiet: klynge/repetition/element placering",
+      "type": "string"
+    },
+    {
+      "code": "source_element_id",
+      "description": "Original XML ElementId fra IFDB-modellen",
+      "type": "string"
+    },
+    {
+      "code": "source_element_name",
+      "description": "Original XML Element Navn fra IFDB-modellen",
+      "type": "string"
+    },
+    {
+      "code": "source_element_label",
+      "description": "Original ledetekst/display for elementet fra IFDB-modellen",
+      "type": "string"
+    },
+    {
+      "code": "source_hierarchy_path",
+      "description": "Original hierarkisti fra XML'en, så brugere kan curere ud fra kendte SFI-/ledetekststrukturer",
+      "type": "string"
+    },
+    {
+      "code": "source_group_path",
+      "description": "Original klynge-/gruppepath fra XML'en",
+      "type": "string"
+    },
+    {
+      "code": "source_repetition_path",
+      "description": "Original repetitionspath fra XML'en, hvis elementet lå i en gentaget gruppe",
+      "type": "string"
+    },
+    {
+      "code": "source_model_name",
+      "description": "IFDB MODELLERINGSNAVN for den aktivitetstype, elementet stammer fra",
+      "type": "string"
+    },
+    {
+      "code": "first_seen_in_version",
+      "description": "Første IFDB MODELLERINGSVERSION hvor elementet er observeret",
+      "type": "string"
+    },
+    {
+      "code": "last_seen_in_version",
+      "description": "Seneste IFDB MODELLERINGSVERSION hvor elementet er observeret",
+      "type": "string"
+    },
+    {
+      "code": "seen_in_versions",
+      "description": "Kommasepareret liste over observerede IFDB MODELLERINGSVERSION-værdier",
+      "type": "string"
+    },
+    {
+      "code": "status",
+      "description": "Governance-status: active (stabil kode), review (fallback-genereret kode, afventer bekræftelse), deprecated (udfaset)",
+      "type": "string"
+    }
+  ]
+}

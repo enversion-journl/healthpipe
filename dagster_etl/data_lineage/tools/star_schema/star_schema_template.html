@@ -1,0 +1,879 @@
+<!DOCTYPE html>
+
+<!--
+  SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+  SPDX-License-Identifier: AGPL-3.0-or-later
+
+  This file is part of Healthpipe. See the LICENSE file in the project
+  root for the full AGPL-3.0 license text.
+-->
+
+<html lang="da">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Healthpipe — Star Schema</title>
+    <style>
+        /* === Reset & Base === */
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg: #0f1117;
+            --surface: #1a1d27;
+            --surface2: #232733;
+            --border: #2e3340;
+            --text: #e1e4eb;
+            --text-dim: #8b8fa3;
+            --fact-color: #f97316;
+            --dim-color: #3b82f6;
+            --fhir-color: #14b8a6;
+            --purple: #a78bfa;
+            --measure-bg: rgba(249,115,22,0.08);
+            --pk-bg: rgba(251,191,36,0.08);
+            --fk-bg: rgba(59,130,246,0.08);
+        }
+
+        body {
+            font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.5;
+            overflow-x: hidden;
+        }
+
+        /* === Header === */
+        .header {
+            position: sticky; top: 0; z-index: 100;
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 12px 24px;
+            display: flex; align-items: center; gap: 16px;
+            height: 56px;
+        }
+        .header h1 { font-size: 14px; font-weight: 600; white-space: nowrap; }
+        .header h1 span { color: var(--text-dim); font-weight: 400; }
+        .header-controls { display: flex; gap: 8px; margin-left: auto; align-items: center; }
+        .search-box, .filter {
+            background: var(--surface2); border: 1px solid var(--border);
+            color: var(--text); padding: 6px 10px; border-radius: 6px;
+            font-family: inherit; font-size: 11px;
+        }
+        .search-box { width: 200px; }
+        .search-box:focus, .filter:focus { outline: none; border-color: var(--dim-color); }
+
+        /* Tab buttons */
+        .tab-btn {
+            background: var(--surface2); border: 1px solid var(--border);
+            color: var(--text-dim); padding: 6px 12px; border-radius: 6px;
+            font-family: inherit; font-size: 11px; cursor: pointer;
+        }
+        .tab-btn.active { background: var(--dim-color); color: #fff; border-color: var(--dim-color); }
+        .back-btn {
+            background: var(--surface2); border: 1px solid var(--border);
+            color: var(--text-dim); padding: 6px 12px; border-radius: 6px;
+            font-family: inherit; font-size: 11px; cursor: pointer;
+            display: none;
+        }
+
+        /* === Legend === */
+        .legend {
+            position: sticky; top: 56px; z-index: 99;
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 6px 24px;
+            display: flex; gap: 20px; align-items: center;
+            font-size: 10px; color: var(--text-dim);
+        }
+        .legend-item { display: flex; align-items: center; gap: 4px; }
+        .legend-swatch {
+            width: 10px; height: 10px; border-radius: 2px;
+        }
+        .legend-line {
+            width: 20px; height: 2px;
+        }
+        .legend-line.dashed {
+            background: repeating-linear-gradient(90deg, var(--text-dim) 0, var(--text-dim) 4px, transparent 4px, transparent 8px);
+        }
+
+        /* === Main Layout === */
+        .main {
+            display: flex;
+            min-height: calc(100vh - 89px);
+        }
+        .canvas { flex: 1; padding: 24px; overflow-x: auto; }
+        .canvas.star-mode { overflow: hidden; height: calc(100vh - 89px); flex: 1 1 50%; }
+        .canvas.star-mode ~ .detail-panel.open { flex: 1 1 50%; width: auto; min-width: 0; }
+
+        /* === Bus Matrix === */
+        .bus-matrix-table {
+            border-collapse: collapse; font-size: 11px;
+            width: auto;
+        }
+        .bus-matrix-table th, .bus-matrix-table td {
+            border: 1px solid var(--border);
+            padding: 4px 8px;
+            text-align: center;
+            white-space: nowrap;
+        }
+        .bus-matrix-table thead th {
+            background: var(--surface);
+        }
+        .bus-matrix-table th.col-header {
+            padding: 0;
+            font-weight: 400;
+            color: var(--text-dim);
+            cursor: pointer;
+            vertical-align: bottom;
+        }
+        .bus-matrix-table th.col-header .col-header-text {
+            writing-mode: vertical-lr;
+            transform: rotate(180deg);
+            display: inline-block;
+            min-height: 150px;
+            padding: 8px 4px;
+            white-space: nowrap;
+        }
+        .bus-matrix-table th.col-header:hover { color: var(--text); }
+        .bus-matrix-table td:first-child {
+            text-align: left;
+            font-weight: 600;
+            position: sticky; left: 0; z-index: 5;
+            background: var(--surface);
+            cursor: pointer;
+            color: var(--text);
+        }
+        .bus-matrix-table td:first-child:hover { color: #fff; }
+        .matrix-dot {
+            width: 10px; height: 10px;
+            border-radius: 50%;
+            background: #22c55e;
+            display: inline-block;
+        }
+        .domain-header td {
+            background: var(--surface2) !important;
+            color: var(--text-dim);
+            font-weight: 600;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 6px 8px;
+        }
+
+        /* === Other Relations === */
+        .section-separator {
+            margin: 32px 0 16px 0;
+            padding: 12px 0;
+            border-top: 1px solid var(--border);
+        }
+        .section-separator h2 { font-size: 13px; font-weight: 600; color: var(--text); }
+        .section-separator p { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+        .rel-category { margin-bottom: 24px; }
+        .rel-category h3 {
+            font-size: 11px; font-weight: 600; margin-bottom: 8px;
+            display: flex; align-items: center; gap: 6px;
+        }
+        .rel-category-dot { width: 8px; height: 8px; border-radius: 2px; }
+        .rel-table {
+            border-collapse: collapse; font-size: 11px; width: auto;
+        }
+        .rel-table th, .rel-table td {
+            border: 1px solid var(--border); padding: 3px 8px;
+        }
+        .rel-table th { background: var(--surface); color: var(--text-dim); font-weight: 400; }
+        .rel-table td { color: var(--text); }
+
+        /* === Star Schema View (SVG) === */
+        #star-view { display: none; width: 100%; height: 100%; }
+        .star-mode #star-view { display: block; }
+        .node-label { font-size: 11px; fill: var(--text); font-weight: 600; text-anchor: middle; }
+        .node-sublabel { font-size: 9px; fill: var(--text-dim); text-anchor: middle; }
+        .fk-label { font-size: 9px; fill: var(--text-dim); text-anchor: middle; }
+
+        /* === Detail Panel === */
+        .detail-panel {
+            display: none;
+            width: 420px; min-width: 420px;
+            background: var(--surface);
+            border-left: 1px solid var(--border);
+            padding: 20px;
+            position: sticky; top: 89px;
+            height: calc(100vh - 89px);
+            overflow-y: auto;
+        }
+        .detail-panel.open { display: block; }
+        .detail-header {
+            display: flex; align-items: center; justify-content: space-between;
+            margin-bottom: 16px;
+        }
+        .detail-header h2 { font-size: 14px; font-weight: 600; }
+        .detail-close {
+            background: none; border: none; color: var(--text-dim);
+            cursor: pointer; font-size: 16px; padding: 4px;
+        }
+        .detail-close:hover { color: var(--text); }
+        .type-badge {
+            display: inline-block; padding: 2px 8px; border-radius: 4px;
+            font-size: 10px; font-weight: 600; text-transform: uppercase;
+        }
+        .type-badge.fact { background: rgba(249,115,22,0.15); color: var(--fact-color); }
+        .type-badge.dim { background: rgba(59,130,246,0.1); color: var(--dim-color); }
+        .type-badge.fhir_flat { background: rgba(20,184,166,0.1); color: var(--fhir-color); }
+        .detail-meta { margin: 12px 0; font-size: 11px; color: var(--text-dim); }
+        .detail-meta dt { font-weight: 600; color: var(--text); margin-top: 8px; }
+        .detail-meta dd { margin-left: 0; }
+        .detail-desc { font-size: 11px; color: var(--text-dim); margin-bottom: 16px; line-height: 1.6; }
+        .columns-table {
+            border-collapse: collapse; font-size: 10px; width: 100%;
+        }
+        .columns-table th {
+            background: var(--surface2); color: var(--text-dim);
+            padding: 4px 6px; text-align: left; font-weight: 400;
+            border-bottom: 1px solid var(--border);
+        }
+        .columns-table td {
+            padding: 3px 6px; border-bottom: 1px solid var(--border);
+        }
+        .columns-table tr.measure-row { background: var(--measure-bg); }
+        .columns-table tr.pk-row { background: var(--pk-bg); }
+        .columns-table tr.fk-row { background: var(--fk-bg); }
+        .col-type { color: var(--purple); }
+        .col-pk { color: #fbbf24; font-weight: 600; }
+        .col-fk { color: var(--dim-color); cursor: pointer; }
+        .col-fk:hover { text-decoration: underline; }
+        .col-measure { color: var(--fact-color); }
+
+        /* === FHIR Tab === */
+        #fhir-list { display: none; }
+        .fhir-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin-bottom: 8px;
+            cursor: pointer;
+        }
+        .fhir-card:hover { border-color: var(--fhir-color); }
+        .fhir-card-header {
+            display: flex; align-items: center; gap: 8px;
+            font-size: 12px; font-weight: 600;
+        }
+        .fhir-resource-badge {
+            background: rgba(20,184,166,0.1); color: var(--fhir-color);
+            padding: 1px 6px; border-radius: 3px; font-size: 10px;
+        }
+        .fhir-card-desc { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+        .fhir-card-meta { font-size: 10px; color: var(--text-dim); margin-top: 6px; }
+
+        /* === Tooltip === */
+        .tooltip {
+            display: none; position: fixed; z-index: 200;
+            background: var(--surface2); border: 1px solid var(--border);
+            border-radius: 6px; padding: 8px 12px;
+            font-size: 11px; color: var(--text);
+            pointer-events: none; max-width: 300px;
+        }
+
+        /* === Scrollbar === */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Healthpipe <span>/ Data Warehouse Star Schema</span></h1>
+        <div class="header-controls">
+            <input type="text" class="search-box" id="search" placeholder="Search tables...">
+            <select class="filter" id="filter-domain-matrix">
+                <option value="">All Domains</option>
+            </select>
+            <select class="filter" id="filter-domain-fhir" style="display:none">
+                <option value="">All Domains</option>
+            </select>
+            <button class="tab-btn active" id="tab-matrix">Bus Matrix</button>
+            <button class="tab-btn" id="tab-fhir">FHIR Tables</button>
+            <button class="back-btn" id="back-btn">&#8592; Back to Matrix</button>
+        </div>
+    </div>
+
+    <div class="legend">
+        <div class="legend-item"><span class="legend-swatch" style="background:var(--fact-color)"></span> Fact</div>
+        <div class="legend-item"><span class="legend-swatch" style="background:var(--dim-color)"></span> Dimension</div>
+        <div class="legend-item"><span class="legend-swatch" style="background:var(--fhir-color)"></span> FHIR</div>
+    </div>
+
+    <div class="main" id="main-container">
+        <div class="canvas" id="canvas">
+            <div id="bus-matrix"></div>
+            <div id="other-relations-wrapper"></div>
+            <div id="fhir-list"></div>
+            <svg id="star-view"></svg>
+        </div>
+        <div class="detail-panel" id="detail-panel"></div>
+    </div>
+
+    <div class="tooltip" id="tooltip"></div>
+
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script>
+    // ========================================================================
+    // DATA (injected by generate_star_schema.py)
+    // ========================================================================
+    const DATA = {{DATA}};
+
+    // ========================================================================
+    // Helpers
+    // ========================================================================
+    const $ = id => document.getElementById(id);
+    const typeColor = t => ({ fact: '#f97316', dim: '#3b82f6', fhir_flat: '#14b8a6' }[t] || '#6b7280');
+    const typeBg = t => ({ fact: 'rgba(249,115,22,0.15)', dim: 'rgba(59,130,246,0.1)', fhir_flat: 'rgba(20,184,166,0.1)' }[t] || 'rgba(107,114,128,0.1)');
+
+    function getTableById(id) {
+        if (id == null) return undefined;
+        const exact = DATA.tables.find(t => t.id === id) || DATA.fhirTables.find(t => t.id === id);
+        if (exact) return exact;
+        const lowered = id.toLowerCase();
+        return DATA.tables.find(t => t.id.toLowerCase() === lowered)
+            || DATA.fhirTables.find(t => t.id.toLowerCase() === lowered);
+    }
+
+    function getFactTables() { return DATA.tables.filter(t => t.type === 'fact'); }
+    function getDimTables() { return DATA.tables.filter(t => t.type === 'dim'); }
+
+    function getFactDimensions(factId) {
+        return DATA.relationships
+            .filter(r => r.source === factId && r.type === 'bus_matrix')
+            .map(r => r.target)
+            .filter((v, i, a) => a.indexOf(v) === i);
+    }
+
+    function getOtherRelationships() {
+        return DATA.relationships.filter(r => r.type !== 'bus_matrix');
+    }
+
+    // ========================================================================
+    // State
+    // ========================================================================
+    let currentView = 'matrix'; // 'matrix' | 'star' | 'fhir'
+    let starOrigin = 'matrix'; // which tab launched star view
+    let selectedTable = null;
+
+    // ========================================================================
+    // Filters
+    // ========================================================================
+    function initFilters() {
+        const matrixSel = $('filter-domain-matrix');
+        DATA.domains.matrix.forEach(d => {
+            const o = document.createElement('option');
+            o.value = d; o.textContent = d;
+            matrixSel.appendChild(o);
+        });
+        const fhirSel = $('filter-domain-fhir');
+        DATA.domains.fhir.forEach(d => {
+            const o = document.createElement('option');
+            o.value = d; o.textContent = d;
+            fhirSel.appendChild(o);
+        });
+    }
+
+    function tableHasDomain(table, domain) {
+        if (!domain) return true;
+        if (Array.isArray(table.domain)) return table.domain.includes(domain);
+        return table.domain === domain;
+    }
+
+    // ========================================================================
+    // Bus Matrix
+    // ========================================================================
+    function renderBusMatrix() {
+        const selectedDomain = $('filter-domain-matrix').value;
+        const search = $('search').value.toLowerCase();
+
+        let facts = getFactTables();
+
+        if (selectedDomain) {
+            const allDimsSeed = getDimTables();
+            const seedFactIds = new Set(
+                facts.filter(f => tableHasDomain(f, selectedDomain)).map(f => f.id)
+            );
+            const seedDimIds = new Set(
+                allDimsSeed.filter(d => tableHasDomain(d, selectedDomain)).map(d => d.id)
+            );
+            DATA.relationships
+                .filter(r => r.type === 'bus_matrix' && seedDimIds.has(r.target))
+                .forEach(r => seedFactIds.add(r.source));
+            facts = facts.filter(f => seedFactIds.has(f.id));
+        }
+
+        if (search) {
+            facts = facts.filter(f => {
+                const hay = (f.name + ' ' + f.description + ' ' +
+                    f.columns.map(c => c.name).join(' ')).toLowerCase();
+                return hay.includes(search);
+            });
+        }
+
+        const allDims = getDimTables();
+
+        // Collect only dimensions actually used by visible facts
+        const usedDimIds = new Set();
+        facts.forEach(f => getFactDimensions(f.id).forEach(d => usedDimIds.add(d)));
+        const dims = allDims.filter(d => usedDimIds.has(d.id)).sort((a, b) => a.name.localeCompare(b.name));
+
+        if (facts.length === 0) {
+            $('bus-matrix').innerHTML = '<p style="color:var(--text-dim);padding:20px;">No matching tables found.</p>';
+            return;
+        }
+
+        // Group facts by domain
+        const byDomain = {};
+        facts.forEach(f => {
+            const key = Array.isArray(f.domain) ? (f.domain.join(', ') || 'Unknown') : (f.domain || 'Unknown');
+            (byDomain[key] = byDomain[key] || []).push(f);
+        });
+
+        let html = '<table class="bus-matrix-table"><thead><tr><th></th>';
+        dims.forEach(d => {
+            html += `<th class="col-header" data-id="${d.id}"><div class="col-header-text">${d.name.replace('dim.', '')}</div></th>`;
+        });
+        html += '</tr></thead><tbody>';
+
+        for (const [domain, domainFacts] of Object.entries(byDomain).sort()) {
+            html += `<tr class="domain-header"><td colspan="${dims.length + 1}">${domain}</td></tr>`;
+            domainFacts.sort((a, b) => a.name.localeCompare(b.name)).forEach(fact => {
+                const factDims = new Set(getFactDimensions(fact.id));
+                html += `<tr><td data-id="${fact.id}">${fact.name.replace('fct.', '')}</td>`;
+                dims.forEach(d => {
+                    const has = factDims.has(d.id);
+                    html += `<td>${has ? '<span class="matrix-dot"></span>' : ''}</td>`;
+                });
+                html += '</tr>';
+            });
+        }
+
+        html += '</tbody></table>';
+        $('bus-matrix').innerHTML = html;
+
+        // Click handlers
+        $('bus-matrix').querySelectorAll('td[data-id]').forEach(td => {
+            td.addEventListener('click', () => showStarSchema(td.dataset.id));
+        });
+        $('bus-matrix').querySelectorAll('th[data-id]').forEach(th => {
+            th.addEventListener('click', () => showDetailPanel(th.dataset.id));
+        });
+    }
+
+    // ========================================================================
+    // Other Relations
+    // ========================================================================
+    function renderOtherRelations() {
+        const others = getOtherRelationships();
+        if (others.length === 0) {
+            $('other-relations-wrapper').innerHTML = '';
+            return;
+        }
+
+        const categories = {
+            'fact_to_fact': { label: 'Fact \u2192 Fact', color: 'var(--fact-color)' },
+            'hierarchy': { label: 'Hierarchier (self-ref)', color: 'var(--text-dim)' },
+            'dim_to_dim': { label: 'Dimension \u2192 Dimension', color: 'var(--dim-color)' },
+        };
+
+        let html = '<div class="section-separator"><h2>\u00d8vrige Relationer</h2>';
+        html += '<p>FK-relationer der ikke indg\u00e5r i bus-matrixen</p></div>';
+
+        for (const [type, meta] of Object.entries(categories)) {
+            const rels = others.filter(r => r.type === type);
+            if (rels.length === 0) continue;
+
+            html += `<div class="rel-category">`;
+            html += `<h3><span class="rel-category-dot" style="background:${meta.color}"></span>${meta.label}</h3>`;
+            html += '<table class="rel-table"><thead><tr><th>Source</th><th>Key</th><th>Target</th></tr></thead><tbody>';
+            rels.forEach(r => {
+                html += `<tr><td>${r.source}</td><td>${r.key}</td><td>${r.target}</td></tr>`;
+            });
+            html += '</tbody></table></div>';
+        }
+
+        $('other-relations-wrapper').innerHTML = html;
+    }
+
+    // ========================================================================
+    // Star Schema View (D3)
+    // ========================================================================
+    function showStarSchema(tableId) {
+        starOrigin = currentView === 'fhir' ? 'fhir' : 'matrix';
+        currentView = 'star';
+        $('canvas').classList.add('star-mode');
+        $('bus-matrix').style.display = 'none';
+        $('other-relations-wrapper').style.display = 'none';
+        $('fhir-list').style.display = 'none';
+        $('back-btn').style.display = 'inline-block';
+        $('tab-matrix').classList.remove('active');
+        $('tab-fhir').classList.remove('active');
+
+        const svg = d3.select('#star-view');
+        svg.selectAll('*').remove();
+
+        const table = getTableById(tableId);
+        if (!table) return;
+
+        showDetailPanel(tableId);
+
+        const width = $('canvas').clientWidth;
+        const height = $('canvas').clientHeight;
+        svg.attr('width', width).attr('height', height);
+
+        const g = svg.append('g');
+
+        // Zoom
+        const zoom = d3.zoom().scaleExtent([0.3, 3]).on('zoom', e => g.attr('transform', e.transform));
+        svg.call(zoom);
+
+        // Collect all relationships for this table
+        const busRels = DATA.relationships.filter(r => r.source === tableId && r.type === 'bus_matrix');
+        const f2fRels = DATA.relationships.filter(r => r.source === tableId && r.type === 'fact_to_fact');
+        const fhirRels = DATA.relationships.filter(r => r.source === tableId && r.type === 'fhir_ref');
+        const allRels = [...busRels, ...f2fRels, ...fhirRels];
+
+        // Build nodes
+        const targetIds = [...new Set(allRels.map(r => r.target))];
+        const cx = width / 2, cy = height / 2;
+        const radius = Math.min(width, height) * 0.32;
+
+        const nodes = [{ id: tableId, x: cx, y: cy, table: table, isCenter: true }];
+        targetIds.forEach((tid, i) => {
+            const angle = (2 * Math.PI * i) / targetIds.length - Math.PI / 2;
+            const t = getTableById(tid);
+            nodes.push({
+                id: tid,
+                x: cx + radius * Math.cos(angle),
+                y: cy + radius * Math.sin(angle),
+                table: t || { id: tid, name: tid, type: 'dim', columns: [] },
+                isCenter: false,
+            });
+        });
+
+        // Build links from center to targets (deduplicate by target, count keys)
+        const linkMap = {};
+        allRels.forEach(r => {
+            if (!linkMap[r.target]) {
+                linkMap[r.target] = { source: tableId, target: r.target, keys: [], type: r.type };
+            }
+            linkMap[r.target].keys.push(r.key);
+        });
+
+        // Also collect dim-to-dim, hierarchy, and fhir_ref edges between visible nodes
+        const visibleIds = new Set([tableId, ...targetIds]);
+        DATA.relationships
+            .filter(r => (r.type === 'dim_to_dim' || r.type === 'hierarchy' || r.type === 'fhir_ref') &&
+                         visibleIds.has(r.source) && visibleIds.has(r.target) &&
+                         r.source !== tableId)
+            .forEach(r => {
+                const key = `${r.source}->${r.target}`;
+                if (!linkMap[key]) {
+                    linkMap[key] = { source: r.source, target: r.target, keys: [r.key], type: r.type };
+                }
+            });
+
+        const links = Object.values(linkMap);
+
+        // Draw links (source can be center fact or a dim node for dim-to-dim edges)
+        const getSourceNode = l => nodes.find(n => n.id === l.source) || nodes[0];
+        const getTargetNode = l => nodes.find(n => n.id === l.target) || nodes[0];
+
+        g.selectAll('.link-line')
+            .data(links)
+            .join('line')
+            .attr('class', 'link-line')
+            .attr('x1', l => getSourceNode(l).x)
+            .attr('y1', l => getSourceNode(l).y)
+            .attr('x2', l => getTargetNode(l).x)
+            .attr('y2', l => getTargetNode(l).y)
+            .attr('stroke', l => {
+                if (l.type === 'fact_to_fact') return typeColor('fact');
+                if (l.type === 'fhir_ref') return '#14b8a6';
+                if (l.type === 'dim_to_dim' || l.type === 'hierarchy') return typeColor('dim');
+                return typeColor('dim');
+            })
+            .attr('stroke-width', l => Math.max(1.5, l.keys.length * 0.8))
+            .attr('stroke-dasharray', l =>
+                (l.type === 'fact_to_fact' || l.type === 'dim_to_dim' || l.type === 'hierarchy') ? '6,3' : 'none'
+            )
+            .attr('opacity', 0.5);
+
+        // FK labels on links
+        g.selectAll('.fk-label')
+            .data(links)
+            .join('text')
+            .attr('class', 'fk-label')
+            .attr('x', l => (getSourceNode(l).x + getTargetNode(l).x) / 2)
+            .attr('y', l => (getSourceNode(l).y + getTargetNode(l).y) / 2 - 6)
+            .text(l => l.keys.length <= 2 ? l.keys.join(', ') : `${l.keys.length} keys`)
+            .attr('font-size', '9px')
+            .attr('fill', '#8b8fa3')
+            .attr('text-anchor', 'middle');
+
+        // Draw nodes
+        const nodeGroups = g.selectAll('.node-group')
+            .data(nodes)
+            .join('g')
+            .attr('class', 'node-group')
+            .attr('transform', n => `translate(${n.x}, ${n.y})`)
+            .attr('cursor', 'pointer')
+            .on('click', (e, n) => showDetailPanel(n.id));
+
+        // Node rects
+        nodeGroups.append('rect')
+            .attr('x', n => n.isCenter ? -90 : -70)
+            .attr('y', n => n.isCenter ? -28 : -22)
+            .attr('width', n => n.isCenter ? 180 : 140)
+            .attr('height', n => n.isCenter ? 56 : 44)
+            .attr('rx', 8)
+            .attr('fill', n => typeBg(n.table.type))
+            .attr('stroke', n => typeColor(n.table.type))
+            .attr('stroke-width', n => n.isCenter ? 2 : 1.5);
+
+        // Node labels
+        nodeGroups.append('text')
+            .attr('class', 'node-label')
+            .attr('y', n => n.isCenter ? -4 : -2)
+            .text(n => n.table.name);
+
+        // Sublabels
+        nodeGroups.append('text')
+            .attr('class', 'node-sublabel')
+            .attr('y', n => n.isCenter ? 14 : 12)
+            .text(n => {
+                const measures = n.table.columns.filter(c => c.measure).length;
+                const cols = n.table.columns.length;
+                return measures > 0 ? `${measures} measures | ${cols} cols` : `${cols} cols`;
+            });
+
+        // Make nodes draggable
+        nodeGroups.call(d3.drag()
+            .on('drag', function(event, d) {
+                d.x = event.x; d.y = event.y;
+                d3.select(this).attr('transform', `translate(${d.x}, ${d.y})`);
+                // Update links
+                g.selectAll('.link-line')
+                    .attr('x1', l => getSourceNode(l).x)
+                    .attr('y1', l => getSourceNode(l).y)
+                    .attr('x2', l => getTargetNode(l).x)
+                    .attr('y2', l => getTargetNode(l).y);
+                g.selectAll('.fk-label')
+                    .attr('x', l => (nodes.find(n => n.id === l.source).x + nodes.find(n => n.id === l.target).x) / 2)
+                    .attr('y', l => (nodes.find(n => n.id === l.source).y + nodes.find(n => n.id === l.target).y) / 2 - 6);
+            })
+        );
+
+        // Center the view
+        svg.call(zoom.transform, d3.zoomIdentity);
+    }
+
+    // ========================================================================
+    // Detail Panel
+    // ========================================================================
+    function showDetailPanel(tableId) {
+        const table = getTableById(tableId);
+        if (!table) return;
+        selectedTable = tableId;
+
+        const panel = $('detail-panel');
+        panel.classList.add('open');
+
+        let html = '<div class="detail-header">';
+        html += `<h2>${table.name}</h2>`;
+        html += `<button class="detail-close" onclick="closeDetailPanel()">\u2715</button>`;
+        html += '</div>';
+
+        html += `<span class="type-badge ${table.type}">${table.type}</span>`;
+
+        // Meta
+        html += '<dl class="detail-meta">';
+        if (table.domain && table.domain !== 'Unknown') {
+            html += `<dt>Domain</dt><dd>${table.domain}</dd>`;
+        }
+        if (table.grain) {
+            html += `<dt>Grain</dt><dd>${table.grain}</dd>`;
+        }
+        if (table.key) {
+            const keyStr = Array.isArray(table.key) ? table.key.join(', ') : table.key;
+            html += `<dt>Key</dt><dd>${keyStr}</dd>`;
+        }
+        if (table.scd) {
+            html += `<dt>SCD</dt><dd>Type ${table.scd.toString().replace('type', '')}</dd>`;
+        }
+        if (table.fhir_resource) {
+            html += `<dt>FHIR Resource</dt><dd>${table.fhir_resource}</dd>`;
+        }
+        if (table.sources && table.sources.length > 0) {
+            html += `<dt>Sources</dt><dd>${table.sources.map(s => s.name).join(', ')}</dd>`;
+        }
+        if (table.source_systems && table.source_systems.length > 0) {
+            const ssNames = table.source_systems.map(entry => typeof entry === 'object' ? Object.keys(entry)[0] : String(entry));
+            html += `<dt>Source Systems</dt><dd>${ssNames.join(', ')}</dd>`;
+        }
+        html += '</dl>';
+
+        // Description
+        if (table.description && table.description !== table.name) {
+            html += `<div class="detail-desc">${table.description}</div>`;
+        }
+
+        // Columns
+        if (table.columns.length > 0) {
+            html += '<table class="columns-table"><thead><tr><th>Column</th><th>Type</th><th>Role</th><th>Source</th><th>Expr</th><th>Description</th></tr></thead><tbody>';
+            table.columns.forEach(col => {
+                let rowClass = '';
+                let role = '';
+                if (col.measure) { rowClass = 'measure-row'; role = '<span class="col-measure">measure</span>'; }
+                else if (col.pk && col.target) { rowClass = 'pk-row'; role = `<span class="col-pk">PK</span> <span class="col-fk" onclick="showDetailPanel('${col.target}')">\u2192 ${col.target}</span>`; }
+                else if (col.pk) { rowClass = 'pk-row'; role = '<span class="col-pk">PK</span>'; }
+                else if (col.fk) { rowClass = 'fk-row'; role = `<span class="col-fk" onclick="showDetailPanel('${col.target || ''}')">${col.target ? 'FK \u2192 ' + col.target : 'FK'}</span>`; }
+
+                html += `<tr class="${rowClass}">`;
+                html += `<td>${col.name}</td>`;
+                html += `<td class="col-type">${col.type || ''}</td>`;
+                html += `<td>${role}</td>`;
+                html += `<td>${col.source || ''}</td>`;
+                html += `<td>${col.expr || ''}</td>`;
+                html += `<td>${col.description || ''}</td>`;
+                html += '</tr>';
+            });
+            html += '</tbody></table>';
+        }
+
+        // Connected tables
+        const connected = DATA.relationships
+            .filter(r => r.source === tableId || r.target === tableId)
+            .map(r => r.source === tableId ? r.target : r.source)
+            .filter((v, i, a) => a.indexOf(v) === i);
+        if (connected.length > 0) {
+            html += '<dl class="detail-meta"><dt>Connected Tables</dt><dd>';
+            html += connected.map(id => `<span class="col-fk" onclick="showDetailPanel('${id}')">${id}</span>`).join(', ');
+            html += '</dd></dl>';
+        }
+
+        panel.innerHTML = html;
+    }
+
+    function closeDetailPanel() {
+        $('detail-panel').classList.remove('open');
+        selectedTable = null;
+    }
+
+    // ========================================================================
+    // FHIR Tables List
+    // ========================================================================
+    function renderFhirList() {
+        const selectedDomain = $('filter-domain-fhir').value;
+        const search = $('search').value.toLowerCase();
+
+        const fhirTables = DATA.fhirTables.filter(t => {
+            if (!tableHasDomain(t, selectedDomain)) return false;
+            if (search) {
+                const hay = (t.name + ' ' + t.description + ' ' +
+                    t.columns.map(c => c.name).join(' ')).toLowerCase();
+                if (!hay.includes(search)) return false;
+            }
+            return true;
+        });
+
+        if (fhirTables.length === 0) {
+            $('fhir-list').innerHTML = '<p style="color:var(--text-dim);padding:20px;">No matching FHIR tables found.</p>';
+            return;
+        }
+
+        let html = `<h2 style="font-size:14px;margin-bottom:16px;">FHIR Tables (${fhirTables.length})</h2>`;
+        fhirTables.forEach(t => {
+            const ss = t.source_systems || [];
+            const sourceNames = ss.map(entry => typeof entry === 'object' ? Object.keys(entry)[0] : String(entry));
+            const source = sourceNames.join(', ');
+            html += `<div class="fhir-card" data-id="${t.id}">`;
+            html += `<div class="fhir-card-header">${t.name}`;
+            if (t.fhir_resource) html += ` <span class="fhir-resource-badge">${t.fhir_resource}</span>`;
+            html += '</div>';
+            if (t.description && t.description !== t.name) {
+                html += `<div class="fhir-card-desc">${t.description}</div>`;
+            }
+            html += `<div class="fhir-card-meta">${t.columns.length} columns`;
+            if (source) html += ` &middot; Source: ${source}`;
+            html += '</div></div>';
+        });
+
+        $('fhir-list').innerHTML = html;
+
+        // Click handlers — open entity graph for FHIR table
+        $('fhir-list').querySelectorAll('.fhir-card').forEach(card => {
+            card.addEventListener('click', () => showStarSchema(card.dataset.id));
+        });
+    }
+
+    // ========================================================================
+    // View Switching
+    // ========================================================================
+    function showMatrixView() {
+        currentView = 'matrix';
+        $('canvas').classList.remove('star-mode');
+        $('bus-matrix').style.display = '';
+        $('other-relations-wrapper').style.display = '';
+        $('fhir-list').style.display = 'none';
+        d3.select('#star-view').selectAll('*').remove();
+        $('back-btn').style.display = 'none';
+        $('tab-matrix').classList.add('active');
+        $('tab-fhir').classList.remove('active');
+        $('filter-domain-matrix').style.display = '';
+        $('filter-domain-fhir').style.display = 'none';
+        closeDetailPanel();
+        renderBusMatrix();
+        renderOtherRelations();
+    }
+
+    function showFhirView() {
+        currentView = 'fhir';
+        $('canvas').classList.remove('star-mode');
+        $('bus-matrix').style.display = 'none';
+        $('other-relations-wrapper').style.display = 'none';
+        $('fhir-list').style.display = 'block';
+        d3.select('#star-view').selectAll('*').remove();
+        $('back-btn').style.display = 'none';
+        $('tab-matrix').classList.remove('active');
+        $('tab-fhir').classList.add('active');
+        $('filter-domain-matrix').style.display = 'none';
+        $('filter-domain-fhir').style.display = '';
+        closeDetailPanel();
+        renderFhirList();
+    }
+
+    // ========================================================================
+    // Init
+    // ========================================================================
+    function init() {
+        initFilters();
+        renderBusMatrix();
+        renderOtherRelations();
+
+        // Tab buttons
+        $('tab-matrix').addEventListener('click', showMatrixView);
+        $('tab-fhir').addEventListener('click', showFhirView);
+        $('back-btn').addEventListener('click', () => starOrigin === 'fhir' ? showFhirView() : showMatrixView());
+
+        // Filter/search events
+        $('search').addEventListener('input', () => {
+            if (currentView === 'matrix') { renderBusMatrix(); renderOtherRelations(); }
+            else if (currentView === 'fhir') renderFhirList();
+        });
+        $('filter-domain-matrix').addEventListener('change', () => {
+            if (currentView === 'matrix') { renderBusMatrix(); renderOtherRelations(); }
+        });
+        $('filter-domain-fhir').addEventListener('change', () => {
+            if (currentView === 'fhir') renderFhirList();
+        });
+    }
+
+    init();
+    </script>
+</body>
+</html>

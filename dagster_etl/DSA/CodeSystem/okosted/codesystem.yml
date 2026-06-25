@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+resourceType: CodeSystem
+url: "https://regionsyd.dk/rdw/okosted"
+name: "RDWOkosted"
+description: "Omkostningssted (cost center) hierarki fra RDW/SydAX. Koderne er baseret paa Nummer1-20 vaerdier med tilhoerende Tekst1-20 som display."
+status: active
+hierarchyMeaning: is-a
+content: not-present

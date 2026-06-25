@@ -1,0 +1,19 @@
+{
+  "resourceType": "ViewDefinition",
+  "name": "location_view",
+  "resource": "Location",
+  "status": "active",
+  "select": [
+    {
+      "column": [
+        {"name": "location_id", "path": "id"},
+        {"name": "name", "path": "name"},
+        {"name": "status", "path": "status"},
+        {"name": "description", "path": "description"},
+        {"name": "type_code", "path": "type.coding.code.first()"},
+        {"name": "type_display", "path": "type.coding.display.first()"},
+        {"name": "managing_organization_id", "path": "managingOrganization.id"}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fhir
+  TableName: fhir.EpisodeOfCare
+  Domain: [FHIR]
+  Description: "FHIR EpisodeOfCare ressource — behandlingsforløb fra IFDB"
+  Grain: "Én række pr. behandlingsforløb"
+  FhirResource: EpisodeOfCare
+
+  SourceSystems:
+    - ifdb: [IFDB.EPISODE_OF_CARE]
+
+  Columns:
+    episode_of_care_id:          { Type: PK, DataType: NVARCHAR(255), FhirPath: "id", Source: [ifdb.IFDB.EPISODE_OF_CARE.OBJECT_ID] }
+    patient_id:                  { DataType: NVARCHAR(255), FhirPath: "patient.id", Source: [ifdb.IFDB.EPISODE_OF_CARE.PATIENT_ID] }
+    managing_organization_id:    { DataType: NVARCHAR(255), FhirPath: "managingOrganization.id", Source: [ifdb.IFDB.EPISODE_OF_CARE.MANAGING_ORGANIZATION_SORCODE] }
+    identifier_value:            { DataType: NVARCHAR(255), FhirPath: "identifier.where(system='urn:source:ifdb:episode_of_care_id').value", Source: [ifdb.IFDB.EPISODE_OF_CARE.OBJECT_ID] }
+    status:                      { DataType: NVARCHAR(50), FhirPath: "status", Source: [ifdb.IFDB.EPISODE_OF_CARE.STATUS] }
+    type_code:                   { DataType: NVARCHAR(255), FhirPath: "type.coding.code" }
+    type_display:                { DataType: NVARCHAR(500), FhirPath: "type.coding.display" }
+    period_start:                { DataType: NVARCHAR(50), FhirPath: "period.start", Source: [ifdb.IFDB.EPISODE_OF_CARE.PERIOD_START] }
+    period_end:                  { DataType: NVARCHAR(50), FhirPath: "period.end", Source: [ifdb.IFDB.EPISODE_OF_CARE.PERIOD_END] }
+    previous_episode_of_care_id: { DataType: NVARCHAR(255), FhirPath: "extension.where(url='...previousEpisodeOfCare').valueReference.id", Source: [ifdb.IFDB.EPISODE_OF_CARE.PREVIOUS_EOC_ID] }
+    previous_eoc_ref_type_code:  { DataType: NVARCHAR(255), FhirPath: "extension.where(url='urn:source:ifdb:previous_eoc_ref_type_code').valueString", Source: [ifdb.IFDB.EPISODE_OF_CARE.PREVIOUS_EOC_REF_TYPE_CODE] }
+    healthissue_id:              { DataType: NVARCHAR(255), FhirPath: "extension.where(url='urn:source:ifdb:healthissue_id').valueString", Source: [ifdb.IFDB.EPISODE_OF_CARE.HEALTHISSUE_ID] }
+    discharge_disposition_code:  { DataType: NVARCHAR(255), FhirPath: "extension.where(url='urn:source:ifdb:discharge_disposition_code').valueString", Source: [ifdb.IFDB.EPISODE_OF_CARE.DISCHARGE_DISPOSITION_CODE] }
+    last_updated:                { DataType: DATETIME2, FhirPath: "r.ts" }
+    created_at:                  { DataType: DATETIME2, FhirPath: "r.cts" }

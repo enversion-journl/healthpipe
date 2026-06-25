@@ -1,0 +1,14 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+resourceType: CodeSystem
+url: "urn:oid:1.2.208.176.2.4"
+name: "SKS"
+description: "Sundhedsvaesenets Klassifikationssystem (SKS). Komplet kodesaet fra Sundhedsdatastyrelsen (SKScomplete) paa tvaers af alle klassifikationer (adm, atc, dia, opr, pro, res, spc, til, und, uly). Koder er unikke uden klassifikationsprefix; klassifikation(er) og inaktiv-status ligger som concept properties. Kun nyeste version per kode (ingen historik)."
+status: active
+hierarchyMeaning: is-a
+publisher: Sundhedsdatastyrelsen
+content: not-present

@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+"""Questionnaire-facing imports for the shared SFI contract."""
+
+from __future__ import annotations
+
+from DSA.FHIR.utils.ifdb.sfi_contract import SFI_SYSTEM, generate_sfi_code
+
+__all__ = ["SFI_SYSTEM", "generate_sfi_code"]

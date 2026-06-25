@@ -1,0 +1,746 @@
+{
+    "AFDELING": {
+        "table_name": "AFDELING",
+        "primary_keys": [
+            {
+                "constraint_name": "PK_AFDELING",
+                "columns": [
+                    "AFDELINGOID"
+                ]
+            }
+        ],
+        "foreign_keys": [
+            {
+                "column": "BRUGEROID",
+                "references_table": "BRUGER",
+                "has_values": true,
+                "cardinality": "OK (1/49844)",
+                "spot_check_match_pct": 0.0
+            }
+        ]
+    },
+    "AFTALE": {
+        "table_name": "AFTALE",
+        "primary_keys": [
+            {
+                "constraint_name": "PK_AFTALE",
+                "columns": [
+                    "OID"
+                ]
+            }
+        ],
+        "foreign_keys": [
+            {
+                "column": "AFVIKLINGSSTATUSOID",
+                "references_table": "AFVIKLINGSSTATUS",
+                "has_values": true,
+                "cardinality": "OK (519/67730)",
+                "spot_check_match_pct": 13.33
+            },
+            {
+                "column": "OPGAVEOID",
+                "references_table": "OPGAVE",
+                "has_values": true,
+                "cardinality": "OK (355/106826)",
+                "spot_check_match_pct": 26.67
+            },
+            {
+                "column": "PATIENTINFOOID",
+                "references_table": "PATIENTINFO",
+                "has_values": true,
+                "cardinality": "OK (33227/1207059)",
+                "spot_check_match_pct": 100.0
+            }
+        ]
+    },
+    "AFTALEBOOKINGHISTORIK": {
+        "table_name": "AFTALEBOOKINGHISTORIK",
+        "primary_keys": [
+            {
+                "constraint_name": "PK_AFTALEBOOKINGHISTORIK",
+                "columns": [
+                    "OID"
+                ]
+            }
+        ],
+        "foreign_keys": [
+            {
+                "column": "AFTALEOID",
+                "references_table": "AFTALE",
+                "has_values": true,
+                "cardinality": "OK (49575/25421616)",
+                "spot_check_match_pct": 100.0
+            }
+        ]
+    },
+    "AFTALEFORLOEB_AFTALE": {
+        "table_name": "AFTALEFORLOEB_AFTALE",
+        "primary_keys": [
+            {
+                "constraint_name": "PK_AFTALEFORLOEB_AFTALE",
+                "columns": [
+                    "OID"
+                ]
+            }
+        ],
+        "foreign_keys": [
+            {
+                "column": "AFTALEFORLOEBOID",
+                "references_table": "AFTALEFORLOEB",
+                "has_values": true,
+                "cardinality": "OK (23088/791461)",
+                "spot_check_match_pct": 100.0
+            },
+            {
+                "column": "AFTALEOID",
+                "references_table": "AFTALE",
+                "has_values": true,
+                "cardinality": "OK (23383/25421616)",
+                "spot_check_match_pct": 100.0
+            }
+        ]
+    },
+    "AFTALERESSOURCEDELTAGER": {
+        "table_name": "AFTALERESSOURCEDELTAGER",
+        "primary_keys": [
+            {
+                "constraint_name": "PK_AFTALERESSOURCEDELTAGER",
+                "columns": [
+                    "OID"
+                ]
+            }
+        ],
+        "foreign_keys": [
+            {
+                "column": "AFTALEOID",
+                "references_table": "AFTALE",
+                "has_values": true,
+                "cardinality": "OK (49941/25421616)",
+                "spot_check_match_pct": 100.0
+            }
+        ]
+    },
+    "AFTALERESSOURCEDELTAGER_H": {
+        "table_name": "AFTALERESSOURCEDELTAGER_H",
+        "primary_keys": [],
+        "foreign_keys": [
+            {
+                "column": "AFTALEOID",
+                "references_table": "AFTALE",
+                "has_values": true,
+                "cardinality": "OK (49924/25421616)",
+                "spot_check_match_pct": 100.0
+            }
+        ]
+    },
+    "AFTALE_H": {
+        "table_name": "AFTALE_H",
+        "primary_keys": [],
+        "foreign_keys": [
+            {
+                "column": "AFVIKLINGSSTATUSOID",
+                "references_table": "AFVIKLINGSSTATUS",
+                "has_values": true,
+                "cardinality": "OK (2389/67730)",
+                "spot_check_match_pct": 83.33
+            },
+            {
+                "column": "OPGAVEOID",
+                "references_table": "OPGAVE",
+                "has_values": true,
+                "cardinality": "OK (11514/106826)",
+                "spot_check_match_pct": 83.33
+            },
+            {
+                "column": "PATIENTINFOOID",
+                "references_table": "PATIENTINFO",
+                "has_values": true,
+                "cardinality": "OK (45383/1207059)",
+                "spot_check_match_pct": 100.0
+            }
+        ]
+    },
+    "AFVIKLINGSSTATUS": {
+        "table_name": "AFVIKLINGSSTATUS",
+        "primary_keys": [
+            {
+                "constraint_name": "PK_AFVIKLINGSSTATUS",
+                "columns": [
+                    "OID"
+                ]
+            }
+        ],
+        "foreign_keys": [
+            {
+                "column": "OPGAVETYPEOID",
+                "references_table": "OPGAVETYPE",
+                "has_values": true,
+                "cardinality": "OK (643/4709)",
+                "spot_check_match_pct": 100.0
+            }
+        ]
+    },
+    "AKUTDATASTATUS": {
+        "table_name": "AKUTDATASTATUS",
+        "primary_keys": [],
+        "foreign_keys": [
+            {
+                "column": "AFDELINGOID",
+                "references_table": "AFDELING",
+                "has_values": true,
+                "cardinality": "OK (19/189)",
+                "spot_check_match_pct": 100.0
+            },
+            {
+                "column": "BRUGEROID",
+                "references_table": "BRUGER",
+                "has_values": true,
+                "cardinality": "OK (15/49844)",
+                "spot_check_match_pct": 60.0
+            }
+        ]
+    },
+    "BP30615_AFTALEHISTORIK_BACKUP": {
+        "table_name": "BP30615_AFTALEHISTORIK_BACKUP",
+        "primary_keys": [],
+        "foreign_keys": [
+            {
+                "column": "AFTALEOID",
+                "references_table": "AFTALE",
+                "has_values": true,
+                "cardinality": "OK (49511/25421616)",
+                "spot_check_match_pct": 100.0
+            },
+            {
+                "column": "BRUGEROID",
+                "references_table": "BRUGER",
+                "has_values": true,
+                "cardinality": "OK (5639/49844)",
+                "spot_check_match_pct": 63.33
+            },
+            {
+                "column": "KODEKLASSIFIKATIONOID",
+                "references_table": "KODEKLASSIFIKATION",
+                "has_values": true,
+                "cardinality": "OK (22/6466)",
+                "spot_check_match_pct": 53.33
+            }
+        ]
+    },
+    "BP30615_AFTALERESKRAVHISTORIK_BACKUP": {
+        "table_name": "BP30615_AFTALERESKRAVHISTORIK_BACKUP",
+        "primary_keys": [],
+        "foreign_keys": [
+            {
+                "column": "AFTALEHISTORIKOID",
+                "references_table": "BP30615_AFTALEHISTORIK_BACKUP",
+                "has_values": true,
+                "cardinality": "OK (49889/41692608)",
+                "spot_check_match_pct": 100.0
+            },
+            {
+                "column": "AFTALEOID",
+                "references_table": "AFTALE",
+                "has_values": true,
+                "cardinality": "OK (49066/25421616)",
+                "spot_check_match_pct": 100.0
+            },
+            {
+                "column": "KVALIFIKATIONOID",
+                "references_table": "KVALIFIKATION",
+                "has_values": true,
+                "cardinality": "OK (61/11096)",
+                "spot_check_match_pct": 13.33
+            },
+            {
+                "column": "PLANAKTIVITETOID",
+                "references_table": "PLANAKTIVITET",
+                "has_values": true,
+                "cardinality": "OK (76/24298)",
+                "spot_check_match_pct": 13.33
+            },
+            {
+                "column": "RESSOURCEGRUPPEOID",
+                "references_table": "RESSOURCEGRUPPE",
+                "has_values": true,
+                "cardinality": "OK (27/2258)",
+                "spot_check_match_pct": 6.67
+            }
+        ]
+    },
+    "BP30615_AFTALERESTRAEKHISTORIK_BACKUP": {
+        "table_name": "BP30615_AFTALERESTRAEKHISTORIK_BACKUP",
+        "primary_keys": [],
+        "foreign_keys": [
+            {
+                "column": "AFDELINGOID",
+                "references_table": "AFDELING",
+                "has_values": true,
+                "cardinality": "OK (15/189)",
+                "spot_check_match_pct": 6.67
+            },
+            {
+                "column": "AFTALEHISTORIKOID",
+                "references_table": "BP30615_AFTALEHISTORIK_BACKUP",
+                "has_values": true,
+                "cardinality": "OK (49928/41692608)",
+                "spot_check_match_pct": 100.0
+            },
+            {
+                "column": "KVALIFIKATIONOID",
+                "references_table": "KVALIFIKATION",
+                "has_values": true,
+                "cardinality": "OK (55/11096)",
+                "spot_check_match_pct": 10.0
+            },
+            {
+                "column": "PLANAKTIVITETOID",
+                "references_table": "PLANAKTIVITET",
+                "has_values": true,
+                "cardinality": "OK (65/24298)",
+                "spot_check_match_pct": 13.33
+            },
+            {
+                "column": "RESSOURCEGRUPPEOID",
+                "references_table": "RESSOURCEGRUPPE",
+                "has_values": true,
+                "cardinality": "OK (21/2258)",
+                "spot_check_match_pct": 3.33
+            },
+            {
+                "column": "RESSOURCEOID",
+                "references_table": "RESSOURCE",
+                "has_values": true,
+                "cardinality": "OK (165/21809)",
+                "spot_check_match_pct": 86.67
+            }
+        ]
+    },
+    "BP30615_AFTALESTATUSHISTORIK_BACKUP": {
+        "table_name": "BP30615_AFTALESTATUSHISTORIK_BACKUP",
+        "primary_keys": [],
+        "foreign_keys": [
+            {
+                "column": "AFTALEOID",
+                "references_table": "AFTALE",
+                "has_values": true,
+                "cardinality": "OK (49133/25421616)",
+                "spot_check_match_pct": 100.0
+            },
+            {
+                "column": "BRUGEROID",
+                "references_table": "BRUGER",
+                "has_values": true,
+                "cardinality": "OK (6661/49844)",
+                "spot_check_match_pct": 93.33
+            }
+        ]
+    },
+    "KALDELOKALITET": {
+        "table_name": "KALDELOKALITET",
+        "primary_keys": [],
+        "foreign_keys": [
+            {
+                "column": "AFDELINGOID",
+                "references_table": "AFDELING",
+                "has_values": true,
+                "cardinality": "OK (4/189)",
+                "spot_check_match_pct": 50.0
+            }
+        ]
+    },
+    "KLKONFLISTE": {
+        "table_name": "KLKONFLISTE",
+        "primary_keys": [],
+        "foreign_keys": [
+            {
+                "column": "AFDELINGOID",
+                "references_table": "AFDELING",
+                "has_values": true,
+                "cardinality": "OK (93/189)",
+                "spot_check_match_pct": 76.67
+            },
+            {
+                "column": "BRUGEROID",
+                "references_table": "BRUGER",
+                "has_values": true,
+                "cardinality": "OK (1/49844)",
+                "spot_check_match_pct": 0.0
+            },
+            {
+                "column": "KVALIFIKATIONOID",
+                "references_table": "KVALIFIKATION",
+                "has_values": true,
+                "cardinality": "OK (46/11096)",
+                "spot_check_match_pct": 26.67
+            },
+            {
+                "column": "OPGAVEKATEGORIOID",
+                "references_table": "OPGAVEKATEGORI",
+                "has_values": true,
+                "cardinality": "OK (2/5503)",
+                "spot_check_match_pct": 0.0
+            },
+            {
+                "column": "OPGAVEOID",
+                "references_table": "OPGAVE",
+                "has_values": true,
+                "cardinality": "OK (2/106826)",
+                "spot_check_match_pct": 0.0
+            },
+            {
+                "column": "PLANAKTIVITETOID",
+                "references_table": "PLANAKTIVITET",
+                "has_values": true,
+                "cardinality": "OK (1/24298)",
+                "spot_check_match_pct": 0.0
+            },
+            {
+                "column": "RESSOURCEGRUPPEOID",
+                "references_table": "RESSOURCEGRUPPE",
+                "has_values": true,
+                "cardinality": "OK (123/2258)",
+                "spot_check_match_pct": 53.33
+            },
+            {
+                "column": "RESSOURCEOID",
+                "references_table": "RESSOURCE",
+                "has_values": true,
+                "cardinality": "OK (188/21809)",
+                "spot_check_match_pct": 33.33
+            }
+        ]
+    },
+    "KVALIFIKATION": {
+        "table_name": "KVALIFIKATION",
+        "primary_keys": [],
+        "foreign_keys": [
+            {
+                "column": "RESSOURCEGRUPPEOID",
+                "references_table": "RESSOURCEGRUPPE",
+                "has_values": true,
+                "cardinality": "OK (92/2258)",
+                "spot_check_match_pct": 93.33
+            }
+        ]
+    },
+    "OPGAVE": {
+        "table_name": "OPGAVE",
+        "primary_keys": [
+            {
+                "constraint_name": "PK_OPGAVE",
+                "columns": [
+                    "OPGAVEOID"
+                ]
+            }
+        ],
+        "foreign_keys": [
+            {
+                "column": "AFDELINGOID",
+                "references_table": "AFDELING",
+                "has_values": true,
+                "cardinality": "OK (121/189)",
+                "spot_check_match_pct": 70.0
+            },
+            {
+                "column": "BRUGEROID",
+                "references_table": "BRUGER",
+                "has_values": true,
+                "cardinality": "OK (1/49844)",
+                "spot_check_match_pct": 0.0
+            },
+            {
+                "column": "OPGAVETYPEOID",
+                "references_table": "OPGAVETYPE",
+                "has_values": true,
+                "cardinality": "OK (734/4709)",
+                "spot_check_match_pct": 100.0
+            }
+        ]
+    },
+    "OPGAVEKODER": {
+        "table_name": "OPGAVEKODER",
+        "primary_keys": [
+            {
+                "constraint_name": "OPGAVEKODER_PK",
+                "columns": [
+                    "OPGAVEKODEROID"
+                ]
+            }
+        ],
+        "foreign_keys": [
+            {
+                "column": "KODEKLASSIFIKATIONOID",
+                "references_table": "KODEKLASSIFIKATION",
+                "has_values": true,
+                "cardinality": "OK (989/6466)",
+                "spot_check_match_pct": 83.33
+            },
+            {
+                "column": "OPGAVEOID",
+                "references_table": "OPGAVE",
+                "has_values": true,
+                "cardinality": "OK (4932/106826)",
+                "spot_check_match_pct": 100.0
+            }
+        ]
+    },
+    "OPGAVETYPE": {
+        "table_name": "OPGAVETYPE",
+        "primary_keys": [
+            {
+                "constraint_name": "PK_OPGAVETYPE",
+                "columns": [
+                    "OPGAVETYPEOID"
+                ]
+            }
+        ],
+        "foreign_keys": [
+            {
+                "column": "AFDELINGOID",
+                "references_table": "AFDELING",
+                "has_values": true,
+                "cardinality": "OK (37/189)",
+                "spot_check_match_pct": 90.0
+            }
+        ]
+    },
+    "ORGENHED": {
+        "table_name": "ORGENHED",
+        "primary_keys": [
+            {
+                "constraint_name": "PK_ORGENHED",
+                "columns": [
+                    "OID"
+                ]
+            }
+        ],
+        "foreign_keys": [
+            {
+                "column": "SORENHEDOID",
+                "references_table": "SORENHED",
+                "has_values": true,
+                "cardinality": "OK (20/162852)",
+                "spot_check_match_pct": 100.0
+            }
+        ]
+    },
+    "PATIENTINFO": {
+        "table_name": "PATIENTINFO",
+        "primary_keys": [],
+        "foreign_keys": [
+            {
+                "column": "BRUGEROID",
+                "references_table": "BRUGER",
+                "has_values": true,
+                "cardinality": "OK (1025/49844)",
+                "spot_check_match_pct": 13.33
+            }
+        ]
+    },
+    "PLANAKTIVITET": {
+        "table_name": "PLANAKTIVITET",
+        "primary_keys": [],
+        "foreign_keys": [
+            {
+                "column": "RESSOURCEGRUPPEOID",
+                "references_table": "RESSOURCEGRUPPE",
+                "has_values": true,
+                "cardinality": "OK (188/2258)",
+                "spot_check_match_pct": 100.0
+            }
+        ]
+    },
+    "PLANSLOT": {
+        "table_name": "PLANSLOT",
+        "primary_keys": [],
+        "foreign_keys": [
+            {
+                "column": "PLANAKTIVITETOID",
+                "references_table": "PLANAKTIVITET",
+                "has_values": true,
+                "cardinality": "OK (1306/24298)",
+                "spot_check_match_pct": 46.67
+            },
+            {
+                "column": "RESSOURCEGRUPPEOID",
+                "references_table": "RESSOURCEGRUPPE",
+                "has_values": true,
+                "cardinality": "OK (159/2258)",
+                "spot_check_match_pct": 3.33
+            },
+            {
+                "column": "RESSOURCEOID",
+                "references_table": "RESSOURCE",
+                "has_values": true,
+                "cardinality": "OK (1794/21809)",
+                "spot_check_match_pct": 73.33
+            }
+        ]
+    },
+    "PRIORITET": {
+        "table_name": "PRIORITET",
+        "primary_keys": [],
+        "foreign_keys": [
+            {
+                "column": "AFDELINGOID",
+                "references_table": "AFDELING",
+                "has_values": true,
+                "cardinality": "OK (14/189)",
+                "spot_check_match_pct": 83.33
+            }
+        ]
+    },
+    "QUEUE_AFTALE": {
+        "table_name": "QUEUE_AFTALE",
+        "primary_keys": [],
+        "foreign_keys": [
+            {
+                "column": "AFTALEOID",
+                "references_table": "AFTALE",
+                "has_values": true,
+                "cardinality": "OK (33148/25421616)",
+                "spot_check_match_pct": 100.0
+            },
+            {
+                "column": "KALDELOKALITETOID",
+                "references_table": "KALDELOKALITET",
+                "has_values": true,
+                "cardinality": "OK (349/896)",
+                "spot_check_match_pct": 80.0
+            }
+        ]
+    },
+    "QUEUE_OPGAVE": {
+        "table_name": "QUEUE_OPGAVE",
+        "primary_keys": [],
+        "foreign_keys": [
+            {
+                "column": "KALDELOKALITETOID",
+                "references_table": "KALDELOKALITET",
+                "has_values": true,
+                "cardinality": "OK (99/896)",
+                "spot_check_match_pct": 76.67
+            },
+            {
+                "column": "OPGAVEOID",
+                "references_table": "OPGAVE",
+                "has_values": true,
+                "cardinality": "OK (715/106826)",
+                "spot_check_match_pct": 33.33
+            },
+            {
+                "column": "PATIENTINFOOID",
+                "references_table": "PATIENTINFO",
+                "has_values": true,
+                "cardinality": "OK (15477/1207059)",
+                "spot_check_match_pct": 100.0
+            }
+        ]
+    },
+    "RESSOURCE": {
+        "table_name": "RESSOURCE",
+        "primary_keys": [],
+        "foreign_keys": [
+            {
+                "column": "RESSOURCEGRUPPEOID",
+                "references_table": "RESSOURCEGRUPPE",
+                "has_values": true,
+                "cardinality": "OK (156/2258)",
+                "spot_check_match_pct": 96.67
+            }
+        ]
+    },
+    "RESSOURCEGRUPPE": {
+        "table_name": "RESSOURCEGRUPPE",
+        "primary_keys": [],
+        "foreign_keys": [
+            {
+                "column": "AFDELINGOID",
+                "references_table": "AFDELING",
+                "has_values": true,
+                "cardinality": "OK (22/189)",
+                "spot_check_match_pct": 96.67
+            }
+        ]
+    },
+    "RESSOURCEGRUPPEPERSONALEROLLE": {
+        "table_name": "RESSOURCEGRUPPEPERSONALEROLLE",
+        "primary_keys": [],
+        "foreign_keys": [
+            {
+                "column": "AFDELINGOID",
+                "references_table": "AFDELING",
+                "has_values": true,
+                "cardinality": "OK (7/189)",
+                "spot_check_match_pct": 36.67
+            },
+            {
+                "column": "RESSOURCEGRUPPEOID",
+                "references_table": "RESSOURCEGRUPPE",
+                "has_values": true,
+                "cardinality": "OK (20/2258)",
+                "spot_check_match_pct": 100.0
+            }
+        ]
+    },
+    "RESSOURCEKVALIFIKATION": {
+        "table_name": "RESSOURCEKVALIFIKATION",
+        "primary_keys": [],
+        "foreign_keys": [
+            {
+                "column": "KVALIFIKATIONOID",
+                "references_table": "KVALIFIKATION",
+                "has_values": true,
+                "cardinality": "OK (537/11096)",
+                "spot_check_match_pct": 100.0
+            },
+            {
+                "column": "RESSOURCEOID",
+                "references_table": "RESSOURCE",
+                "has_values": true,
+                "cardinality": "OK (588/21809)",
+                "spot_check_match_pct": 100.0
+            }
+        ]
+    },
+    "RSD_REKVISITION": {
+        "table_name": "RSD_REKVISITION",
+        "primary_keys": [],
+        "foreign_keys": [
+            {
+                "column": "AFTALEOID",
+                "references_table": "AFTALE",
+                "has_values": true,
+                "cardinality": "OK (18661/25421616)",
+                "spot_check_match_pct": 100.0
+            }
+        ]
+    },
+    "STED": {
+        "table_name": "STED",
+        "primary_keys": [],
+        "foreign_keys": [
+            {
+                "column": "STEDOID",
+                "references_table": "STED",
+                "has_values": true,
+                "cardinality": "OK (15/2244)",
+                "spot_check_match_pct": 86.67
+            }
+        ]
+    },
+    "UDSKREVETBREV": {
+        "table_name": "UDSKREVETBREV",
+        "primary_keys": [],
+        "foreign_keys": [
+            {
+                "column": "AFTALEOID",
+                "references_table": "AFTALE",
+                "has_values": true,
+                "cardinality": "OK (49814/25421616)",
+                "spot_check_match_pct": 100.0
+            }
+        ]
+    }
+}

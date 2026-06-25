@@ -1,0 +1,19 @@
+source_code,source_display,target_code,target_display,relationship,note
+RSD,Region Syddanmark,6101000016001,Region Syddanmark,equal,Niveau 0 Root
+SHD,Somatik/Sygesikring,343501000016005,Service og Administrative Funktioner - Hospital,equal,Niveau 1
+RED,Fælles formål og administration,339461000016008,Service og administrative funktioner,equal,Niveau 1
+RUD,Regional Udvikling,461881000016000,Regional Udvikling,equal,Niveau 1
+PSD,Psykiatri,1442421000016002,Psykiatri,equal,Niveau 1
+SOD,Social og specialundervisning,372211000016002,Det Sociale Område,equal,Niveau 1
+SHD.SHS,Sygehus Sønderjylland,8051000016002,Sygehus Sønderjylland,equal,Niveau 2
+SHD.OUH,Odense Universitetshospital,8071000016009,Odense Universitetshospital - Svendborg,equal,Niveau 2
+SHD.SVS,Sydvestjysk Sygehus,8041000016000,Region Esbjerg Sygehus Grindsted Sygehus,equal,Niveau 2
+SHD.SLB,Sygehus Lillebælt,8061000016004,Sygehus Lillebælt,equal,Niveau 2
+SHD.FRI,Friklinikken,925651000016000,Friklinikken RSD,equivalent,Niveau 2
+RED.SSI,Syddansk Sundhedsinnovation,646491000016003,Syddansk Sundhedsinnovation,equal,Niveau 2
+RED.ØKO,Økonomi,602791000016001,Økonomi,equal,Niveau 2
+RED.RIT,Regional IT,519181000016000,Regional IT,equal,Niveau 2
+RED.HUR,HR,461481000016003,HR,equal,Niveau 2
+RED.DIR,Direktionen,642851000016005,RSD Direktionen,equivalent,Niveau 2
+RUD.REG,Regional Udvikling,461881000016000,Regional Udvikling,equal,Niveau 2
+PSD.PSY,Psykiatrien i Region Syddanmark,8081000016006,Psykiatrien Region Syddanmark,equal,Niveau 2

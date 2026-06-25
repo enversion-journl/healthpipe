@@ -1,0 +1,16 @@
+extension_url,resource_type,status,rationale
+http://regionsyddanmark.dk/fhir/StructureDefinition/aktivitetsresultatRootMeta,Observation,disallowed,Redundant with SFI per-element model; root-level XML metadata not needed on individual Observations
+http://regionsyddanmark.dk/fhir/StructureDefinition/aktivitetsresultatKontekst,Observation,disallowed,Kontekst fields (oprettet/aendret/besluttet) are captured via sfiInstanceMeta on QR items
+http://regionsyddanmark.dk/fhir/StructureDefinition/aktivitetsresultatSourceMeta,Observation,disallowed,Source metadata captured via dedicated SFI columns (element_code etc.) not extensions
+http://regionsyddanmark.dk/fhir/StructureDefinition/aktivitetsudfoerelseMetadata,Observation,disallowed,Administrative metadata redundant in SFI per-element Observations
+http://regionsyddanmark.dk/fhir/StructureDefinition/aktivitetsudfoerelseSpeciale,Observation,disallowed,Speciale hierarchy redundant when routing table provides category
+http://regionsyddanmark.dk/fhir/StructureDefinition/aktivitettypeKodeHierarki,Observation,disallowed,Hierarchy levels replaced by SFI CodeSystem properties
+http://regionsyddanmark.dk/fhir/StructureDefinition/aktivitetsresultatHierarki,Observation,disallowed,XML hierarchy replaced by structured SFI element paths
+http://regionsyddanmark.dk/fhir/StructureDefinition/aktivitetsresultatElementMeta,Observation,disallowed,Element metadata captured via dedicated SFI columns
+http://regionsyddanmark.dk/fhir/StructureDefinition/aktivitetsresultatRowType,Observation,disallowed,Row type captured via SFI routing table not extensions
+urn:fhir:isDeleted,Observation,allowed,Soft-delete flag required for FHIR resource lifecycle
+http://regionsyddanmark.dk/fhir/StructureDefinition/episodeOfCare,Observation,allowed,Clinical episode linkage required for context
+http://regionsyddanmark.dk/fhir/StructureDefinition/sfiInstanceMeta,Observation,allowed,Per-registration instance metadata for SFI elements
+http://regionsyddanmark.dk/fhir/StructureDefinition/sfiInstanceMeta,QuestionnaireResponse,allowed,Per-registration instance metadata for QR items
+urn:fhir:isDeleted,QuestionnaireResponse,allowed,Soft-delete flag required for FHIR resource lifecycle
+http://regionsyddanmark.dk/fhir/StructureDefinition/episodeOfCare,QuestionnaireResponse,allowed,Clinical episode linkage required for context

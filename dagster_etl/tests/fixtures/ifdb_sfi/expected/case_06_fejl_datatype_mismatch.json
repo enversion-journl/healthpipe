@@ -1,0 +1,41 @@
+{
+  "case_id": "case_06_fejl_datatype_mismatch",
+  "description": "MaalingRespFrekvens normally produces an integer Observation. Here Vaerdi='ikke maalbar' is unparseable as integer. Datatype mismatch must fail at row-level, not batch-level, and be logged with aktivitet id, element id, SFI-code and raw value.",
+  "xml_fixture": "case_06_fejl_datatype_mismatch.xml",
+  "input": {
+    "aktivitets_id": 1006,
+    "patient_id": "TEST-PAT-0006",
+    "encounter_id": "TEST-ENC-0006",
+    "aktivitetstype_kode": "MaalingRespFrekvens",
+    "modelleringsnavn": "MaalingRespFrekvens",
+    "modelleringsversion": "2026-05-01",
+    "besluttet_tidspunkt": "2026-05-01T16:43:00"
+  },
+  "routing": {
+    "target_resource": "Observation",
+    "rationale": "Aktivitetstype MaalingRespFrekvens er positive listed til Observation."
+  },
+  "expected_procedure_output": {
+    "must_exist": false,
+    "count": 0
+  },
+  "expected_failure": {
+    "level": "row",
+    "must_not_fail_batch": true,
+    "expected_log_fields": [
+      "aktivitets_id",
+      "element_id",
+      "sfi_code",
+      "raw_value",
+      "expected_datatype"
+    ],
+    "expected_message_substring": "datatype_mismatch"
+  },
+  "expected_observations": [],
+  "expected_questionnaire_response": null,
+  "expected_sfi_datapoint_rows": 0,
+  "notes": [
+    "Ingen Observation maa udsendes for denne raekke. Naboraekker i samme batch skal stadig producere output.",
+    "Observation-builderen skal fejle stoette pr. aktivitetsresultat; SFI_datapoint maa ikke faa partial rows."
+  ]
+}

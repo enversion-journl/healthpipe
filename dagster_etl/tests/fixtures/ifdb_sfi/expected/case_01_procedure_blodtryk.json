@@ -1,0 +1,59 @@
+{
+  "case_id": "case_01_procedure_blodtryk",
+  "description": "AKTIVITETSRESULTAT with an SKS procedure aktivitetstype kode AND two blood pressure XML elements. Procedure-output must be preserved; XML elements are routed to Observation per SFI-element.",
+  "xml_fixture": "case_01_procedure_blodtryk.xml",
+  "input": {
+    "aktivitets_id": 1001,
+    "patient_id": "TEST-PAT-0001",
+    "encounter_id": "TEST-ENC-0001",
+    "aktivitetstype_kode": "SKS.a.proKABC10",
+    "modelleringsnavn": "MaalingBlodtrykSKS2",
+    "modelleringsversion": "2026-05-01",
+    "besluttet_tidspunkt": "2026-05-01T15:06:00"
+  },
+  "routing": {
+    "target_resource": "Observation",
+    "rationale": "Maaling-aktivitetstype routes to Observation. Procedure-output is a parallel emission triggered by is_sks_procedure_code, not by routing."
+  },
+  "expected_procedure_output": {
+    "must_exist": true,
+    "count": 1,
+    "code_value": "SKS.a.proKABC10",
+    "note": "Bevares som separat spor uafhaengigt af SFI-routing."
+  },
+  "expected_observations": [
+    {
+      "identifier_value": "ifdb-aktivitetsresultat/1001/sfi/1",
+      "code": {
+        "system": "urn:dk:ifdb:sfi",
+        "code": "KPPASResults:edTillaegskodeHeltal",
+        "display": "Systolisk"
+      },
+      "value_type": "integer",
+      "value_int": 116,
+      "ifdb_aktivitet_id": 1001
+    },
+    {
+      "identifier_value": "ifdb-aktivitetsresultat/1001/sfi/2",
+      "code": {
+        "system": "urn:dk:ifdb:sfi",
+        "code": "KPPASResults:edTillaegskodeHeltalOptionel",
+        "display": "Diastolisk"
+      },
+      "value_type": "integer",
+      "value_int": 62,
+      "ifdb_aktivitet_id": 1001
+    }
+  ],
+  "expected_questionnaire_response": null,
+  "expected_sfi_datapoint_rows": 2,
+  "expected_sfi_datapoint_grouping_key": "ifdb_aktivitet_id=1001 must yield exactly 2 rows in fhir.SFI_datapoint",
+  "expected_disallowed_extensions": [
+    "ifdb-sfi-code-as-extension",
+    "ifdb-clinical-value-as-string"
+  ],
+  "notes": [
+    "Procedure-output MUST remain. The SFI Observation path may NOT remove the is_sks_procedure_code emission.",
+    "All Observations must share ifdb_aktivitet_id=1001 so consumers can rejoin to the original XML."
+  ]
+}

@@ -1,0 +1,27 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fhir
+  TableName: fhir.Location
+  Domain: [FHIR]
+  Description: "FHIR Location ressource — fysiske lokationer fra IFDB"
+  Grain: "Én række pr. fysisk lokation"
+  FhirResource: Location
+
+  SourceSystems:
+    - ifdb: [IFDB.LOCATION]
+
+  Columns:
+    location_id:               { Type: PK, DataType: NVARCHAR(255), FhirPath: "id", Source: [ifdb.IFDB.LOCATION.LOCATION_CODE] }
+    name:                      { DataType: NVARCHAR(500), FhirPath: "name", Source: [ifdb.IFDB.LOCATION.LOCATION_NAME] }
+    status:                    { DataType: NVARCHAR(50), FhirPath: "status" }
+    description:               { DataType: NVARCHAR(MAX), FhirPath: "description" }
+    type_code:                 { DataType: NVARCHAR(255), FhirPath: "type.coding.code" }
+    type_display:              { DataType: NVARCHAR(500), FhirPath: "type.coding.display" }
+    managing_organization_id:  { DataType: NVARCHAR(255), FhirPath: "managingOrganization.id", Source: [ifdb.IFDB.LOCATION.LOCATION_SORCODE] }
+    last_updated:              { DataType: DATETIME2, FhirPath: "r.ts" }
+    created_at:                { DataType: DATETIME2, FhirPath: "r.cts" }

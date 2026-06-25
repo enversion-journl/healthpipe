@@ -1,0 +1,29 @@
+{
+  "resourceType": "ViewDefinition",
+  "name": "procedure_view",
+  "resource": "Procedure",
+  "status": "active",
+  "select": [
+    {
+      "column": [
+        {"name": "procedure_id", "path": "id"},
+        {"name": "patient_id", "path": "subject.id"},
+        {"name": "encounter_id", "path": "encounter.id.first()"},
+        {"name": "episode_of_care_id", "path": "extension.where(url='http://regionsyddanmark.dk/fhir/StructureDefinition/episodeOfCare').valueReference.id.first()"},
+        {"name": "status", "path": "status"},
+        {"name": "category_code", "path": "category.coding.code.first()"},
+        {"name": "category_display", "path": "category.coding.display.first()"},
+        {"name": "code", "path": "code.coding.code.first()"},
+        {"name": "code_system", "path": "code.coding.system.first()"},
+        {"name": "code_display", "path": "code.coding.display.first()"},
+        {"name": "performed_datetime", "path": "performedDateTime"},
+        {"name": "performed_period_start", "path": "performedPeriod.start"},
+        {"name": "performed_period_end", "path": "performedPeriod.end"},
+        {"name": "body_site_code", "path": "bodySite.coding.code.first()"},
+        {"name": "body_site_display", "path": "bodySite.first().text"},
+        {"name": "source_system", "path": "identifier.system.first()"},
+        {"name": "ifdb_aktivitet_id", "path": "identifier.where(system='urn:source:ifdb:aktivitetsresultat_procedure').value.first()"}
+      ]
+    }
+  ]
+}

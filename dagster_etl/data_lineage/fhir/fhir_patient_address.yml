@@ -1,0 +1,56 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fhir
+  TableName: fhir.Patient_Address
+  Domain: [FHIR]
+  Description: "FHIR Patient.address sidecar — bærer Type 2 historik for borgerens adresser. Én række pr. adresseperiode pr. patient. Dette er den ENESTE FHIR-tabel der bærer historik for borgeren."
+  Grain: "Én række pr. (patient_id, address.period.start)"
+  FhirResource: Patient
+  Profile: "http://hl7.dk/fhir/core/StructureDefinition/dk-core-patient"
+  Temporal: period
+
+  Extensions:
+    # dk-core officielle
+    municipality_code: "http://hl7.dk/fhir/core/StructureDefinition/dk-core-municipalityCodes"
+    region_code:       "http://hl7.dk/fhir/core/StructureDefinition/dk-core-RegionalSubDivisionCodes"
+    # HL7 international officiel
+    address_official:  "http://hl7.org/fhir/StructureDefinition/address-official"
+    # RSyd-intern (KVHX/DAR-id har ingen dk-core extension endnu)
+    kvhx:              "http://regionsyddanmark.dk/fhir/StructureDefinition/addressKvhx"
+
+  SourceSystems:
+    - ifdb:         [IFDB.PATIENT_OPLYSNINGER_COLUMNA]
+    - datafordeler: [CPR.Adresse, CPR.Adressehistorik]      # planlagt — primær kilde for adressehistorik
+
+  SourcePriority: [datafordeler, ifdb]
+
+  Columns:
+    patient_id:            { Type: PK, DataType: NVARCHAR(255), FhirPath: "id",                                                                          Description: "FK til fhir.Patient.patient_id" }
+    address_period_start:  { Type: PK, DataType: NVARCHAR(50),  FhirPath: "address.period.start",                                                        Source: [datafordeler.CPR.Adressehistorik.Tilflytningsdato], Description: "Periodestart — bærer T2-versionen. IFDB har ikke historik, så ved IFDB-only patienter sættes den til 1900-01-01 indtil Datafordeleren leverer historik." }
+    address_period_end:    { DataType: NVARCHAR(50),  FhirPath: "address.period.end",                                                                    Source: [datafordeler.CPR.Adressehistorik.Fraflytningsdato], Description: "NULL = aktuel adresse" }
+    address_use:           { DataType: NVARCHAR(20),  FhirPath: "address.use",                                                                           Expr: "'home' for IFDB; Datafordeleren kan levere 'home'/'temp'" }
+    address_official:      { DataType: BIT,           FhirPath: "address.extension('http://hl7.org/fhir/StructureDefinition/address-official').valueBoolean", Source: [datafordeler.CPR.Adresse.OfficielAdresse], Description: "Officiel CPR-adresse (HL7 international address-official extension)" }
+    address_line:          { DataType: NVARCHAR(500), FhirPath: "address.line.join(', ')",                                                               Source: [datafordeler.CPR.Adresse.Vejnavn, ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.VEJ],          Description: "Primær: datafordeler; fallback: IFDB." }
+    address_postal_code:   { DataType: NVARCHAR(10),  FhirPath: "address.postalCode",                                                                    Source: [datafordeler.CPR.Adresse.Postnummer, ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.POSTNR],   Description: "Primær: datafordeler; fallback: IFDB." }
+    address_city:          { DataType: NVARCHAR(255), FhirPath: "address.city",                                                                          Source: [datafordeler.CPR.Adresse.Postdistrikt, ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.STEDNAVN], Description: "Primær: datafordeler; fallback: IFDB." }
+    address_country:       { DataType: NVARCHAR(8),   FhirPath: "address.country",                                                                       Expr: "Default 'DK' (ISO 3166-1 alpha-2); Datafordeleren kan levere ikke-DK" }
+    municipality_code:     { DataType: NVARCHAR(8),   FhirPath: "address.extension('http://hl7.dk/fhir/core/StructureDefinition/dk-core-municipalityCodes').valueCodeableConcept.coding.code",      Source: [datafordeler.CPR.Adresse.Kommunekode, ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.KOMMUNEKODE], Description: "Kommunekode (dk-core extension). Primær: datafordeler; fallback: IFDB." }
+    region_code:           { DataType: NVARCHAR(8),   FhirPath: "address.extension('http://hl7.dk/fhir/core/StructureDefinition/dk-core-RegionalSubDivisionCodes').valueCodeableConcept.coding.code", Source: [datafordeler.CPR.Adresse.Regionskode],   Description: "Regionskode (dk-core extension) — kommer fra Datafordeleren" }
+    kvhx:                  { DataType: NVARCHAR(64),  FhirPath: "address.extension('http://regionsyddanmark.dk/fhir/StructureDefinition/addressKvhx').valueString",                                  Source: [datafordeler.CPR.Adresse.KVHX],          Description: "Officielt adresse-id (DAR/KVHX) — RSyd-intern extension; kommer fra Datafordeleren" }
+    last_updated:          { DataType: DATETIME2,     FhirPath: "meta.lastUpdated" }
+    created_at:            { DataType: DATETIME2,     FhirPath: "r.cts" }
+
+  Notes:
+    - "Mønster matcher fhir.Encounter_Location (kompositPK + null sentinels på period_start)."
+    - "ViewDefinition: 'patient_address_view' med forEachOrNull: address. Address columns removed from patient_view."
+    - "MERGE-config (sof_utils.py SOF_RESOURCE_CONFIGS): primary_keys=[patient_id, address_period_start], null_sentinel_columns=[address_period_start], deduplicate_by_pk=True, dedup_tiebreak_columns=[last_updated, address_period_end]."
+    - "Indtil Datafordeler-leveringen kører, har vi kun én adresse pr. patient (fra IFDB) — det er stadig OK; T2 aktiveres automatisk når Datafordeler-historik kommer ind."
+    - "address.district er bevidst IKKE medtaget — KOMMUNEKODE leveres via dk-core municipality_code-extension i stedet (mere standardiseret)."
+    - "DW_SK_Borger-tildeling: Sker IKKE i denne tabel. ref.Patient_Address_Borger er INT-IDENTITY-tabellen oven på dette view. Den læser hver række her, kæder dem sammen i ikke-overlappende half-open [DW_ValidFrom, DW_ValidTo)-intervaller (LEAD over address_period_start, ingen -1 sekund offset), og fungerer som SCD2-lookup for fact-tabeller på (patient_id, event_date)."
+    - "Default-dato-håndtering for IFDB-only borgere: ref.Patient_Address_Borger skriver address_period_start = '1900-01-01' når kilden ikke har en konkret start. Når en rigtig address.period.start senere lander fra Datafordeleren for samme patient, soft-deletes ref-tabellen default-rækken (via MERGE NOT MATCHED BY SOURCE) så vi ikke får overlappende T2-versioner. Selve default-konstanten og MERGE-logikken bor i DSA/SQL/ref/patient_address_borger.py."
+    - "Non-overlap-garanti: address_period_start STYRER intervallerne i ref.Patient_Address_Borger. address_period_end indgår ikke i beregningen af DW_ValidTo — DW_ValidTo = LEAD(address_period_start) giver half-open [DW_ValidFrom, DW_ValidTo) intervaller (ingen -1 sekund offset), så fact-lookup med event_date >= DW_ValidFrom AND event_date < DW_ValidTo altid rammer præcis én række selv ved overlappende kildedata."

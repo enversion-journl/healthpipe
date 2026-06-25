@@ -1,0 +1,239 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "healthpipe"
+version = "0.1.0"
+description = "Healthpipe — an open-source healthcare data pipeline platform"
+readme = "README.md"
+requires-python = "==3.12.*"
+dependencies = [
+    "pandas==2.3.2",
+    "jupyter==1.1.1",
+    "sqlalchemy==2.0.43",
+    "pymssql==2.3.7",
+    # "psycopg2-binary",
+    "psycopg[binary]>=3.1,<4",
+    # Dagster core
+    "dagster==1.11.11",
+    "dagster-webserver==1.11.11",
+    # Dagster integrations
+    "dagster-postgres==0.27.11",
+    "dagster-docker==0.27.11",
+    "dagster-pandas==0.27.11",
+    "dagster-sqlalchemy==0.3.5",
+    # Other dependencies (Dagster)
+    "python-tds>=1.12,<2",
+    "python-dotenv>=1.0,<2",
+    "python-dateutil>=2.8,<3",
+    "fhir-resources>=7.1.0,<8",
+    "requests>=2.28,<3",
+    "httpx>=0.27,<1",
+    "polars>=0.20,<1",
+    "oracledb>=3.4.0",
+    "csv2db>=1.6.1",
+    "networkx>=3.5",
+    "mssql-python>=1.5.0",
+    "lxml>=6.1.1",
+    "orjson>=3.9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.4.2",
+    "pytest-mock>=3.12.0",
+    "pytest-order>=1.0.0",
+    "black==25.9.0",
+    "ruff>=0.6.0",
+    "flake8==7.3.0",
+    "isort==7.0.0",
+    # Dagster development tools
+    "dagster-graphql==1.11.11",
+    "pre-commit==4.3.0",
+    # Testing utilities
+    "responses>=0.24.0",  # For HTTP mocking (FHIR server)
+    "uv>=0.10.2"
+]
+
+# Explicit package discovery: this is a flat layout (the importable code lives
+# under dagster_etl/), so without this setuptools sees sibling dirs (data/, work/,
+# node_modules/, …) as ambiguous top-level packages and refuses to build. Scope
+# discovery to dagster_etl* so `pip install -e .` works regardless of what else
+# is present in the workspace.
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["dagster_etl*"]
+
+# Dagster configuration
+[tool.dagster]
+module_name = "definitions"
+
+# Black configuration for code formatting
+[tool.black]
+line-length = 100
+target-version = ['py312']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+  | nomad_stack
+  | daniel
+  | output
+  | nomad_data
+  | notebooks
+)/
+'''
+
+# Ruff configuration for formatting and linting
+[tool.ruff]
+cache-dir = "/tmp/ruff_cache"
+line-length = 100
+target-version = "py312"
+exclude = [
+    ".git",
+    ".hg",
+    ".mypy_cache",
+    ".tox",
+    ".venv",
+    "build",
+    "dist",
+    "nomad_stack",
+    "nomad_data",
+    "notebooks",
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+# Enable preview mode for more aggressive formatting including string line breaking
+preview = true
+
+[tool.ruff.lint]
+# Keep this focused; expand later as desired
+select = ["E", "F", "UP", "B"]
+# Delegate line-length to Black (no line length enforcement in Ruff)
+# Import sorting handled by isort (removed "I" to avoid conflicts)
+ignore = ["E203", "E402", "E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# DSA FHIR
+"dagster_etl/DSA/FHIR/IFDB/assets/episode_of_care.py" = ["F841"]
+"dagster_etl/DSA/FHIR/IFDB/assets/condition.py" = ["F841"]
+"dagster_etl/DSA/FHIR/IFDB/assets/patient.py" = ["B007"]
+"dagster_etl/DSA/FHIR/IFDB/utils/validation.py" = ["F821"]
+"dagster_etl/DSA/FHIR/IFDB/utils/yaml_loader.py" = ["B007"]
+"dagster_etl/DSA/FHIR/assets/__init__.py" = ["F401"]
+# Utils
+"dagster_etl/utils/fhir_validator.py" = ["E722"]
+"dagster_etl/mock_data/sql_snippets/run_mock_data_scripts.py" = ["E741"]
+# Tests
+"dagster_etl/tests/conftest.py" = ["F405", "E402"]
+"dagster_etl/tests/fixtures/test_data.py" = ["B011"]
+"dagster_etl/tests/test_fixture_setups.py" = ["F841"]
+"dagster_etl/tests/test_setup_verification.py" = ["F841", "F401", "E402"]
+"dagster_etl/tests/utils/query_helpers.py" = ["F841"]
+"dagster_etl/tests/utils/verification_helpers.py" = ["B904"]
+# Sources
+"dagster_etl/sources/oracle/__init__.py" = ["F401"]
+"dagster_etl/sources/oracle/ifdb_assets.py" = ["F841"]
+# DSI re-export packages (intentional public-API re-exports)
+"dagster_etl/DSI/extract/IFDB/__init__.py" = ["F401"]
+"dagster_etl/DSI/oracle/__init__.py" = ["F401"]
+# Forward-ref / lazy-import string annotations (types imported lazily / under TYPE_CHECKING)
+"dagster_etl/tests/integration/fhir_ifdb/conftest.py" = ["F821"]
+".devcontainer/startup_scripts/create_databases.py" = ["F821"]
+# Benign loop-var closures (invoked in-iteration) in perf benchmarks
+"dagster_etl/tests/performance/test_batch_upsert_performance.py" = ["B023"]
+"dagster_etl/tests/performance/test_memory_cache_vs_postgres.py" = ["B023"]
+# Frozen-config immutability test (asserts mutation is rejected; exact exc type is an impl detail)
+"dagster_etl/tests/unit/test_dfm_extract_factory.py" = ["B017"]
+
+# Flake8 configuration
+[tool.flake8]
+max-line-length = 100
+extend-ignore = ["E203", "E402", "E501"]
+exclude = [
+    ".eggs",
+    ".git",
+    ".hg",
+    ".mypy_cache",
+    ".tox",
+    ".venv",
+    "build",
+    "dist",
+    "nomad_stack",
+    "daniel",
+    "output",
+    "nomad_data",
+    "notebooks",
+]
+per-file-ignores = [
+    "dagster_etl/DSA/FHIR/IFDB/assets/episode_of_care.py:F841",
+    "dagster_etl/DSA/FHIR/IFDB/assets/condition.py:F841",
+    "dagster_etl/DSA/FHIR/IFDB/assets/patient.py:B007",
+    "dagster_etl/DSA/FHIR/IFDB/utils/validation.py:F821",
+    "dagster_etl/DSA/FHIR/IFDB/utils/yaml_loader.py:B007",
+    "dagster_etl/DSA/FHIR/assets/__init__.py:F401",
+    "dagster_etl/utils/codegen.py:F841,B904",
+    "dagster_etl/utils/fhir_codegen.py:F841",
+    "dagster_etl/utils/fhir_validator.py:E722",
+    "dagster_etl/mock_data/sql_snippets/run_mock_data_scripts.py:E741",
+    "dagster_etl/tests/conftest.py:F405,E402",
+    "dagster_etl/tests/fixtures/test_data.py:B011",
+    "dagster_etl/tests/test_fixture_setups.py:F841",
+    "dagster_etl/tests/test_setup_verification.py:F841,F401,E402",
+    "dagster_etl/tests/utils/query_helpers.py:F841",
+    "dagster_etl/tests/utils/verification_helpers.py:B904",
+    "dagster_etl/sources/oracle/__init__.py:F401",
+    "dagster_etl/sources/oracle/ifdb_assets.py:F841",
+    "dagster_etl/DSI/extract/IFDB/__init__.py:F401",
+    "dagster_etl/DSI/oracle/__init__.py:F401",
+    "dagster_etl/tests/integration/fhir_ifdb/conftest.py:F821",
+    ".devcontainer/startup_scripts/create_databases.py:F821",
+]
+
+# isort configuration
+[tool.isort]
+profile = "black"
+line_length = 100
+multi_line_output = 3
+include_trailing_comma = true
+force_grid_wrap = 0
+use_parentheses = true
+ensure_newline_before_comments = true
+known_first_party = ["dagster_etl"]
+skip = ["__init__.py"]
+
+# Pytest configuration
+# Note: Tests should be run from dagster_etl/ directory which has pytest.ini
+# This configuration is disabled at root level to prevent duplicate test discovery
+# Remove or comment out to allow root-level test discovery
+# [tool.pytest.ini_options]
+# testpaths = ["dagster_etl/tests"]
+# python_files = ["test_*.py", "*_test.py"]
+# python_classes = ["Test*"]
+# python_functions = ["test_*"]
+# addopts = "-v --tb=short --strict-markers"
+# pythonpath = ["dagster_etl"]
+# filterwarnings = [
+#     "ignore::UserWarning",
+#     "ignore::pydantic.warnings.PydanticDeprecatedSince20",
+#     "ignore:.*PydanticDeprecatedSince20.*:pydantic.warnings.PydanticDeprecatedSince20",
+# ]

@@ -1,0 +1,125 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fhir
+  TableName: fhir.Patient
+  Domain: [FHIR]
+  Description: "FHIR Patient ressource — dk-core compliant. Type 1 (én aktuel række pr. patient). Adresse-historik (Type 2) ligger i fhir.Patient_Address."
+  Grain: "Én række pr. patient (patient_id)"
+  FhirResource: Patient
+  Profile: "http://hl7.dk/fhir/core/StructureDefinition/dk-core-patient"
+
+  Extensions:
+    # dk-core officielle
+    municipality_code:  "http://hl7.dk/fhir/core/StructureDefinition/dk-core-municipalityCodes"
+    region_code:        "http://hl7.dk/fhir/core/StructureDefinition/dk-core-RegionalSubDivisionCodes"
+    # HL7 international officielle (foretrækkes over interne)
+    address_official:   "http://hl7.org/fhir/StructureDefinition/address-official"
+    citizenship:        "http://hl7.org/fhir/StructureDefinition/patient-citizenship"
+    mothers_maiden_name: "http://hl7.org/fhir/StructureDefinition/patient-mothersMaidenName"
+    # RSyd-interne (kun hvor ingen standard findes)
+    modtidspunkt:       "http://regionsyddanmark.dk/fhir/StructureDefinition/modtidspunkt"
+    address_protection: "http://regionsyddanmark.dk/fhir/StructureDefinition/addressProtection"
+    discretion_flag:    "http://regionsyddanmark.dk/fhir/StructureDefinition/discretionFlag"
+    district:           "http://regionsyddanmark.dk/fhir/StructureDefinition/personDistrict"
+    social_district:    "http://regionsyddanmark.dk/fhir/StructureDefinition/personSocialDistrict"
+    is_deleted:         "http://regionsyddanmark.dk/fhir/StructureDefinition/isDeleted"
+    mother_identifier:  "http://regionsyddanmark.dk/fhir/StructureDefinition/motherIdentifier"  # mor-CPR (alternativ: Patient.link → RelatedPerson)
+    father_identifier:  "http://regionsyddanmark.dk/fhir/StructureDefinition/fatherIdentifier"  # far-CPR (alternativ: Patient.link → RelatedPerson)
+
+  SourceSystems:
+    - ifdb:         [IFDB.PATIENT_OPLYSNINGER_COLUMNA]
+    - datafordeler: [CPR.Person]                            # planlagt — primær kilde fremover
+
+  SourcePriority: [datafordeler, ifdb]
+
+  Columns:
+    # ------------------------------------------------------------------
+    # Identifiers (dk-core slices)
+    # ------------------------------------------------------------------
+    patient_id:                { Type: PK,  DataType: NVARCHAR(255), FhirPath: "id",                                                                       Description: "FHIR resource id (Aidbox) — kanonisk borger-identitet. Mappes til INT-surrogatet DW_EK_Borger via ref.Patient_Borger." }
+    patient_ssn:               { DataType: NVARCHAR(10),  FhirPath: "identifier.where(system='urn:dk:cpr').value",                            Source: [datafordeler.CPR.Person.Personnummer, ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.CPR],           Description: "Aktuelt CPR (dk-core slice 'cpr' — system: identifier_systems.SYSTEM_CPR). Primær: datafordeler; fallback: IFDB indtil leveringen er stabil." }
+    previous_ssn:              { DataType: NVARCHAR(10),  FhirPath: "identifier.where(system='urn:dk:cpr' and use='old').value",              Source: [datafordeler.CPR.Person.TidligerePersonnummer, ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.TIDLIGERE_CPR], Description: "Forrige CPR ved CPR-skifte (identifier m. use='old' inden for cpr-slice). Primær: datafordeler; fallback: IFDB." }
+    x_ecpr:                    { DataType: NVARCHAR(50),  FhirPath: "identifier.where(system='urn:oid:1.2.208.176.1.5.X').value",                         Source: [datafordeler.CPR.Person.XECPR],                                                             Description: "Nationalt erstatnings-CPR (dk-core slice 'x-ecpr' — system: identifier_systems.SYSTEM_X_ECPR). Datafordeler/IFDB — afventer leverance." }
+    d_ecpr:                    { DataType: NVARCHAR(50),  FhirPath: "identifier.where(system='urn:oid:1.2.208.176.1.5.D').value",                         Source: [datafordeler.CPR.Person.DECPR],                                                             Description: "Regional/decentralt erstatnings-CPR (dk-core slice 'd-ecpr' — system: identifier_systems.SYSTEM_D_ECPR). Datafordeler/IFDB — afventer leverance." }
+    ifdb_patient_id:           { DataType: NVARCHAR(255), FhirPath: "identifier.where(system='urn:source:ifdb:patient_id').value",                Source: [ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.PATIENT_ID],    Description: "IFDB patient_id (system: identifier_systems.SYSTEM_IFDB_PATIENT_ID) — bevares som ekstra identifier til staging-joins" }
+
+    # ------------------------------------------------------------------
+    # Status (dk-core: Patient.active, Patient.deceased)
+    # ------------------------------------------------------------------
+    active:                    { DataType: BIT,           FhirPath: "active",                                  Source: [datafordeler.CPR.Person.Status, ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.PERSON_STATUSKODE], Expr: "false hvis status indikerer annulleret/død (IFDB: 80/90); ellers true. Primær: datafordeler; fallback: IFDB." }
+    deceased:                  { DataType: BIT,           FhirPath: "deceasedBoolean",                         Source: [datafordeler.CPR.Person.Status, ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.PERSON_STATUSKODE], Expr: "true ved død (IFDB: status=90). Primær: datafordeler; fallback: IFDB." }
+
+    # ------------------------------------------------------------------
+    # Name (dk-core slice 'official' — cardinality 0..1, fladet ud)
+    # ------------------------------------------------------------------
+    name_use:                  { DataType: NVARCHAR(20),  FhirPath: "name.where(use='official').use",          Expr: "Konstant 'official'" }
+    name_given:                { DataType: NVARCHAR(500), FhirPath: "name.where(use='official').given.join(' ')", Source: [datafordeler.CPR.Person.Fornavne, ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.FORNAVNE], Description: "Primær: datafordeler; fallback: IFDB." }
+    name_family:               { DataType: NVARCHAR(255), FhirPath: "name.where(use='official').family",       Source: [datafordeler.CPR.Person.Efternavn, ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.EFTERNAVN], Description: "Primær: datafordeler; fallback: IFDB." }
+    name_text:                 { DataType: NVARCHAR(500), FhirPath: "name.where(use='official').text",         Source: [datafordeler.CPR.Person.Adresseringsnavn], Description: "Datafordeler — planlagt; adresseringsnavn (typisk det navn der står på post)" }
+
+    # ------------------------------------------------------------------
+    # Demografi (dk-core: gender, birthDate)
+    # ------------------------------------------------------------------
+    gender:                    { DataType: NVARCHAR(20),  FhirPath: "gender",                                  Source: [datafordeler.CPR.Person.Koen, ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.KOEN_KODE], Expr: "Map M→male, K→female; aktuelt køn (juridisk skifte respekteret). Primær: datafordeler; fallback: IFDB." }
+    birth_date:                { DataType: DATE,          FhirPath: "birthDate",                               Source: [datafordeler.CPR.Person.Foedselsdato, ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.FOEDSELSDATO], Description: "Primær: datafordeler; fallback: IFDB." }
+
+    # ------------------------------------------------------------------
+    # Civilstand (dk-core: maritalStatus — Type 1, ingen periode i dim.Borger)
+    # ------------------------------------------------------------------
+    marital_status_code:       { DataType: NVARCHAR(8),   FhirPath: "maritalStatus.coding.code",               Source: [datafordeler.CPR.Person.Civilstand],     Description: "Datafordeler — planlagt; codeable concept fra dk-core marital-status valueset" }
+    marital_status_display:    { DataType: NVARCHAR(100), FhirPath: "maritalStatus.coding.display",            Source: [datafordeler.CPR.Person.CivilstandTekst] }
+
+    # ------------------------------------------------------------------
+    # General practitioner (dk-core slice — egen læge)
+    # ------------------------------------------------------------------
+    gp_display:                { DataType: NVARCHAR(500), FhirPath: "generalPractitioner.display",                                                          Source: [datafordeler.CPR.Sundhedskort.LaegeNavn, ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.LAEGENAVN], Description: "Primær: datafordeler (Sundhedskort); fallback: IFDB." }
+    gp_identifier:             { DataType: NVARCHAR(50),  FhirPath: "generalPractitioner.identifier.where(system='urn:oid:1.2.208.176.1.4').value",                     Source: [datafordeler.CPR.Sundhedskort.Ydernummer, ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.LAEGENUMMER], Description: "Ydernummer (system: identifier_systems.SYSTEM_YDERNUMMER). Primær: datafordeler (Sundhedskort); fallback: IFDB." }
+
+    # ------------------------------------------------------------------
+    # Statsborgerskab (HL7 international extension patient-citizenship)
+    # ------------------------------------------------------------------
+    citizenship_code:          { DataType: NVARCHAR(8),   FhirPath: "extension('http://hl7.org/fhir/StructureDefinition/patient-citizenship').extension('code').valueCodeableConcept.coding.code",    Source: [datafordeler.CPR.Person.Statsborgerskab],     Description: "Datafordeler — planlagt; ISO 3166-1 alpha-2/3" }
+    citizenship_display:       { DataType: NVARCHAR(255), FhirPath: "extension('http://hl7.org/fhir/StructureDefinition/patient-citizenship').extension('code').valueCodeableConcept.coding.display", Source: [datafordeler.CPR.Person.StatsborgerskabTekst] }
+
+    # ------------------------------------------------------------------
+    # Familierelationer (RSyd-interne extensions; alternativ: Patient.link → RelatedPerson)
+    # ------------------------------------------------------------------
+    mother_ssn:                { DataType: NVARCHAR(10),  FhirPath: "extension('http://regionsyddanmark.dk/fhir/StructureDefinition/motherIdentifier').valueIdentifier.value", Source: [datafordeler.CPR.Person.MorCPR],   Description: "Datafordeler — planlagt; intern extension — final modeling (extension vs Patient.link) afventer beslutning" }
+    father_ssn:                { DataType: NVARCHAR(10),  FhirPath: "extension('http://regionsyddanmark.dk/fhir/StructureDefinition/fatherIdentifier').valueIdentifier.value", Source: [datafordeler.CPR.Person.FarCPR],   Description: "Datafordeler — planlagt; samme overvejelse som mother_ssn" }
+
+    # ------------------------------------------------------------------
+    # Privacy / kontekst (RSyd-interne extensions + meta)
+    # ------------------------------------------------------------------
+    address_protection:        { DataType: BIT,           FhirPath: "extension('http://regionsyddanmark.dk/fhir/StructureDefinition/addressProtection').valueBoolean", Source: [datafordeler.CPR.Person.Adressebeskyttelse, ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.HAR_ADRESSEBESKYTTELSE], Expr: "1 = adressebeskyttelse aktiv. Primær: datafordeler; fallback: IFDB." }
+    discretion_flag:           { DataType: BIT,           FhirPath: "extension('http://regionsyddanmark.dk/fhir/StructureDefinition/discretionFlag').valueBoolean",    Source: [ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.OENSKER_DISKRETION] }
+    medcom_test_person:        { DataType: BIT,           FhirPath: "meta.tag.where(code='test').exists()",    Source: [ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.MEDCOM_TESTPERSON],                                     Description: "Tagget som testperson via meta.tag" }
+
+    # ------------------------------------------------------------------
+    # Distrikt (RSyd lokale ekstensioner — ikke i dk-core)
+    # ------------------------------------------------------------------
+    district_code:             { DataType: NVARCHAR(8),   FhirPath: "extension('http://regionsyddanmark.dk/fhir/StructureDefinition/personDistrict').extension('code').valueString",       Source: [ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.PERSON_DISTRIKTKODE] }
+    district_text:             { DataType: NVARCHAR(100), FhirPath: "extension('http://regionsyddanmark.dk/fhir/StructureDefinition/personDistrict').extension('text').valueString",       Source: [ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.PERSON_DISTRIKTKODETEKST] }
+    social_district_code:      { DataType: NVARCHAR(8),   FhirPath: "extension('http://regionsyddanmark.dk/fhir/StructureDefinition/personSocialDistrict').extension('code').valueString", Source: [ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.PERSON_SOCIALDISTRIKTKODE] }
+    social_district_text:      { DataType: NVARCHAR(100), FhirPath: "extension('http://regionsyddanmark.dk/fhir/StructureDefinition/personSocialDistrict').extension('text').valueString", Source: [ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.PERSON_SOCIALDISTRIKTKODETEKST] }
+
+    # ------------------------------------------------------------------
+    # Audit (meta + RSyd-interne)
+    # ------------------------------------------------------------------
+    modtidspunkt:              { DataType: DATETIME2,     FhirPath: "extension('http://regionsyddanmark.dk/fhir/StructureDefinition/modtidspunkt').valueDateTime", Source: [ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.MODTIDSPUNKT] }
+    is_deleted:                { DataType: BIT,           FhirPath: "extension('http://regionsyddanmark.dk/fhir/StructureDefinition/isDeleted').valueInteger",     Source: [ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.SLETTET], Expr: "1 = blød slettet i kilden" }
+    last_updated:              { DataType: DATETIME2,     FhirPath: "meta.lastUpdated",                        Source: [ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.OPDATERET_TID] }
+    created_at:                { DataType: DATETIME2,     FhirPath: "r.cts" }
+
+  Notes:
+    - "Identifier-systemer (cpr, x_ecpr, d_ecpr, ifdb_patient_id, ydernummer) defineres centralt i dagster_etl/utils/fhir/identifier_systems.py. FhirPath bruger literal URIs (fx system='urn:dk:cpr'). Placeholder-konventionen er retired — alle referencer er erstattet med fulde URIs."
+    - "Identifier-constraint: Mindst én af patient_ssn (cpr) / x_ecpr / d_ecpr skal være sat pr. patient. Constraint håndhæves af ref.Patient_Borger, ikke her — fhir.Patient er en ren projektion af FHIR-ressourcen og må gerne have alle tre NULL midlertidigt."
+    - "fhir.Patient er Type 1: én række pr. patient_id. Hvis demografisk historik (navn, gender, GP) bliver påkrævet, modelleres det i sidecars (fhir.Patient_Name etc.) eller via meta.versionId — IKKE som T2-versioner i dim.Borger."
+    - "Adresse-historik (Type 2) ligger i fhir.Patient_Address — én row pr. (patient_id, address.period.start). DW_SK_Borger-tildeling og non-overlap-håndtering af perioder lever i ref.Patient_Address_Borger."
+    - "ViewDefinition patient_view (formerly patient_demo_view) — address projection lives in patient_address_view. Identifiers (cpr/x_ecpr/d_ecpr) are projected as wide columns directly in patient_view; ref.Patient_Borger reads them from fhir.Patient."
+    - "Kilde-prioritet: datafordeler > ifdb. Ved overlap vinder Datafordeleren. IFDB bevares som fallback indtil Datafordeler-leveringen er stabil."
+    - "FRT (felt-rationalisering) ift. dk-core: alle felter bruger officielle dk-core/HL7 systems og extensions hvor de eksisterer. RSyd-interne extensions er kun anvendt for felter uden FHIR-standard (familie-CPR, address-protection, RSyd-distrikt, MODTIDSPUNKT, isDeleted)."
