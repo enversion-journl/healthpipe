@@ -178,7 +178,7 @@ def _execute_dfm_mssql_extract(
     """
     from core.dfm_manager import DfmManager
     from DSI.connectors.mssql.extractor import MssqlExtractor
-    from DSI.connectors.mssql.models import TableConfig
+    from DSI.connectors.mssql.models import TableConfig, TableLoadResult
 
     dfm = DfmManager(mssql_target_staging, context)
 
@@ -247,8 +247,18 @@ def _execute_dfm_mssql_extract(
                         mssql_target_resource=mssql_target_staging,
                     )
                     if extract_config.select_from_expr:
-                        result = extractor.custom_stream_extract_and_insert(
+                        # custom_stream_extract_and_insert returns a bare row
+                        # count; wrap it so downstream code can treat the result
+                        # uniformly with stream_extract_and_insert's TableLoadResult.
+                        row_count = extractor.custom_stream_extract_and_insert(
                             query, table_config, partition_key=None
+                        )
+                        result = TableLoadResult(
+                            source_table=(
+                                f"{extract_config.source_schema}.{extract_config.source_table}"
+                            ),
+                            target_table=f"ext.{extract_config.target_table}",
+                            row_count=row_count,
                         )
                     else:
                         result = extractor.stream_extract_and_insert(

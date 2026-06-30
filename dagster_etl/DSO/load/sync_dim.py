@@ -134,7 +134,7 @@ def dso_sync_dim_kontoplan(
 
 @dg.asset(
     name="dso_sync_dim_vareudlevering_egenskaber",
-    group_name="erp_dso_sync",
+    group_name="dso_sync_vareudlevering",
     compute_kind="mssql",
     deps=["dim_vareudlevering_egenskaber"],
     tags={

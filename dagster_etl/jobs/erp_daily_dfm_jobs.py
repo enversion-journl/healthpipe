@@ -14,9 +14,10 @@ backfilled by partition.
 
 Includes the kmd_uddata_archive group so dim.UNSPSC's KMD upstream is
 materialised by this job. The standalone kmd_uddata_archive_job remains
-available for ad-hoc runs. The mysupply_archive group covers the new
-DFM-based MySupply archive (runs in parallel with the legacy partition
-extract).
+available for ad-hoc runs. The mysupply_archive, ils_archive, and
+sydax_archive groups cover the new DFM-based ERP archives (each runs in
+parallel with its legacy partition extract). The standalone
+sydax_archive_job remains available for ad-hoc runs.
 """
 
 import dagster as dg
@@ -36,6 +37,8 @@ erp_daily_dfm_job = dg.define_asset_job(
         "mysupply_archive",
         # ILS DFM archive (new — runs in parallel with legacy ils.py partition extract)
         "ils_archive",
+        # SydAX DFM archive (new — ext.*_sydax_dfm → arc.*_sydax, all 17 base tables)
+        "sydax_archive",
         # UNSPSC (new)
         "extract_ils",
         "staging_unspsc",
@@ -46,11 +49,19 @@ erp_daily_dfm_job = dg.define_asset_job(
         "staging_indkoebsanalyse",
         "facts_indkoebsanalyse",
         "dso_sync_indkoebsanalyse",
+        # Vareudlevering (migrated off partitions — US 28691; reads arc.ils_udlev)
+        "pre_staging_vareudlevering",
+        "staging_vareudlevering",
+        "maps_vareudlevering",
+        "dimensions_vareudlevering",
+        "facts_vareudlevering",
+        "dso_sync_vareudlevering",
     ),
     description=(
         "Daily ERP non-partitioned refresh: lagerbeholdning current-state "
-        "snapshot + KMD UdData archive + MySupply DFM archive + dim.UNSPSC + "
-        "IndkoebsanalyseLinje. Cannot be partition-backfilled — sources "
-        "reflect current state only or are master data."
+        "snapshot + KMD UdData archive + MySupply/ILS/SydAX DFM archives + "
+        "dim.UNSPSC + IndkoebsanalyseLinje + Vareudlevering (arc.ils_udlev). "
+        "Cannot be partition-backfilled — sources reflect current state only "
+        "or are master data."
     ),
 )

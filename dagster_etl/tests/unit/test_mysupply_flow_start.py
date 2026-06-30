@@ -16,11 +16,11 @@ from __future__ import annotations
 import pytest
 
 EXPECTED_ARC_TARGETS = [
-    "statistic_invoice_header_mysupply",
-    "metadata_mysupply",
-    "statistic_invoice_line_mysupply",
-    "statistic_invoice_header_allowance_charge_mysupply",
-    "statistic_invoice_line_allowance_charge_mysupply",
+    "mysupply_statistic_invoice_header",
+    "mysupply_metadata",
+    "mysupply_statistic_invoice_line",
+    "mysupply_statistic_invoice_header_allowance_charge",
+    "mysupply_statistic_invoice_line_allowance_charge",
 ]
 
 
@@ -122,11 +122,11 @@ def test_flow_start_write_coordinate_matches_archive_read_coordinate():
     )
 
     archive_by_target = {
-        "statistic_invoice_header_mysupply": HEADER_ARCHIVE_CONFIG,
-        "metadata_mysupply": METADATA_ARCHIVE_CONFIG,
-        "statistic_invoice_line_mysupply": LINE_ARCHIVE_CONFIG,
-        "statistic_invoice_header_allowance_charge_mysupply": HEADER_ALLOWANCE_CHARGE_ARCHIVE_CONFIG,
-        "statistic_invoice_line_allowance_charge_mysupply": LINE_ALLOWANCE_CHARGE_ARCHIVE_CONFIG,
+        "mysupply_statistic_invoice_header": HEADER_ARCHIVE_CONFIG,
+        "mysupply_metadata": METADATA_ARCHIVE_CONFIG,
+        "mysupply_statistic_invoice_line": LINE_ARCHIVE_CONFIG,
+        "mysupply_statistic_invoice_header_allowance_charge": HEADER_ALLOWANCE_CHARGE_ARCHIVE_CONFIG,
+        "mysupply_statistic_invoice_line_allowance_charge": LINE_ALLOWANCE_CHARGE_ARCHIVE_CONFIG,
     }
 
     for cfg in MYSUPPLY_DFM_EXTRACT_CONFIGS:

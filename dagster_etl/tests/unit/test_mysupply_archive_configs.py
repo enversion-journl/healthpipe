@@ -27,11 +27,11 @@ def mysupply_dfm_extract_configs():
 
 
 EXPECTED_EXTRACT_TARGETS = {
-    "statistic_invoice_header_mysupply_dfm",
-    "metadata_mysupply_dfm",
-    "statistic_invoice_line_mysupply_dfm",
-    "statistic_invoice_header_allowance_charge_mysupply_dfm",
-    "statistic_invoice_line_allowance_charge_mysupply_dfm",
+    "mysupply_statistic_invoice_header_dfm",
+    "mysupply_metadata_dfm",
+    "mysupply_statistic_invoice_line_dfm",
+    "mysupply_statistic_invoice_header_allowance_charge_dfm",
+    "mysupply_statistic_invoice_line_allowance_charge_dfm",
 }
 
 
@@ -43,7 +43,7 @@ def test_extract_configs_cover_five_tables(mysupply_dfm_extract_configs):
 def test_extract_targets_use_dfm_postfix(mysupply_dfm_extract_configs, target_table):
     """The new pipeline must not clash with ext.*_mysupply produced by the legacy
     partition-based extract. Postfix _dfm guarantees that until the legacy is removed."""
-    assert target_table.endswith("_mysupply_dfm")
+    assert target_table.startswith("mysupply_") and target_table.endswith("_dfm")
 
 
 @pytest.mark.parametrize("target_table", sorted(EXPECTED_EXTRACT_TARGETS))
@@ -65,17 +65,17 @@ def test_extract_uses_try_cast_on_fakturadato(mysupply_dfm_extract_configs, targ
 
 def test_header_filters_directly_on_fakturadato(mysupply_dfm_extract_configs):
     """The header has its own FakturaDato column — no subquery needed."""
-    cfg = mysupply_dfm_extract_configs["statistic_invoice_header_mysupply_dfm"]
+    cfg = mysupply_dfm_extract_configs["mysupply_statistic_invoice_header_dfm"]
     assert cfg.delta_expression == "TRY_CAST([FakturaDato] AS DATETIME2)"
 
 
 @pytest.mark.parametrize(
     "target_table",
     [
-        "metadata_mysupply_dfm",
-        "statistic_invoice_line_mysupply_dfm",
-        "statistic_invoice_header_allowance_charge_mysupply_dfm",
-        "statistic_invoice_line_allowance_charge_mysupply_dfm",
+        "mysupply_metadata_dfm",
+        "mysupply_statistic_invoice_line_dfm",
+        "mysupply_statistic_invoice_header_allowance_charge_dfm",
+        "mysupply_statistic_invoice_line_allowance_charge_dfm",
     ],
 )
 def test_dependents_use_correlated_subquery(mysupply_dfm_extract_configs, target_table):
@@ -89,7 +89,7 @@ def test_dependents_use_correlated_subquery(mysupply_dfm_extract_configs, target
 
 def test_line_allowance_charge_uses_two_hop_join(mysupply_dfm_extract_configs):
     """The nested FK chain line_allowance_charge → line → header requires a JOIN."""
-    cfg = mysupply_dfm_extract_configs["statistic_invoice_line_allowance_charge_mysupply_dfm"]
+    cfg = mysupply_dfm_extract_configs["mysupply_statistic_invoice_line_allowance_charge_dfm"]
     assert "INNER JOIN [dbo].[statistic_invoice_line]" in cfg.delta_expression
 
 
@@ -107,7 +107,7 @@ def test_metadata_correlated_subquery_qualifies_outer_id():
     """
     from DSI.mssql.extract.extract_configs_mysupply import MYSUPPLY_DFM_EXTRACT_CONFIGS
 
-    cfg = next(c for c in MYSUPPLY_DFM_EXTRACT_CONFIGS if c.target_table == "metadata_mysupply_dfm")
+    cfg = next(c for c in MYSUPPLY_DFM_EXTRACT_CONFIGS if c.target_table == "mysupply_metadata_dfm")
     # The outer `metadata.id` reference must be explicitly qualified.
     assert "[dbo].[metadata].[id]" in cfg.delta_expression, (
         "metadata delta_expression must qualify the outer table's id column to avoid "
@@ -118,16 +118,16 @@ def test_metadata_correlated_subquery_qualifies_outer_id():
 @pytest.mark.parametrize(
     "target_table,expected_checkpoint_table",
     [
-        ("statistic_invoice_header_mysupply_dfm", "statistic_invoice_header_mysupply"),
-        ("metadata_mysupply_dfm", "metadata_mysupply"),
-        ("statistic_invoice_line_mysupply_dfm", "statistic_invoice_line_mysupply"),
+        ("mysupply_statistic_invoice_header_dfm", "mysupply_statistic_invoice_header"),
+        ("mysupply_metadata_dfm", "mysupply_metadata"),
+        ("mysupply_statistic_invoice_line_dfm", "mysupply_statistic_invoice_line"),
         (
-            "statistic_invoice_header_allowance_charge_mysupply_dfm",
-            "statistic_invoice_header_allowance_charge_mysupply",
+            "mysupply_statistic_invoice_header_allowance_charge_dfm",
+            "mysupply_statistic_invoice_header_allowance_charge",
         ),
         (
-            "statistic_invoice_line_allowance_charge_mysupply_dfm",
-            "statistic_invoice_line_allowance_charge_mysupply",
+            "mysupply_statistic_invoice_line_allowance_charge_dfm",
+            "mysupply_statistic_invoice_line_allowance_charge",
         ),
     ],
 )
@@ -155,22 +155,22 @@ def mysupply_archive_configs():
     )
 
     return {
-        "statistic_invoice_header_mysupply": HEADER_ARCHIVE_CONFIG,
-        "metadata_mysupply": METADATA_ARCHIVE_CONFIG,
-        "statistic_invoice_line_mysupply": LINE_ARCHIVE_CONFIG,
-        "statistic_invoice_header_allowance_charge_mysupply": HEADER_ALLOWANCE_CHARGE_ARCHIVE_CONFIG,
-        "statistic_invoice_line_allowance_charge_mysupply": LINE_ALLOWANCE_CHARGE_ARCHIVE_CONFIG,
+        "mysupply_statistic_invoice_header": HEADER_ARCHIVE_CONFIG,
+        "mysupply_metadata": METADATA_ARCHIVE_CONFIG,
+        "mysupply_statistic_invoice_line": LINE_ARCHIVE_CONFIG,
+        "mysupply_statistic_invoice_header_allowance_charge": HEADER_ALLOWANCE_CHARGE_ARCHIVE_CONFIG,
+        "mysupply_statistic_invoice_line_allowance_charge": LINE_ALLOWANCE_CHARGE_ARCHIVE_CONFIG,
     }
 
 
 @pytest.mark.parametrize(
     "arc_table",
     [
-        "statistic_invoice_header_mysupply",
-        "metadata_mysupply",
-        "statistic_invoice_line_mysupply",
-        "statistic_invoice_header_allowance_charge_mysupply",
-        "statistic_invoice_line_allowance_charge_mysupply",
+        "mysupply_statistic_invoice_header",
+        "mysupply_metadata",
+        "mysupply_statistic_invoice_line",
+        "mysupply_statistic_invoice_header_allowance_charge",
+        "mysupply_statistic_invoice_line_allowance_charge",
     ],
 )
 def test_archive_target_has_no_dfm_postfix(mysupply_archive_configs, arc_table):
@@ -184,11 +184,11 @@ def test_archive_target_has_no_dfm_postfix(mysupply_archive_configs, arc_table):
 @pytest.mark.parametrize(
     "arc_table",
     [
-        "statistic_invoice_header_mysupply",
-        "metadata_mysupply",
-        "statistic_invoice_line_mysupply",
-        "statistic_invoice_header_allowance_charge_mysupply",
-        "statistic_invoice_line_allowance_charge_mysupply",
+        "mysupply_statistic_invoice_header",
+        "mysupply_metadata",
+        "mysupply_statistic_invoice_line",
+        "mysupply_statistic_invoice_header_allowance_charge",
+        "mysupply_statistic_invoice_line_allowance_charge",
     ],
 )
 def test_archive_source_uses_dfm_postfix(mysupply_archive_configs, arc_table):
@@ -196,17 +196,17 @@ def test_archive_source_uses_dfm_postfix(mysupply_archive_configs, arc_table):
     legacy partition extract's ext.*_mysupply (would shadow it during cutover)."""
     cfg = mysupply_archive_configs[arc_table]
     assert cfg.source_schema == "ext"
-    assert cfg.source_table.endswith("_mysupply_dfm")
+    assert cfg.source_table.startswith("mysupply_") and cfg.source_table.endswith("_dfm")
 
 
 @pytest.mark.parametrize(
     "arc_table",
     [
-        "statistic_invoice_header_mysupply",
-        "metadata_mysupply",
-        "statistic_invoice_line_mysupply",
-        "statistic_invoice_header_allowance_charge_mysupply",
-        "statistic_invoice_line_allowance_charge_mysupply",
+        "mysupply_statistic_invoice_header",
+        "mysupply_metadata",
+        "mysupply_statistic_invoice_line",
+        "mysupply_statistic_invoice_header_allowance_charge",
+        "mysupply_statistic_invoice_line_allowance_charge",
     ],
 )
 def test_archive_is_upsert_keyed_on_id(mysupply_archive_configs, arc_table):
@@ -218,11 +218,11 @@ def test_archive_is_upsert_keyed_on_id(mysupply_archive_configs, arc_table):
 @pytest.mark.parametrize(
     "arc_table",
     [
-        "statistic_invoice_header_mysupply",
-        "metadata_mysupply",
-        "statistic_invoice_line_mysupply",
-        "statistic_invoice_header_allowance_charge_mysupply",
-        "statistic_invoice_line_allowance_charge_mysupply",
+        "mysupply_statistic_invoice_header",
+        "mysupply_metadata",
+        "mysupply_statistic_invoice_line",
+        "mysupply_statistic_invoice_header_allowance_charge",
+        "mysupply_statistic_invoice_line_allowance_charge",
     ],
 )
 def test_archive_uses_update_only_on_change(mysupply_archive_configs, arc_table):
@@ -235,11 +235,11 @@ def test_archive_uses_update_only_on_change(mysupply_archive_configs, arc_table)
 @pytest.mark.parametrize(
     "arc_table",
     [
-        "statistic_invoice_header_mysupply",
-        "metadata_mysupply",
-        "statistic_invoice_line_mysupply",
-        "statistic_invoice_header_allowance_charge_mysupply",
-        "statistic_invoice_line_allowance_charge_mysupply",
+        "mysupply_statistic_invoice_header",
+        "mysupply_metadata",
+        "mysupply_statistic_invoice_line",
+        "mysupply_statistic_invoice_header_allowance_charge",
+        "mysupply_statistic_invoice_line_allowance_charge",
     ],
 )
 def test_archive_does_not_detect_deletes(mysupply_archive_configs, arc_table):
@@ -253,11 +253,11 @@ def test_archive_does_not_detect_deletes(mysupply_archive_configs, arc_table):
 @pytest.mark.parametrize(
     "arc_table",
     [
-        "statistic_invoice_header_mysupply",
-        "metadata_mysupply",
-        "statistic_invoice_line_mysupply",
-        "statistic_invoice_header_allowance_charge_mysupply",
-        "statistic_invoice_line_allowance_charge_mysupply",
+        "mysupply_statistic_invoice_header",
+        "mysupply_metadata",
+        "mysupply_statistic_invoice_line",
+        "mysupply_statistic_invoice_header_allowance_charge",
+        "mysupply_statistic_invoice_line_allowance_charge",
     ],
 )
 def test_extractor_metadata_columns_excluded_from_non_key(mysupply_archive_configs, arc_table):

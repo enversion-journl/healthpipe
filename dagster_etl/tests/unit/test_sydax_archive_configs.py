@@ -81,13 +81,19 @@ def test_detect_deletes_disabled():
 def test_target_schema_and_naming():
     for cfg in ALL_CONFIGS:
         assert cfg.target_schema == "arc"
-        assert cfg.target_table.endswith("_sydax"), cfg.target_table
+        assert cfg.target_table.startswith("sydax_"), cfg.target_table
         assert cfg.source_schema == "ext"
         assert cfg.source_table == f"{cfg.target_table}_dfm", cfg.target_table
 
 
-def test_checkpoint_query_pattern():
+def test_checkpoint_strategy_per_bucket():
+    """Every SydAX arc table is either a full load or flow_start-driven, so none
+    carries a per-table checkpoint_query (flow_start owns advancement)."""
     for cfg in ALL_CONFIGS:
-        assert cfg.checkpoint_query is not None, cfg.target_table
-        assert "MAX(COALESCE([Modified], [CreatedOn]))" in cfg.checkpoint_query
-        assert f"[arc].[{cfg.target_table}]" in cfg.checkpoint_query
+        assert cfg.checkpoint_query is None, cfg.target_table
+        # Exactly one of: full load (Bucket A) or flow_start (Buckets B+C).
+        has_full = cfg.upstream_is_full_load
+        has_flow = cfg.flow_start_key is not None
+        assert has_full ^ has_flow, cfg.target_table
+        if has_flow:
+            assert cfg.flow_start_key == ("dfm", f"{cfg.target_table}_flow_start")

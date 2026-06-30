@@ -5,12 +5,13 @@
 # root for the full AGPL-3.0 license text.
 
 """
-SydAX archive layer — 17 UPSERT archives from ext.*_sydax_dfm into arc.*_sydax.
+SydAX archive layer — 17 UPSERT archives from ext.sydax_*_dfm into arc.sydax_*.
 
 Every archive merges on a Kildesystem-prefixed ERP-stable key. Source IDENTITY
 columns are preserved as non-key columns for observability but never used to
-identify rows. Each archive owns its own DFM checkpoint in meta.dfm_state
-(scope=staging) and advances it on success to MAX(COALESCE([Modified], [CreatedOn])).
+identify rows. The extract delta strategy is per-table (full load / RdwTs /
+business timestamp) and the checkpoint is owned by a flow_start asset for the
+delta tables — see the matching extract configs + the 2026-06-25 design spec.
 """
 
 import dagster as dg
@@ -18,13 +19,49 @@ from core.archive_merge import build_archive_metadata, execute_archive_merge
 from core.dfm_config import ArchiveMergeConfig, RunModeConfig
 from core.resources import MSSQLResource
 
+# Per-bucket extract strategy (see the matching extract configs + design spec).
+# Bucket A — small/static, extracted as a full load.
+_FULL_LOAD_ARC = {
+    "sydax_dranst",
+    "sydax_art",
+    "sydax_finanstransaktionstype",
+    "sydax_gruppering_autoriseret",
+    "sydax_funktion",
+    "sydax_hovedkonto",
+    "sydax_gruppering",
+    "sydax_afdeling",
+    "sydax_omkostningssted_hierarki",
+}
+# Buckets B & C — delta extract whose checkpoint is owned by a flow_start asset.
+_FLOW_START_ARC = {
+    "sydax_kreditor",
+    "sydax_finanskladde",
+    "sydax_finanskonto_omkostningssted",
+    "sydax_finanskonto",
+    "sydax_finanskladdelinje",
+    "sydax_kreditortransaktion",
+    "sydax_finanspostering",
+    "sydax_finanspostering_kreditortrans_relation",
+}
+
 
 def _arc_config(
     target_table: str,
     merge_keys: tuple[str, ...],
     non_key_columns: tuple[str, ...],
 ) -> ArchiveMergeConfig:
-    """Build a uniform ArchiveMergeConfig for a SydAX arc table."""
+    """Build a SydAX arc ArchiveMergeConfig with its per-bucket extract strategy.
+
+    Checkpoint advancement is owned by a flow_start asset (Buckets B+C) or is
+    irrelevant (Bucket A full loads), so no per-table ``checkpoint_query`` is
+    needed — every SydAX table is either ``upstream_is_full_load`` or has a
+    ``flow_start_key``.
+    """
+    # A column must never appear in both merge_keys and non_key_columns, or
+    # build_archive_merge_sql lists it twice in the INSERT column list. This lets
+    # callers promote a column into merge_keys (e.g. the StartDateTime version
+    # discriminator) without also having to delete it from non_key_columns.
+    non_key_columns = tuple(c for c in non_key_columns if c not in merge_keys)
     return ArchiveMergeConfig(
         source_schema="ext",
         source_table=f"{target_table}_dfm",
@@ -32,10 +69,11 @@ def _arc_config(
         target_table=target_table,
         merge_keys=merge_keys,
         non_key_columns=non_key_columns,
-        checkpoint_query=(
-            "SELECT CAST(MAX(COALESCE([Modified], [CreatedOn])) AS NVARCHAR(50)) "
-            f"FROM [arc].[{target_table}]"
+        checkpoint_query=None,
+        flow_start_key=(
+            ("dfm", f"{target_table}_flow_start") if target_table in _FLOW_START_ARC else None
         ),
+        upstream_is_full_load=target_table in _FULL_LOAD_ARC,
         strategy="upsert",
     )
 
@@ -45,9 +83,10 @@ def _arc_config(
 # ---------------------------------------------------------------------------
 
 AFDELING_SYDAX_ARCHIVE_CONFIG = _arc_config(
-    target_table="afdeling_sydax",
-    merge_keys=("Kildesystem", "Afdelingsnummer"),
+    target_table="sydax_afdeling",
+    merge_keys=("Kildesystem", "RECID", "StartDateTime"),
     non_key_columns=(
+        "Afdelingsnummer",
         "AfdelingId",
         "Afdelingstekst",
         "AktivFra",
@@ -71,10 +110,10 @@ AFDELING_SYDAX_ARCHIVE_CONFIG = _arc_config(
 )
 
 FINANSKONTO_SYDAX_ARCHIVE_CONFIG = _arc_config(
-    target_table="finanskonto_sydax",
-    merge_keys=("Kildesystem", "Kontonummer"),
+    target_table="sydax_finanskonto",
+    merge_keys=("Kildesystem", "FinanskontoId", "StartDateTime"),
     non_key_columns=(
-        "FinanskontoId",
+        "Kontonummer",
         "ErLukket",
         "ve_RECID",
         "afd_RECID",
@@ -98,10 +137,11 @@ FINANSKONTO_SYDAX_ARCHIVE_CONFIG = _arc_config(
 )
 
 FINANSKONTO_OMKOSTNINGSSTED_SYDAX_ARCHIVE_CONFIG = _arc_config(
-    target_table="finanskonto_omkostningssted_sydax",
-    merge_keys=("Kildesystem", "FinanskontoId", "Omkostningsstedid"),
+    target_table="sydax_finanskonto_omkostningssted",
+    merge_keys=("Kildesystem", "FinanskontoOmkostningsstedid", "StartDateTime"),
     non_key_columns=(
-        "FinanskontoOmkostningsstedid",
+        "FinanskontoId",
+        "Omkostningsstedid",
         "ref_LedgerTableId",
         "RunId",
         "StartDateTime",
@@ -113,8 +153,8 @@ FINANSKONTO_OMKOSTNINGSSTED_SYDAX_ARCHIVE_CONFIG = _arc_config(
 )
 
 HOVEDKONTO_SYDAX_ARCHIVE_CONFIG = _arc_config(
-    target_table="hovedkonto_sydax",
-    merge_keys=("Kildesystem", "ref_RECID"),
+    target_table="sydax_hovedkonto",
+    merge_keys=("Kildesystem", "ref_RECID", "StartDateTime"),
     non_key_columns=(
         "HovedkontoId",
         "Hovedkontonummer",
@@ -162,10 +202,10 @@ HOVEDKONTO_SYDAX_ARCHIVE_CONFIG = _arc_config(
 )
 
 OMKOSTNINGSSTED_HIERARKI_SYDAX_ARCHIVE_CONFIG = _arc_config(
-    target_table="omkostningssted_hierarki_sydax",
-    merge_keys=("Kildesystem", "max_OmkostningsstedId"),
+    target_table="sydax_omkostningssted_hierarki",
+    merge_keys=("Kildesystem", "OmkostningsstedHierarkiId", "StartDateTime"),
     non_key_columns=(
-        "OmkostningsstedHierarkiId",
+        "max_OmkostningsstedId",
         "jeId1",
         "veId2",
         "afId2",
@@ -278,8 +318,8 @@ OMKOSTNINGSSTED_HIERARKI_SYDAX_ARCHIVE_CONFIG = _arc_config(
 )
 
 GRUPPERING_SYDAX_ARCHIVE_CONFIG = _arc_config(
-    target_table="gruppering_sydax",
-    merge_keys=("Kildesystem", "RECID"),
+    target_table="sydax_gruppering",
+    merge_keys=("Kildesystem", "RECID", "StartDateTime"),
     non_key_columns=(
         "GrupperingId",
         "Grupperingsnummer",
@@ -302,8 +342,8 @@ GRUPPERING_SYDAX_ARCHIVE_CONFIG = _arc_config(
 )
 
 GRUPPERING_AUTORISERET_SYDAX_ARCHIVE_CONFIG = _arc_config(
-    target_table="gruppering_autoriseret_sydax",
-    merge_keys=("Kildesystem", "ref_RECID"),
+    target_table="sydax_gruppering_autoriseret",
+    merge_keys=("Kildesystem", "ref_RECID", "StartDateTime"),
     non_key_columns=(
         "G1Id",
         "G1",
@@ -326,8 +366,8 @@ GRUPPERING_AUTORISERET_SYDAX_ARCHIVE_CONFIG = _arc_config(
 )
 
 ART_SYDAX_ARCHIVE_CONFIG = _arc_config(
-    target_table="art_sydax",
-    merge_keys=("Kildesystem", "RECID"),
+    target_table="sydax_art",
+    merge_keys=("Kildesystem", "RECID", "StartDateTime"),
     non_key_columns=(
         "ArtId",
         "Artsnummer",
@@ -352,8 +392,8 @@ ART_SYDAX_ARCHIVE_CONFIG = _arc_config(
 )
 
 FUNKTION_SYDAX_ARCHIVE_CONFIG = _arc_config(
-    target_table="funktion_sydax",
-    merge_keys=("Kildesystem", "ref_RECID"),
+    target_table="sydax_funktion",
+    merge_keys=("Kildesystem", "ref_RECID", "StartDateTime"),
     non_key_columns=(
         "FunktionId",
         "F1",
@@ -374,8 +414,8 @@ FUNKTION_SYDAX_ARCHIVE_CONFIG = _arc_config(
 )
 
 DRANST_SYDAX_ARCHIVE_CONFIG = _arc_config(
-    target_table="dranst_sydax",
-    merge_keys=("Kildesystem", "ref_RECID"),
+    target_table="sydax_dranst",
+    merge_keys=("Kildesystem", "ref_RECID", "StartDateTime"),
     non_key_columns=(
         "DranstId",
         "D1",
@@ -394,10 +434,10 @@ DRANST_SYDAX_ARCHIVE_CONFIG = _arc_config(
 )
 
 KREDITOR_SYDAX_ARCHIVE_CONFIG = _arc_config(
-    target_table="kreditor_sydax",
-    merge_keys=("Kildesystem", "Kreditornummer"),
+    target_table="sydax_kreditor",
+    merge_keys=("Kildesystem", "KreditorId", "StartDateTime"),
     non_key_columns=(
-        "KreditorId",
+        "Kreditornummer",
         "Kreditornavn",
         "Soegenavn",
         "JuridiskEnhed",
@@ -419,7 +459,7 @@ KREDITOR_SYDAX_ARCHIVE_CONFIG = _arc_config(
 )
 
 FINANSPOSTERING_SYDAX_ARCHIVE_CONFIG = _arc_config(
-    target_table="finanspostering_sydax",
+    target_table="sydax_finanspostering",
     merge_keys=("Kildesystem", "ref_LedgertransId"),
     non_key_columns=(
         "FinansposteringId",
@@ -467,7 +507,7 @@ FINANSPOSTERING_SYDAX_ARCHIVE_CONFIG = _arc_config(
 )
 
 KREDITORTRANSAKTION_SYDAX_ARCHIVE_CONFIG = _arc_config(
-    target_table="kreditortransaktion_sydax",
+    target_table="sydax_kreditortransaktion",
     merge_keys=("Kildesystem", "ref_VendTransId"),
     non_key_columns=(
         "KreditortransaktionId",
@@ -518,7 +558,7 @@ KREDITORTRANSAKTION_SYDAX_ARCHIVE_CONFIG = _arc_config(
 )
 
 FINANSPOSTERING_KREDITORTRANS_RELATION_SYDAX_ARCHIVE_CONFIG = _arc_config(
-    target_table="finanspostering_kreditortrans_relation_sydax",
+    target_table="sydax_finanspostering_kreditortrans_relation",
     merge_keys=("Kildesystem", "ref_LedgertransId", "KreditortransaktionId"),
     non_key_columns=(
         "FinansposteringKreditortransRelationId",
@@ -533,10 +573,10 @@ FINANSPOSTERING_KREDITORTRANS_RELATION_SYDAX_ARCHIVE_CONFIG = _arc_config(
 )
 
 FINANSKLADDE_SYDAX_ARCHIVE_CONFIG = _arc_config(
-    target_table="finanskladde_sydax",
-    merge_keys=("Kildesystem", "Kladdenummer"),
+    target_table="sydax_finanskladde",
+    merge_keys=("Kildesystem", "FinanskladdeId", "StartDateTime"),
     non_key_columns=(
-        "FinanskladdeId",
+        "Kladdenummer",
         "Kladdetekst",
         "Kladdenavn",
         "ErLukket",
@@ -554,7 +594,7 @@ FINANSKLADDE_SYDAX_ARCHIVE_CONFIG = _arc_config(
 )
 
 FINANSKLADDELINJE_SYDAX_ARCHIVE_CONFIG = _arc_config(
-    target_table="finanskladdelinje_sydax",
+    target_table="sydax_finanskladdelinje",
     merge_keys=("Kildesystem", "ref_LedgertransId"),
     non_key_columns=(
         "FinanskladdelinjeId",
@@ -581,10 +621,10 @@ FINANSKLADDELINJE_SYDAX_ARCHIVE_CONFIG = _arc_config(
 )
 
 FINANSTRANSAKTIONSTYPE_SYDAX_ARCHIVE_CONFIG = _arc_config(
-    target_table="finanstransaktionstype_sydax",
-    merge_keys=("Kildesystem", "Transaktionstypenummer"),
+    target_table="sydax_finanstransaktionstype",
+    merge_keys=("Kildesystem", "FinanstransaktionstypeId", "StartDateTime"),
     non_key_columns=(
-        "FinanstransaktionstypeId",
+        "Transaktionstypenummer",
         "Transaktionstypetekst",
         "RunId",
         "StartDateTime",

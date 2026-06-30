@@ -5,8 +5,8 @@
 # root for the full AGPL-3.0 license text.
 
 """
-MySupply DFM archive layer — 5 UPSERT archives from ext.*_mysupply_dfm into
-arc.*_mysupply, keyed on `id` with `update_only_on_change=True`.
+MySupply DFM archive layer — 5 UPSERT archives from ext.mysupply_*_dfm into
+arc.mysupply_*, keyed on `id` with `update_only_on_change=True`.
 
 Each archive owns its own DFM checkpoint in meta.dfm_state (scope=staging) and
 advances it on success to the value captured by its sibling
@@ -61,7 +61,7 @@ def _arc_config(target_table: str, non_key_columns: tuple[str, ...]) -> ArchiveM
 # ---------------------------------------------------------------------------
 
 HEADER_ARCHIVE_CONFIG = _arc_config(
-    target_table="statistic_invoice_header_mysupply",
+    target_table="mysupply_statistic_invoice_header",
     non_key_columns=(
         "metadata_id",
         "FakturaNr",
@@ -226,7 +226,7 @@ HEADER_ARCHIVE_CONFIG = _arc_config(
 )
 
 METADATA_ARCHIVE_CONFIG = _arc_config(
-    target_table="metadata_mysupply",
+    target_table="mysupply_metadata",
     non_key_columns=(
         "Guid",
         "data_unit_identity_unique_name",
@@ -252,7 +252,7 @@ METADATA_ARCHIVE_CONFIG = _arc_config(
 )
 
 LINE_ARCHIVE_CONFIG = _arc_config(
-    target_table="statistic_invoice_line_mysupply",
+    target_table="mysupply_statistic_invoice_line",
     non_key_columns=(
         "statistic_invoice_header_id",
         "FakturaLinjeNr",
@@ -357,7 +357,7 @@ LINE_ARCHIVE_CONFIG = _arc_config(
 )
 
 HEADER_ALLOWANCE_CHARGE_ARCHIVE_CONFIG = _arc_config(
-    target_table="statistic_invoice_header_allowance_charge_mysupply",
+    target_table="mysupply_statistic_invoice_header_allowance_charge",
     non_key_columns=(
         "statistic_invoice_header_id",
         "GebyrKategori",
@@ -372,7 +372,7 @@ HEADER_ALLOWANCE_CHARGE_ARCHIVE_CONFIG = _arc_config(
 )
 
 LINE_ALLOWANCE_CHARGE_ARCHIVE_CONFIG = _arc_config(
-    target_table="statistic_invoice_line_allowance_charge_mysupply",
+    target_table="mysupply_statistic_invoice_line_allowance_charge",
     non_key_columns=(
         "statistic_invoice_line_id",
         "FakturaUdstederGebyrKategori",

@@ -1,5 +1,5 @@
-MERGE [arc].[finanskladdelinje_sydax] AS tgt
-USING [ext].[finanskladdelinje_sydax_dfm] AS src
+MERGE [arc].[sydax_finanskladdelinje] AS tgt
+USING [ext].[sydax_finanskladdelinje_dfm] AS src
     ON tgt.[Kildesystem] = src.[Kildesystem] AND tgt.[ref_LedgertransId] = src.[ref_LedgertransId]
 WHEN MATCHED THEN UPDATE SET
         tgt.[FinanskladdelinjeId] = src.[FinanskladdelinjeId],

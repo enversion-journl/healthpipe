@@ -63,6 +63,14 @@ SOURCE_QUERY = """
         v.unspsc2,
         u2.betegn AS unspsc_intern_navn,
         v.aktiv,
+        v.faelvnr,
+        v.ean_vnr,
+        v.billed,
+        v.oprbruger,
+        zz.bd_navn AS oprbruger_navn,
+        v.billedli,
+        v.ejlukkes,
+        v.steril,
         v.pro2modified
     FROM dbo.vare v
     LEFT JOIN dbo.vareart va ON va.vareart = v.vareart
@@ -71,12 +79,15 @@ SOURCE_QUERY = """
     LEFT JOIN dbo.moms mo ON mo.momskd = v.momskd
     LEFT JOIN dbo.unspsc u1 ON u1.unspsc = v.unspc
     LEFT JOIN dbo.unspsc u2 ON u2.unspsc = v.unspsc2
+    LEFT JOIN dbo.zz_oper zz ON zz.bd_init = v.oprbruger
     WHERE EXISTS (SELECT 1 FROM delta_vnr d WHERE d.vnr = v.vnr)
 
     UNION ALL
 
     SELECT
         d.vnr,
+        NULL, NULL, NULL, NULL,
+        NULL, NULL, NULL, NULL,
         NULL, NULL, NULL, NULL,
         NULL, NULL, NULL, NULL,
         NULL, NULL, NULL, NULL,
@@ -109,6 +120,14 @@ COLUMNS = [
     "unspsc2",
     "unspsc_intern_navn",
     "aktiv",
+    "faelvnr",
+    "ean_vnr",
+    "billed",
+    "oprbruger",
+    "oprbruger_navn",
+    "billedli",
+    "ejlukkes",
+    "steril",
     "pro2modified",
 ]
 
@@ -116,7 +135,6 @@ INSERT_COLUMNS = [
     "vnr",
     "navn",
     "navn2",
-    "varenavn_concat",
     "varestr",
     "basisenh",
     "vareart",
@@ -135,9 +153,61 @@ INSERT_COLUMNS = [
     "unspsc2",
     "unspsc_intern_navn",
     "aktiv",
+    "faelvnr",
+    "ean_vnr",
+    "billed",
+    "oprbruger",
+    "oprbruger_navn",
+    "billedli",
+    "ejlukkes",
+    "steril",
     "pro2modified",
     "CleanCode_IlsVare",
 ]
+
+ENRICHED_TABLE_DDL = f"""
+    IF NOT EXISTS (
+        SELECT * FROM sys.objects
+        WHERE object_id = OBJECT_ID(N'[ext].[{ENRICHED_TARGET_TABLE}]')
+          AND type = 'U'
+    )
+    BEGIN
+        CREATE TABLE [ext].[{ENRICHED_TARGET_TABLE}] (
+            [vnr] NVARCHAR(100) NULL,
+            [navn] NVARCHAR(MAX) NULL,
+            [navn2] NVARCHAR(MAX) NULL,
+            [varestr] NVARCHAR(255) NULL,
+            [basisenh] NVARCHAR(50) NULL,
+            [vareart] NVARCHAR(50) NULL,
+            [vareart_navn] NVARCHAR(255) NULL,
+            [varegrp] NVARCHAR(50) NULL,
+            [varegrp_navn] NVARCHAR(255) NULL,
+            [varetype] NVARCHAR(50) NULL,
+            [varetype_navn] NVARCHAR(255) NULL,
+            [momskd] NVARCHAR(50) NULL,
+            [momskode_navn] NVARCHAR(255) NULL,
+            [momspct] DECIMAL(18,4) NULL,
+            [oprdto] DATETIME2 NULL,
+            [oprtid] INT NULL,
+            [unspc] NVARCHAR(50) NULL,
+            [unspsc_navn] NVARCHAR(255) NULL,
+            [unspsc2] NVARCHAR(50) NULL,
+            [unspsc_intern_navn] NVARCHAR(255) NULL,
+            [aktiv] BIT NULL,
+            [faelvnr] NVARCHAR(100) NULL,
+            [ean_vnr] NVARCHAR(100) NULL,
+            [billed] NVARCHAR(MAX) NULL,
+            [oprbruger] NVARCHAR(50) NULL,
+            [oprbruger_navn] NVARCHAR(255) NULL,
+            [billedli] NVARCHAR(MAX) NULL,
+            [ejlukkes] NVARCHAR(50) NULL,
+            [steril] NVARCHAR(50) NULL,
+            [pro2modified] DATETIME2 NULL,
+            [CleanCode_IlsVare] NVARCHAR(100) NULL,
+            [DW_LoadTimestamp] DATETIME2 NOT NULL DEFAULT SYSDATETIME()
+        ) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY];
+    END
+"""
 
 
 def _make_extract_vare_enriched_asset(partition_type: str):
@@ -213,11 +283,6 @@ def _make_extract_vare_enriched_asset(partition_type: str):
                     row_dict = dict(zip(COLUMNS, row, strict=False))
                     row_view = RowView(row_dict)
                     row_dict["CleanCode_IlsVare"] = ilsvare_clean_code_ils(row_view)
-                    navn = str(row_dict.get("navn") or "").strip()
-                    navn2 = str(row_dict.get("navn2") or "").strip()
-                    row_dict["varenavn_concat"] = (
-                        f"{navn} {navn2}".strip() if (navn or navn2) else None
-                    )
                     rows.append(row_dict)
             finally:
                 source_cursor.close()
@@ -236,44 +301,7 @@ def _make_extract_vare_enriched_asset(partition_type: str):
         with mssql_target_staging.get_connection() as conn:
             cursor = conn.cursor()
             try:
-                cursor.execute(
-                    f"""
-                    IF NOT EXISTS (
-                        SELECT * FROM sys.objects
-                        WHERE object_id = OBJECT_ID(N'[ext].[{ENRICHED_TARGET_TABLE}]')
-                          AND type = 'U'
-                    )
-                    BEGIN
-                        CREATE TABLE [ext].[{ENRICHED_TARGET_TABLE}] (
-                            [vnr] NVARCHAR(100) NULL,
-                            [navn] NVARCHAR(MAX) NULL,
-                            [navn2] NVARCHAR(MAX) NULL,
-                            [varenavn_concat] NVARCHAR(MAX) NULL,
-                            [varestr] NVARCHAR(255) NULL,
-                            [basisenh] NVARCHAR(50) NULL,
-                            [vareart] NVARCHAR(50) NULL,
-                            [vareart_navn] NVARCHAR(255) NULL,
-                            [varegrp] NVARCHAR(50) NULL,
-                            [varegrp_navn] NVARCHAR(255) NULL,
-                            [varetype] NVARCHAR(50) NULL,
-                            [varetype_navn] NVARCHAR(255) NULL,
-                            [momskd] NVARCHAR(50) NULL,
-                            [momskode_navn] NVARCHAR(255) NULL,
-                            [momspct] DECIMAL(18,4) NULL,
-                            [oprdto] DATETIME2 NULL,
-                            [oprtid] INT NULL,
-                            [unspc] NVARCHAR(50) NULL,
-                            [unspsc_navn] NVARCHAR(255) NULL,
-                            [unspsc2] NVARCHAR(50) NULL,
-                            [unspsc_intern_navn] NVARCHAR(255) NULL,
-                            [aktiv] BIT NULL,
-                            [pro2modified] DATETIME2 NULL,
-                            [CleanCode_IlsVare] NVARCHAR(100) NULL,
-                            [DW_LoadTimestamp] DATETIME2 NOT NULL DEFAULT SYSDATETIME()
-                        ) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY];
-                    END
-                """
-                )
+                cursor.execute(ENRICHED_TABLE_DDL)
 
                 cursor.execute(f"TRUNCATE TABLE [ext].[{ENRICHED_TARGET_TABLE}]")
                 context.log.info(f"Truncated ext.{ENRICHED_TARGET_TABLE} before loading")

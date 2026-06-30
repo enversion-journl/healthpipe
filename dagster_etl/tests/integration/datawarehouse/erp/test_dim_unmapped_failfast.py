@@ -131,7 +131,7 @@ def _seed_unmapped_dim_vareudlevering(real_mssql_target_resource) -> None:
                 BEGIN
                     CREATE TABLE [stg].[dim_vareudlevering_ils] (
                         [CleanCode_Vareudlevering] NVARCHAR(500) NULL,
-                        [Revisionsnummer] NVARCHAR(255) NULL,
+                        [Rekvisitionsnummer] NVARCHAR(255) NULL,
                         [Foelgeseddelnummer] NVARCHAR(255) NULL,
                         [Brik] NVARCHAR(255) NULL,
                         [Leverandoernummer] NVARCHAR(255) NULL,
@@ -152,7 +152,7 @@ def _seed_unmapped_dim_vareudlevering(real_mssql_target_resource) -> None:
                         [Salgsordre] NVARCHAR(255) NULL,
                         [SalgsordreId] NVARCHAR(255) NULL,
                         [Salgsfakturanummer] NVARCHAR(255) NULL,
-                        [RevisionsvarerId] NVARCHAR(255) NULL,
+                        [RekvisitionsvareId] NVARCHAR(255) NULL,
                         [PlukvarerId] NVARCHAR(255) NULL,
                         [Afleveringsoperatoer] NVARCHAR(255) NULL,
                         [Afleveringstekst] NVARCHAR(500) NULL,
@@ -172,14 +172,14 @@ def _seed_unmapped_dim_vareudlevering(real_mssql_target_resource) -> None:
             cursor.execute(
                 """
                 INSERT INTO [stg].[dim_vareudlevering_ils] (
-                    CleanCode_Vareudlevering, Revisionsnummer, Foelgeseddelnummer,
+                    CleanCode_Vareudlevering, Rekvisitionsnummer, Foelgeseddelnummer,
                     Brik, Leverandoernummer, Ordrenummer, Ordrelinje,
                     sw_direkte_udlevering, sw_pakkeseddel, sw_foelgeseddel,
                     sw_fly, sw_haster, sw_erstat,
                     Projektnummer, Kontonummer_kode, Bruger, bk_prrowid,
                     Referencenummer, Referencelinje,
                     Salgsordre, SalgsordreId, Salgsfakturanummer,
-                    RevisionsvarerId, PlukvarerId,
+                    RekvisitionsvareId, PlukvarerId,
                     Afleveringsoperatoer, Afleveringstekst,
                     Afleveringsstregkode, Vognnummer
                 )

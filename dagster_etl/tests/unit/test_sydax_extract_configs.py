@@ -21,23 +21,23 @@ from DSI.mssql.extract.sydax_extract_configs import (
 )
 
 EXPECTED_TARGETS = {
-    "afdeling_sydax_dfm",
-    "finanskonto_sydax_dfm",
-    "finanskonto_omkostningssted_sydax_dfm",
-    "hovedkonto_sydax_dfm",
-    "omkostningssted_hierarki_sydax_dfm",
-    "gruppering_sydax_dfm",
-    "gruppering_autoriseret_sydax_dfm",
-    "art_sydax_dfm",
-    "funktion_sydax_dfm",
-    "dranst_sydax_dfm",
-    "kreditor_sydax_dfm",
-    "finanspostering_sydax_dfm",
-    "kreditortransaktion_sydax_dfm",
-    "finanspostering_kreditortrans_relation_sydax_dfm",
-    "finanskladde_sydax_dfm",
-    "finanskladdelinje_sydax_dfm",
-    "finanstransaktionstype_sydax_dfm",
+    "sydax_afdeling_dfm",
+    "sydax_finanskonto_dfm",
+    "sydax_finanskonto_omkostningssted_dfm",
+    "sydax_hovedkonto_dfm",
+    "sydax_omkostningssted_hierarki_dfm",
+    "sydax_gruppering_dfm",
+    "sydax_gruppering_autoriseret_dfm",
+    "sydax_art_dfm",
+    "sydax_funktion_dfm",
+    "sydax_dranst_dfm",
+    "sydax_kreditor_dfm",
+    "sydax_finanspostering_dfm",
+    "sydax_kreditortransaktion_dfm",
+    "sydax_finanspostering_kreditortrans_relation_dfm",
+    "sydax_finanskladde_dfm",
+    "sydax_finanskladdelinje_dfm",
+    "sydax_finanstransaktionstype_dfm",
 }
 
 
@@ -52,56 +52,110 @@ def test_target_table_coverage():
 
 def test_all_targets_end_in_sydax_dfm():
     for cfg in SYDAX_DFM_EXTRACT_CONFIGS:
-        assert cfg.target_table.endswith("_sydax_dfm"), cfg.target_table
+        assert cfg.target_table.startswith("sydax_") and cfg.target_table.endswith(
+            "_dfm"
+        ), cfg.target_table
 
 
-def test_delta_strategy_uniform():
-    bridge_target = "finanspostering_kreditortrans_relation_sydax_dfm"
-    for cfg in SYDAX_DFM_EXTRACT_CONFIGS:
-        assert cfg.is_full_load is False, cfg.target_table
+# Per-table delta strategy (see the 2026-06-25 design spec).
+_FULL_LOAD = {
+    "sydax_dranst_dfm",
+    "sydax_art_dfm",
+    "sydax_finanstransaktionstype_dfm",
+    "sydax_gruppering_autoriseret_dfm",
+    "sydax_funktion_dfm",
+    "sydax_hovedkonto_dfm",
+    "sydax_gruppering_dfm",
+    "sydax_afdeling_dfm",
+    "sydax_omkostningssted_hierarki_dfm",
+}
+_RDWTS_DELTA = {
+    "sydax_kreditor_dfm",
+    "sydax_finanskladde_dfm",
+    "sydax_finanskonto_omkostningssted_dfm",
+    "sydax_finanskonto_dfm",
+    "sydax_finanskladdelinje_dfm",
+}
+_BUSINESS_TS_DELTA = {
+    "sydax_kreditortransaktion_dfm",
+    "sydax_finanspostering_dfm",
+    "sydax_finanspostering_kreditortrans_relation_dfm",
+}
+
+
+def test_buckets_partition_all_17():
+    assert _FULL_LOAD | _RDWTS_DELTA | _BUSINESS_TS_DELTA == EXPECTED_TARGETS
+    assert len(_FULL_LOAD) + len(_RDWTS_DELTA) + len(_BUSINESS_TS_DELTA) == 17
+
+
+def test_full_load_tables_have_no_delta():
+    by = {c.target_table: c for c in SYDAX_DFM_EXTRACT_CONFIGS}
+    for tgt in _FULL_LOAD:
+        cfg = by[tgt]
+        assert cfg.is_full_load is True, tgt
+        assert cfg.delta_expression is None, tgt
+        assert cfg.checkpoint_from is None, tgt
+
+
+def test_rdwts_delta_tables():
+    by = {c.target_table: c for c in SYDAX_DFM_EXTRACT_CONFIGS}
+    for tgt in _RDWTS_DELTA:
+        cfg = by[tgt]
+        assert cfg.is_full_load is False, tgt
+        assert cfg.delta_expression == "[RdwTs]", tgt
         assert cfg.checkpoint_type == "datetime"
         assert cfg.lookback_days == 3
-        if cfg.target_table == bridge_target:
-            assert (
-                cfg.delta_expression == "COALESCE(bridge.[Modified], bridge.[CreatedOn])"
-            ), cfg.target_table
-        else:
-            assert cfg.delta_expression == "COALESCE([Modified], [CreatedOn])", cfg.target_table
 
 
-def test_checkpoint_from_points_to_arc():
+def test_business_ts_delta_tables():
+    by = {c.target_table: c for c in SYDAX_DFM_EXTRACT_CONFIGS}
+    assert by["sydax_finanspostering_dfm"].delta_expression == "[Oprettelsestidspunkt]"
+    assert by["sydax_finanspostering_kreditortrans_relation_dfm"].delta_expression == (
+        "post.[Oprettelsestidspunkt]"
+    )
+    kt = by["sydax_kreditortransaktion_dfm"].delta_expression
+    # GREATEST emulation over the three activity timestamps.
+    assert "MAX(v)" in kt
+    for col in ("SidstUdlignetDato", "GodkendtDato", "Oprettelsestidspunkt"):
+        assert col in kt, col
+
+
+def test_checkpoint_from_points_to_arc_for_delta_tables():
     for cfg in SYDAX_DFM_EXTRACT_CONFIGS:
+        if cfg.is_full_load:
+            continue
         assert cfg.checkpoint_from is not None, cfg.target_table
         schema, table = cfg.checkpoint_from
         assert schema == "arc"
         assert table == cfg.target_table.removesuffix("_dfm")
 
 
-def test_null_filter_on_ref_id_tables():
+def test_null_filter_on_nullable_key_tables():
     targets_with_null_filter = {
-        "hovedkonto_sydax_dfm",
-        "gruppering_sydax_dfm",
-        "gruppering_autoriseret_sydax_dfm",
-        "art_sydax_dfm",
-        "funktion_sydax_dfm",
-        "dranst_sydax_dfm",
-        "finanspostering_sydax_dfm",
-        "kreditortransaktion_sydax_dfm",
-        "finanskladdelinje_sydax_dfm",
+        # full-load masters keyed on a nullable RECID/ref_RECID
+        "sydax_hovedkonto_dfm",
+        "sydax_gruppering_dfm",
+        "sydax_gruppering_autoriseret_dfm",
+        "sydax_art_dfm",
+        "sydax_funktion_dfm",
+        "sydax_dranst_dfm",
+        "sydax_afdeling_dfm",
+        # delta transaction tables keyed on a nullable ERP key
+        "sydax_finanspostering_dfm",
+        "sydax_kreditortransaktion_dfm",
+        "sydax_finanskladdelinje_dfm",
+        "sydax_finanspostering_kreditortrans_relation_dfm",
     }
     cfgs_by_target = {cfg.target_table: cfg for cfg in SYDAX_DFM_EXTRACT_CONFIGS}
     for tgt in targets_with_null_filter:
         cfg = cfgs_by_target[tgt]
-        # The custom WHERE / select_from_expr must mention "IS NOT NULL" on
-        # the stable key. Either as a custom_where_clause (not a field on
-        # DfmExtractConfig today — implemented via select_from_expr WHERE).
         assert cfg.select_from_expr is not None, tgt
         assert "IS NOT NULL" in cfg.select_from_expr, tgt
 
 
 def test_bridge_uses_select_from_expr_with_join():
     cfgs_by_target = {cfg.target_table: cfg for cfg in SYDAX_DFM_EXTRACT_CONFIGS}
-    bridge = cfgs_by_target["finanspostering_kreditortrans_relation_sydax_dfm"]
+    bridge = cfgs_by_target["sydax_finanspostering_kreditortrans_relation_dfm"]
     assert bridge.select_from_expr is not None
     assert "JOIN" in bridge.select_from_expr.upper()
     assert "ref_LedgertransId" in bridge.select_from_expr

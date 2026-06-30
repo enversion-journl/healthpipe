@@ -12,46 +12,46 @@ import pytest
 
 EXPECTED_TABLES = {
     # Pattern A — full load (10)
-    "vareart_ils_dfm",
-    "varegrp_ils_dfm",
-    "varetype_ils_dfm",
-    "moms_ils_dfm",
-    "lev_ils_dfm",
-    "sgh_ils_dfm",
-    "lgr_ils_dfm",
-    "rekv_ils_dfm",
-    "rekvgrp_ils_dfm",
-    "lafth_ils_dfm",
+    "ils_vareart_dfm",
+    "ils_varegrp_dfm",
+    "ils_varetype_dfm",
+    "ils_moms_dfm",
+    "ils_lev_dfm",
+    "ils_sgh_dfm",
+    "ils_lgr_dfm",
+    "ils_rekv_dfm",
+    "ils_rekvgrp_dfm",
+    "ils_lafth_dfm",
     # Pattern B — delta on sysdato (7)
-    "laftdpris_ils_dfm",
-    "laftdstam_ils_dfm",
-    "laftd_ils_dfm",
-    "udlev_ils_dfm",
-    "lgrvare_ils_dfm",
-    "pmdm_ils_dfm",
-    "indkfak_ils_dfm",
+    "ils_laftdpris_dfm",
+    "ils_laftdstam_dfm",
+    "ils_laftd_dfm",
+    "ils_udlev_dfm",
+    "ils_lgrvare_dfm",
+    "ils_pmdm_dfm",
+    "ils_indkfak_dfm",
 }
 
 PATTERN_A_TABLES = {
-    "vareart_ils_dfm",
-    "varegrp_ils_dfm",
-    "varetype_ils_dfm",
-    "moms_ils_dfm",
-    "lev_ils_dfm",
-    "sgh_ils_dfm",
-    "lgr_ils_dfm",
-    "rekv_ils_dfm",
-    "rekvgrp_ils_dfm",
-    "lafth_ils_dfm",
+    "ils_vareart_dfm",
+    "ils_varegrp_dfm",
+    "ils_varetype_dfm",
+    "ils_moms_dfm",
+    "ils_lev_dfm",
+    "ils_sgh_dfm",
+    "ils_lgr_dfm",
+    "ils_rekv_dfm",
+    "ils_rekvgrp_dfm",
+    "ils_lafth_dfm",
 }
 PATTERN_DELTA_TABLES = {
-    "laftdpris_ils_dfm",
-    "laftdstam_ils_dfm",
-    "laftd_ils_dfm",
-    "udlev_ils_dfm",
-    "lgrvare_ils_dfm",
-    "pmdm_ils_dfm",
-    "indkfak_ils_dfm",
+    "ils_laftdpris_dfm",
+    "ils_laftdstam_dfm",
+    "ils_laftd_dfm",
+    "ils_udlev_dfm",
+    "ils_lgrvare_dfm",
+    "ils_pmdm_dfm",
+    "ils_indkfak_dfm",
 }
 
 ALREADY_ARCHIVED = {"lgrbeh_ils", "afdlgrbeh_ils", "unspsc_ils", "vare_ils"}
@@ -151,7 +151,7 @@ def test_archive_source_table_uses_dfm_postfix():
     from DSI.mssql.archive import ils_dfm_archive_configs
 
     for cfg in ils_dfm_archive_configs:
-        assert cfg.source_table.endswith("_ils_dfm"), cfg.target_table
+        assert cfg.source_table.startswith("ils_") and cfg.source_table.endswith("_dfm"), cfg.target_table
         assert not cfg.target_table.endswith("_dfm"), cfg.target_table
         assert cfg.target_table == cfg.source_table.replace("_dfm", "")
 

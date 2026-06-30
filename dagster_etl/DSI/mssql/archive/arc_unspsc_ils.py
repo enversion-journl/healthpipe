@@ -34,7 +34,9 @@ UNSPSC_ILS_ARCHIVE_CONFIG = ArchiveMergeConfig(
         "pro2created",
         "pro2modified",
     ),
-    checkpoint_query="SELECT CAST(MAX([sysdato]) AS NVARCHAR(50)) FROM [arc].[unspsc_ils]",
+    # CONVERT(..., 121) yields ISO; a plain CAST of `datetime` produces style-0
+    # ("Jun 23 2026 12:00AM"), which the checkpoint validator rejects.
+    checkpoint_query="SELECT CONVERT(NVARCHAR(50), MAX([sysdato]), 121) FROM [arc].[unspsc_ils]",
     strategy="upsert",
 )
 

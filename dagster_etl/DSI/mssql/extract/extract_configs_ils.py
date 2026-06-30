@@ -82,7 +82,7 @@ lagerbeholdning_extract_assets = create_dfm_extraction_assets(
 #      pmdm, indkfak — sysdato is the canonical "row touched at" column for
 #      ILS (evidenced by the existing arc.vare_ils precedent using MAX([sysdato])).
 #
-# All 17 archive into arc.<t>_ils (no postfix). Already-archived ILS tables
+# All 17 archive into arc.ils_<t>. Already-archived ILS tables
 # (lgrbeh, afdlgrbeh, unspsc, vare) are NOT in this list — see
 # ils_unspsc_extract_assets and lagerbeholdning_extract_assets above.
 #
@@ -121,7 +121,7 @@ def _ils_full_load_config(src_table: str) -> DfmExtractConfig:
     return DfmExtractConfig(
         source_schema="dbo",
         source_table=src_table,
-        target_table=f"{src_table}_ils_dfm",
+        target_table=f"ils_{src_table}_dfm",
         is_full_load=True,
         checkpoint_from=None,
         description=f"ILS {src_table} reference (full load).",
@@ -132,10 +132,10 @@ def _ils_sysdato_config(src_table: str) -> DfmExtractConfig:
     return DfmExtractConfig(
         source_schema="dbo",
         source_table=src_table,
-        target_table=f"{src_table}_ils_dfm",
+        target_table=f"ils_{src_table}_dfm",
         delta_column="sysdato",
         checkpoint_type="datetime",
-        checkpoint_from=("arc", f"{src_table}_ils"),
+        checkpoint_from=("arc", f"ils_{src_table}"),
         description=f"ILS {src_table} delta (sysdato).",
     )
 

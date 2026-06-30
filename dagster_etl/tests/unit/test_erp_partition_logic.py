@@ -808,7 +808,7 @@ class TestILSPartitionedConfigs:
         """ILS_TABLE_CONFIGS_DAILY should have large partitioned tables."""
         from DSI.mssql import ILS_TABLE_CONFIGS_DAILY
 
-        assert len(ILS_TABLE_CONFIGS_DAILY) == 7
+        assert len(ILS_TABLE_CONFIGS_DAILY) == 6
         table_names = [c.source_table for c in ILS_TABLE_CONFIGS_DAILY]
         assert "laftdpris" in table_names  # 187K rows
         assert "laftdstam" in table_names  # 420K rows
@@ -816,7 +816,7 @@ class TestILSPartitionedConfigs:
         assert "lgrvare" in table_names  # 188K rows
         assert "pmdm" in table_names  # 96K rows
         assert "indkfak" in table_names  # 434K rows
-        assert "udlev" in table_names  # 1M rows
+        # udlev removed — migrated to DFM/archive pipeline (US 28691)
 
     def test_ils_daily_configs_use_pro2_columns(self):
         """ILS daily configs should use pro2created-based partitioning."""
@@ -1186,10 +1186,10 @@ class TestILSMonthlyConfigs:
     """Tests for ILS monthly table configurations."""
 
     def test_ils_monthly_configs_exist(self):
-        """ILS_TABLE_CONFIGS_MONTHLY should have 7 large partitioned tables."""
+        """ILS_TABLE_CONFIGS_MONTHLY should have 6 large partitioned tables."""
         from DSI.mssql import ILS_TABLE_CONFIGS_MONTHLY
 
-        assert len(ILS_TABLE_CONFIGS_MONTHLY) == 7
+        assert len(ILS_TABLE_CONFIGS_MONTHLY) == 6
         table_names = [c.source_table for c in ILS_TABLE_CONFIGS_MONTHLY]
         assert "laftdpris" in table_names
         assert "laftdstam" in table_names
@@ -1197,7 +1197,7 @@ class TestILSMonthlyConfigs:
         assert "lgrvare" in table_names
         assert "pmdm" in table_names
         assert "indkfak" in table_names
-        assert "udlev" in table_names
+        # udlev removed — migrated to DFM/archive pipeline (US 28691)
 
     def test_ils_monthly_configs_have_monthly_suffix(self):
         """ILS monthly configs should have _monthly suffix in output_name."""

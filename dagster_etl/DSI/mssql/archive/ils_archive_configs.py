@@ -6,6 +6,8 @@
 
 """ILS DFM archive configs and factory-generated assets.
 
+17 UPSERT archives from ext.ils_*_dfm into arc.ils_* (source-prefixed naming).
+
 Replaces the 17 hand-written arc_<t>_ils.py modules with a config-driven
 factory — mirrors the convention established by
 DSI/mssql/extract/extract_configs.py on the extract side.
@@ -951,9 +953,9 @@ def _full_load_config(table: str) -> ArchiveMergeConfig:
     """Return an ArchiveMergeConfig for a full-load ILS table."""
     return ArchiveMergeConfig(
         source_schema="ext",
-        source_table=f"{table}_ils_dfm",
+        source_table=f"ils_{table}_dfm",
         target_schema="arc",
-        target_table=f"{table}_ils",
+        target_table=f"ils_{table}",
         merge_keys=("prrowid",),
         non_key_columns=_NON_KEY_COLUMNS[table],
         strategy="upsert",
@@ -967,10 +969,15 @@ def _sysdato_config(table: str) -> ArchiveMergeConfig:
     """Return an ArchiveMergeConfig for a sysdato-delta ILS table."""
     return ArchiveMergeConfig(
         source_schema="ext",
-        source_table=f"{table}_ils_dfm",
+        source_table=f"ils_{table}_dfm",
         target_schema="arc",
-        target_table=f"{table}_ils",
-        checkpoint_query=(f"SELECT CAST(MAX([sysdato]) AS NVARCHAR(50)) FROM [arc].[{table}_ils]"),
+        target_table=f"ils_{table}",
+        # CONVERT(..., 121) yields ISO (yyyy-mm-dd hh:mi:ss.mmm). A plain CAST of
+        # a `datetime` column produces style-0 ("Jun 23 2026 12:00AM"), which the
+        # checkpoint validator rejects (utils/sql_safety.validate_checkpoint_value).
+        checkpoint_query=(
+            f"SELECT CONVERT(NVARCHAR(50), MAX([sysdato]), 121) FROM [arc].[ils_{table}]"
+        ),
         merge_keys=("prrowid",),
         non_key_columns=_NON_KEY_COLUMNS[table],
         strategy="upsert",

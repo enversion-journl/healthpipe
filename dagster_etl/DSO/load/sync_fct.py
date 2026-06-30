@@ -193,7 +193,7 @@ def dso_sync_fct_budget(
 
 @dg.asset(
     name="dso_sync_fct_vareudlevering",
-    group_name="erp_dso_sync",
+    group_name="dso_sync_vareudlevering",
     compute_kind="mssql",
     deps=[
         "fct_vareudlevering",

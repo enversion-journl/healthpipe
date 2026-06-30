@@ -1,14 +1,21 @@
 #!/usr/bin/env bash
+
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
 #
 # build-push.sh — host-neutral Docker build-and-push for the Dagster
 # code-server and related images.
 #
-# This script contains ZERO CI-host-specific logic. Azure Pipelines, GitHub
-# Actions and GitLab CI can all invoke it the same way — each only needs a
-# thin wrapper that (a) authenticates to the registry and (b) maps its own
-# native build-metadata variables onto the env vars below. That keeps a future
-# migration between git hosts down to swapping the ~10-line wrapper, not the
-# build logic. See task #28544.
+# This script contains ZERO CI-host-specific logic. Azure Pipelines and GitLab
+# CI can all invoke it the same way — each only needs a thin wrapper that
+# (a) authenticates to the registry and (b) maps its own native build-metadata
+# variables onto the env vars below. That keeps a future migration between CI
+# hosts down to swapping the ~10-line wrapper, not the build logic. See task
+# #28544.
 #
 # Registry authentication is the CALLER's responsibility — it is the one piece
 # that is inherently host-specific. Either authenticate before calling (e.g.
