@@ -1,5 +1,5 @@
-MERGE [arc].[kreditortransaktion_sydax] AS tgt
-USING [ext].[kreditortransaktion_sydax_dfm] AS src
+MERGE [arc].[sydax_kreditortransaktion] AS tgt
+USING [ext].[sydax_kreditortransaktion_dfm] AS src
     ON tgt.[Kildesystem] = src.[Kildesystem] AND tgt.[ref_VendTransId] = src.[ref_VendTransId]
 WHEN MATCHED THEN UPDATE SET
         tgt.[KreditortransaktionId] = src.[KreditortransaktionId],

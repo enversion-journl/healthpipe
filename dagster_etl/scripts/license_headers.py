@@ -37,13 +37,24 @@ INCLUDE_ROOTS = [
     ".gitignore",
     ".gitattributes",
     ".env.template",
+    # Public publish-output coverage: these ship via the publish transform's
+    # whitelist (gitleaks/docker config, the self-build files, the CI workflows).
+    # Keep in sync with healthpipe-infra/publish/config.py so the --check gate
+    # covers every commentable file that ships to the public repo.
+    ".gitleaks.toml",
+    ".dockerignore",
+    ".github/workflows",
+    "infrastructure/containers/dockerfiles/code-server.Dockerfile",
+    "infrastructure/containers/dockerfiles/code-server-base.Dockerfile",
+    "infrastructure/devops/scripts/build-push.sh",
 ]
 
 # Exclude globs are fnmatch patterns over repo-root-relative POSIX paths.
 # A leading "*/" matches at any depth (e.g. fixtures); a bare "name/*" is
-# anchored to the top level (e.g. private top-level dirs). Note that
-# dagster_etl/infrastructure/** is PUBLIC and intentionally stamped — only a
-# top-level infrastructure/ (separate private repo) is guarded here.
+# anchored to the top level (e.g. private top-level dirs). The three public
+# self-build files under infrastructure/ (code-server Dockerfiles + build-push.sh)
+# are listed in INCLUDE_ROOTS and intentionally stamped; the rest of a private
+# top-level infrastructure/ is simply never enumerated (it is not an INCLUDE root).
 EXCLUDE_GLOBS = [
     "LICENSE",
     "README.md",  # root public README — a foundation doc (carries its own license section)
@@ -55,7 +66,6 @@ EXCLUDE_GLOBS = [
     "uv.lock",
     "*/tests/fixtures/*",
     "*/__snapshots__/*",
-    "infrastructure/*",
     "notebooks/*",
     "Daniel/*",
 ]
@@ -142,6 +152,7 @@ _EXT_STYLES: dict[str, CommentStyle] = {
     ".svg": XML,
     ".md": XML,
     ".markdown": XML,
+    ".dockerfile": HASH,  # e.g. code-server.Dockerfile (suffix is lowercased)
 }
 
 _FILENAME_STYLES: dict[str, CommentStyle] = {
@@ -149,6 +160,7 @@ _FILENAME_STYLES: dict[str, CommentStyle] = {
     "Makefile": HASH,
     ".gitignore": HASH,
     ".gitattributes": HASH,
+    ".dockerignore": HASH,
 }
 
 _SKIP_EXTS = {".json", ".csv", ".lock"}

@@ -124,44 +124,6 @@ erp_infrastructure_job = define_asset_job(
 )
 
 # ============================================================================
-# DEV-ONLY: Isolated job for fact_vareudlevering development
-# ============================================================================
-# NOTE: This job is purely for development/debugging of the vareudlevering pipeline.
-# It should NOT be used in production — use erp_daily_etl / erp_monthly_etl instead.
-# Remove this job once the vareudlevering feature is validated and merged.
-erp_dev_vareudlevering_job = define_asset_job(
-    name="erp_dev_vareudlevering",
-    description=(
-        "DEV ONLY — Isolated pipeline for fact_vareudlevering: "
-        "Extract (ext_udlev_ils_daily) → Pre-staging → Maps → Dim Lager → Fact staging → Fact load"
-    ),
-    selection=(
-        # Extract: ext_udlev_ils_daily (individual asset, no multi_asset neighbors needed)
-        AssetSelection.assets("ext_udlev_ils_daily")
-        # Pre-staging
-        | AssetSelection.assets(["erp", "pre_stg_vareudlevering_ils"])
-        # Dimension staging (Layer 1 — feeds MapUpd + DimUpd)
-        | AssetSelection.assets(["erp", "stg_dim_vareudlevering_ils"])
-        # Map: assign DW_EK_Vareudlevering (the fact's own surrogate key)
-        | AssetSelection.assets("map_vareudlevering")
-        # Lager keys used by Organisation lookup path in fct_vareudlevering
-        | AssetSelection.assets("map_lager")
-        | AssetSelection.assets("dim_lager")
-        # Dimension
-        | AssetSelection.assets("dim_vareudlevering_egenskaber")
-        # Fact staging
-        | AssetSelection.assets(["erp", "stg_fct_vareudlevering_ils"])
-        # Fact load (looks up DW_EK_Lager, DW_EK_Vare, DW_EK_Dato_Vareudlevering via LEFT JOIN)
-        | AssetSelection.assets("fct_vareudlevering")
-    ),
-    tags={
-        "domain": "datawarehouse",
-        "type": "etl",
-        "frequency": "dev_only",
-    },
-)
-
-# ============================================================================
 # DEV-ONLY: Faktura pipeline reset
 # ============================================================================
 erp_faktura_reset_job = define_asset_job(
@@ -184,6 +146,5 @@ __all__ = [
     "erp_monthly_job",
     "erp_full_load_job",
     "erp_infrastructure_job",
-    "erp_dev_vareudlevering_job",
     "erp_faktura_reset_job",
 ]

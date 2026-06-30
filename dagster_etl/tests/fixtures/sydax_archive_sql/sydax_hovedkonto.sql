@@ -1,6 +1,6 @@
-MERGE [arc].[hovedkonto_sydax] AS tgt
-USING [ext].[hovedkonto_sydax_dfm] AS src
-    ON tgt.[Kildesystem] = src.[Kildesystem] AND tgt.[ref_RECID] = src.[ref_RECID]
+MERGE [arc].[sydax_hovedkonto] AS tgt
+USING [ext].[sydax_hovedkonto_dfm] AS src
+    ON tgt.[Kildesystem] = src.[Kildesystem] AND tgt.[ref_RECID] = src.[ref_RECID] AND tgt.[StartDateTime] = src.[StartDateTime]
 WHEN MATCHED THEN UPDATE SET
         tgt.[HovedkontoId] = src.[HovedkontoId],
         tgt.[Hovedkontonummer] = src.[Hovedkontonummer],
@@ -39,17 +39,16 @@ WHEN MATCHED THEN UPDATE SET
         tgt.[ref_MainAccountId] = src.[ref_MainAccountId],
         tgt.[ref_DimensionAttributeValueId] = src.[ref_DimensionAttributeValueId],
         tgt.[RunId] = src.[RunId],
-        tgt.[StartDateTime] = src.[StartDateTime],
         tgt.[EndDateTime] = src.[EndDateTime],
         tgt.[RdwTs] = src.[RdwTs],
         tgt.[CreatedOn] = src.[CreatedOn],
         tgt.[Modified] = src.[Modified],
         tgt.[DW_Timestamp_Update] = CAST(SYSDATETIME() AS datetime2(0))
 WHEN NOT MATCHED BY TARGET THEN INSERT (
-        [Kildesystem], [ref_RECID], [HovedkontoId], [Hovedkontonummer], [Hovedkontotekst], [KontoplanId], [HovedkontotypeId], [RapporteringstypeId], [HovedkontoKategoriId], [DKForslag], [DKKrav], [Saldokontrol], [ModkontoId], [PrimokontoId], [SRUKode], [Afslut], [TvungenReference], [CloseType], [Autoriseret], [Standardkoncernkonto], [F1], [F2], [F3], [D1], [G1], [Valuta], [ValutaValidering], [BrugerId], [BrugerValidering], [FinansposteringstypeId], [KonteringValidering], [AktivFra], [AktivTil], [Suspenderet], [Ejer_id], [TilladIkkeManuelAngivelse], [ref_MainAccountId], [ref_DimensionAttributeValueId], [RunId], [StartDateTime], [EndDateTime], [RdwTs], [CreatedOn], [Modified],
+        [Kildesystem], [ref_RECID], [StartDateTime], [HovedkontoId], [Hovedkontonummer], [Hovedkontotekst], [KontoplanId], [HovedkontotypeId], [RapporteringstypeId], [HovedkontoKategoriId], [DKForslag], [DKKrav], [Saldokontrol], [ModkontoId], [PrimokontoId], [SRUKode], [Afslut], [TvungenReference], [CloseType], [Autoriseret], [Standardkoncernkonto], [F1], [F2], [F3], [D1], [G1], [Valuta], [ValutaValidering], [BrugerId], [BrugerValidering], [FinansposteringstypeId], [KonteringValidering], [AktivFra], [AktivTil], [Suspenderet], [Ejer_id], [TilladIkkeManuelAngivelse], [ref_MainAccountId], [ref_DimensionAttributeValueId], [RunId], [EndDateTime], [RdwTs], [CreatedOn], [Modified],
         [DW_Timestamp_Insert], [DW_Timestamp_Update]
     )
     VALUES (
-        src.[Kildesystem], src.[ref_RECID], src.[HovedkontoId], src.[Hovedkontonummer], src.[Hovedkontotekst], src.[KontoplanId], src.[HovedkontotypeId], src.[RapporteringstypeId], src.[HovedkontoKategoriId], src.[DKForslag], src.[DKKrav], src.[Saldokontrol], src.[ModkontoId], src.[PrimokontoId], src.[SRUKode], src.[Afslut], src.[TvungenReference], src.[CloseType], src.[Autoriseret], src.[Standardkoncernkonto], src.[F1], src.[F2], src.[F3], src.[D1], src.[G1], src.[Valuta], src.[ValutaValidering], src.[BrugerId], src.[BrugerValidering], src.[FinansposteringstypeId], src.[KonteringValidering], src.[AktivFra], src.[AktivTil], src.[Suspenderet], src.[Ejer_id], src.[TilladIkkeManuelAngivelse], src.[ref_MainAccountId], src.[ref_DimensionAttributeValueId], src.[RunId], src.[StartDateTime], src.[EndDateTime], src.[RdwTs], src.[CreatedOn], src.[Modified],
+        src.[Kildesystem], src.[ref_RECID], src.[StartDateTime], src.[HovedkontoId], src.[Hovedkontonummer], src.[Hovedkontotekst], src.[KontoplanId], src.[HovedkontotypeId], src.[RapporteringstypeId], src.[HovedkontoKategoriId], src.[DKForslag], src.[DKKrav], src.[Saldokontrol], src.[ModkontoId], src.[PrimokontoId], src.[SRUKode], src.[Afslut], src.[TvungenReference], src.[CloseType], src.[Autoriseret], src.[Standardkoncernkonto], src.[F1], src.[F2], src.[F3], src.[D1], src.[G1], src.[Valuta], src.[ValutaValidering], src.[BrugerId], src.[BrugerValidering], src.[FinansposteringstypeId], src.[KonteringValidering], src.[AktivFra], src.[AktivTil], src.[Suspenderet], src.[Ejer_id], src.[TilladIkkeManuelAngivelse], src.[ref_MainAccountId], src.[ref_DimensionAttributeValueId], src.[RunId], src.[EndDateTime], src.[RdwTs], src.[CreatedOn], src.[Modified],
         CAST(SYSDATETIME() AS datetime2(0)), CAST(SYSDATETIME() AS datetime2(0))
     );

@@ -18,7 +18,7 @@ from DSA.SQL.checks.partition_completeness_checks import (
     dq_partition_completeness_fakturalinje,
     dq_partition_completeness_finanskladdelinje,
     dq_partition_completeness_postering,
-    dq_partition_completeness_vareudlevering,
+    dq_archive_completeness_vareudlevering,
 )
 
 __all__ = [
@@ -33,5 +33,5 @@ __all__ = [
     "dq_partition_completeness_fakturalinje",
     "dq_partition_completeness_finanskladdelinje",
     "dq_partition_completeness_postering",
-    "dq_partition_completeness_vareudlevering",
+    "dq_archive_completeness_vareudlevering",
 ]

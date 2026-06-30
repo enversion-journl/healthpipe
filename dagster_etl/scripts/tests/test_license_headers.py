@@ -25,6 +25,15 @@ def test_comment_style_uppercase_and_filenames():
     assert lh.comment_style_for(Path("a/.env.template")).line_prefix == "#"
 
 
+def test_comment_style_publish_output_files():
+    # Full publish-output coverage: files shipped by the publish transform that
+    # were previously skipped. `.Dockerfile` is the subtle one (suffix lowercased).
+    assert lh.comment_style_for(Path("a/.gitleaks.toml")).line_prefix == "#"
+    assert lh.comment_style_for(Path("a/.dockerignore")).line_prefix == "#"
+    assert lh.comment_style_for(Path("a/code-server.Dockerfile")).line_prefix == "#"
+    assert lh.comment_style_for(Path(".github/workflows/ci.yml")).line_prefix == "#"
+
+
 def test_comment_style_skips_uncommentable_and_unknown():
     assert lh.comment_style_for(Path("a/b.json")) is None
     assert lh.comment_style_for(Path("a/b.csv")) is None

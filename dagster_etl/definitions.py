@@ -100,7 +100,7 @@ from DSA.SQL.checks import (
     dq_partition_completeness_fakturalinje,
     dq_partition_completeness_finanskladdelinje,
     dq_partition_completeness_postering,
-    dq_partition_completeness_vareudlevering,
+    dq_archive_completeness_vareudlevering,
     dw_quality,
 )
 from DSA.SQL.dev import all_assets as dev_assets
@@ -126,7 +126,10 @@ from DSI.mssql import all_extract_assets as erp_extract_assets
 from DSI.mssql import (
     all_factory_extract_assets,
 )
-from DSI.mssql.extract.sydax_extract_configs import sydax_archive_extract_assets
+from DSI.mssql.extract.sydax_extract_configs import (
+    sydax_archive_extract_assets,
+    sydax_flow_start_assets,
+)
 
 # DSI Extract - IFDB (extraction from Oracle for FHIR ETL)
 from DSI.oracle import all_extraction_assets as ifdb_extract_assets
@@ -229,6 +232,7 @@ all_assets = [
     *all_factory_extract_assets,
     *all_archive_assets,
     *sydax_archive_extract_assets,
+    *sydax_flow_start_assets,
     *ifdb_extract_assets,
     # DSI IFDB archive extract + merge assets (DFM)
     *all_ifdb_archive_assets,
@@ -357,7 +361,7 @@ postfixed_checks = postfix_asset_checks(
         dq_partition_completeness_fakturalinje,
         dq_partition_completeness_finanskladdelinje,
         dq_partition_completeness_postering,
-        dq_partition_completeness_vareudlevering,
+        dq_archive_completeness_vareudlevering,
     ],
     key_replacements,
 )

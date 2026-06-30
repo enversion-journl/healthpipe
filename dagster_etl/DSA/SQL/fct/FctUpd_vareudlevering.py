@@ -19,6 +19,8 @@ This asset is responsible only for simple CleanCode -> DW_EK map
 lookups + MERGE + diagnostics.
 """
 
+from core.dfm_config import RunModeConfig
+from core.dfm_manager import DfmManager
 from core.resources import MSSQLResource
 from dagster import AssetExecutionContext, AssetKey, MaterializeResult, asset
 
@@ -160,7 +162,7 @@ WHEN NOT MATCHED BY TARGET THEN
 
 
 @asset(
-    group_name="erp_facts",
+    group_name="facts_vareudlevering",
     compute_kind="mssql",
     deps=[
         AssetKey(["erp", "stg_fct_vareudlevering_ils"]),
@@ -183,123 +185,145 @@ WHEN NOT MATCHED BY TARGET THEN
     ),
 )
 def fct_vareudlevering(
-    context: AssetExecutionContext, mssql_target_staging: MSSQLResource
+    context: AssetExecutionContext,
+    mssql_target_staging: MSSQLResource,
+    config: RunModeConfig,
 ) -> MaterializeResult:
     """Map lookups + MERGE into fct.Vareudlevering. All conversions done in staging."""
 
-    with mssql_target_staging.get_connection() as conn:
-        cursor = conn.cursor()
-        try:
-            context.log.info("Starting Vareudlevering fact table load...")
+    dfm = DfmManager(mssql_target_staging, context)
+    run_ctx = dfm.start_dfm_run(
+        "fct",
+        "Vareudlevering",
+        dagster_run_id=context.run_id,
+        mode=config.mode,
+    )
 
-            # DIAGNOSTIC: Count staging source records
-            cursor.execute("SELECT COUNT(*) FROM [stg].[fct_vareudlevering_ils]")
-            staging_count = cursor.fetchone()[0]
-            context.log.info(f"Staging count: {staging_count}")
+    try:
+        with mssql_target_staging.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                context.log.info("Starting Vareudlevering fact table load...")
 
-            # Fail-fast: every staging CleanCode must already exist in map.Vareudlevering
-            # (map_vareudlevering must run before fct_vareudlevering)
-            cursor.execute(
+                # DIAGNOSTIC: Count staging source records
+                cursor.execute("SELECT COUNT(*) FROM [stg].[fct_vareudlevering_ils]")
+                staging_count = cursor.fetchone()[0]
+                context.log.info(f"Staging count: {staging_count}")
+
+                # Fail-fast: every staging CleanCode must already exist in map.Vareudlevering
+                # (map_vareudlevering must run before fct_vareudlevering)
+                cursor.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM [stg].[fct_vareudlevering_ils] src
+                    LEFT JOIN [map].[Vareudlevering] m
+                        ON m.CleanCode_Vareudlevering = src.CleanCode_Vareudlevering
+                    WHERE m.DW_EK_Vareudlevering IS NULL
                 """
-                SELECT COUNT(*)
-                FROM [stg].[fct_vareudlevering_ils] src
-                LEFT JOIN [map].[Vareudlevering] m
-                    ON m.CleanCode_Vareudlevering = src.CleanCode_Vareudlevering
-                WHERE m.DW_EK_Vareudlevering IS NULL
+                )
+                unmapped_rows = cursor.fetchone()[0]
+                if unmapped_rows > 0:
+                    raise ValueError(
+                        f"fct_vareudlevering: {unmapped_rows} staging rows have no match in map.Vareudlevering. "
+                        "Ensure map_vareudlevering runs before fct_vareudlevering and staging CleanCodes are valid."
+                    )
+
+                cursor.execute(RESOLVE_SQL)
+
+                temp_count = cursor.rowcount
+                context.log.info(f"Created temp table with {temp_count} rows")
+
+                cursor.execute(
+                    """
+                SELECT
+                    COUNT(*) AS total_source_rows,
+                    COUNT(DISTINCT CleanCode_Vareudlevering) AS distinct_vareudlevering_cleancodes
+                FROM #Vareudlevering_Facts
             """
-            )
-            unmapped_rows = cursor.fetchone()[0]
-            if unmapped_rows > 0:
-                raise ValueError(
-                    f"fct_vareudlevering: {unmapped_rows} staging rows have no match in map.Vareudlevering. "
-                    "Ensure map_vareudlevering runs before fct_vareudlevering and staging CleanCodes are valid."
+                )
+                source_stats = cursor.fetchone()
+                duplicate_source_rows = source_stats[0] - source_stats[1]
+                if duplicate_source_rows > 0:
+                    message = (
+                        "Duplicate grain violation in fct_vareudlevering: "
+                        f"{duplicate_source_rows} duplicate source rows found in #Vareudlevering_Facts. "
+                        "Expected one row per CleanCode_Vareudlevering from pre_stg/stg assets."
+                    )
+                    context.log.error(message)
+                    raise ValueError(message)
+
+                cursor.execute(MERGE_SQL)
+
+                rows_affected = cursor.rowcount
+                conn.commit()
+
+                # DIAGNOSTIC: FK matching statistics
+                cursor.execute(
+                    """
+                SELECT
+                    COUNT(*) AS total_facts,
+                    SUM(CASE WHEN DW_EK_IlsVare = -1 THEN 1 ELSE 0 END) AS missing_ilsvare_fk,
+                    SUM(CASE WHEN DW_EK_UNSPSC = -1 THEN 1 ELSE 0 END) AS missing_unspsc_fk,
+                    SUM(CASE WHEN DW_EK_Lager = -1 THEN 1 ELSE 0 END) AS missing_lager_fk,
+                    SUM(CASE WHEN DW_EK_Rekvirent = -1 THEN 1 ELSE 0 END) AS missing_rekvirent_fk,
+                    SUM(CASE WHEN DW_EK_Vare = -1 THEN 1 ELSE 0 END) AS missing_vare_fk,
+                    SUM(CASE WHEN DW_EK_Dato_Vareudlevering = -1 THEN 1 ELSE 0 END) AS missing_dato_fk,
+                    SUM(CASE WHEN DW_EK_VareudleveringEgenskaber = -1 THEN 1 ELSE 0 END) AS missing_egenskaber_fk
+                FROM [fct].[Vareudlevering]
+            """
+                )
+                diag = cursor.fetchone()
+
+                context.log.info(
+                    f"FK Matching: Total={diag[0]}, "
+                    f"Missing IlsVare={diag[1]}, Missing UNSPSC={diag[2]}, Missing Lager={diag[3]}, "
+                    f"Missing Rekvirent={diag[4]}, Missing Vare={diag[5]}, Missing Dato={diag[6]}, "
+                    f"Missing Egenskaber={diag[7]}"
                 )
 
-            cursor.execute(RESOLVE_SQL)
+                if diag[1] > 0:
+                    context.log.warning(f"{diag[1]} deliveries without IlsVare FK (using -1/UNKNOWN)")
 
-            temp_count = cursor.rowcount
-            context.log.info(f"Created temp table with {temp_count} rows")
+                if diag[2] > 0:
+                    context.log.warning(f"{diag[2]} deliveries without UNSPSC FK (using -1/UNKNOWN)")
 
-            cursor.execute(
-                """
-            SELECT
-                COUNT(*) AS total_source_rows,
-                COUNT(DISTINCT CleanCode_Vareudlevering) AS distinct_vareudlevering_cleancodes
-            FROM #Vareudlevering_Facts
-        """
-            )
-            source_stats = cursor.fetchone()
-            duplicate_source_rows = source_stats[0] - source_stats[1]
-            if duplicate_source_rows > 0:
-                message = (
-                    "Duplicate grain violation in fct_vareudlevering: "
-                    f"{duplicate_source_rows} duplicate source rows found in #Vareudlevering_Facts. "
-                    "Expected one row per CleanCode_Vareudlevering from pre_stg/stg assets."
-                )
-                context.log.error(message)
-                raise ValueError(message)
+                if diag[3] > 0:
+                    context.log.warning(f"{diag[3]} deliveries without Lager FK (using -1/UNKNOWN)")
 
-            cursor.execute(MERGE_SQL)
+                if diag[4] > 0:
+                    context.log.warning(f"{diag[4]} deliveries without Rekvirent FK (using -1/UNKNOWN)")
 
-            rows_affected = cursor.rowcount
-            conn.commit()
+                if diag[5] > 0:
+                    context.log.warning(f"{diag[5]} deliveries without Vare FK (using -1/UNKNOWN)")
 
-            # DIAGNOSTIC: FK matching statistics
-            cursor.execute(
-                """
-            SELECT
-                COUNT(*) AS total_facts,
-                SUM(CASE WHEN DW_EK_IlsVare = -1 THEN 1 ELSE 0 END) AS missing_ilsvare_fk,
-                SUM(CASE WHEN DW_EK_UNSPSC = -1 THEN 1 ELSE 0 END) AS missing_unspsc_fk,
-                SUM(CASE WHEN DW_EK_Lager = -1 THEN 1 ELSE 0 END) AS missing_lager_fk,
-                SUM(CASE WHEN DW_EK_Rekvirent = -1 THEN 1 ELSE 0 END) AS missing_rekvirent_fk,
-                SUM(CASE WHEN DW_EK_Vare = -1 THEN 1 ELSE 0 END) AS missing_vare_fk,
-                SUM(CASE WHEN DW_EK_Dato_Vareudlevering = -1 THEN 1 ELSE 0 END) AS missing_dato_fk,
-                SUM(CASE WHEN DW_EK_VareudleveringEgenskaber = -1 THEN 1 ELSE 0 END) AS missing_egenskaber_fk
-            FROM [fct].[Vareudlevering]
-        """
-            )
-            diag = cursor.fetchone()
+                if diag[6] > 0:
+                    context.log.warning(f"{diag[6]} deliveries without Dato FK (using -1/UNKNOWN)")
 
-            context.log.info(
-                f"FK Matching: Total={diag[0]}, "
-                f"Missing IlsVare={diag[1]}, Missing UNSPSC={diag[2]}, Missing Lager={diag[3]}, "
-                f"Missing Rekvirent={diag[4]}, Missing Vare={diag[5]}, Missing Dato={diag[6]}, "
-                f"Missing Egenskaber={diag[7]}"
-            )
+                if diag[7] > 0:
+                    context.log.warning(
+                        f"{diag[7]} deliveries without VareudleveringEgenskaber FK (using -1/UNKNOWN)"
+                    )
 
-            if diag[1] > 0:
-                context.log.warning(f"{diag[1]} deliveries without IlsVare FK (using -1/UNKNOWN)")
+                # Clean up temp table
+                cursor.execute("DROP TABLE IF EXISTS #Vareudlevering_Facts")
 
-            if diag[2] > 0:
-                context.log.warning(f"{diag[2]} deliveries without UNSPSC FK (using -1/UNKNOWN)")
+                # Update statistics
+                cursor.execute("UPDATE STATISTICS [fct].[Vareudlevering]")
 
-            if diag[3] > 0:
-                context.log.warning(f"{diag[3]} deliveries without Lager FK (using -1/UNKNOWN)")
+                context.log.info(f"Fact table load complete: {rows_affected} rows processed")
+            finally:
+                cursor.close()
 
-            if diag[4] > 0:
-                context.log.warning(f"{diag[4]} deliveries without Rekvirent FK (using -1/UNKNOWN)")
-
-            if diag[5] > 0:
-                context.log.warning(f"{diag[5]} deliveries without Vare FK (using -1/UNKNOWN)")
-
-            if diag[6] > 0:
-                context.log.warning(f"{diag[6]} deliveries without Dato FK (using -1/UNKNOWN)")
-
-            if diag[7] > 0:
-                context.log.warning(
-                    f"{diag[7]} deliveries without VareudleveringEgenskaber FK (using -1/UNKNOWN)"
-                )
-
-            # Clean up temp table
-            cursor.execute("DROP TABLE IF EXISTS #Vareudlevering_Facts")
-
-            # Update statistics
-            cursor.execute("UPDATE STATISTICS [fct].[Vareudlevering]")
-
-            context.log.info(f"Fact table load complete: {rows_affected} rows processed")
-        finally:
-            cursor.close()
+        logged_checkpoint = None
+        if config.should_advance_checkpoint:
+            dfm.set_checkpoint("fct", "Vareudlevering", mode=config.mode)
+            logged_checkpoint = dfm.get_checkpoint("fct", "Vareudlevering")
+        dfm.complete_dfm_run(
+            run_ctx.log_id, checkpoint_after=logged_checkpoint, rows_affected=rows_affected
+        )
+    except Exception as exc:
+        dfm.fail_dfm_run(run_ctx.log_id, error_message=str(exc))
+        raise
 
     return MaterializeResult(
         metadata={

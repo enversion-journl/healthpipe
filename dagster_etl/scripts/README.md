@@ -18,4 +18,4 @@ python dagster_etl/scripts/license_headers.py --apply   # insert missing headers
 python dagster_etl/scripts/license_headers.py --diff    # dry-run unified diff
 ```
 
-Header: `SPDX-FileCopyrightText: <year> Enversion Journl ApS` + `SPDX-License-Identifier: AGPL-3.0-or-later`, referencing the root `LICENSE`. `.json`/`.csv`/lock files and test fixtures are skipped. The tree-wide `--apply` sweep is run once at the GitHub migration, not per-PR. Tests: `pytest dagster_etl/scripts/tests/`.
+Header: `SPDX-FileCopyrightText: <year> Enversion Journl ApS` + `SPDX-License-Identifier: AGPL-3.0-or-later`, referencing the root `LICENSE`. `.json`/`.csv`/lock files and test fixtures are skipped. The tree-wide `--apply` sweep is run once at the GitLab migration, not per-PR. Tests: `pytest dagster_etl/scripts/tests/`.

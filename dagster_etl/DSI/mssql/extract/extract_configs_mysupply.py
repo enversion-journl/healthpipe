@@ -37,11 +37,11 @@ MYSUPPLY_DFM_EXTRACT_CONFIGS = [
     DfmExtractConfig(
         source_schema="dbo",
         source_table="statistic_invoice_header",
-        target_table="statistic_invoice_header_mysupply_dfm",
+        target_table="mysupply_statistic_invoice_header_dfm",
         delta_expression="TRY_CAST([FakturaDato] AS DATETIME2)",
         checkpoint_type="datetime",
         lookback_days=7,
-        checkpoint_from=("arc", "statistic_invoice_header_mysupply"),
+        checkpoint_from=("arc", "mysupply_statistic_invoice_header"),
         description=(
             "MySupply invoice header (FakturaDato, 7-day tail). "
             "_dfm postfix during cutover from legacy partition extract."
@@ -50,7 +50,7 @@ MYSUPPLY_DFM_EXTRACT_CONFIGS = [
     DfmExtractConfig(
         source_schema="dbo",
         source_table="metadata",
-        target_table="metadata_mysupply_dfm",
+        target_table="mysupply_metadata_dfm",
         # Note: [dbo].[metadata].[id] must be explicitly qualified — both the
         # outer table (metadata) and the inner alias (h = statistic_invoice_header)
         # have a column named `id`, so an unqualified `[id]` would silently bind
@@ -65,7 +65,7 @@ MYSUPPLY_DFM_EXTRACT_CONFIGS = [
         ),
         checkpoint_type="datetime",
         lookback_days=7,
-        checkpoint_from=("arc", "metadata_mysupply"),
+        checkpoint_from=("arc", "mysupply_metadata"),
         description=(
             "MySupply supplier metadata. Filtered via correlated subquery: "
             "a metadata row is in-window if any referencing header has "
@@ -75,7 +75,7 @@ MYSUPPLY_DFM_EXTRACT_CONFIGS = [
     DfmExtractConfig(
         source_schema="dbo",
         source_table="statistic_invoice_line",
-        target_table="statistic_invoice_line_mysupply_dfm",
+        target_table="mysupply_statistic_invoice_line_dfm",
         delta_expression=(
             "TRY_CAST(("
             "SELECT h.[FakturaDato] "
@@ -85,7 +85,7 @@ MYSUPPLY_DFM_EXTRACT_CONFIGS = [
         ),
         checkpoint_type="datetime",
         lookback_days=7,
-        checkpoint_from=("arc", "statistic_invoice_line_mysupply"),
+        checkpoint_from=("arc", "mysupply_statistic_invoice_line"),
         description=(
             "MySupply invoice lines. Filtered via correlated subquery to "
             "the parent header's FakturaDato."
@@ -94,7 +94,7 @@ MYSUPPLY_DFM_EXTRACT_CONFIGS = [
     DfmExtractConfig(
         source_schema="dbo",
         source_table="statistic_invoice_header_allowance_charge",
-        target_table="statistic_invoice_header_allowance_charge_mysupply_dfm",
+        target_table="mysupply_statistic_invoice_header_allowance_charge_dfm",
         delta_expression=(
             "TRY_CAST(("
             "SELECT h.[FakturaDato] "
@@ -104,7 +104,7 @@ MYSUPPLY_DFM_EXTRACT_CONFIGS = [
         ),
         checkpoint_type="datetime",
         lookback_days=7,
-        checkpoint_from=("arc", "statistic_invoice_header_allowance_charge_mysupply"),
+        checkpoint_from=("arc", "mysupply_statistic_invoice_header_allowance_charge"),
         description=(
             "MySupply header-level allowance/charge. Filtered via "
             "correlated subquery to the parent header's FakturaDato."
@@ -113,7 +113,7 @@ MYSUPPLY_DFM_EXTRACT_CONFIGS = [
     DfmExtractConfig(
         source_schema="dbo",
         source_table="statistic_invoice_line_allowance_charge",
-        target_table="statistic_invoice_line_allowance_charge_mysupply_dfm",
+        target_table="mysupply_statistic_invoice_line_allowance_charge_dfm",
         delta_expression=(
             "TRY_CAST(("
             "SELECT h.[FakturaDato] "
@@ -125,7 +125,7 @@ MYSUPPLY_DFM_EXTRACT_CONFIGS = [
         ),
         checkpoint_type="datetime",
         lookback_days=7,
-        checkpoint_from=("arc", "statistic_invoice_line_allowance_charge_mysupply"),
+        checkpoint_from=("arc", "mysupply_statistic_invoice_line_allowance_charge"),
         description=(
             "MySupply line-level allowance/charge. Filtered via correlated "
             "subquery through line → header to FakturaDato."
@@ -162,7 +162,7 @@ def _build_mysupply_flow_start_asset(target_table: str):
     """Build a dfm_<arc_target>_flow_start asset for a MySupply source table.
 
     target_table: ext target table name including the _dfm suffix
-                  (e.g. "statistic_invoice_header_mysupply_dfm").
+                  (e.g. "mysupply_statistic_invoice_header_dfm").
     """
     dfm_table = mysupply_flow_start_dfm_table(target_table)
     arc_target = target_table.removesuffix("_dfm")

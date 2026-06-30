@@ -25,7 +25,6 @@ from jobs.data_quality_jobs import data_quality_job
 # SQL ERP jobs
 from jobs.erp_jobs import (
     erp_daily_job,
-    erp_dev_vareudlevering_job,
     erp_faktura_reset_job,
     erp_full_load_job,
     erp_infrastructure_job,
@@ -142,7 +141,6 @@ all_jobs = [
     fhir_careplan_monthly_job,
     # ERP Jobs
     erp_daily_job,
-    erp_dev_vareudlevering_job,
     erp_faktura_reset_job,
     erp_full_load_job,
     erp_monthly_job,
@@ -184,7 +182,6 @@ __all__ = [
     "sfi_datapoint_reconciliation_job",
     # ERP jobs
     "erp_daily_job",
-    "erp_dev_vareudlevering_job",
     "erp_faktura_reset_job",
     "erp_full_load_job",
     "erp_monthly_job",

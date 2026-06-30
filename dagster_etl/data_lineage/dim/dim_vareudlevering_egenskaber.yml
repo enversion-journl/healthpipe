@@ -17,7 +17,7 @@ dso_lineage:
   Columns:
     DW_EK_VareudleveringEgenskaber:     { Type: PK, DataType: INT }
     CleanCode_VareudleveringEgenskaber: { DataType: NVARCHAR(500), Source: [ils.dbo.udlev.prrowid] }
-    Revisionsnummer:          { DataType: INT, Source: [ils.dbo.udlev.rvis] }
+    Rekvisitionsnummer:          { DataType: INT, Source: [ils.dbo.udlev.rvis] }
     Foelgeseddelnummer:       { DataType: NVARCHAR(100), Source: [ils.dbo.udlev.flgsednr] }
     Brik:                     { DataType: NVARCHAR(100), Source: [ils.dbo.udlev.brik] }
     Leverandoernummer:        { DataType: NVARCHAR(100), Source: [ils.dbo.udlev.lnr] }
@@ -38,7 +38,7 @@ dso_lineage:
     Salgsordre:               { DataType: NVARCHAR(100), Source: [ils.dbo.udlev.salgsordre] }
     SalgsordreId:             { DataType: NVARCHAR(100), Source: [ils.dbo.udlev.salgsordreint] }
     Salgsfakturanummer:       { DataType: NVARCHAR(100), Source: [ils.dbo.udlev.salgsfaknr] }
-    RevisionsvarerId:         { DataType: NVARCHAR(100), Source: [ils.dbo.udlev.rvisvareid] }
+    RekvisitionsvareId:         { DataType: NVARCHAR(100), Source: [ils.dbo.udlev.rvisvareid] }
     PlukvarerId:              { DataType: NVARCHAR(100), Source: [ils.dbo.udlev.plukvareid] }
     Afleveringsoperatoer:     { DataType: NVARCHAR(100), Source: [ils.dbo.udlev.aflevoper] }
     Afleveringstekst:         { DataType: NVARCHAR(100), Source: [ils.dbo.udlev.aflevtxt] }

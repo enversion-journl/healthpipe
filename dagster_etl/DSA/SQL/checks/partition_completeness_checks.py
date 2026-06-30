@@ -23,7 +23,6 @@ from typing import Any
 
 import dagster as dg
 from core.resources import (
-    ILSMSSQLResource,
     MSSQLResource,
     MySupplyMSSQLResource,
     SydaxMSSQLResource,
@@ -284,14 +283,16 @@ def dq_partition_completeness_postering(
 
 
 # ---------------------------------------------------------------------------
-# fct.Vareudlevering — Source: ILS dbo.udlev, key: udldto (business delivery date)
+# fct.Vareudlevering — Source: arc.ils_udlev (archive), key: udldto (business
+# delivery date). Migrated off partitions (US 28691): validates the DFM/archive
+# path arc -> DSA -> DSO instead of the live ILS source.
 # ---------------------------------------------------------------------------
 
-_UDLEVERING_SOURCE_QUERY = """
+_UDLEVERING_ARCHIVE_QUERY = """
 SELECT
     CONVERT(INT, FORMAT(TRY_CONVERT(DATETIME2, udldto), 'yyyyMM')) AS month_key,
     COUNT(*) AS cnt
-FROM dbo.udlev
+FROM arc.ils_udlev
 WHERE udldto IS NOT NULL
   AND TRY_CONVERT(DATETIME2, udldto) IS NOT NULL
 GROUP BY FORMAT(TRY_CONVERT(DATETIME2, udldto), 'yyyyMM')
@@ -299,14 +300,15 @@ GROUP BY FORMAT(TRY_CONVERT(DATETIME2, udldto), 'yyyyMM')
 
 
 @dg.asset_check(
-    name="dq_partition_completeness_vareudlevering",
+    name="dq_archive_completeness_vareudlevering",
     asset=_DW_QUALITY_KEY,
     description=(
-        "Compare monthly row counts for fct.Vareudlevering across Source (ILS), DSA, and DSO.\n\n"
-        "Groups by udldto delivery date (source) / DW_EK_Dato_Vareudlevering (DW).\n\n"
-        "Note: ILS extraction partitions by pro2created/pro2modified, but the fact table\n"
-        "stores the business delivery date (udldto). Counts are compared on this business\n"
-        "date, not the extraction partition window.\n\n"
+        "Compare monthly row counts for fct.Vareudlevering across Archive "
+        "(arc.ils_udlev), DSA, and DSO.\n\n"
+        "Groups by udldto delivery date (archive) / DW_EK_Dato_Vareudlevering (DW).\n\n"
+        "Validates the DFM/archive path (arc -> fct -> DSO) now that vareudlevering\n"
+        "is off partitions. The archive lives on the staging DB, so the source tier\n"
+        "uses mssql_target_staging (no live ILS connection needed).\n\n"
         "**Outputs:**\n\n"
         "- **summary**: totals and unknown-date row counts\n"
         "- **passed**: months where all three tiers match\n"
@@ -314,15 +316,14 @@ GROUP BY FORMAT(TRY_CONVERT(DATETIME2, udldto), 'yyyyMM')
     ),
     compute_kind="mssql",
 )
-def dq_partition_completeness_vareudlevering(
-    ils_mssql: ILSMSSQLResource,
+def dq_archive_completeness_vareudlevering(
     mssql_target_staging: MSSQLResource,
     mssql_target_dso: MSSQLResource,
 ) -> dg.AssetCheckResult:
-    """Monthly partition completeness: fct.Vareudlevering (ILS -> DSA -> DSO)."""
+    """Monthly completeness: fct.Vareudlevering (arc.ils_udlev -> DSA -> DSO)."""
     return _compare_monthly_counts(
-        source_resource=ils_mssql,
-        source_query=_UDLEVERING_SOURCE_QUERY,
+        source_resource=mssql_target_staging,
+        source_query=_UDLEVERING_ARCHIVE_QUERY,
         staging_resource=mssql_target_staging,
         dso_resource=mssql_target_dso,
         fct_schema="fct",

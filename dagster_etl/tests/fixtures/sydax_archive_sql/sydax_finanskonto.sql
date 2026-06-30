@@ -1,8 +1,8 @@
-MERGE [arc].[finanskonto_sydax] AS tgt
-USING [ext].[finanskonto_sydax_dfm] AS src
-    ON tgt.[Kildesystem] = src.[Kildesystem] AND tgt.[Kontonummer] = src.[Kontonummer]
+MERGE [arc].[sydax_finanskonto] AS tgt
+USING [ext].[sydax_finanskonto_dfm] AS src
+    ON tgt.[Kildesystem] = src.[Kildesystem] AND tgt.[FinanskontoId] = src.[FinanskontoId] AND tgt.[StartDateTime] = src.[StartDateTime]
 WHEN MATCHED THEN UPDATE SET
-        tgt.[FinanskontoId] = src.[FinanskontoId],
+        tgt.[Kontonummer] = src.[Kontonummer],
         tgt.[ErLukket] = src.[ErLukket],
         tgt.[ve_RECID] = src.[ve_RECID],
         tgt.[afd_RECID] = src.[afd_RECID],
@@ -16,7 +16,6 @@ WHEN MATCHED THEN UPDATE SET
         tgt.[l_RECID] = src.[l_RECID],
         tgt.[ref_DIMENSIONATTRIBUTEVALUECOMBINATIONId] = src.[ref_DIMENSIONATTRIBUTEVALUECOMBINATIONId],
         tgt.[RunId] = src.[RunId],
-        tgt.[StartDateTime] = src.[StartDateTime],
         tgt.[EndDateTime] = src.[EndDateTime],
         tgt.[RdwTs] = src.[RdwTs],
         tgt.[ref_DIMENSIONATTRIBUTEVALUECOMBINATION_RECID] = src.[ref_DIMENSIONATTRIBUTEVALUECOMBINATION_RECID],
@@ -24,10 +23,10 @@ WHEN MATCHED THEN UPDATE SET
         tgt.[Modified] = src.[Modified],
         tgt.[DW_Timestamp_Update] = CAST(SYSDATETIME() AS datetime2(0))
 WHEN NOT MATCHED BY TARGET THEN INSERT (
-        [Kildesystem], [Kontonummer], [FinanskontoId], [ErLukket], [ve_RECID], [afd_RECID], [os_RECID], [hk_RECID], [ma_RECID], [grp_RECID], [art_RECID], [d1_RECID], [d2_RECID], [l_RECID], [ref_DIMENSIONATTRIBUTEVALUECOMBINATIONId], [RunId], [StartDateTime], [EndDateTime], [RdwTs], [ref_DIMENSIONATTRIBUTEVALUECOMBINATION_RECID], [CreatedOn], [Modified],
+        [Kildesystem], [FinanskontoId], [StartDateTime], [Kontonummer], [ErLukket], [ve_RECID], [afd_RECID], [os_RECID], [hk_RECID], [ma_RECID], [grp_RECID], [art_RECID], [d1_RECID], [d2_RECID], [l_RECID], [ref_DIMENSIONATTRIBUTEVALUECOMBINATIONId], [RunId], [EndDateTime], [RdwTs], [ref_DIMENSIONATTRIBUTEVALUECOMBINATION_RECID], [CreatedOn], [Modified],
         [DW_Timestamp_Insert], [DW_Timestamp_Update]
     )
     VALUES (
-        src.[Kildesystem], src.[Kontonummer], src.[FinanskontoId], src.[ErLukket], src.[ve_RECID], src.[afd_RECID], src.[os_RECID], src.[hk_RECID], src.[ma_RECID], src.[grp_RECID], src.[art_RECID], src.[d1_RECID], src.[d2_RECID], src.[l_RECID], src.[ref_DIMENSIONATTRIBUTEVALUECOMBINATIONId], src.[RunId], src.[StartDateTime], src.[EndDateTime], src.[RdwTs], src.[ref_DIMENSIONATTRIBUTEVALUECOMBINATION_RECID], src.[CreatedOn], src.[Modified],
+        src.[Kildesystem], src.[FinanskontoId], src.[StartDateTime], src.[Kontonummer], src.[ErLukket], src.[ve_RECID], src.[afd_RECID], src.[os_RECID], src.[hk_RECID], src.[ma_RECID], src.[grp_RECID], src.[art_RECID], src.[d1_RECID], src.[d2_RECID], src.[l_RECID], src.[ref_DIMENSIONATTRIBUTEVALUECOMBINATIONId], src.[RunId], src.[EndDateTime], src.[RdwTs], src.[ref_DIMENSIONATTRIBUTEVALUECOMBINATION_RECID], src.[CreatedOn], src.[Modified],
         CAST(SYSDATETIME() AS datetime2(0)), CAST(SYSDATETIME() AS datetime2(0))
     );

@@ -8,7 +8,7 @@
 ILS source system extraction configs and assets.
 
 Full-load tables: vareart, varegrp, lafth, vare, lev, sgh, lgr, rekv, rekvgrp (9 tables)
-Partitioned tables: laftdpris, laftdstam, laftd, lgrvare, pmdm, indkfak, udlev (7 × daily + monthly)
+Partitioned tables: laftdpris, laftdstam, laftd, lgrvare, pmdm, indkfak (6 × daily + monthly)
 
 Note: lgrbeh and afdlgrbeh are managed by the standalone lagerbeholdning extract assets
 in extract_lagerbeholdning.py — they run in the dedicated lagerbeholdning pipeline.
@@ -167,16 +167,9 @@ ILS_PARTITIONED_BASE_TABLE_CONFIGS: Sequence[TableConfig] = (
         partition_columns=("pro2created", "sysdato"),
         table_type=TABLE_TYPE_MASTER_DATA_PARTITIONED,
     ),
-    TableConfig(
-        output_name="ext_udlev_ils",
-        source_schema="dbo",
-        source_table="udlev",
-        target_table="udlev_ils",
-        description="Delivery records from ILS (1M rows, partitioned by pro2created OR pro2modified)",
-        consistency_columns=("id", "vnr"),
-        partition_columns=("pro2created", "pro2modified"),
-        table_type=TABLE_TYPE_MASTER_DATA_PARTITIONED,
-    ),
+    # NOTE: udlev (Vareudlevering) migrated to the DFM/archive pipeline
+    # (ext.ils_udlev_dfm -> arc.ils_udlev), consumed by the DFM-based
+    # vareudlevering assets. The legacy partition extract was removed (US 28691).
 )
 
 ILS_TABLE_CONFIGS_DAILY = generate_partition_configs(ILS_PARTITIONED_BASE_TABLE_CONFIGS, "daily")

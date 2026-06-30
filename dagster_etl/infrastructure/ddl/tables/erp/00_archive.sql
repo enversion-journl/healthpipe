@@ -327,10 +327,10 @@ GO
 
 IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'statistic_invoice_header_mysupply'
+    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'mysupply_statistic_invoice_header'
 )
 BEGIN
-    CREATE TABLE [arc].[statistic_invoice_header_mysupply] (
+    CREATE TABLE [arc].[mysupply_statistic_invoice_header] (
         [id]                                                          INT             NOT NULL,
         [metadata_id]                                                 INT             NOT NULL,
         [FakturaNr]                                                   NVARCHAR(MAX)   NULL,
@@ -496,7 +496,7 @@ BEGIN
         [DW_Timestamp_Insert]   DATETIME2(0)   NOT NULL,
         [DW_Timestamp_Update]   DATETIME2(0)   NOT NULL,
 
-        CONSTRAINT [PK_arc_statistic_invoice_header_mysupply]
+        CONSTRAINT [PK_arc_mysupply_statistic_invoice_header]
             PRIMARY KEY CLUSTERED ([id])
     );
 END
@@ -504,12 +504,12 @@ GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_statistic_invoice_header_mysupply_DW_Timestamp_Update'
-      AND object_id = OBJECT_ID(N'[arc].[statistic_invoice_header_mysupply]')
+    WHERE name = 'IX_arc_mysupply_statistic_invoice_header_DW_Timestamp_Update'
+      AND object_id = OBJECT_ID(N'[arc].[mysupply_statistic_invoice_header]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_statistic_invoice_header_mysupply_DW_Timestamp_Update]
-        ON [arc].[statistic_invoice_header_mysupply] ([DW_Timestamp_Update] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_mysupply_statistic_invoice_header_DW_Timestamp_Update]
+        ON [arc].[mysupply_statistic_invoice_header] ([DW_Timestamp_Update] DESC);
 END
 GO
 
@@ -520,10 +520,10 @@ GO
 
 IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'metadata_mysupply'
+    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'mysupply_metadata'
 )
 BEGIN
-    CREATE TABLE [arc].[metadata_mysupply] (
+    CREATE TABLE [arc].[mysupply_metadata] (
         [id]                              INT             NOT NULL,
         [Guid]                            NVARCHAR(MAX)   NULL,
         [data_unit_identity_unique_name]  NVARCHAR(MAX)   NULL,
@@ -550,7 +550,7 @@ BEGIN
         [DW_Timestamp_Insert]   DATETIME2(0)   NOT NULL,
         [DW_Timestamp_Update]   DATETIME2(0)   NOT NULL,
 
-        CONSTRAINT [PK_arc_metadata_mysupply]
+        CONSTRAINT [PK_arc_mysupply_metadata]
             PRIMARY KEY CLUSTERED ([id])
     );
 END
@@ -558,12 +558,12 @@ GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_metadata_mysupply_DW_Timestamp_Update'
-      AND object_id = OBJECT_ID(N'[arc].[metadata_mysupply]')
+    WHERE name = 'IX_arc_mysupply_metadata_DW_Timestamp_Update'
+      AND object_id = OBJECT_ID(N'[arc].[mysupply_metadata]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_metadata_mysupply_DW_Timestamp_Update]
-        ON [arc].[metadata_mysupply] ([DW_Timestamp_Update] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_mysupply_metadata_DW_Timestamp_Update]
+        ON [arc].[mysupply_metadata] ([DW_Timestamp_Update] DESC);
 END
 GO
 
@@ -574,10 +574,10 @@ GO
 
 IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'statistic_invoice_line_mysupply'
+    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'mysupply_statistic_invoice_line'
 )
 BEGIN
-    CREATE TABLE [arc].[statistic_invoice_line_mysupply] (
+    CREATE TABLE [arc].[mysupply_statistic_invoice_line] (
         [id]                                          INT             NOT NULL,
         [statistic_invoice_header_id]                 INT             NOT NULL,
         [FakturaLinjeNr]                              NVARCHAR(MAX)   NULL,
@@ -683,7 +683,7 @@ BEGIN
         [DW_Timestamp_Insert]   DATETIME2(0)   NOT NULL,
         [DW_Timestamp_Update]   DATETIME2(0)   NOT NULL,
 
-        CONSTRAINT [PK_arc_statistic_invoice_line_mysupply]
+        CONSTRAINT [PK_arc_mysupply_statistic_invoice_line]
             PRIMARY KEY CLUSTERED ([id])
     );
 END
@@ -691,23 +691,23 @@ GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_statistic_invoice_line_mysupply_DW_Timestamp_Update'
-      AND object_id = OBJECT_ID(N'[arc].[statistic_invoice_line_mysupply]')
+    WHERE name = 'IX_arc_mysupply_statistic_invoice_line_DW_Timestamp_Update'
+      AND object_id = OBJECT_ID(N'[arc].[mysupply_statistic_invoice_line]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_statistic_invoice_line_mysupply_DW_Timestamp_Update]
-        ON [arc].[statistic_invoice_line_mysupply] ([DW_Timestamp_Update] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_mysupply_statistic_invoice_line_DW_Timestamp_Update]
+        ON [arc].[mysupply_statistic_invoice_line] ([DW_Timestamp_Update] DESC);
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_statistic_invoice_line_mysupply_statistic_invoice_header_id'
-      AND object_id = OBJECT_ID(N'[arc].[statistic_invoice_line_mysupply]')
+    WHERE name = 'IX_arc_mysupply_statistic_invoice_line_statistic_invoice_header_id'
+      AND object_id = OBJECT_ID(N'[arc].[mysupply_statistic_invoice_line]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_statistic_invoice_line_mysupply_statistic_invoice_header_id]
-        ON [arc].[statistic_invoice_line_mysupply] ([statistic_invoice_header_id]);
+    CREATE NONCLUSTERED INDEX [IX_arc_mysupply_statistic_invoice_line_statistic_invoice_header_id]
+        ON [arc].[mysupply_statistic_invoice_line] ([statistic_invoice_header_id]);
 END
 GO
 
@@ -718,10 +718,10 @@ GO
 
 IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'statistic_invoice_header_allowance_charge_mysupply'
+    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'mysupply_statistic_invoice_header_allowance_charge'
 )
 BEGIN
-    CREATE TABLE [arc].[statistic_invoice_header_allowance_charge_mysupply] (
+    CREATE TABLE [arc].[mysupply_statistic_invoice_header_allowance_charge] (
         [id]                              INT             NOT NULL,
         [statistic_invoice_header_id]     INT             NOT NULL,
         [GebyrKategori]                   NVARCHAR(MAX)   NULL,
@@ -737,7 +737,7 @@ BEGIN
         [DW_Timestamp_Insert]   DATETIME2(0)   NOT NULL,
         [DW_Timestamp_Update]   DATETIME2(0)   NOT NULL,
 
-        CONSTRAINT [PK_arc_statistic_invoice_header_allowance_charge_mysupply]
+        CONSTRAINT [PK_arc_mysupply_statistic_invoice_header_allowance_charge]
             PRIMARY KEY CLUSTERED ([id])
     );
 END
@@ -745,23 +745,23 @@ GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_statistic_invoice_header_allowance_charge_mysupply_DW_Timestamp_Update'
-      AND object_id = OBJECT_ID(N'[arc].[statistic_invoice_header_allowance_charge_mysupply]')
+    WHERE name = 'IX_arc_mysupply_statistic_invoice_header_allowance_charge_DW_Timestamp_Update'
+      AND object_id = OBJECT_ID(N'[arc].[mysupply_statistic_invoice_header_allowance_charge]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_statistic_invoice_header_allowance_charge_mysupply_DW_Timestamp_Update]
-        ON [arc].[statistic_invoice_header_allowance_charge_mysupply] ([DW_Timestamp_Update] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_mysupply_statistic_invoice_header_allowance_charge_DW_Timestamp_Update]
+        ON [arc].[mysupply_statistic_invoice_header_allowance_charge] ([DW_Timestamp_Update] DESC);
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_statistic_invoice_header_allowance_charge_mysupply_header_id'
-      AND object_id = OBJECT_ID(N'[arc].[statistic_invoice_header_allowance_charge_mysupply]')
+    WHERE name = 'IX_arc_mysupply_statistic_invoice_header_allowance_charge_header_id'
+      AND object_id = OBJECT_ID(N'[arc].[mysupply_statistic_invoice_header_allowance_charge]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_statistic_invoice_header_allowance_charge_mysupply_header_id]
-        ON [arc].[statistic_invoice_header_allowance_charge_mysupply] ([statistic_invoice_header_id]);
+    CREATE NONCLUSTERED INDEX [IX_arc_mysupply_statistic_invoice_header_allowance_charge_header_id]
+        ON [arc].[mysupply_statistic_invoice_header_allowance_charge] ([statistic_invoice_header_id]);
 END
 GO
 
@@ -772,10 +772,10 @@ GO
 
 IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'statistic_invoice_line_allowance_charge_mysupply'
+    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'mysupply_statistic_invoice_line_allowance_charge'
 )
 BEGIN
-    CREATE TABLE [arc].[statistic_invoice_line_allowance_charge_mysupply] (
+    CREATE TABLE [arc].[mysupply_statistic_invoice_line_allowance_charge] (
         [id]                                          INT             NOT NULL,
         [statistic_invoice_line_id]                   INT             NOT NULL,
         [FakturaUdstederGebyrKategori]                NVARCHAR(MAX)   NULL,
@@ -791,7 +791,7 @@ BEGIN
         [DW_Timestamp_Insert]   DATETIME2(0)   NOT NULL,
         [DW_Timestamp_Update]   DATETIME2(0)   NOT NULL,
 
-        CONSTRAINT [PK_arc_statistic_invoice_line_allowance_charge_mysupply]
+        CONSTRAINT [PK_arc_mysupply_statistic_invoice_line_allowance_charge]
             PRIMARY KEY CLUSTERED ([id])
     );
 END
@@ -799,23 +799,23 @@ GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_statistic_invoice_line_allowance_charge_mysupply_DW_Timestamp_Update'
-      AND object_id = OBJECT_ID(N'[arc].[statistic_invoice_line_allowance_charge_mysupply]')
+    WHERE name = 'IX_arc_mysupply_statistic_invoice_line_allowance_charge_DW_Timestamp_Update'
+      AND object_id = OBJECT_ID(N'[arc].[mysupply_statistic_invoice_line_allowance_charge]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_statistic_invoice_line_allowance_charge_mysupply_DW_Timestamp_Update]
-        ON [arc].[statistic_invoice_line_allowance_charge_mysupply] ([DW_Timestamp_Update] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_mysupply_statistic_invoice_line_allowance_charge_DW_Timestamp_Update]
+        ON [arc].[mysupply_statistic_invoice_line_allowance_charge] ([DW_Timestamp_Update] DESC);
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_statistic_invoice_line_allowance_charge_mysupply_line_id'
-      AND object_id = OBJECT_ID(N'[arc].[statistic_invoice_line_allowance_charge_mysupply]')
+    WHERE name = 'IX_arc_mysupply_statistic_invoice_line_allowance_charge_line_id'
+      AND object_id = OBJECT_ID(N'[arc].[mysupply_statistic_invoice_line_allowance_charge]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_statistic_invoice_line_allowance_charge_mysupply_line_id]
-        ON [arc].[statistic_invoice_line_allowance_charge_mysupply] ([statistic_invoice_line_id]);
+    CREATE NONCLUSTERED INDEX [IX_arc_mysupply_statistic_invoice_line_allowance_charge_line_id]
+        ON [arc].[mysupply_statistic_invoice_line_allowance_charge] ([statistic_invoice_line_id]);
 END
 GO
 
@@ -833,10 +833,10 @@ GO
 
 IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'vareart_ils'
+    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'ils_vareart'
 )
 BEGIN
-    CREATE TABLE [arc].[vareart_ils] (
+    CREATE TABLE [arc].[ils_vareart] (
         -- Source columns (1:1 from dbo.vareart)
         [prrowid]      varchar(36)    NOT NULL,
         [vareart]      varchar(12)    NULL,
@@ -856,19 +856,19 @@ BEGIN
         [DW_Timestamp_Insert]   DATETIME2(0)   NOT NULL DEFAULT SYSDATETIME(),
         [DW_Timestamp_Update]   DATETIME2(0)   NULL,
 
-        CONSTRAINT [PK_arc_vareart_ils] PRIMARY KEY CLUSTERED ([prrowid])
+        CONSTRAINT [PK_arc_ils_vareart] PRIMARY KEY CLUSTERED ([prrowid])
     );
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_vareart_ils_DW_Timestamp_Update'
-      AND object_id = OBJECT_ID(N'[arc].[vareart_ils]')
+    WHERE name = 'IX_arc_ils_vareart_DW_Timestamp_Update'
+      AND object_id = OBJECT_ID(N'[arc].[ils_vareart]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_vareart_ils_DW_Timestamp_Update]
-        ON [arc].[vareart_ils] ([DW_Timestamp_Update] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_ils_vareart_DW_Timestamp_Update]
+        ON [arc].[ils_vareart] ([DW_Timestamp_Update] DESC);
 END
 GO
 
@@ -879,10 +879,10 @@ GO
 
 IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'varegrp_ils'
+    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'ils_varegrp'
 )
 BEGIN
-    CREATE TABLE [arc].[varegrp_ils] (
+    CREATE TABLE [arc].[ils_varegrp] (
         -- Source columns (1:1 from dbo.varegrp)
         [prrowid]      varchar(36)    NOT NULL,
         [varegrp]      varchar(8)     NULL,
@@ -902,19 +902,19 @@ BEGIN
         [DW_Timestamp_Insert]   DATETIME2(0)   NOT NULL DEFAULT SYSDATETIME(),
         [DW_Timestamp_Update]   DATETIME2(0)   NULL,
 
-        CONSTRAINT [PK_arc_varegrp_ils] PRIMARY KEY CLUSTERED ([prrowid])
+        CONSTRAINT [PK_arc_ils_varegrp] PRIMARY KEY CLUSTERED ([prrowid])
     );
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_varegrp_ils_DW_Timestamp_Update'
-      AND object_id = OBJECT_ID(N'[arc].[varegrp_ils]')
+    WHERE name = 'IX_arc_ils_varegrp_DW_Timestamp_Update'
+      AND object_id = OBJECT_ID(N'[arc].[ils_varegrp]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_varegrp_ils_DW_Timestamp_Update]
-        ON [arc].[varegrp_ils] ([DW_Timestamp_Update] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_ils_varegrp_DW_Timestamp_Update]
+        ON [arc].[ils_varegrp] ([DW_Timestamp_Update] DESC);
 END
 GO
 
@@ -925,10 +925,10 @@ GO
 
 IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'varetype_ils'
+    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'ils_varetype'
 )
 BEGIN
-    CREATE TABLE [arc].[varetype_ils] (
+    CREATE TABLE [arc].[ils_varetype] (
         -- Source columns (1:1 from dbo.varetype)
         [prrowid]      varchar(36)    NOT NULL,
         [varetype]     varchar(12)    NULL,
@@ -947,19 +947,19 @@ BEGIN
         [DW_Timestamp_Insert]   DATETIME2(0)   NOT NULL DEFAULT SYSDATETIME(),
         [DW_Timestamp_Update]   DATETIME2(0)   NULL,
 
-        CONSTRAINT [PK_arc_varetype_ils] PRIMARY KEY CLUSTERED ([prrowid])
+        CONSTRAINT [PK_arc_ils_varetype] PRIMARY KEY CLUSTERED ([prrowid])
     );
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_varetype_ils_DW_Timestamp_Update'
-      AND object_id = OBJECT_ID(N'[arc].[varetype_ils]')
+    WHERE name = 'IX_arc_ils_varetype_DW_Timestamp_Update'
+      AND object_id = OBJECT_ID(N'[arc].[ils_varetype]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_varetype_ils_DW_Timestamp_Update]
-        ON [arc].[varetype_ils] ([DW_Timestamp_Update] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_ils_varetype_DW_Timestamp_Update]
+        ON [arc].[ils_varetype] ([DW_Timestamp_Update] DESC);
 END
 GO
 
@@ -970,10 +970,10 @@ GO
 
 IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'moms_ils'
+    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'ils_moms'
 )
 BEGIN
-    CREATE TABLE [arc].[moms_ils] (
+    CREATE TABLE [arc].[ils_moms] (
         -- Source columns (1:1 from dbo.moms)
         [prrowid]      varchar(36)    NOT NULL,
         [momskd]       varchar(4)     NULL,
@@ -994,19 +994,19 @@ BEGIN
         [DW_Timestamp_Insert]   DATETIME2(0)   NOT NULL DEFAULT SYSDATETIME(),
         [DW_Timestamp_Update]   DATETIME2(0)   NULL,
 
-        CONSTRAINT [PK_arc_moms_ils] PRIMARY KEY CLUSTERED ([prrowid])
+        CONSTRAINT [PK_arc_ils_moms] PRIMARY KEY CLUSTERED ([prrowid])
     );
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_moms_ils_DW_Timestamp_Update'
-      AND object_id = OBJECT_ID(N'[arc].[moms_ils]')
+    WHERE name = 'IX_arc_ils_moms_DW_Timestamp_Update'
+      AND object_id = OBJECT_ID(N'[arc].[ils_moms]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_moms_ils_DW_Timestamp_Update]
-        ON [arc].[moms_ils] ([DW_Timestamp_Update] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_ils_moms_DW_Timestamp_Update]
+        ON [arc].[ils_moms] ([DW_Timestamp_Update] DESC);
 END
 GO
 
@@ -1017,10 +1017,10 @@ GO
 
 IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'lev_ils'
+    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'ils_lev'
 )
 BEGIN
-    CREATE TABLE [arc].[lev_ils] (
+    CREATE TABLE [arc].[ils_lev] (
         -- Source columns (1:1 from dbo.lev)
         [prrowid]              varchar(36)    NOT NULL,
         [lnr]                  varchar(20)    NULL,
@@ -1120,19 +1120,19 @@ BEGIN
         [DW_Timestamp_Insert]   DATETIME2(0)   NOT NULL DEFAULT SYSDATETIME(),
         [DW_Timestamp_Update]   DATETIME2(0)   NULL,
 
-        CONSTRAINT [PK_arc_lev_ils] PRIMARY KEY CLUSTERED ([prrowid])
+        CONSTRAINT [PK_arc_ils_lev] PRIMARY KEY CLUSTERED ([prrowid])
     );
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_lev_ils_DW_Timestamp_Update'
-      AND object_id = OBJECT_ID(N'[arc].[lev_ils]')
+    WHERE name = 'IX_arc_ils_lev_DW_Timestamp_Update'
+      AND object_id = OBJECT_ID(N'[arc].[ils_lev]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_lev_ils_DW_Timestamp_Update]
-        ON [arc].[lev_ils] ([DW_Timestamp_Update] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_ils_lev_DW_Timestamp_Update]
+        ON [arc].[ils_lev] ([DW_Timestamp_Update] DESC);
 END
 GO
 
@@ -1143,10 +1143,10 @@ GO
 
 IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'sgh_ils'
+    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'ils_sgh'
 )
 BEGIN
-    CREATE TABLE [arc].[sgh_ils] (
+    CREATE TABLE [arc].[ils_sgh] (
         -- Source columns (1:1 from dbo.sgh)
         [prrowid]      varchar(36)    NOT NULL,
         [sgh]          varchar(8)     NULL,
@@ -1183,19 +1183,19 @@ BEGIN
         [DW_Timestamp_Insert]   DATETIME2(0)   NOT NULL DEFAULT SYSDATETIME(),
         [DW_Timestamp_Update]   DATETIME2(0)   NULL,
 
-        CONSTRAINT [PK_arc_sgh_ils] PRIMARY KEY CLUSTERED ([prrowid])
+        CONSTRAINT [PK_arc_ils_sgh] PRIMARY KEY CLUSTERED ([prrowid])
     );
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_sgh_ils_DW_Timestamp_Update'
-      AND object_id = OBJECT_ID(N'[arc].[sgh_ils]')
+    WHERE name = 'IX_arc_ils_sgh_DW_Timestamp_Update'
+      AND object_id = OBJECT_ID(N'[arc].[ils_sgh]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_sgh_ils_DW_Timestamp_Update]
-        ON [arc].[sgh_ils] ([DW_Timestamp_Update] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_ils_sgh_DW_Timestamp_Update]
+        ON [arc].[ils_sgh] ([DW_Timestamp_Update] DESC);
 END
 GO
 
@@ -1206,10 +1206,10 @@ GO
 
 IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'lgr_ils'
+    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'ils_lgr'
 )
 BEGIN
-    CREATE TABLE [arc].[lgr_ils] (
+    CREATE TABLE [arc].[ils_lgr] (
         -- Source columns (1:1 from dbo.lgr)
         [prrowid]          varchar(36)    NOT NULL,
         [sgh]              varchar(8)     NULL,
@@ -1311,19 +1311,19 @@ BEGIN
         [DW_Timestamp_Insert]   DATETIME2(0)   NOT NULL DEFAULT SYSDATETIME(),
         [DW_Timestamp_Update]   DATETIME2(0)   NULL,
 
-        CONSTRAINT [PK_arc_lgr_ils] PRIMARY KEY CLUSTERED ([prrowid])
+        CONSTRAINT [PK_arc_ils_lgr] PRIMARY KEY CLUSTERED ([prrowid])
     );
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_lgr_ils_DW_Timestamp_Update'
-      AND object_id = OBJECT_ID(N'[arc].[lgr_ils]')
+    WHERE name = 'IX_arc_ils_lgr_DW_Timestamp_Update'
+      AND object_id = OBJECT_ID(N'[arc].[ils_lgr]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_lgr_ils_DW_Timestamp_Update]
-        ON [arc].[lgr_ils] ([DW_Timestamp_Update] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_ils_lgr_DW_Timestamp_Update]
+        ON [arc].[ils_lgr] ([DW_Timestamp_Update] DESC);
 END
 GO
 
@@ -1334,10 +1334,10 @@ GO
 
 IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'rekv_ils'
+    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'ils_rekv'
 )
 BEGIN
-    CREATE TABLE [arc].[rekv_ils] (
+    CREATE TABLE [arc].[ils_rekv] (
         -- Source columns (1:1 from dbo.rekv)
         [prrowid]              varchar(36)    NOT NULL,
         [sgh]                  varchar(8)     NULL,
@@ -1418,19 +1418,19 @@ BEGIN
         [DW_Timestamp_Insert]   DATETIME2(0)   NOT NULL DEFAULT SYSDATETIME(),
         [DW_Timestamp_Update]   DATETIME2(0)   NULL,
 
-        CONSTRAINT [PK_arc_rekv_ils] PRIMARY KEY CLUSTERED ([prrowid])
+        CONSTRAINT [PK_arc_ils_rekv] PRIMARY KEY CLUSTERED ([prrowid])
     );
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_rekv_ils_DW_Timestamp_Update'
-      AND object_id = OBJECT_ID(N'[arc].[rekv_ils]')
+    WHERE name = 'IX_arc_ils_rekv_DW_Timestamp_Update'
+      AND object_id = OBJECT_ID(N'[arc].[ils_rekv]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_rekv_ils_DW_Timestamp_Update]
-        ON [arc].[rekv_ils] ([DW_Timestamp_Update] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_ils_rekv_DW_Timestamp_Update]
+        ON [arc].[ils_rekv] ([DW_Timestamp_Update] DESC);
 END
 GO
 
@@ -1441,10 +1441,10 @@ GO
 
 IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'rekvgrp_ils'
+    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'ils_rekvgrp'
 )
 BEGIN
-    CREATE TABLE [arc].[rekvgrp_ils] (
+    CREATE TABLE [arc].[ils_rekvgrp] (
         -- Source columns (1:1 from dbo.rekvgrp)
         [prrowid]      varchar(36)    NOT NULL,
         [sgh]          varchar(8)     NULL,
@@ -1463,19 +1463,19 @@ BEGIN
         [DW_Timestamp_Insert]   DATETIME2(0)   NOT NULL DEFAULT SYSDATETIME(),
         [DW_Timestamp_Update]   DATETIME2(0)   NULL,
 
-        CONSTRAINT [PK_arc_rekvgrp_ils] PRIMARY KEY CLUSTERED ([prrowid])
+        CONSTRAINT [PK_arc_ils_rekvgrp] PRIMARY KEY CLUSTERED ([prrowid])
     );
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_rekvgrp_ils_DW_Timestamp_Update'
-      AND object_id = OBJECT_ID(N'[arc].[rekvgrp_ils]')
+    WHERE name = 'IX_arc_ils_rekvgrp_DW_Timestamp_Update'
+      AND object_id = OBJECT_ID(N'[arc].[ils_rekvgrp]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_rekvgrp_ils_DW_Timestamp_Update]
-        ON [arc].[rekvgrp_ils] ([DW_Timestamp_Update] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_ils_rekvgrp_DW_Timestamp_Update]
+        ON [arc].[ils_rekvgrp] ([DW_Timestamp_Update] DESC);
 END
 GO
 
@@ -1486,10 +1486,10 @@ GO
 
 IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'lafth_ils'
+    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'ils_lafth'
 )
 BEGIN
-    CREATE TABLE [arc].[lafth_ils] (
+    CREATE TABLE [arc].[ils_lafth] (
         -- Source columns (1:1 from dbo.lafth)
         [prrowid]          varchar(36)    NOT NULL,
         [lnr]              varchar(20)    NULL,
@@ -1546,19 +1546,19 @@ BEGIN
         [DW_Timestamp_Insert]   DATETIME2(0)   NOT NULL DEFAULT SYSDATETIME(),
         [DW_Timestamp_Update]   DATETIME2(0)   NULL,
 
-        CONSTRAINT [PK_arc_lafth_ils] PRIMARY KEY CLUSTERED ([prrowid])
+        CONSTRAINT [PK_arc_ils_lafth] PRIMARY KEY CLUSTERED ([prrowid])
     );
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_lafth_ils_DW_Timestamp_Update'
-      AND object_id = OBJECT_ID(N'[arc].[lafth_ils]')
+    WHERE name = 'IX_arc_ils_lafth_DW_Timestamp_Update'
+      AND object_id = OBJECT_ID(N'[arc].[ils_lafth]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_lafth_ils_DW_Timestamp_Update]
-        ON [arc].[lafth_ils] ([DW_Timestamp_Update] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_ils_lafth_DW_Timestamp_Update]
+        ON [arc].[ils_lafth] ([DW_Timestamp_Update] DESC);
 END
 GO
 
@@ -1569,10 +1569,10 @@ GO
 
 IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'laftdpris_ils'
+    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'ils_laftdpris'
 )
 BEGIN
-    CREATE TABLE [arc].[laftdpris_ils] (
+    CREATE TABLE [arc].[ils_laftdpris] (
         -- Source columns (1:1 from dbo.laftdpris)
         [prrowid]      varchar(36)    NOT NULL,
         [lnr]          varchar(20)    NULL,
@@ -1602,30 +1602,30 @@ BEGIN
         [DW_Timestamp_Insert]   DATETIME2(0)   NOT NULL DEFAULT SYSDATETIME(),
         [DW_Timestamp_Update]   DATETIME2(0)   NULL,
 
-        CONSTRAINT [PK_arc_laftdpris_ils] PRIMARY KEY CLUSTERED ([prrowid])
+        CONSTRAINT [PK_arc_ils_laftdpris] PRIMARY KEY CLUSTERED ([prrowid])
     );
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_laftdpris_ils_DW_Timestamp_Update'
-      AND object_id = OBJECT_ID(N'[arc].[laftdpris_ils]')
+    WHERE name = 'IX_arc_ils_laftdpris_DW_Timestamp_Update'
+      AND object_id = OBJECT_ID(N'[arc].[ils_laftdpris]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_laftdpris_ils_DW_Timestamp_Update]
-        ON [arc].[laftdpris_ils] ([DW_Timestamp_Update] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_ils_laftdpris_DW_Timestamp_Update]
+        ON [arc].[ils_laftdpris] ([DW_Timestamp_Update] DESC);
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_laftdpris_ils_sysdato'
-      AND object_id = OBJECT_ID(N'[arc].[laftdpris_ils]')
+    WHERE name = 'IX_arc_ils_laftdpris_sysdato'
+      AND object_id = OBJECT_ID(N'[arc].[ils_laftdpris]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_laftdpris_ils_sysdato]
-        ON [arc].[laftdpris_ils] ([sysdato] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_ils_laftdpris_sysdato]
+        ON [arc].[ils_laftdpris] ([sysdato] DESC);
 END
 GO
 
@@ -1636,10 +1636,10 @@ GO
 
 IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'laftdstam_ils'
+    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'ils_laftdstam'
 )
 BEGIN
-    CREATE TABLE [arc].[laftdstam_ils] (
+    CREATE TABLE [arc].[ils_laftdstam] (
         -- Source columns (1:1 from dbo.laftdstam)
         [prrowid]      varchar(36)    NOT NULL,
         [lnr]          varchar(20)    NULL,
@@ -1687,30 +1687,30 @@ BEGIN
         [DW_Timestamp_Insert]   DATETIME2(0)   NOT NULL DEFAULT SYSDATETIME(),
         [DW_Timestamp_Update]   DATETIME2(0)   NULL,
 
-        CONSTRAINT [PK_arc_laftdstam_ils] PRIMARY KEY CLUSTERED ([prrowid])
+        CONSTRAINT [PK_arc_ils_laftdstam] PRIMARY KEY CLUSTERED ([prrowid])
     );
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_laftdstam_ils_DW_Timestamp_Update'
-      AND object_id = OBJECT_ID(N'[arc].[laftdstam_ils]')
+    WHERE name = 'IX_arc_ils_laftdstam_DW_Timestamp_Update'
+      AND object_id = OBJECT_ID(N'[arc].[ils_laftdstam]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_laftdstam_ils_DW_Timestamp_Update]
-        ON [arc].[laftdstam_ils] ([DW_Timestamp_Update] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_ils_laftdstam_DW_Timestamp_Update]
+        ON [arc].[ils_laftdstam] ([DW_Timestamp_Update] DESC);
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_laftdstam_ils_sysdato'
-      AND object_id = OBJECT_ID(N'[arc].[laftdstam_ils]')
+    WHERE name = 'IX_arc_ils_laftdstam_sysdato'
+      AND object_id = OBJECT_ID(N'[arc].[ils_laftdstam]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_laftdstam_ils_sysdato]
-        ON [arc].[laftdstam_ils] ([sysdato] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_ils_laftdstam_sysdato]
+        ON [arc].[ils_laftdstam] ([sysdato] DESC);
 END
 GO
 
@@ -1721,10 +1721,10 @@ GO
 
 IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'laftd_ils'
+    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'ils_laftd'
 )
 BEGIN
-    CREATE TABLE [arc].[laftd_ils] (
+    CREATE TABLE [arc].[ils_laftd] (
         -- Source columns (1:1 from dbo.laftd)
         [prrowid]       varchar(36)    NOT NULL,
         [lnr]           varchar(20)    NULL,
@@ -1774,30 +1774,30 @@ BEGIN
         [DW_Timestamp_Insert]   DATETIME2(0)   NOT NULL DEFAULT SYSDATETIME(),
         [DW_Timestamp_Update]   DATETIME2(0)   NULL,
 
-        CONSTRAINT [PK_arc_laftd_ils] PRIMARY KEY CLUSTERED ([prrowid])
+        CONSTRAINT [PK_arc_ils_laftd] PRIMARY KEY CLUSTERED ([prrowid])
     );
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_laftd_ils_DW_Timestamp_Update'
-      AND object_id = OBJECT_ID(N'[arc].[laftd_ils]')
+    WHERE name = 'IX_arc_ils_laftd_DW_Timestamp_Update'
+      AND object_id = OBJECT_ID(N'[arc].[ils_laftd]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_laftd_ils_DW_Timestamp_Update]
-        ON [arc].[laftd_ils] ([DW_Timestamp_Update] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_ils_laftd_DW_Timestamp_Update]
+        ON [arc].[ils_laftd] ([DW_Timestamp_Update] DESC);
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_laftd_ils_sysdato'
-      AND object_id = OBJECT_ID(N'[arc].[laftd_ils]')
+    WHERE name = 'IX_arc_ils_laftd_sysdato'
+      AND object_id = OBJECT_ID(N'[arc].[ils_laftd]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_laftd_ils_sysdato]
-        ON [arc].[laftd_ils] ([sysdato] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_ils_laftd_sysdato]
+        ON [arc].[ils_laftd] ([sysdato] DESC);
 END
 GO
 
@@ -1808,10 +1808,10 @@ GO
 
 IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'udlev_ils'
+    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'ils_udlev'
 )
 BEGIN
-    CREATE TABLE [arc].[udlev_ils] (
+    CREATE TABLE [arc].[ils_udlev] (
         -- Source columns (1:1 from dbo.udlev)
         [prrowid]          varchar(36)    NOT NULL,
         [sgh]              varchar(8)     NULL,
@@ -1888,30 +1888,30 @@ BEGIN
         [DW_Timestamp_Insert]   DATETIME2(0)   NOT NULL DEFAULT SYSDATETIME(),
         [DW_Timestamp_Update]   DATETIME2(0)   NULL,
 
-        CONSTRAINT [PK_arc_udlev_ils] PRIMARY KEY CLUSTERED ([prrowid])
+        CONSTRAINT [PK_arc_ils_udlev] PRIMARY KEY CLUSTERED ([prrowid])
     );
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_udlev_ils_DW_Timestamp_Update'
-      AND object_id = OBJECT_ID(N'[arc].[udlev_ils]')
+    WHERE name = 'IX_arc_ils_udlev_DW_Timestamp_Update'
+      AND object_id = OBJECT_ID(N'[arc].[ils_udlev]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_udlev_ils_DW_Timestamp_Update]
-        ON [arc].[udlev_ils] ([DW_Timestamp_Update] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_ils_udlev_DW_Timestamp_Update]
+        ON [arc].[ils_udlev] ([DW_Timestamp_Update] DESC);
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_udlev_ils_sysdato'
-      AND object_id = OBJECT_ID(N'[arc].[udlev_ils]')
+    WHERE name = 'IX_arc_ils_udlev_sysdato'
+      AND object_id = OBJECT_ID(N'[arc].[ils_udlev]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_udlev_ils_sysdato]
-        ON [arc].[udlev_ils] ([sysdato] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_ils_udlev_sysdato]
+        ON [arc].[ils_udlev] ([sysdato] DESC);
 END
 GO
 
@@ -1922,10 +1922,10 @@ GO
 
 IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'lgrvare_ils'
+    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'ils_lgrvare'
 )
 BEGIN
-    CREATE TABLE [arc].[lgrvare_ils] (
+    CREATE TABLE [arc].[ils_lgrvare] (
         -- Source columns (1:1 from dbo.lgrvare)
         [prrowid]              varchar(36)    NOT NULL,
         [sgh]                  varchar(8)     NULL,
@@ -2038,30 +2038,30 @@ BEGIN
         [DW_Timestamp_Insert]   DATETIME2(0)   NOT NULL DEFAULT SYSDATETIME(),
         [DW_Timestamp_Update]   DATETIME2(0)   NULL,
 
-        CONSTRAINT [PK_arc_lgrvare_ils] PRIMARY KEY CLUSTERED ([prrowid])
+        CONSTRAINT [PK_arc_ils_lgrvare] PRIMARY KEY CLUSTERED ([prrowid])
     );
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_lgrvare_ils_DW_Timestamp_Update'
-      AND object_id = OBJECT_ID(N'[arc].[lgrvare_ils]')
+    WHERE name = 'IX_arc_ils_lgrvare_DW_Timestamp_Update'
+      AND object_id = OBJECT_ID(N'[arc].[ils_lgrvare]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_lgrvare_ils_DW_Timestamp_Update]
-        ON [arc].[lgrvare_ils] ([DW_Timestamp_Update] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_ils_lgrvare_DW_Timestamp_Update]
+        ON [arc].[ils_lgrvare] ([DW_Timestamp_Update] DESC);
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_lgrvare_ils_sysdato'
-      AND object_id = OBJECT_ID(N'[arc].[lgrvare_ils]')
+    WHERE name = 'IX_arc_ils_lgrvare_sysdato'
+      AND object_id = OBJECT_ID(N'[arc].[ils_lgrvare]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_lgrvare_ils_sysdato]
-        ON [arc].[lgrvare_ils] ([sysdato] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_ils_lgrvare_sysdato]
+        ON [arc].[ils_lgrvare] ([sysdato] DESC);
 END
 GO
 
@@ -2072,10 +2072,10 @@ GO
 
 IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'pmdm_ils'
+    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'ils_pmdm'
 )
 BEGIN
-    CREATE TABLE [arc].[pmdm_ils] (
+    CREATE TABLE [arc].[ils_pmdm] (
         -- Source columns (1:1 from dbo.pmdm)
         [prrowid]              varchar(36)    NOT NULL,
         [vnr]                  varchar(24)    NULL,
@@ -2207,30 +2207,30 @@ BEGIN
         [DW_Timestamp_Insert]   DATETIME2(0)   NOT NULL DEFAULT SYSDATETIME(),
         [DW_Timestamp_Update]   DATETIME2(0)   NULL,
 
-        CONSTRAINT [PK_arc_pmdm_ils] PRIMARY KEY CLUSTERED ([prrowid])
+        CONSTRAINT [PK_arc_ils_pmdm] PRIMARY KEY CLUSTERED ([prrowid])
     );
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_pmdm_ils_DW_Timestamp_Update'
-      AND object_id = OBJECT_ID(N'[arc].[pmdm_ils]')
+    WHERE name = 'IX_arc_ils_pmdm_DW_Timestamp_Update'
+      AND object_id = OBJECT_ID(N'[arc].[ils_pmdm]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_pmdm_ils_DW_Timestamp_Update]
-        ON [arc].[pmdm_ils] ([DW_Timestamp_Update] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_ils_pmdm_DW_Timestamp_Update]
+        ON [arc].[ils_pmdm] ([DW_Timestamp_Update] DESC);
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_pmdm_ils_sysdato'
-      AND object_id = OBJECT_ID(N'[arc].[pmdm_ils]')
+    WHERE name = 'IX_arc_ils_pmdm_sysdato'
+      AND object_id = OBJECT_ID(N'[arc].[ils_pmdm]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_pmdm_ils_sysdato]
-        ON [arc].[pmdm_ils] ([sysdato] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_ils_pmdm_sysdato]
+        ON [arc].[ils_pmdm] ([sysdato] DESC);
 END
 GO
 
@@ -2241,10 +2241,10 @@ GO
 
 IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'indkfak_ils'
+    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'ils_indkfak'
 )
 BEGIN
-    CREATE TABLE [arc].[indkfak_ils] (
+    CREATE TABLE [arc].[ils_indkfak] (
         -- Source columns (1:1 from dbo.indkfak)
         [prrowid]          varchar(36)    NOT NULL,
         [sgh]              varchar(8)     NULL,
@@ -2300,30 +2300,30 @@ BEGIN
         [DW_Timestamp_Insert]   DATETIME2(0)   NOT NULL DEFAULT SYSDATETIME(),
         [DW_Timestamp_Update]   DATETIME2(0)   NULL,
 
-        CONSTRAINT [PK_arc_indkfak_ils] PRIMARY KEY CLUSTERED ([prrowid])
+        CONSTRAINT [PK_arc_ils_indkfak] PRIMARY KEY CLUSTERED ([prrowid])
     );
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_indkfak_ils_DW_Timestamp_Update'
-      AND object_id = OBJECT_ID(N'[arc].[indkfak_ils]')
+    WHERE name = 'IX_arc_ils_indkfak_DW_Timestamp_Update'
+      AND object_id = OBJECT_ID(N'[arc].[ils_indkfak]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_indkfak_ils_DW_Timestamp_Update]
-        ON [arc].[indkfak_ils] ([DW_Timestamp_Update] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_ils_indkfak_DW_Timestamp_Update]
+        ON [arc].[ils_indkfak] ([DW_Timestamp_Update] DESC);
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_indkfak_ils_sysdato'
-      AND object_id = OBJECT_ID(N'[arc].[indkfak_ils]')
+    WHERE name = 'IX_arc_ils_indkfak_sysdato'
+      AND object_id = OBJECT_ID(N'[arc].[ils_indkfak]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_indkfak_ils_sysdato]
-        ON [arc].[indkfak_ils] ([sysdato] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_ils_indkfak_sysdato]
+        ON [arc].[ils_indkfak] ([sysdato] DESC);
 END
 GO
 
@@ -2333,10 +2333,10 @@ GO
 
 IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'afdeling_sydax'
+    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'sydax_afdeling'
 )
 BEGIN
-    CREATE TABLE [arc].[afdeling_sydax] (
+    CREATE TABLE [arc].[sydax_afdeling] (
         -- Merge keys
         [Kildesystem]                          VARCHAR(10)    NOT NULL,
         [Afdelingsnummer]                      VARCHAR(20)    NOT NULL,
@@ -2355,41 +2355,41 @@ BEGIN
         [ref_DirPartyTableId]                  BIGINT         NULL,
         [ref_DimensionAttributeValueId]        BIGINT         NULL,
         [RunId]                                INT            NULL,
-        [StartDateTime]                        DATETIME2(0)   NULL,
+        [StartDateTime]                        DATETIME2(0)   NOT NULL,
         [EndDateTime]                          DATETIME2(0)   NULL,
         [RdwTs]                                DATETIME2(7)   NULL,
         [CreatedOn]                            DATETIME       NULL,
         [Modified]                             DATETIME       NULL,
-        [RECID]                                BIGINT         NULL,
+        [RECID]                                BIGINT         NOT NULL,
 
         -- DWH audit columns
         [DW_Timestamp_Insert]                  DATETIME2(0)   NOT NULL,
         [DW_Timestamp_Update]                  DATETIME2(0)   NOT NULL,
 
-        CONSTRAINT [PK_arc_afdeling_sydax] PRIMARY KEY CLUSTERED ([Kildesystem], [Afdelingsnummer])
+        CONSTRAINT [PK_arc_sydax_afdeling] PRIMARY KEY CLUSTERED ([Kildesystem], [RECID], [StartDateTime])
     );
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_afdeling_sydax_Modified'
-      AND object_id = OBJECT_ID(N'[arc].[afdeling_sydax]')
+    WHERE name = 'IX_arc_sydax_afdeling_Modified'
+      AND object_id = OBJECT_ID(N'[arc].[sydax_afdeling]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_afdeling_sydax_Modified]
-        ON [arc].[afdeling_sydax] ([Modified] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_sydax_afdeling_Modified]
+        ON [arc].[sydax_afdeling] ([Modified] DESC);
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_afdeling_sydax_CreatedOn'
-      AND object_id = OBJECT_ID(N'[arc].[afdeling_sydax]')
+    WHERE name = 'IX_arc_sydax_afdeling_CreatedOn'
+      AND object_id = OBJECT_ID(N'[arc].[sydax_afdeling]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_afdeling_sydax_CreatedOn]
-        ON [arc].[afdeling_sydax] ([CreatedOn] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_sydax_afdeling_CreatedOn]
+        ON [arc].[sydax_afdeling] ([CreatedOn] DESC);
 END
 GO
 
@@ -2399,16 +2399,16 @@ GO
 
 IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'finanskonto_sydax'
+    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'sydax_finanskonto'
 )
 BEGIN
-    CREATE TABLE [arc].[finanskonto_sydax] (
+    CREATE TABLE [arc].[sydax_finanskonto] (
         -- Merge keys
         [Kildesystem]                                          VARCHAR(10)    NOT NULL,
         [Kontonummer]                                          VARCHAR(500)   NOT NULL,
 
         -- Source columns (1:1 from [Finans].[Finanskonto], minus merge keys)
-        [FinanskontoId]                                        BIGINT         NULL,
+        [FinanskontoId]                                        BIGINT         NOT NULL,
         [ErLukket]                                             BIT            NULL,
         [ve_RECID]                                             BIGINT         NULL,
         [afd_RECID]                                            BIGINT         NULL,
@@ -2422,7 +2422,7 @@ BEGIN
         [l_RECID]                                              BIGINT         NULL,
         [ref_DIMENSIONATTRIBUTEVALUECOMBINATIONId]            BIGINT         NULL,
         [RunId]                                                INT            NULL,
-        [StartDateTime]                                        DATETIME2(0)   NULL,
+        [StartDateTime]                                        DATETIME2(0)   NOT NULL,
         [EndDateTime]                                          DATETIME2(0)   NULL,
         [RdwTs]                                                DATETIME2(7)   NULL,
         [ref_DIMENSIONATTRIBUTEVALUECOMBINATION_RECID]         BIGINT         NULL,
@@ -2433,30 +2433,30 @@ BEGIN
         [DW_Timestamp_Insert]                                  DATETIME2(0)   NOT NULL,
         [DW_Timestamp_Update]                                  DATETIME2(0)   NOT NULL,
 
-        CONSTRAINT [PK_arc_finanskonto_sydax] PRIMARY KEY CLUSTERED ([Kildesystem], [Kontonummer])
+        CONSTRAINT [PK_arc_sydax_finanskonto] PRIMARY KEY CLUSTERED ([Kildesystem], [FinanskontoId], [StartDateTime])
     );
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_finanskonto_sydax_Modified'
-      AND object_id = OBJECT_ID(N'[arc].[finanskonto_sydax]')
+    WHERE name = 'IX_arc_sydax_finanskonto_Modified'
+      AND object_id = OBJECT_ID(N'[arc].[sydax_finanskonto]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_finanskonto_sydax_Modified]
-        ON [arc].[finanskonto_sydax] ([Modified] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_sydax_finanskonto_Modified]
+        ON [arc].[sydax_finanskonto] ([Modified] DESC);
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_finanskonto_sydax_CreatedOn'
-      AND object_id = OBJECT_ID(N'[arc].[finanskonto_sydax]')
+    WHERE name = 'IX_arc_sydax_finanskonto_CreatedOn'
+      AND object_id = OBJECT_ID(N'[arc].[sydax_finanskonto]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_finanskonto_sydax_CreatedOn]
-        ON [arc].[finanskonto_sydax] ([CreatedOn] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_sydax_finanskonto_CreatedOn]
+        ON [arc].[sydax_finanskonto] ([CreatedOn] DESC);
 END
 GO
 
@@ -2466,20 +2466,20 @@ GO
 
 IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'finanskonto_omkostningssted_sydax'
+    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'sydax_finanskonto_omkostningssted'
 )
 BEGIN
-    CREATE TABLE [arc].[finanskonto_omkostningssted_sydax] (
+    CREATE TABLE [arc].[sydax_finanskonto_omkostningssted] (
         -- Merge keys
         [Kildesystem]                          VARCHAR(10)    NOT NULL,
         [FinanskontoId]                        BIGINT         NOT NULL,
         [Omkostningsstedid]                    BIGINT         NOT NULL,
 
         -- Source columns (1:1 from [Finans].[FinanskontoOmkostningssted], minus merge keys)
-        [FinanskontoOmkostningsstedid]         BIGINT         NULL,
+        [FinanskontoOmkostningsstedid]         BIGINT         NOT NULL,
         [ref_LedgerTableId]                    BIGINT         NULL,
         [RunId]                                INT            NULL,
-        [StartDateTime]                        DATETIME2(0)   NULL,
+        [StartDateTime]                        DATETIME2(0)   NOT NULL,
         [EndDateTime]                          DATETIME2(0)   NULL,
         [RdwTs]                                DATETIME2(7)   NULL,
         [CreatedOn]                            DATETIME       NULL,
@@ -2489,30 +2489,30 @@ BEGIN
         [DW_Timestamp_Insert]                  DATETIME2(0)   NOT NULL,
         [DW_Timestamp_Update]                  DATETIME2(0)   NOT NULL,
 
-        CONSTRAINT [PK_arc_finanskonto_omkostningssted_sydax] PRIMARY KEY CLUSTERED ([Kildesystem], [FinanskontoId], [Omkostningsstedid])
+        CONSTRAINT [PK_arc_sydax_finanskonto_omkostningssted] PRIMARY KEY CLUSTERED ([Kildesystem], [FinanskontoOmkostningsstedid], [StartDateTime])
     );
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_finanskonto_omkostningssted_sydax_Modified'
-      AND object_id = OBJECT_ID(N'[arc].[finanskonto_omkostningssted_sydax]')
+    WHERE name = 'IX_arc_sydax_finanskonto_omkostningssted_Modified'
+      AND object_id = OBJECT_ID(N'[arc].[sydax_finanskonto_omkostningssted]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_finanskonto_omkostningssted_sydax_Modified]
-        ON [arc].[finanskonto_omkostningssted_sydax] ([Modified] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_sydax_finanskonto_omkostningssted_Modified]
+        ON [arc].[sydax_finanskonto_omkostningssted] ([Modified] DESC);
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_finanskonto_omkostningssted_sydax_CreatedOn'
-      AND object_id = OBJECT_ID(N'[arc].[finanskonto_omkostningssted_sydax]')
+    WHERE name = 'IX_arc_sydax_finanskonto_omkostningssted_CreatedOn'
+      AND object_id = OBJECT_ID(N'[arc].[sydax_finanskonto_omkostningssted]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_finanskonto_omkostningssted_sydax_CreatedOn]
-        ON [arc].[finanskonto_omkostningssted_sydax] ([CreatedOn] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_sydax_finanskonto_omkostningssted_CreatedOn]
+        ON [arc].[sydax_finanskonto_omkostningssted] ([CreatedOn] DESC);
 END
 GO
 
@@ -2522,10 +2522,10 @@ GO
 
 IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'hovedkonto_sydax'
+    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'sydax_hovedkonto'
 )
 BEGIN
-    CREATE TABLE [arc].[hovedkonto_sydax] (
+    CREATE TABLE [arc].[sydax_hovedkonto] (
         -- Merge keys
         [Kildesystem]                          VARCHAR(10)    NOT NULL,
         [ref_RECID]                            BIGINT         NOT NULL,
@@ -2568,7 +2568,7 @@ BEGIN
         [ref_MainAccountId]                    BIGINT         NULL,
         [ref_DimensionAttributeValueId]        BIGINT         NULL,
         [RunId]                                INT            NULL,
-        [StartDateTime]                        DATETIME2(0)   NULL,
+        [StartDateTime]                        DATETIME2(0)   NOT NULL,
         [EndDateTime]                          DATETIME2(0)   NULL,
         [RdwTs]                                DATETIME2(7)   NULL,
         [CreatedOn]                            DATETIME       NULL,
@@ -2578,30 +2578,30 @@ BEGIN
         [DW_Timestamp_Insert]                  DATETIME2(0)   NOT NULL,
         [DW_Timestamp_Update]                  DATETIME2(0)   NOT NULL,
 
-        CONSTRAINT [PK_arc_hovedkonto_sydax] PRIMARY KEY CLUSTERED ([Kildesystem], [ref_RECID])
+        CONSTRAINT [PK_arc_sydax_hovedkonto] PRIMARY KEY CLUSTERED ([Kildesystem], [ref_RECID], [StartDateTime])
     );
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_hovedkonto_sydax_Modified'
-      AND object_id = OBJECT_ID(N'[arc].[hovedkonto_sydax]')
+    WHERE name = 'IX_arc_sydax_hovedkonto_Modified'
+      AND object_id = OBJECT_ID(N'[arc].[sydax_hovedkonto]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_hovedkonto_sydax_Modified]
-        ON [arc].[hovedkonto_sydax] ([Modified] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_sydax_hovedkonto_Modified]
+        ON [arc].[sydax_hovedkonto] ([Modified] DESC);
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_hovedkonto_sydax_CreatedOn'
-      AND object_id = OBJECT_ID(N'[arc].[hovedkonto_sydax]')
+    WHERE name = 'IX_arc_sydax_hovedkonto_CreatedOn'
+      AND object_id = OBJECT_ID(N'[arc].[sydax_hovedkonto]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_hovedkonto_sydax_CreatedOn]
-        ON [arc].[hovedkonto_sydax] ([CreatedOn] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_sydax_hovedkonto_CreatedOn]
+        ON [arc].[sydax_hovedkonto] ([CreatedOn] DESC);
 END
 GO
 
@@ -2611,16 +2611,16 @@ GO
 
 IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'omkostningssted_hierarki_sydax'
+    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'sydax_omkostningssted_hierarki'
 )
 BEGIN
-    CREATE TABLE [arc].[omkostningssted_hierarki_sydax] (
+    CREATE TABLE [arc].[sydax_omkostningssted_hierarki] (
         -- Merge keys
         [Kildesystem]              VARCHAR(10)    NOT NULL,
-        [max_OmkostningsstedId]    BIGINT         NOT NULL,
+        [max_OmkostningsstedId]    BIGINT         NULL,
 
         -- Source columns (1:1 from [Finans].[OmkostningsstedHierarki], minus merge keys)
-        [OmkostningsstedHierarkiId] BIGINT        NULL,
+        [OmkostningsstedHierarkiId] BIGINT        NOT NULL,
         [jeId1]                    BIGINT         NULL,
         [veId2]                    BIGINT         NULL,
         [afId2]                    BIGINT         NULL,
@@ -2723,7 +2723,7 @@ BEGIN
         [Aktiv]                    INT            NULL,
         [HierarkiId]               BIGINT         NULL,
         [RunId]                    INT            NULL,
-        [StartDateTime]            DATETIME2(0)   NULL,
+        [StartDateTime]            DATETIME2(0)   NOT NULL,
         [EndDateTime]              DATETIME2(0)   NULL,
         [RdwTs]                    DATETIME2(7)   NULL,
         [Slettet]                  INT            NULL,
@@ -2734,30 +2734,30 @@ BEGIN
         [DW_Timestamp_Insert]      DATETIME2(0)   NOT NULL,
         [DW_Timestamp_Update]      DATETIME2(0)   NOT NULL,
 
-        CONSTRAINT [PK_arc_omkostningssted_hierarki_sydax] PRIMARY KEY CLUSTERED ([Kildesystem], [max_OmkostningsstedId])
+        CONSTRAINT [PK_arc_sydax_omkostningssted_hierarki] PRIMARY KEY CLUSTERED ([Kildesystem], [OmkostningsstedHierarkiId], [StartDateTime])
     );
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_omkostningssted_hierarki_sydax_Modified'
-      AND object_id = OBJECT_ID(N'[arc].[omkostningssted_hierarki_sydax]')
+    WHERE name = 'IX_arc_sydax_omkostningssted_hierarki_Modified'
+      AND object_id = OBJECT_ID(N'[arc].[sydax_omkostningssted_hierarki]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_omkostningssted_hierarki_sydax_Modified]
-        ON [arc].[omkostningssted_hierarki_sydax] ([Modified] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_sydax_omkostningssted_hierarki_Modified]
+        ON [arc].[sydax_omkostningssted_hierarki] ([Modified] DESC);
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_omkostningssted_hierarki_sydax_CreatedOn'
-      AND object_id = OBJECT_ID(N'[arc].[omkostningssted_hierarki_sydax]')
+    WHERE name = 'IX_arc_sydax_omkostningssted_hierarki_CreatedOn'
+      AND object_id = OBJECT_ID(N'[arc].[sydax_omkostningssted_hierarki]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_omkostningssted_hierarki_sydax_CreatedOn]
-        ON [arc].[omkostningssted_hierarki_sydax] ([CreatedOn] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_sydax_omkostningssted_hierarki_CreatedOn]
+        ON [arc].[sydax_omkostningssted_hierarki] ([CreatedOn] DESC);
 END
 GO
 
@@ -2767,10 +2767,10 @@ GO
 
 IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'gruppering_sydax'
+    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'sydax_gruppering'
 )
 BEGIN
-    CREATE TABLE [arc].[gruppering_sydax] (
+    CREATE TABLE [arc].[sydax_gruppering] (
         -- Merge keys
         [Kildesystem]                          VARCHAR(10)    NOT NULL,
         [RECID]                                BIGINT         NOT NULL,
@@ -2787,7 +2787,7 @@ BEGIN
         [TilladIkkeManuelAngivelse]            INT            NULL,
         [Ejerforhold]                          VARCHAR(4)     NULL,
         [RunId]                                INT            NULL,
-        [StartDateTime]                        DATETIME2(0)   NULL,
+        [StartDateTime]                        DATETIME2(0)   NOT NULL,
         [EndDateTime]                          DATETIME2(0)   NULL,
         [RdwTs]                                DATETIME2(7)   NULL,
         [ref_DimensionAttributeValueId]        BIGINT         NULL,
@@ -2798,30 +2798,30 @@ BEGIN
         [DW_Timestamp_Insert]                  DATETIME2(0)   NOT NULL,
         [DW_Timestamp_Update]                  DATETIME2(0)   NOT NULL,
 
-        CONSTRAINT [PK_arc_gruppering_sydax] PRIMARY KEY CLUSTERED ([Kildesystem], [RECID])
+        CONSTRAINT [PK_arc_sydax_gruppering] PRIMARY KEY CLUSTERED ([Kildesystem], [RECID], [StartDateTime])
     );
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_gruppering_sydax_Modified'
-      AND object_id = OBJECT_ID(N'[arc].[gruppering_sydax]')
+    WHERE name = 'IX_arc_sydax_gruppering_Modified'
+      AND object_id = OBJECT_ID(N'[arc].[sydax_gruppering]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_gruppering_sydax_Modified]
-        ON [arc].[gruppering_sydax] ([Modified] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_sydax_gruppering_Modified]
+        ON [arc].[sydax_gruppering] ([Modified] DESC);
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_gruppering_sydax_CreatedOn'
-      AND object_id = OBJECT_ID(N'[arc].[gruppering_sydax]')
+    WHERE name = 'IX_arc_sydax_gruppering_CreatedOn'
+      AND object_id = OBJECT_ID(N'[arc].[sydax_gruppering]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_gruppering_sydax_CreatedOn]
-        ON [arc].[gruppering_sydax] ([CreatedOn] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_sydax_gruppering_CreatedOn]
+        ON [arc].[sydax_gruppering] ([CreatedOn] DESC);
 END
 GO
 
@@ -2831,10 +2831,10 @@ GO
 
 IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'gruppering_autoriseret_sydax'
+    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'sydax_gruppering_autoriseret'
 )
 BEGIN
-    CREATE TABLE [arc].[gruppering_autoriseret_sydax] (
+    CREATE TABLE [arc].[sydax_gruppering_autoriseret] (
         -- Merge keys
         [Kildesystem]              VARCHAR(10)    NOT NULL,
         [ref_RECID]                BIGINT         NOT NULL,
@@ -2851,7 +2851,7 @@ BEGIN
         [GyldigTil]                DATE           NULL,
         [Autoriseret]              INT            NULL,
         [RunId]                    INT            NULL,
-        [StartDateTime]            DATETIME2(0)   NULL,
+        [StartDateTime]            DATETIME2(0)   NOT NULL,
         [EndDateTime]              DATETIME2(0)   NULL,
         [RdwTs]                    DATETIME2(7)   NULL,
         [ref_LedgerTextId]         BIGINT         NULL,
@@ -2862,30 +2862,30 @@ BEGIN
         [DW_Timestamp_Insert]      DATETIME2(0)   NOT NULL,
         [DW_Timestamp_Update]      DATETIME2(0)   NOT NULL,
 
-        CONSTRAINT [PK_arc_gruppering_autoriseret_sydax] PRIMARY KEY CLUSTERED ([Kildesystem], [ref_RECID])
+        CONSTRAINT [PK_arc_sydax_gruppering_autoriseret] PRIMARY KEY CLUSTERED ([Kildesystem], [ref_RECID], [StartDateTime])
     );
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_gruppering_autoriseret_sydax_Modified'
-      AND object_id = OBJECT_ID(N'[arc].[gruppering_autoriseret_sydax]')
+    WHERE name = 'IX_arc_sydax_gruppering_autoriseret_Modified'
+      AND object_id = OBJECT_ID(N'[arc].[sydax_gruppering_autoriseret]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_gruppering_autoriseret_sydax_Modified]
-        ON [arc].[gruppering_autoriseret_sydax] ([Modified] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_sydax_gruppering_autoriseret_Modified]
+        ON [arc].[sydax_gruppering_autoriseret] ([Modified] DESC);
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_gruppering_autoriseret_sydax_CreatedOn'
-      AND object_id = OBJECT_ID(N'[arc].[gruppering_autoriseret_sydax]')
+    WHERE name = 'IX_arc_sydax_gruppering_autoriseret_CreatedOn'
+      AND object_id = OBJECT_ID(N'[arc].[sydax_gruppering_autoriseret]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_gruppering_autoriseret_sydax_CreatedOn]
-        ON [arc].[gruppering_autoriseret_sydax] ([CreatedOn] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_sydax_gruppering_autoriseret_CreatedOn]
+        ON [arc].[sydax_gruppering_autoriseret] ([CreatedOn] DESC);
 END
 GO
 
@@ -2895,10 +2895,10 @@ GO
 
 IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'art_sydax'
+    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'sydax_art'
 )
 BEGIN
-    CREATE TABLE [arc].[art_sydax] (
+    CREATE TABLE [arc].[sydax_art] (
         -- Merge keys
         [Kildesystem]                          VARCHAR(10)    NOT NULL,
         [RECID]                                BIGINT         NOT NULL,
@@ -2916,7 +2916,7 @@ BEGIN
         [A2]                                   VARCHAR(4)     NULL,
         [Momsretning]                          INT            NULL,
         [RunId]                                INT            NULL,
-        [StartDateTime]                        DATETIME2(0)   NULL,
+        [StartDateTime]                        DATETIME2(0)   NOT NULL,
         [EndDateTime]                          DATETIME2(0)   NULL,
         [RdwTs]                                DATETIME2(7)   NULL,
         [ref_DimensionAttributeValueId]        BIGINT         NULL,
@@ -2928,30 +2928,30 @@ BEGIN
         [DW_Timestamp_Insert]                  DATETIME2(0)   NOT NULL,
         [DW_Timestamp_Update]                  DATETIME2(0)   NOT NULL,
 
-        CONSTRAINT [PK_arc_art_sydax] PRIMARY KEY CLUSTERED ([Kildesystem], [RECID])
+        CONSTRAINT [PK_arc_sydax_art] PRIMARY KEY CLUSTERED ([Kildesystem], [RECID], [StartDateTime])
     );
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_art_sydax_Modified'
-      AND object_id = OBJECT_ID(N'[arc].[art_sydax]')
+    WHERE name = 'IX_arc_sydax_art_Modified'
+      AND object_id = OBJECT_ID(N'[arc].[sydax_art]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_art_sydax_Modified]
-        ON [arc].[art_sydax] ([Modified] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_sydax_art_Modified]
+        ON [arc].[sydax_art] ([Modified] DESC);
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_art_sydax_CreatedOn'
-      AND object_id = OBJECT_ID(N'[arc].[art_sydax]')
+    WHERE name = 'IX_arc_sydax_art_CreatedOn'
+      AND object_id = OBJECT_ID(N'[arc].[sydax_art]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_art_sydax_CreatedOn]
-        ON [arc].[art_sydax] ([CreatedOn] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_sydax_art_CreatedOn]
+        ON [arc].[sydax_art] ([CreatedOn] DESC);
 END
 GO
 
@@ -2961,10 +2961,10 @@ GO
 
 IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'funktion_sydax'
+    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'sydax_funktion'
 )
 BEGIN
-    CREATE TABLE [arc].[funktion_sydax] (
+    CREATE TABLE [arc].[sydax_funktion] (
         -- Merge keys
         [Kildesystem]              VARCHAR(10)    NOT NULL,
         [ref_RECID]                BIGINT         NOT NULL,
@@ -2980,7 +2980,7 @@ BEGIN
         [Autoriseret]              INT            NULL,
         [ref_LedgerTextId]         BIGINT         NULL,
         [RunId]                    INT            NULL,
-        [StartDateTime]            DATETIME2(0)   NULL,
+        [StartDateTime]            DATETIME2(0)   NOT NULL,
         [EndDateTime]              DATETIME2(0)   NULL,
         [RdwTs]                    DATETIME2(7)   NULL,
         [CreatedOn]                DATETIME       NULL,
@@ -2990,30 +2990,30 @@ BEGIN
         [DW_Timestamp_Insert]      DATETIME2(0)   NOT NULL,
         [DW_Timestamp_Update]      DATETIME2(0)   NOT NULL,
 
-        CONSTRAINT [PK_arc_funktion_sydax] PRIMARY KEY CLUSTERED ([Kildesystem], [ref_RECID])
+        CONSTRAINT [PK_arc_sydax_funktion] PRIMARY KEY CLUSTERED ([Kildesystem], [ref_RECID], [StartDateTime])
     );
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_funktion_sydax_Modified'
-      AND object_id = OBJECT_ID(N'[arc].[funktion_sydax]')
+    WHERE name = 'IX_arc_sydax_funktion_Modified'
+      AND object_id = OBJECT_ID(N'[arc].[sydax_funktion]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_funktion_sydax_Modified]
-        ON [arc].[funktion_sydax] ([Modified] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_sydax_funktion_Modified]
+        ON [arc].[sydax_funktion] ([Modified] DESC);
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_funktion_sydax_CreatedOn'
-      AND object_id = OBJECT_ID(N'[arc].[funktion_sydax]')
+    WHERE name = 'IX_arc_sydax_funktion_CreatedOn'
+      AND object_id = OBJECT_ID(N'[arc].[sydax_funktion]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_funktion_sydax_CreatedOn]
-        ON [arc].[funktion_sydax] ([CreatedOn] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_sydax_funktion_CreatedOn]
+        ON [arc].[sydax_funktion] ([CreatedOn] DESC);
 END
 GO
 
@@ -3023,10 +3023,10 @@ GO
 
 IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'dranst_sydax'
+    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'sydax_dranst'
 )
 BEGIN
-    CREATE TABLE [arc].[dranst_sydax] (
+    CREATE TABLE [arc].[sydax_dranst] (
         -- Merge keys
         [Kildesystem]              VARCHAR(10)    NOT NULL,
         [ref_RECID]                BIGINT         NOT NULL,
@@ -3040,7 +3040,7 @@ BEGIN
         [Autoriseret]              INT            NULL,
         [ref_LedgerTextId]         BIGINT         NULL,
         [RunId]                    INT            NULL,
-        [StartDateTime]            DATETIME2(0)   NULL,
+        [StartDateTime]            DATETIME2(0)   NOT NULL,
         [EndDateTime]              DATETIME2(0)   NULL,
         [RdwTs]                    DATETIME2(7)   NULL,
         [CreatedOn]                DATETIME       NULL,
@@ -3050,30 +3050,30 @@ BEGIN
         [DW_Timestamp_Insert]      DATETIME2(0)   NOT NULL,
         [DW_Timestamp_Update]      DATETIME2(0)   NOT NULL,
 
-        CONSTRAINT [PK_arc_dranst_sydax] PRIMARY KEY CLUSTERED ([Kildesystem], [ref_RECID])
+        CONSTRAINT [PK_arc_sydax_dranst] PRIMARY KEY CLUSTERED ([Kildesystem], [ref_RECID], [StartDateTime])
     );
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_dranst_sydax_Modified'
-      AND object_id = OBJECT_ID(N'[arc].[dranst_sydax]')
+    WHERE name = 'IX_arc_sydax_dranst_Modified'
+      AND object_id = OBJECT_ID(N'[arc].[sydax_dranst]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_dranst_sydax_Modified]
-        ON [arc].[dranst_sydax] ([Modified] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_sydax_dranst_Modified]
+        ON [arc].[sydax_dranst] ([Modified] DESC);
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_dranst_sydax_CreatedOn'
-      AND object_id = OBJECT_ID(N'[arc].[dranst_sydax]')
+    WHERE name = 'IX_arc_sydax_dranst_CreatedOn'
+      AND object_id = OBJECT_ID(N'[arc].[sydax_dranst]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_dranst_sydax_CreatedOn]
-        ON [arc].[dranst_sydax] ([CreatedOn] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_sydax_dranst_CreatedOn]
+        ON [arc].[sydax_dranst] ([CreatedOn] DESC);
 END
 GO
 
@@ -3083,16 +3083,16 @@ GO
 
 IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'kreditor_sydax'
+    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'sydax_kreditor'
 )
 BEGIN
-    CREATE TABLE [arc].[kreditor_sydax] (
+    CREATE TABLE [arc].[sydax_kreditor] (
         -- Merge keys
         [Kildesystem]                  VARCHAR(10)    NOT NULL,
         [Kreditornummer]               VARCHAR(30)    NOT NULL,
 
         -- Source columns (1:1 from [Kreditor].[Kreditor], minus merge keys)
-        [KreditorId]                   BIGINT         NULL,
+        [KreditorId]                   BIGINT         NOT NULL,
         [Kreditornavn]                 VARCHAR(100)   NULL,
         [Soegenavn]                    VARCHAR(100)   NULL,
         [JuridiskEnhed]                VARCHAR(30)    NULL,
@@ -3103,7 +3103,7 @@ BEGIN
         [SidstAendretAf]               VARCHAR(10)    NULL,
         [ref_VendtableId]              BIGINT         NULL,
         [RunId]                        INT            NULL,
-        [StartDateTime]                DATETIME2(0)   NULL,
+        [StartDateTime]                DATETIME2(0)   NOT NULL,
         [EndDateTime]                  DATETIME2(0)   NULL,
         [RdwTs]                        DATETIME2(7)   NULL,
         [DokumentId]                   BIGINT         NULL,
@@ -3115,30 +3115,30 @@ BEGIN
         [DW_Timestamp_Insert]          DATETIME2(0)   NOT NULL,
         [DW_Timestamp_Update]          DATETIME2(0)   NOT NULL,
 
-        CONSTRAINT [PK_arc_kreditor_sydax] PRIMARY KEY CLUSTERED ([Kildesystem], [Kreditornummer])
+        CONSTRAINT [PK_arc_sydax_kreditor] PRIMARY KEY CLUSTERED ([Kildesystem], [KreditorId], [StartDateTime])
     );
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_kreditor_sydax_Modified'
-      AND object_id = OBJECT_ID(N'[arc].[kreditor_sydax]')
+    WHERE name = 'IX_arc_sydax_kreditor_Modified'
+      AND object_id = OBJECT_ID(N'[arc].[sydax_kreditor]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_kreditor_sydax_Modified]
-        ON [arc].[kreditor_sydax] ([Modified] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_sydax_kreditor_Modified]
+        ON [arc].[sydax_kreditor] ([Modified] DESC);
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_kreditor_sydax_CreatedOn'
-      AND object_id = OBJECT_ID(N'[arc].[kreditor_sydax]')
+    WHERE name = 'IX_arc_sydax_kreditor_CreatedOn'
+      AND object_id = OBJECT_ID(N'[arc].[sydax_kreditor]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_kreditor_sydax_CreatedOn]
-        ON [arc].[kreditor_sydax] ([CreatedOn] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_sydax_kreditor_CreatedOn]
+        ON [arc].[sydax_kreditor] ([CreatedOn] DESC);
 END
 GO
 
@@ -3148,10 +3148,10 @@ GO
 
 IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'finanspostering_sydax'
+    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'sydax_finanspostering'
 )
 BEGIN
-    CREATE TABLE [arc].[finanspostering_sydax] (
+    CREATE TABLE [arc].[sydax_finanspostering] (
         -- Merge keys
         [Kildesystem]                      VARCHAR(10)      NOT NULL,
         [ref_LedgertransId]                BIGINT           NOT NULL,
@@ -3203,30 +3203,30 @@ BEGIN
         [DW_Timestamp_Insert]              DATETIME2(0)     NOT NULL,
         [DW_Timestamp_Update]              DATETIME2(0)     NOT NULL,
 
-        CONSTRAINT [PK_arc_finanspostering_sydax] PRIMARY KEY CLUSTERED ([Kildesystem], [ref_LedgertransId])
+        CONSTRAINT [PK_arc_sydax_finanspostering] PRIMARY KEY CLUSTERED ([Kildesystem], [ref_LedgertransId])
     );
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_finanspostering_sydax_Modified'
-      AND object_id = OBJECT_ID(N'[arc].[finanspostering_sydax]')
+    WHERE name = 'IX_arc_sydax_finanspostering_Modified'
+      AND object_id = OBJECT_ID(N'[arc].[sydax_finanspostering]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_finanspostering_sydax_Modified]
-        ON [arc].[finanspostering_sydax] ([Modified] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_sydax_finanspostering_Modified]
+        ON [arc].[sydax_finanspostering] ([Modified] DESC);
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_finanspostering_sydax_CreatedOn'
-      AND object_id = OBJECT_ID(N'[arc].[finanspostering_sydax]')
+    WHERE name = 'IX_arc_sydax_finanspostering_CreatedOn'
+      AND object_id = OBJECT_ID(N'[arc].[sydax_finanspostering]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_finanspostering_sydax_CreatedOn]
-        ON [arc].[finanspostering_sydax] ([CreatedOn] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_sydax_finanspostering_CreatedOn]
+        ON [arc].[sydax_finanspostering] ([CreatedOn] DESC);
 END
 GO
 
@@ -3236,10 +3236,10 @@ GO
 
 IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'kreditortransaktion_sydax'
+    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'sydax_kreditortransaktion'
 )
 BEGIN
-    CREATE TABLE [arc].[kreditortransaktion_sydax] (
+    CREATE TABLE [arc].[sydax_kreditortransaktion] (
         -- Merge keys
         [Kildesystem]                              VARCHAR(10)      NOT NULL,
         [ref_VendTransId]                          BIGINT           NOT NULL,
@@ -3294,30 +3294,30 @@ BEGIN
         [DW_Timestamp_Insert]                      DATETIME2(0)     NOT NULL,
         [DW_Timestamp_Update]                      DATETIME2(0)     NOT NULL,
 
-        CONSTRAINT [PK_arc_kreditortransaktion_sydax] PRIMARY KEY CLUSTERED ([Kildesystem], [ref_VendTransId])
+        CONSTRAINT [PK_arc_sydax_kreditortransaktion] PRIMARY KEY CLUSTERED ([Kildesystem], [ref_VendTransId])
     );
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_kreditortransaktion_sydax_Modified'
-      AND object_id = OBJECT_ID(N'[arc].[kreditortransaktion_sydax]')
+    WHERE name = 'IX_arc_sydax_kreditortransaktion_Modified'
+      AND object_id = OBJECT_ID(N'[arc].[sydax_kreditortransaktion]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_kreditortransaktion_sydax_Modified]
-        ON [arc].[kreditortransaktion_sydax] ([Modified] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_sydax_kreditortransaktion_Modified]
+        ON [arc].[sydax_kreditortransaktion] ([Modified] DESC);
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_kreditortransaktion_sydax_CreatedOn'
-      AND object_id = OBJECT_ID(N'[arc].[kreditortransaktion_sydax]')
+    WHERE name = 'IX_arc_sydax_kreditortransaktion_CreatedOn'
+      AND object_id = OBJECT_ID(N'[arc].[sydax_kreditortransaktion]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_kreditortransaktion_sydax_CreatedOn]
-        ON [arc].[kreditortransaktion_sydax] ([CreatedOn] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_sydax_kreditortransaktion_CreatedOn]
+        ON [arc].[sydax_kreditortransaktion] ([CreatedOn] DESC);
 END
 GO
 
@@ -3327,10 +3327,10 @@ GO
 
 IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'finanspostering_kreditortrans_relation_sydax'
+    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'sydax_finanspostering_kreditortrans_relation'
 )
 BEGIN
-    CREATE TABLE [arc].[finanspostering_kreditortrans_relation_sydax] (
+    CREATE TABLE [arc].[sydax_finanspostering_kreditortrans_relation] (
         -- Merge keys
         [Kildesystem]                              VARCHAR(10)    NOT NULL,
         [ref_LedgertransId]                        BIGINT         NOT NULL,
@@ -3352,30 +3352,30 @@ BEGIN
         [DW_Timestamp_Insert]                      DATETIME2(0)   NOT NULL,
         [DW_Timestamp_Update]                      DATETIME2(0)   NOT NULL,
 
-        CONSTRAINT [PK_arc_finanspostering_kreditortrans_relation_sydax] PRIMARY KEY CLUSTERED ([Kildesystem], [ref_LedgertransId], [KreditortransaktionId])
+        CONSTRAINT [PK_arc_sydax_finanspostering_kreditortrans_relation] PRIMARY KEY CLUSTERED ([Kildesystem], [ref_LedgertransId], [KreditortransaktionId])
     );
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_finanspostering_kreditortrans_relation_sydax_Modified'
-      AND object_id = OBJECT_ID(N'[arc].[finanspostering_kreditortrans_relation_sydax]')
+    WHERE name = 'IX_arc_sydax_finanspostering_kreditortrans_relation_Modified'
+      AND object_id = OBJECT_ID(N'[arc].[sydax_finanspostering_kreditortrans_relation]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_finanspostering_kreditortrans_relation_sydax_Modified]
-        ON [arc].[finanspostering_kreditortrans_relation_sydax] ([Modified] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_sydax_finanspostering_kreditortrans_relation_Modified]
+        ON [arc].[sydax_finanspostering_kreditortrans_relation] ([Modified] DESC);
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_finanspostering_kreditortrans_relation_sydax_CreatedOn'
-      AND object_id = OBJECT_ID(N'[arc].[finanspostering_kreditortrans_relation_sydax]')
+    WHERE name = 'IX_arc_sydax_finanspostering_kreditortrans_relation_CreatedOn'
+      AND object_id = OBJECT_ID(N'[arc].[sydax_finanspostering_kreditortrans_relation]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_finanspostering_kreditortrans_relation_sydax_CreatedOn]
-        ON [arc].[finanspostering_kreditortrans_relation_sydax] ([CreatedOn] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_sydax_finanspostering_kreditortrans_relation_CreatedOn]
+        ON [arc].[sydax_finanspostering_kreditortrans_relation] ([CreatedOn] DESC);
 END
 GO
 
@@ -3385,22 +3385,22 @@ GO
 
 IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'finanskladde_sydax'
+    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'sydax_finanskladde'
 )
 BEGIN
-    CREATE TABLE [arc].[finanskladde_sydax] (
+    CREATE TABLE [arc].[sydax_finanskladde] (
         -- Merge keys
         [Kildesystem]                      VARCHAR(10)    NOT NULL,
         [Kladdenummer]                     VARCHAR(20)    NOT NULL,
 
         -- Source columns (1:1 from [Finans].[Finanskladde], minus merge keys)
-        [FinanskladdeId]                   BIGINT         NULL,
+        [FinanskladdeId]                   BIGINT         NOT NULL,
         [Kladdetekst]                      VARCHAR(1000)  NULL,
         [Kladdenavn]                       VARCHAR(100)   NULL,
         [ErLukket]                         BIT            NULL,
         [ref_LedgerjournaltableId]         BIGINT         NULL,
         [RunId]                            INT            NULL,
-        [StartDateTime]                    DATETIME2(0)   NULL,
+        [StartDateTime]                    DATETIME2(0)   NOT NULL,
         [EndDateTime]                      DATETIME2(0)   NULL,
         [RdwTs]                            DATETIME2(7)   NULL,
         [DokumentId]                       BIGINT         NULL,
@@ -3413,30 +3413,30 @@ BEGIN
         [DW_Timestamp_Insert]              DATETIME2(0)   NOT NULL,
         [DW_Timestamp_Update]              DATETIME2(0)   NOT NULL,
 
-        CONSTRAINT [PK_arc_finanskladde_sydax] PRIMARY KEY CLUSTERED ([Kildesystem], [Kladdenummer])
+        CONSTRAINT [PK_arc_sydax_finanskladde] PRIMARY KEY CLUSTERED ([Kildesystem], [FinanskladdeId], [StartDateTime])
     );
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_finanskladde_sydax_Modified'
-      AND object_id = OBJECT_ID(N'[arc].[finanskladde_sydax]')
+    WHERE name = 'IX_arc_sydax_finanskladde_Modified'
+      AND object_id = OBJECT_ID(N'[arc].[sydax_finanskladde]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_finanskladde_sydax_Modified]
-        ON [arc].[finanskladde_sydax] ([Modified] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_sydax_finanskladde_Modified]
+        ON [arc].[sydax_finanskladde] ([Modified] DESC);
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_finanskladde_sydax_CreatedOn'
-      AND object_id = OBJECT_ID(N'[arc].[finanskladde_sydax]')
+    WHERE name = 'IX_arc_sydax_finanskladde_CreatedOn'
+      AND object_id = OBJECT_ID(N'[arc].[sydax_finanskladde]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_finanskladde_sydax_CreatedOn]
-        ON [arc].[finanskladde_sydax] ([CreatedOn] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_sydax_finanskladde_CreatedOn]
+        ON [arc].[sydax_finanskladde] ([CreatedOn] DESC);
 END
 GO
 
@@ -3446,10 +3446,10 @@ GO
 
 IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'finanskladdelinje_sydax'
+    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'sydax_finanskladdelinje'
 )
 BEGIN
-    CREATE TABLE [arc].[finanskladdelinje_sydax] (
+    CREATE TABLE [arc].[sydax_finanskladdelinje] (
         -- Merge keys
         [Kildesystem]              VARCHAR(10)      NOT NULL,
         [ref_LedgertransId]        BIGINT           NOT NULL,
@@ -3480,30 +3480,30 @@ BEGIN
         [DW_Timestamp_Insert]      DATETIME2(0)     NOT NULL,
         [DW_Timestamp_Update]      DATETIME2(0)     NOT NULL,
 
-        CONSTRAINT [PK_arc_finanskladdelinje_sydax] PRIMARY KEY CLUSTERED ([Kildesystem], [ref_LedgertransId])
+        CONSTRAINT [PK_arc_sydax_finanskladdelinje] PRIMARY KEY CLUSTERED ([Kildesystem], [ref_LedgertransId])
     );
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_finanskladdelinje_sydax_Modified'
-      AND object_id = OBJECT_ID(N'[arc].[finanskladdelinje_sydax]')
+    WHERE name = 'IX_arc_sydax_finanskladdelinje_Modified'
+      AND object_id = OBJECT_ID(N'[arc].[sydax_finanskladdelinje]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_finanskladdelinje_sydax_Modified]
-        ON [arc].[finanskladdelinje_sydax] ([Modified] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_sydax_finanskladdelinje_Modified]
+        ON [arc].[sydax_finanskladdelinje] ([Modified] DESC);
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_finanskladdelinje_sydax_CreatedOn'
-      AND object_id = OBJECT_ID(N'[arc].[finanskladdelinje_sydax]')
+    WHERE name = 'IX_arc_sydax_finanskladdelinje_CreatedOn'
+      AND object_id = OBJECT_ID(N'[arc].[sydax_finanskladdelinje]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_finanskladdelinje_sydax_CreatedOn]
-        ON [arc].[finanskladdelinje_sydax] ([CreatedOn] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_sydax_finanskladdelinje_CreatedOn]
+        ON [arc].[sydax_finanskladdelinje] ([CreatedOn] DESC);
 END
 GO
 
@@ -3513,19 +3513,19 @@ GO
 
 IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'finanstransaktionstype_sydax'
+    WHERE TABLE_SCHEMA = 'arc' AND TABLE_NAME = 'sydax_finanstransaktionstype'
 )
 BEGIN
-    CREATE TABLE [arc].[finanstransaktionstype_sydax] (
+    CREATE TABLE [arc].[sydax_finanstransaktionstype] (
         -- Merge keys
         [Kildesystem]              VARCHAR(10)    NOT NULL,
         [Transaktionstypenummer]   INT            NOT NULL,
 
         -- Source columns (1:1 from [Finans].[Finanstransaktionstype], minus merge keys)
-        [FinanstransaktionstypeId] BIGINT         NULL,
+        [FinanstransaktionstypeId] BIGINT         NOT NULL,
         [Transaktionstypetekst]    VARCHAR(1000)  NULL,
         [RunId]                    INT            NULL,
-        [StartDateTime]            DATETIME2(0)   NULL,
+        [StartDateTime]            DATETIME2(0)   NOT NULL,
         [EndDateTime]              DATETIME2(0)   NULL,
         [RdwTs]                    DATETIME2(7)   NULL,
         [CreatedOn]                DATETIME       NULL,
@@ -3535,29 +3535,29 @@ BEGIN
         [DW_Timestamp_Insert]      DATETIME2(0)   NOT NULL,
         [DW_Timestamp_Update]      DATETIME2(0)   NOT NULL,
 
-        CONSTRAINT [PK_arc_finanstransaktionstype_sydax] PRIMARY KEY CLUSTERED ([Kildesystem], [Transaktionstypenummer])
+        CONSTRAINT [PK_arc_sydax_finanstransaktionstype] PRIMARY KEY CLUSTERED ([Kildesystem], [FinanstransaktionstypeId], [StartDateTime])
     );
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_finanstransaktionstype_sydax_Modified'
-      AND object_id = OBJECT_ID(N'[arc].[finanstransaktionstype_sydax]')
+    WHERE name = 'IX_arc_sydax_finanstransaktionstype_Modified'
+      AND object_id = OBJECT_ID(N'[arc].[sydax_finanstransaktionstype]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_finanstransaktionstype_sydax_Modified]
-        ON [arc].[finanstransaktionstype_sydax] ([Modified] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_sydax_finanstransaktionstype_Modified]
+        ON [arc].[sydax_finanstransaktionstype] ([Modified] DESC);
 END
 GO
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
-    WHERE name = 'IX_arc_finanstransaktionstype_sydax_CreatedOn'
-      AND object_id = OBJECT_ID(N'[arc].[finanstransaktionstype_sydax]')
+    WHERE name = 'IX_arc_sydax_finanstransaktionstype_CreatedOn'
+      AND object_id = OBJECT_ID(N'[arc].[sydax_finanstransaktionstype]')
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_arc_finanstransaktionstype_sydax_CreatedOn]
-        ON [arc].[finanstransaktionstype_sydax] ([CreatedOn] DESC);
+    CREATE NONCLUSTERED INDEX [IX_arc_sydax_finanstransaktionstype_CreatedOn]
+        ON [arc].[sydax_finanstransaktionstype] ([CreatedOn] DESC);
 END
 GO
