@@ -1,0 +1,26 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fhir
+  TableName: fhir.Encounter_Location
+  Domain: [FHIR]
+  Description: "FHIR Encounter lokationer — kontakt-til-lokation-kobling"
+  Grain: "Én række pr. lokationstildeling pr. kontakt pr. periodestart"
+  FhirResource: Encounter
+
+  SourceSystems:
+    - ifdb_encounter: [IFDB.ENCOUNTER]
+    - ifdb_location: [IFDB.LOCATION]
+
+  Columns:
+    encounter_id:          { Type: PK, DataType: NVARCHAR(255), FhirPath: "id", Source: [ifdb_encounter.IFDB.ENCOUNTER.OBJECT_ID] }
+    location_id:           { DataType: NVARCHAR(255), FhirPath: "location.location.id", Source: [ifdb_location.IFDB.LOCATION.LOCATION_CODE] }
+    location_status:       { DataType: NVARCHAR(50), FhirPath: "location.status" }
+    location_period_start: { DataType: NVARCHAR(50), FhirPath: "location.period.start", Source: [ifdb_location.IFDB.LOCATION.PERIOD_START] }
+    location_period_end:   { DataType: NVARCHAR(50), FhirPath: "location.period.end", Source: [ifdb_location.IFDB.LOCATION.PERIOD_END] }
+    last_updated:          { DataType: DATETIME2, FhirPath: "r.ts" }
+    created_at:            { DataType: DATETIME2, FhirPath: "r.cts" }

@@ -1,0 +1,45 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+# =============================================================================
+# IFDB AKTIVITETSRESULTAT Procedure Code Rules
+#
+# This file controls which AKTIVITETTYPE_KODE values produce FHIR Procedure.
+#
+# Runtime order in the SFI pipeline:
+#   1. Procedure rules are checked independently from SFI routing.
+#   2. If a row matches Procedure, it always emits a Procedure event.
+#   3. If the same row has XML answers, the XML still follows normal routing:
+#      active Observation allowlist -> Observation, otherwise QR fallback.
+#   4. If a Procedure row has no value-bearing XML, it emits Procedure only.
+#
+# Matching rules:
+#   - exclude_exact / exclude_prefixes win over all positive matches.
+#   - exact matches the full AKTIVITETTYPE_KODE or its stripped SKS suffix.
+#   - prefixes matches the full AKTIVITETTYPE_KODE.
+#   - bare_regex matches only the stripped SKS suffix.
+# =============================================================================
+
+procedure_code_rules:
+  # Exact codes can be added here when a specific aktivitetstype must be
+  # treated as Procedure even if it has no SKS.a.pro / SKS.a.opr prefix.
+  exact: []
+
+  # Standard IFDB/SKS operation and procedure prefixes.
+  prefixes:
+    - "SKS.a.opr"
+    - "SKS.a.pro"
+
+  # Kept empty by default. Do not add broad K/B patterns unless they are
+  # carefully bounded, because KPYdelser.* and BomKS.* are IFDB namespaces,
+  # not SKS procedure codes.
+  bare_regex: []
+
+  exclude_exact: []
+
+  exclude_prefixes:
+    - "KPYdelser."
+    - "BomKS."

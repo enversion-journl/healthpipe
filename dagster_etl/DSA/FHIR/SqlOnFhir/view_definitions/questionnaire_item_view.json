@@ -1,0 +1,29 @@
+{
+  "resourceType": "ViewDefinition",
+  "name": "questionnaire_item_view",
+  "resource": "Questionnaire",
+  "status": "active",
+  "select": [
+    {
+      "column": [
+        {"name": "questionnaire_id", "path": "id"},
+        {"name": "questionnaire_url", "path": "url"},
+        {"name": "questionnaire_version", "path": "version"}
+      ]
+    },
+    {
+      "forEach": "item",
+      "column": [
+        {"name": "link_id", "path": "linkId"},
+        {"name": "item_key", "path": "id"},
+        {"name": "text", "path": "text"},
+        {"name": "item_type", "path": "type"},
+        {"name": "required", "path": "required"},
+        {"name": "repeats", "path": "repeats"},
+        {"name": "element_system", "path": "code.where(system='urn:dk:ifdb:sfi').system.first()"},
+        {"name": "element_code", "path": "code.where(system='urn:dk:ifdb:sfi').code.first()"},
+        {"name": "element_display", "path": "code.where(system='urn:dk:ifdb:sfi').display.first()"}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "resourceType": "ViewDefinition",
+  "name": "organization_view",
+  "resource": "Organization",
+  "status": "active",
+  "select": [
+    {
+      "column": [
+        {
+          "name": "organization_id",
+          "path": "id"
+        },
+        {
+          "name": "name",
+          "path": "name"
+        },
+        {
+          "name": "active",
+          "path": "active"
+        },
+        {
+          "name": "type_code",
+          "path": "type.coding.code.first()"
+        },
+        {
+          "name": "type_display",
+          "path": "type.coding.display.first()"
+        },
+        {
+          "name": "part_of_id",
+          "path": "partOf.id"
+        },
+        {
+          "name": "identifier_value_sor",
+          "path": "identifier.where(system='https://sundhedsdatastyrelsen.dk/sor').value.first()"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: dimension
+  TableName: dim.Finanskladde
+  Domain: [ERP]
+  Description: "Finanskladde-dimension (journal header) fra SydAX"
+  Grain: "Én række pr. finanskladde/journal (ref_LedgerjournaltableId)"
+
+  SourceSystems:
+    - sydax: [Finans.Finanskladde]
+
+  Columns:
+    DW_EK_Finanskladde:          { Type: PK, DataType: INT }
+    bk_ref_LedgerjournaltableId: { DataType: NVARCHAR(100), Source: [sydax.Finans.Finanskladde.ref_LedgerjournaltableId] }
+    Kladdenummer:                { DataType: NVARCHAR(20), Source: [sydax.Finans.Finanskladde.Kladdenummer] }
+    Kladdetekst:                 { DataType: NVARCHAR(1000), Source: [sydax.Finans.Finanskladde.Kladdetekst] }
+    Kladdenavn:                  { DataType: NVARCHAR(100), Source: [sydax.Finans.Finanskladde.Kladdenavn] }
+    ErLukket:                    { DataType: BIT, Source: [sydax.Finans.Finanskladde.ErLukket] }
+    DataAreaId:                  { DataType: NVARCHAR(4), Source: [sydax.Finans.Finanskladde.DataAreaId] }
+    Maskinnummer:                { DataType: NVARCHAR(5), Source: [sydax.Finans.Finanskladde.Maskinnummer] }
+    DW_EK_Dato_Oprettet:         { Type: FK, DataType: INT, Source: [sydax.Finans.Finanskladde.CreatedOn] }
+    DW_EK_Dato_Aendret:          { Type: FK, DataType: INT, Source: [sydax.Finans.Finanskladde.Modified] }
+    DW_Timestamp_Insert:         { Type: Audit, DataType: DATETIME2(0), Expr: "SYSDATETIME() ved første INSERT" }
+    DW_Timestamp_Update:         { Type: Audit, DataType: DATETIME2(0), Expr: "SYSDATETIME() ved INSERT (= DW_Timestamp_Insert) og ved hver UPDATE" }

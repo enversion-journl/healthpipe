@@ -1,0 +1,34 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: dimension
+  TableName: dim.Postering
+  Domain: [ERP]
+  Description: "Finanspostering-dimension fra SydAX"
+  Grain: "Én række pr. finanspostering (ref_LedgertransId)"
+
+  SourceSystems:
+    - sydax: [Kreditor.Kreditortransaktion, Finans.Finanspostering]
+
+  Columns:
+    DW_EK_Postering:          { Type: PK, DataType: INT }
+    ref_LedgertransId:        { DataType: BIGINT, Source: [sydax.Finans.Finanspostering.ref_LedgertransId] }
+    bk_ref_LedgertransId:     { DataType: BIGINT, Source: [sydax.Finans.Finanspostering.ref_LedgertransId] }
+    ref_VendTransId:          { DataType: BIGINT, Source: [sydax.Kreditor.Kreditortransaktion.ref_VendTransId] }
+    DokumentId:               { DataType: BIGINT, Source: [sydax.Kreditor.Kreditortransaktion.DokumentId] }
+    Kreditornummer:           { DataType: NVARCHAR(50), Source: [sydax.Kreditor.Kreditortransaktion.Kreditornummer] }
+    Kreditornavn:             { DataType: NVARCHAR(255), Source: [sydax.Kreditor.Kreditortransaktion.Kreditornavn] }
+    JuridiskEnhed:            { DataType: NVARCHAR(255), Source: [sydax.Kreditor.Kreditortransaktion.JuridiskEnhed] }
+    Kontonummer:              { DataType: NVARCHAR(255), Source: [sydax.Finans.Finanspostering.Kontonummer] }
+    FakturaNr:                { DataType: NVARCHAR(100), Source: [sydax.Kreditor.Kreditortransaktion.Fakturanummer] }
+    SidstUdlignetBilagsnummer: { DataType: NVARCHAR(100), Source: [sydax.Kreditor.Kreditortransaktion.SidstUdlignetBilagsnummer] }
+    Bilagsnummer_Trans:       { DataType: NVARCHAR(100), Source: [sydax.Kreditor.Kreditortransaktion.bilagsnr] }
+    Bilagsnummer_Postering:   { DataType: NVARCHAR(100), Source: [sydax.Finans.Finanspostering.bilagsnr] }
+    Valutakode_Trans:         { DataType: NVARCHAR(10), Source: [sydax.Kreditor.Kreditortransaktion.Valutakode] }
+    Valutakode_Postering:     { DataType: NVARCHAR(10), Source: [sydax.Finans.Finanspostering.Valutakode] }
+    Transaktionstekst:        { DataType: NVARCHAR(MAX), Source: [sydax.Kreditor.Kreditortransaktion.Transaktionstekst] }
+    Posteringstekst:          { DataType: NVARCHAR(MAX), Source: [sydax.Finans.Finanspostering.Posteringstekst] }

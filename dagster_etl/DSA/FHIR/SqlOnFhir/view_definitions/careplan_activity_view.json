@@ -1,0 +1,32 @@
+{
+  "resourceType": "ViewDefinition",
+  "name": "careplan_activity_view",
+  "resource": "CarePlan",
+  "status": "active",
+  "where": [
+    {
+      "path": "category.coding.where(system='http://example.org/fhir/CodeSystem/patient-rights-type' and code='alle_markoerer').exists()"
+    }
+  ],
+  "select": [
+    {
+      "column": [
+        {"name": "careplan_id", "path": "id"},
+        {"name": "patient_id", "path": "subject.getReferenceKey(Patient)"},
+        {"name": "category_code", "path": "category[0].coding[0].code"}
+      ]
+    },
+    {
+      "forEach": "activity",
+      "column": [
+        {"name": "ifdb_eventmarker_id", "path": "extension.where(url='http://example.org/fhir/StructureDefinition/activity-source-identifier').valueIdentifier.value"},
+        {"name": "episode_of_care_id", "path": "extension.where(url='http://example.org/fhir/StructureDefinition/activity-episode-of-care').valueReference.id"},
+        {"name": "markoerkode", "path": "outcomeCodeableConcept[0].coding[0].code"},
+        {"name": "markoer_display", "path": "outcomeCodeableConcept[0].coding[0].display"},
+        {"name": "organization_id", "path": "detail.performer.getReferenceKey(Organization)"},
+        {"name": "practitioner_id", "path": "detail.performer.getReferenceKey(Practitioner)"},
+        {"name": "activity_timestamp", "path": "detail.scheduledPeriod.start"}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+<?xml version="1.0" ?>
+<Afdelingsydelsesresultat>
+  <Kontekst>
+    <Oprettet>
+      <Bruger>test_user</Bruger>
+      <PersId>10000006</PersId>
+      <Rolle>Sygeplejerske</Rolle>
+      <AdministrativEnhed>TEST SHS Kirurgi Sengeafs. B (Aabenraa)</AdministrativEnhed>
+      <AdministrativEnhedId>01.07.08.D.1</AdministrativEnhedId>
+      <Tidspunkt>2026-05-01T16:43:00</Tidspunkt>
+      <Tidsstempel>1777646580000</Tidsstempel>
+    </Oprettet>
+    <Aendret>
+      <Bruger>test_user</Bruger>
+      <PersId>10000006</PersId>
+      <Rolle>Sygeplejerske</Rolle>
+      <AdministrativEnhed>TEST SHS Kirurgi Sengeafs. B (Aabenraa)</AdministrativEnhed>
+      <AdministrativEnhedId>01.07.08.D.1</AdministrativEnhedId>
+      <Tidspunkt>2026-05-01T16:43:00</Tidspunkt>
+      <Tidsstempel>1777646580000</Tidsstempel>
+    </Aendret>
+    <Besluttet>
+      <Bruger>test_user</Bruger>
+      <PersId>10000006</PersId>
+      <Rolle>Sygeplejerske</Rolle>
+      <AdministrativEnhed>TEST SHS Kirurgi Sengeafs. B (Aabenraa)</AdministrativEnhed>
+      <AdministrativEnhedId>01.07.08.D.1</AdministrativEnhedId>
+      <Tidspunkt>2026-05-01T16:43:00</Tidspunkt>
+      <Tidsstempel>1777646580000</Tidsstempel>
+    </Besluttet>
+    <Status>Besluttet</Status>
+  </Kontekst>
+  <Overskrift>Måling af respirationsfrekvens</Overskrift>
+  <Ledetekst>Måling af respirationsfrekvens</Ledetekst>
+  <Type>MaalingRespFrekvens</Type>
+  <Kladde>False</Kladde>
+  <Element type="long">
+    <Navn>RespFrekvensMin</Navn>
+    <Ledetekst>Frekvens</Ledetekst>
+    <Vaerdi>ikke maalbar</Vaerdi>
+    <ElementId>RM_Generelle:edRespFrekvensMin</ElementId>
+  </Element>
+</Afdelingsydelsesresultat>

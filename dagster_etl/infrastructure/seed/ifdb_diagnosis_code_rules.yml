@@ -1,0 +1,44 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+# =============================================================================
+# IFDB AKTIVITETSRESULTAT Diagnosis Code Rules
+#
+# This file controls which AKTIVITETTYPE_KODE values produce FHIR Condition.
+#
+# Runtime order in the SFI pipeline:
+#   1. Diagnosis rules are checked independently from SFI routing.
+#   2. If a row matches Condition, it always emits a Condition event.
+#   3. If the same row has XML answers, the XML still follows normal routing:
+#      active Observation allowlist -> Observation, otherwise QR fallback.
+#   4. If a Condition row has no value-bearing XML, it emits Condition only.
+#
+# Matching rules:
+#   - exclude_exact / exclude_prefixes win over all positive matches.
+#   - exact matches the full AKTIVITETTYPE_KODE or its stripped SKS suffix.
+#   - prefixes matches the full AKTIVITETTYPE_KODE.
+#   - bare_regex matches only the stripped SKS suffix.
+# =============================================================================
+
+diagnosis_code_rules:
+  # Exact codes can be added here when a specific aktivitetstype must be
+  # treated as Condition even if it has no SKS.a.dia prefix.
+  exact: []
+
+  # Standard IFDB/SKS diagnosis prefix.
+  prefixes:
+    - "SKS.a.dia"
+
+  # Kept empty by default. Do not add broad patterns unless they are
+  # carefully bounded, because KPYdelser.* and BomKS.* are IFDB namespaces,
+  # not SKS diagnosis codes.
+  bare_regex: []
+
+  exclude_exact: []
+
+  exclude_prefixes:
+    - "KPYdelser."
+    - "BomKS."

@@ -1,0 +1,37 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fhir
+  TableName: fhir.Condition
+  Domain: [FHIR]
+  Description: "FHIR Condition ressource — diagnoser fra IFDB.DIAGNOSE og IFDB.PAS_DIAGNOSE"
+  Grain: "Én række pr. tilstand (diagnose) pr. kode og kodesystem"
+  FhirResource: Condition
+
+  SourceSystems:
+    - ifdb_diagnose: [IFDB.DIAGNOSE]
+    - ifdb_pas_diagnose: [IFDB.PAS_DIAGNOSE]
+    - ifdb_diagnose_tillaegskode: [IFDB.DIAGNOSE_TILLAEGSKODE]
+    - ifdb_pas_diagnose_tillaegskode: [IFDB.PAS_DIAGNOSE_TILLAEGSKODE]
+    - ifdb_pas_diagnose_encounter_ref: [IFDB.PAS_DIAGNOSE_ENCOUNTER_REF]
+
+  Columns:
+    condition_id:        { Type: PK, DataType: NVARCHAR(255), FhirPath: "id", Source: [ifdb_diagnose.IFDB.DIAGNOSE.OBJEKT_ID, ifdb_pas_diagnose.IFDB.PAS_DIAGNOSE.OBJEKT_ID] }
+    code:                { DataType: NVARCHAR(255), FhirPath: "code.coding.code", Source: [ifdb_diagnose.IFDB.DIAGNOSE.DIAGNOSE_KODE, ifdb_pas_diagnose.IFDB.PAS_DIAGNOSE.DIAGNOSE_KODE] }
+    code_system:         { DataType: NVARCHAR(500), FhirPath: "code.coding.system" }
+    code_display:        { DataType: NVARCHAR(500), FhirPath: "code.coding.display", Source: [ifdb_diagnose.IFDB.DIAGNOSE.DIAGNOSE_KODETEKST, ifdb_pas_diagnose.IFDB.PAS_DIAGNOSE.DIAGNOSE_KODETEKST] }
+    patient_id:          { DataType: NVARCHAR(255), FhirPath: "subject.id", Source: [ifdb_diagnose.IFDB.DIAGNOSE.PATIENT_ID, ifdb_pas_diagnose.IFDB.PAS_DIAGNOSE.PATIENT_ID] }
+    encounter_id:        { DataType: NVARCHAR(255), FhirPath: "encounter.id", Source: [ifdb_pas_diagnose_encounter_ref.IFDB.PAS_DIAGNOSE_ENCOUNTER_REF.ENCOUNTER_ID] }
+    clinical_status:     { DataType: NVARCHAR(50), FhirPath: "clinicalStatus.coding.code" }
+    verification_status: { DataType: NVARCHAR(50), FhirPath: "verificationStatus.coding.code" }
+    is_deleted:          { DataType: INT, FhirPath: "extension.where(url='urn:fhir:isDeleted').valueInteger", Source: [ifdb_diagnose.IFDB.DIAGNOSE.SLETTET, ifdb_pas_diagnose.IFDB.PAS_DIAGNOSE.SLETTET] }
+    recorded_date:       { DataType: NVARCHAR(50), FhirPath: "recordedDate", Source: [ifdb_diagnose.IFDB.DIAGNOSE.BESLUT_TIDSPUNKT] }
+    onset_datetime:      { DataType: NVARCHAR(50), FhirPath: "onsetDateTime", Source: [ifdb_diagnose.IFDB.DIAGNOSE.OPRET_TIDSPUNKT] }
+    abatement_datetime:  { DataType: NVARCHAR(50), FhirPath: "abatementDateTime", Source: [ifdb_diagnose.IFDB.DIAGNOSE.AFSLUT_TIDSPUNKT] }
+    source_system:       { DataType: NVARCHAR(100), FhirPath: "identifier.system" }
+    last_updated:        { DataType: DATETIME2, FhirPath: "r.ts" }
+    created_at:          { DataType: DATETIME2, FhirPath: "r.cts" }

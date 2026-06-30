@@ -1,0 +1,32 @@
+{
+  "resourceType": "ViewDefinition",
+  "name": "appointment_view",
+  "resource": "Appointment",
+  "status": "active",
+  "select": [
+    {
+      "column": [
+        {"name": "appointment_id", "path": "id"},
+        {"name": "identifier_value", "path": "identifier.where(system='urn:source:bom_ifdb:aftale_oid').value.first()"},
+        {"name": "status", "path": "status"},
+        {"name": "appointment_type_code", "path": "appointmentType.coding.code.first()"},
+        {"name": "appointment_type_display", "path": "appointmentType.coding.display.first()"},
+        {"name": "appointment_type_text", "path": "appointmentType.text"},
+        {"name": "service_type_code", "path": "serviceType.first().coding.first().code"},
+        {"name": "cancelation_reason_code", "path": "cancelationReason.coding.code.first()"},
+        {"name": "cancelation_reason_display", "path": "cancelationReason.coding.display.first()"},
+        {"name": "cancelation_reason_text", "path": "cancelationReason.text"},
+        {"name": "description", "path": "description"},
+        {"name": "patient_instruction", "path": "patientInstruction"},
+        {"name": "comment", "path": "comment"},
+        {"name": "start", "path": "start"},
+        {"name": "end", "path": "end"},
+        {"name": "minutes_duration", "path": "minutesDuration"},
+        {"name": "created", "path": "created"},
+        {"name": "patient_id", "path": "participant.where(actor.resourceType='Patient').first().actor.id"},
+        {"name": "performing_location_id", "path": "participant.where(actor.resourceType='Location').first().actor.id"},
+        {"name": "is_deleted", "path": "extension.where(url='urn:fhir:isDeleted').valueInteger"}
+      ]
+    }
+  ]
+}

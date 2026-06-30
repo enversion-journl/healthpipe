@@ -1,0 +1,37 @@
+{
+  "resourceType": "ViewDefinition",
+  "name": "encounter_location_view",
+  "resource": "Encounter",
+  "status": "active",
+  "select": [
+    {
+      "column": [
+        {
+          "name": "encounter_id",
+          "path": "id"
+        }
+      ]
+    },
+    {
+      "forEachOrNull": "location",
+      "column": [
+        {
+          "name": "location_id",
+          "path": "location.id"
+        },
+        {
+          "name": "location_status",
+          "path": "status"
+        },
+        {
+          "name": "location_period_start",
+          "path": "period.start"
+        },
+        {
+          "name": "location_period_end",
+          "path": "period.end"
+        }
+      ]
+    }
+  ]
+}

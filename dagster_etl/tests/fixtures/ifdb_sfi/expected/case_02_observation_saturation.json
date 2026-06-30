@@ -1,0 +1,40 @@
+{
+  "case_id": "case_02_observation_saturation",
+  "description": "Single saturation Element wrapped in a Repetition. Routes to Observation. Single SFI datapoint expected.",
+  "xml_fixture": "case_02_observation_saturation.xml",
+  "input": {
+    "aktivitets_id": 1002,
+    "patient_id": "TEST-PAT-0002",
+    "encounter_id": "TEST-ENC-0002",
+    "aktivitetstype_kode": "MaalingSaturation",
+    "modelleringsnavn": "MaalingSaturation",
+    "modelleringsversion": "2026-05-01",
+    "besluttet_tidspunkt": "2026-05-01T16:43:00"
+  },
+  "routing": {
+    "target_resource": "Observation",
+    "rationale": "Aktivitetstype MaalingSaturation er positive listed til Observation."
+  },
+  "expected_procedure_output": {
+    "must_exist": false,
+    "count": 0
+  },
+  "expected_observations": [
+    {
+      "identifier_value": "ifdb-aktivitetsresultat/1002/sfi/1",
+      "code": {
+        "system": "urn:dk:ifdb:sfi",
+        "code": "RM_Generelle:edSaturationProcent",
+        "display": "Saturation i %"
+      },
+      "value_type": "integer",
+      "value_int": 98,
+      "ifdb_aktivitet_id": 1002
+    }
+  ],
+  "expected_questionnaire_response": null,
+  "expected_sfi_datapoint_rows": 1,
+  "notes": [
+    "Eneste Observation per aktivitetsresultat; minimum-case for at vise at SFI lander i top-level code.coding."
+  ]
+}

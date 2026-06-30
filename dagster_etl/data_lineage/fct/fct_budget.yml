@@ -1,0 +1,36 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fact
+  TableName: fct.Budget
+  Domain: [ERP]
+  Description: "Budgetfaktatabel — én række pr. budgetpost fra SydAX"
+  Grain: "Én række pr. budgetpost, identificeret ved DW_EK_Budget (fra map.Budget)"
+
+  SourceSystems:
+    - sydax: [Finans.Budgetpost, Finans.Budgetmodel]
+
+  Columns:
+    DW_EK_Budget:             { Type: PK, DataType: INT, Source: [map.Budget.DW_EK_Budget] }
+    bk_ref_LedgerbudgetId:    { DataType: NVARCHAR(100), Source: [sydax.Finans.Budgetpost.ref_LedgerbudgetId] }
+
+    DW_EK_BudgetEgenskaber: { Type: FK, DataType: INT, Source: [sydax.Finans.Budgetpost.ref_BudgetmodelId, sydax.Finans.Budgetmodel.Budgetmodelnummer, sydax.Finans.Budgetmodel.Budgetmodeltype] }
+    DW_EK_Kontoplan:        { Type: FK, DataType: INT, Source: [sydax.Finans.Budgetpost.FinanskontoId] }
+    DW_EK_Okosted:          { Type: FK, DataType: INT, FK-Target: dim.Okosted, Source: [sydax.Finans.OmkostningsstedHierarki.nummer1..nummer20], Expr: "Dybeste ikke-NULL niveau (nummer20..nummer1) → map.Okosted via CleanCode_Okosted" }
+
+    DW_EK_Dato_Budget:          { Type: FK, DataType: INT, Source: [sydax.Finans.Budgetpost.Budgetdato] }
+    DW_EK_Dato_BudgetAdopted:   { Type: FK, DataType: INT, Source: [sydax.Finans.Budgetpost.BudgetAdoptedDate] }
+    DW_EK_Dato_BudgetOprettet:  { Type: FK, DataType: INT, Source: [sydax.Finans.Budgetpost.Oprettelsestidspunkt] }
+    DW_EK_Dato_BudgetAendret:   { Type: FK, DataType: INT, Source: [sydax.Finans.Budgetpost.SidstAendretTidspunkt] }
+
+    Budgetbeloeb:       { Type: Measure, DataType: DECIMAL(30,12), Source: [sydax.Finans.Budgetpost.Budgetbeloeb] }
+    BudgetbeloebValuta: { Type: Measure, DataType: DECIMAL(30,12), Source: [sydax.Finans.Budgetpost.BudgetbeloebValuta] }
+
+    DW_haendelsestidspunkt: { DataType: DATETIME2, Source: [sydax.Finans.Budgetpost.Oprettelsestidspunkt] }
+
+  Notes:
+    - "SOR organisation for reporting: opløses via conceptmap.OkostedToSOR (vw_okosted_to_sor: DW_EK_Okosted → DW_EK_Organisation_Target). fct.Budget has no DW_EK_Organisation column."

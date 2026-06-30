@@ -1,0 +1,36 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fact
+  TableName: fct.Finanskladdelinje
+  Domain: [ERP]
+  Description: "Finanskladdelinje fact tabel — én række pr. kladdelinje fra SydAX"
+  Grain: "Én række pr. finanskladdelinje (ref_LedgertransId / DW_EK_Finanskladdelinje)"
+
+  SourceSystems:
+    - sydax: [Finans.Finanskladdelinje, Finans.Finanskladde, Finans.Finanskonto, Finans.FinanskontoOmkostningssted, Finans.OmkostningsstedHierarki, Finans.Finanstransaktionstype]
+
+  Columns:
+    DW_EK_Finanskladdelinje: { Type: PK, DataType: INT }
+    bk_ref_LedgertransId:    { DataType: NVARCHAR(100), Source: [sydax.Finans.Finanskladdelinje.ref_LedgertransId] }
+
+    DW_EK_Finanskladde:     { Type: FK, DataType: INT, FK-Target: dim.Finanskladde, Source: [sydax.Finans.Finanskladdelinje.ref_LedgerjournaltableId] }
+    DW_EK_Kontoplan:        { Type: FK, DataType: INT, FK-Target: dim.Kontoplan, Source: [sydax.Finans.Finanskladdelinje.FinanskontoId] }
+    DW_EK_Okosted:          { Type: FK, DataType: INT, FK-Target: dim.Okosted, Source: [sydax.Finans.OmkostningsstedHierarki.nummer1..nummer20], Expr: "Dybeste ikke-NULL niveau (nummer20..nummer1) → map.Okosted via CleanCode_Okosted" }
+
+    DW_EK_Dato_Linje:       { Type: FK, DataType: INT, Source: [sydax.Finans.Finanskladdelinje.dato] }
+    DW_EK_Dato_Oprettet:    { Type: FK, DataType: INT, Source: [sydax.Finans.Finanskladdelinje.CreatedOn] }
+
+    DW_haendelsestidspunkt: { DataType: DATETIME2, Source: [sydax.Finans.Finanskladdelinje.CreatedOn] }
+
+    Debet:   { Type: Measure, DataType: DECIMAL(30,12), Source: [sydax.Finans.Finanskladdelinje.Debet] }
+    Kredit:  { Type: Measure, DataType: DECIMAL(30,12), Source: [sydax.Finans.Finanskladdelinje.Kredit] }
+    DW_Timestamp_Insert:     { Type: Audit, DataType: DATETIME2(0), Expr: "SYSDATETIME() ved første INSERT" }
+    DW_Timestamp_Update:     { Type: Audit, DataType: DATETIME2(0), Expr: "SYSDATETIME() ved INSERT (= DW_Timestamp_Insert) og ved hver UPDATE" }
+
+  Notes:
+    - "SOR organisation for reporting: opløses via conceptmap.OkostedToSOR (vw_okosted_to_sor: DW_EK_Okosted → DW_EK_Organisation_Target). fct.Finanskladdelinje has no DW_EK_Organisation column."

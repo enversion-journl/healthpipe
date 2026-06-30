@@ -1,0 +1,196 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+# =============================================================================
+# IFDB Aktivitetstype Routing - Observation Allowlist (Seed)
+#
+# This file is the repo-controlled source of truth for which IFDB
+# AKTIVITETSRESULTAT rows may become FHIR Observation.
+#
+# Rules:
+#   - Only route_status=active routes are approved Observation allowlist entries.
+#   - route_status=review means the route is proposed but not yet approved.
+#   - route_status=inactive means the route was active but is now disabled.
+#   - An aktivitetstype with no approved Observation entry defaults to QR.
+#   - target_resource should be "Observation" for curated allowlist rows.
+#   - observation_category is only meaningful for Observation routes.
+#
+# Fields:
+#   aktivitetstype_kode   - IFDB AKTIVITETTYPE_KODE value
+#   target_resource       - "Observation"
+#   observation_category  - FHIR observation-category code (exam, vital-signs, survey, procedure)
+#   route_status          - "active", "inactive", or "review"
+#   rationale             - Human-readable reason for the routing decision
+#   decided_by            - Who made or approved the decision
+#   decided_at            - ISO date when the decision was made
+#   active_from           - Date from which this route is effective
+#   active_to             - Date until which this route is effective (null = open-ended)
+# =============================================================================
+
+routes:
+  # --- Vital signs / simple measurements -> Observation ---
+
+  - aktivitetstype_kode: "Maalinger.Blodtryk"
+    target_resource: "Observation"
+    observation_category: "vital-signs"
+    route_status: "review"
+    rationale: "Simple numeric measurement with individual SFI elements (BT_SYS, BT_DIA). One Observation per element."
+    decided_by: "ifdb-sfi-remodelling"
+    decided_at: "2026-05-13"
+    active_from: "2026-05-13"
+    active_to: null
+
+  - aktivitetstype_kode: "Maalinger.Puls"
+    target_resource: "Observation"
+    observation_category: "vital-signs"
+    route_status: "review"
+    rationale: "Simple numeric measurement. One Observation per SFI element."
+    decided_by: "ifdb-sfi-remodelling"
+    decided_at: "2026-05-13"
+    active_from: "2026-05-13"
+    active_to: null
+
+  - aktivitetstype_kode: "Maalinger.Saturation"
+    target_resource: "Observation"
+    observation_category: "vital-signs"
+    route_status: "review"
+    rationale: "Simple numeric measurement (SpO2). One Observation per SFI element."
+    decided_by: "ifdb-sfi-remodelling"
+    decided_at: "2026-05-13"
+    active_from: "2026-05-13"
+    active_to: null
+
+  - aktivitetstype_kode: "Maalinger.Respirationsfrekvens"
+    target_resource: "Observation"
+    observation_category: "vital-signs"
+    route_status: "review"
+    rationale: "Simple numeric measurement. One Observation per SFI element."
+    decided_by: "ifdb-sfi-remodelling"
+    decided_at: "2026-05-13"
+    active_from: "2026-05-13"
+    active_to: null
+
+  - aktivitetstype_kode: "Maalinger.Temperatur"
+    target_resource: "Observation"
+    observation_category: "vital-signs"
+    route_status: "review"
+    rationale: "Simple numeric measurement. One Observation per SFI element."
+    decided_by: "ifdb-sfi-remodelling"
+    decided_at: "2026-05-13"
+    active_from: "2026-05-13"
+    active_to: null
+
+  - aktivitetstype_kode: "KPYdelser.Afdelingsydelser.Afdelingsydelser.Maalinger.Saturation"
+    target_resource: "Observation"
+    observation_category: "vital-signs"
+    route_status: "active"
+    rationale: "Simple numeric SpO2 measurement; sample XML has one long element for saturation percentage."
+    decided_by: "clinical-curation"
+    decided_at: "2026-05-18"
+    active_from: "2026-05-18"
+    active_to: null
+
+  - aktivitetstype_kode: "KPYdelser.Afdelingsydelser.Afdelingsydelser.Maalinger.RespFrekvens"
+    target_resource: "Observation"
+    observation_category: "vital-signs"
+    route_status: "active"
+    rationale: "Simple numeric respiratory-rate measurement; sample XML has one long element for breaths per minute."
+    decided_by: "clinical-curation"
+    decided_at: "2026-05-18"
+    active_from: "2026-05-18"
+    active_to: null
+
+  - aktivitetstype_kode: "KPYdelser.Afdelingsydelser.Afdelingsydelser.Maalinger.MeanBlodtryk"
+    target_resource: "Observation"
+    observation_category: "vital-signs"
+    route_status: "active"
+    rationale: "Simple numeric mean arterial pressure measurement."
+    decided_by: "clinical-curation"
+    decided_at: "2026-05-18"
+    active_from: "2026-05-18"
+    active_to: null
+
+  # --- SKS procedure measurement codes -> Procedure + numeric Observation ---
+
+  - aktivitetstype_kode: "SKS.a.proZZ3160"
+    target_resource: "Observation"
+    observation_category: "vital-signs"
+    route_status: "active"
+    rationale: "Blodtryksmåling. Procedure event is emitted in parallel; only actual numeric SFI datapoints are emitted as Observation."
+    decided_by: "clinical-curation"
+    decided_at: "2026-05-19"
+    active_from: "2026-05-19"
+    active_to: null
+
+  - aktivitetstype_kode: "SKS.a.proZZ3140"
+    target_resource: "Observation"
+    observation_category: "vital-signs"
+    route_status: "active"
+    rationale: "Måling af puls. Procedure event is emitted in parallel; only actual numeric SFI datapoints are emitted as Observation."
+    decided_by: "clinical-curation"
+    decided_at: "2026-05-19"
+    active_from: "2026-05-19"
+    active_to: null
+
+  - aktivitetstype_kode: "SKS.a.proZZ0253"
+    target_resource: "Observation"
+    observation_category: "vital-signs"
+    route_status: "active"
+    rationale: "Central temperaturmåling. Procedure event is emitted in parallel; only actual numeric SFI datapoints are emitted as Observation."
+    decided_by: "clinical-curation"
+    decided_at: "2026-05-19"
+    active_from: "2026-05-19"
+    active_to: null
+
+  - aktivitetstype_kode: "SKS.a.proZZ0240"
+    target_resource: "Observation"
+    observation_category: "vital-signs"
+    route_status: "active"
+    rationale: "Måling af patientvægt. Procedure event is emitted in parallel; only actual numeric SFI datapoints are emitted as Observation."
+    decided_by: "clinical-curation"
+    decided_at: "2026-05-19"
+    active_from: "2026-05-19"
+    active_to: null
+
+  - aktivitetstype_kode: "SKS.a.proZZ0241"
+    target_resource: "Observation"
+    observation_category: "vital-signs"
+    route_status: "active"
+    rationale: "Måling af patienthøjde. Procedure event is emitted in parallel; only actual numeric SFI datapoints are emitted as Observation."
+    decided_by: "clinical-curation"
+    decided_at: "2026-05-19"
+    active_from: "2026-05-19"
+    active_to: null
+
+  - aktivitetstype_kode: "SKS.a.proZZ0242"
+    target_resource: "Observation"
+    observation_category: "vital-signs"
+    route_status: "active"
+    rationale: "BMI-måling. Procedure event is emitted in parallel; only actual numeric SFI datapoints are emitted as Observation."
+    decided_by: "clinical-curation"
+    decided_at: "2026-05-19"
+    active_from: "2026-05-19"
+    active_to: null
+
+  - aktivitetstype_kode: "SKS.a.proZZ1998B"
+    target_resource: "Observation"
+    observation_category: "laboratory"
+    route_status: "active"
+    rationale: "Blodsukkermåling, ikke fastende. Procedure event is emitted in parallel; only actual numeric SFI datapoints are emitted as Observation."
+    decided_by: "clinical-curation"
+    decided_at: "2026-05-19"
+    active_from: "2026-05-19"
+    active_to: null
+
+  - aktivitetstype_kode: "SKS.a.proZZ1998A"
+    target_resource: "Observation"
+    observation_category: "laboratory"
+    route_status: "active"
+    rationale: "Blodsukkermåling, fastende. Procedure event is emitted in parallel; only actual numeric SFI datapoints are emitted as Observation."
+    decided_by: "clinical-curation"
+    decided_at: "2026-05-19"
+    active_from: "2026-05-19"
+    active_to: null

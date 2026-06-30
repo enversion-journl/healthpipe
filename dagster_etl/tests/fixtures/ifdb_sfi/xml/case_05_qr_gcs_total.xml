@@ -1,0 +1,75 @@
+<?xml version="1.0" ?>
+<Afdelingsydelsesresultat>
+  <Kontekst>
+    <Oprettet>
+      <Bruger>test_user</Bruger>
+      <PersId>10000005</PersId>
+      <Rolle>Sygeplejerske</Rolle>
+      <AdministrativEnhed>TEST SHS Kirurgi Sengeafs. B (Aabenraa)</AdministrativEnhed>
+      <AdministrativEnhedId>01.07.08.D.1</AdministrativEnhedId>
+      <Tidspunkt>2026-05-01T16:43:00</Tidspunkt>
+      <Tidsstempel>1777646580000</Tidsstempel>
+    </Oprettet>
+    <Aendret>
+      <Bruger>test_user</Bruger>
+      <PersId>10000005</PersId>
+      <Rolle>Sygeplejerske</Rolle>
+      <AdministrativEnhed>TEST SHS Kirurgi Sengeafs. B (Aabenraa)</AdministrativEnhed>
+      <AdministrativEnhedId>01.07.08.D.1</AdministrativEnhedId>
+      <Tidspunkt>2026-05-01T16:43:00</Tidspunkt>
+      <Tidsstempel>1777646580000</Tidsstempel>
+    </Aendret>
+    <Besluttet>
+      <Bruger>test_user</Bruger>
+      <PersId>10000005</PersId>
+      <Rolle>Sygeplejerske</Rolle>
+      <AdministrativEnhed>TEST SHS Kirurgi Sengeafs. B (Aabenraa)</AdministrativEnhed>
+      <AdministrativEnhedId>01.07.08.D.1</AdministrativEnhedId>
+      <Tidspunkt>2026-05-01T16:43:00</Tidspunkt>
+      <Tidsstempel>1777646580000</Tidsstempel>
+    </Besluttet>
+    <Status>Besluttet</Status>
+  </Kontekst>
+  <Overskrift>Vurdering efter Glasgow coma scale</Overskrift>
+  <Ledetekst>Vurdering efter Glasgow coma scale</Ledetekst>
+  <Type>VurdGlasgowCS</Type>
+  <Kladde>False</Kladde>
+  <Repetition>
+    <Element isStdAddCode="false" type="klassificering">
+      <Navn>GCSPatientensOejne</Navn>
+      <Ledetekst>Åbner øjne</Ledetekst>
+      <Vaerdi>4: Spontant</Vaerdi>
+      <ElementId>RM_Generelle:edGCSPatientensOejne</ElementId>
+      <Kode>GCSOejne0010</Kode>
+      <MOID>RM_Generelle:RM_URGenerelle.VurdGlasgowCS.GCSOejne4</MOID>
+    </Element>
+  </Repetition>
+  <Repetition>
+    <Element isStdAddCode="false" type="klassificering">
+      <Navn>GCSPatientensVerbaleRespons</Navn>
+      <Ledetekst>Verbal respons</Ledetekst>
+      <Vaerdi>5: Orienteret</Vaerdi>
+      <ElementId>RM_Generelle:edGCSPatientensVerbaleRespons</ElementId>
+      <Kode>GCSVR0010</Kode>
+      <MOID>RM_Generelle:RM_URGenerelle.VurdGlasgowCS.GCSVR5</MOID>
+    </Element>
+  </Repetition>
+  <Repetition>
+    <Element isStdAddCode="false" type="klassificering">
+      <Navn>GCSPatientensMotoriskeRespons</Navn>
+      <Ledetekst>Motorisk respons</Ledetekst>
+      <Vaerdi>6: Følger ordre</Vaerdi>
+      <ElementId>RM_Generelle:edGCSPatientensMotoriskeRespons</ElementId>
+      <Kode>GCSMR0010</Kode>
+      <MOID>RM_Generelle:RM_URGenerelle.VurdGlasgowCS.GCSMR6</MOID>
+    </Element>
+  </Repetition>
+  <Repetition>
+    <Element type="long">
+      <Navn>GCSTotalScore</Navn>
+      <Ledetekst>Total score</Ledetekst>
+      <Vaerdi>15</Vaerdi>
+      <ElementId>RM_Generelle:edGCSTotalScore</ElementId>
+    </Element>
+  </Repetition>
+</Afdelingsydelsesresultat>

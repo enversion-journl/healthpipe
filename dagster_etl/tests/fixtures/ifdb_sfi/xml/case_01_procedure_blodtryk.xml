@@ -1,0 +1,51 @@
+<?xml version="1.0" ?>
+<Afdelingsydelsesresultat>
+  <Kontekst>
+    <Oprettet>
+      <Bruger>test_user</Bruger>
+      <PersId>10000001</PersId>
+      <Rolle>Sygeplejerske</Rolle>
+      <AdministrativEnhed>TEST OUH Nyremedicinsk DialyseAmb. (Odense)</AdministrativEnhed>
+      <AdministrativEnhedId>01.08.32.1.2</AdministrativEnhedId>
+      <Tidspunkt>2026-05-01T15:06:00</Tidspunkt>
+      <Tidsstempel>1777640760000</Tidsstempel>
+    </Oprettet>
+    <Aendret>
+      <Bruger>test_user</Bruger>
+      <PersId>10000001</PersId>
+      <Rolle>Sygeplejerske</Rolle>
+      <AdministrativEnhed>TEST OUH Nyremedicinsk DialyseAmb. (Odense)</AdministrativEnhed>
+      <AdministrativEnhedId>01.08.32.1.2</AdministrativEnhedId>
+      <Tidspunkt>2026-05-01T15:06:00</Tidspunkt>
+      <Tidsstempel>1777640760000</Tidsstempel>
+    </Aendret>
+    <Besluttet>
+      <Bruger>test_user</Bruger>
+      <PersId>10000001</PersId>
+      <Rolle>Sygeplejerske</Rolle>
+      <AdministrativEnhed>TEST OUH Nyremedicinsk DialyseAmb. (Odense)</AdministrativEnhed>
+      <AdministrativEnhedId>01.08.32.1.2</AdministrativEnhedId>
+      <Tidspunkt>2026-05-01T15:06:00</Tidspunkt>
+      <Tidsstempel>1777640760000</Tidsstempel>
+    </Besluttet>
+    <Status>Besluttet</Status>
+  </Kontekst>
+  <Overskrift>Blodtryk</Overskrift>
+  <Ledetekst>Blodtryk</Ledetekst>
+  <Type>MaalingBlodtrykSKS2</Type>
+  <Kladde>False</Kladde>
+  <Element type="long">
+    <Navn>TillaegskodeHeltal</Navn>
+    <Ledetekst>Systolisk</Ledetekst>
+    <Vaerdi>116</Vaerdi>
+    <ElementId>KPPASResults:edTillaegskodeHeltal</ElementId>
+  </Element>
+  <Repetition>
+    <Element type="long">
+      <Navn>TillaegskodeHeltalOptionel</Navn>
+      <Ledetekst>Diastolisk</Ledetekst>
+      <Vaerdi>62</Vaerdi>
+      <ElementId>KPPASResults:edTillaegskodeHeltalOptionel</ElementId>
+    </Element>
+  </Repetition>
+</Afdelingsydelsesresultat>

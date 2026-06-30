@@ -1,0 +1,22 @@
+{
+  "resourceType": "ViewDefinition",
+  "name": "questionnaire_view",
+  "resource": "Questionnaire",
+  "status": "active",
+  "select": [
+    {
+      "column": [
+        {"name": "questionnaire_id", "path": "id"},
+        {"name": "url", "path": "url"},
+        {"name": "version", "path": "version"},
+        {"name": "status", "path": "status"},
+        {"name": "name", "path": "name"},
+        {"name": "title", "path": "title"},
+        {"name": "date", "path": "date"},
+        {"name": "publisher", "path": "publisher"},
+        {"name": "source_model_name", "path": "name"},
+        {"name": "source_model_version", "path": "version"}
+      ]
+    }
+  ]
+}

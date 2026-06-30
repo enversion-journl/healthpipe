@@ -1,0 +1,39 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: dimension
+  TableName: dim.Organisation
+  Domain: [Shared]
+  Description: "Organisatorisk hierarki fra SOR — selvrefererende forælder-barn (kun SOR). Bygges fra fhir.Organization + ref.Organisation."
+  Grain: "Én række pr. organisatorisk enhed"
+  SCD: type1
+
+  SourceSystems:
+    - sor: [SOR_registry]
+
+  Keys:
+    DW_EK_Organisation: "INT — entity-nøgle. Tildeles som INT IDENTITY i ref.Organisation ud fra fhir.Organization.organization_id. dim.Organisation MERGE'r på denne — Type 1, én aktuel række pr. organisation."
+
+  Columns:
+    DW_EK_Organisation:      { Type: PK, DataType: INT, Expr: "Fra ref.Organisation (INT IDENTITY tildelt ud fra fhir.Organization.organization_id)" }
+    Code:                    { DataType: VARCHAR(50), Source: [sor.SOR_registry.SORId], Expr: "fhir.Organization.identifier_value_sor (= ref.Organisation.sor_code)" }
+    DW_EK_Org_Parent:        { Type: FK, DataType: INT, FK-Target: dim.Organisation, Expr: "Resolves fhir.Organization.part_of_id -> ref.Organisation.DW_EK_Organisation; -1 hvis ingen/ukendt forælder" }
+    ParentCode:              { DataType: VARCHAR(50), Source: [sor.SOR_registry.ParentSorId], Expr: "Forælderens sor_code (fra fhir.Organization)" }
+    Name:                    { DataType: NVARCHAR(500), Source: [sor.SOR_registry.EntityName], Expr: "fhir.Organization.name" }
+    Type:                    { DataType: VARCHAR(100), Source: [sor.SOR_registry.EntityTypeName], Expr: "fhir.Organization.type_display" }
+    Active:                  { DataType: BIT, Source: [sor.SOR_registry.Status], Expr: "1 hvor fhir.Organization.active = 'true'" }
+    DW_Timestamp_Insert:     { Type: Audit, DataType: DATETIME2(0), Expr: "GETDATE() ved første INSERT" }
+    DW_Timestamp_Update:     { Type: Audit, DataType: DATETIME2(0), Expr: "GETDATE() ved UPDATE (NULL indtil første opdatering)" }
+
+  Notes: |
+    Bygges fra fhir.Organization + ref.Organisation:
+      - ref.Organisation tildeler DW_EK_Organisation (INT IDENTITY) pr.
+        organization_id.
+      - dim.Organisation MERGE'r attributter (Name/Type/Active) fra
+        fhir.Organization og resolver DW_EK_Org_Parent via part_of_id.
+      - Type 1 SCD: ingen DW_ValidFrom/DW_ValidTo/DW_IsCurrent; alle attributter
+        overskrives ved opdatering. Rækker slettes aldrig.

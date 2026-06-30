@@ -1,0 +1,88 @@
+{
+  "case_id": "case_05_qr_gcs_total",
+  "description": "Glasgow Coma Scale with 3 klassificering items (eyes, verbal, motor) and 1 long total score. Routes to QuestionnaireResponse. SFI must work for both classification (coded choice) and integer total.",
+  "xml_fixture": "case_05_qr_gcs_total.xml",
+  "input": {
+    "aktivitets_id": 1005,
+    "patient_id": "TEST-PAT-0005",
+    "encounter_id": "TEST-ENC-0005",
+    "aktivitetstype_kode": "VurdGlasgowCS",
+    "modelleringsnavn": "VurdGlasgowCS",
+    "modelleringsversion": "2026-05-01",
+    "besluttet_tidspunkt": "2026-05-01T16:43:00"
+  },
+  "routing": {
+    "target_resource": "QuestionnaireResponse",
+    "rationale": "GCS er positive listed til QuestionnaireResponse."
+  },
+  "expected_procedure_output": {
+    "must_exist": false,
+    "count": 0
+  },
+  "expected_observations": [],
+  "expected_questionnaire": {
+    "url": "urn:dk:ifdb:questionnaire:VurdGlasgowCS",
+    "version": "2026-05-01",
+    "items_must_include_linkIds": [
+      "VurdGlasgowCS:GCSPatientensOejne",
+      "VurdGlasgowCS:GCSPatientensVerbaleRespons",
+      "VurdGlasgowCS:GCSPatientensMotoriskeRespons",
+      "VurdGlasgowCS:GCSTotalScore"
+    ],
+    "items_with_sfi": [
+      {
+        "linkId": "VurdGlasgowCS:GCSPatientensOejne",
+        "code": {"system": "urn:dk:ifdb:sfi", "code": "RM_Generelle:edGCSPatientensOejne"}
+      },
+      {
+        "linkId": "VurdGlasgowCS:GCSPatientensVerbaleRespons",
+        "code": {"system": "urn:dk:ifdb:sfi", "code": "RM_Generelle:edGCSPatientensVerbaleRespons"}
+      },
+      {
+        "linkId": "VurdGlasgowCS:GCSPatientensMotoriskeRespons",
+        "code": {"system": "urn:dk:ifdb:sfi", "code": "RM_Generelle:edGCSPatientensMotoriskeRespons"}
+      },
+      {
+        "linkId": "VurdGlasgowCS:GCSTotalScore",
+        "code": {"system": "urn:dk:ifdb:sfi", "code": "RM_Generelle:edGCSTotalScore"}
+      }
+    ]
+  },
+  "expected_questionnaire_response": {
+    "qr_id_pattern": "ifdb-aktivitetsresultat/1005/qr",
+    "questionnaire_reference": "urn:dk:ifdb:questionnaire:VurdGlasgowCS|2026-05-01",
+    "answer_must_include": [
+      {
+        "linkId": "VurdGlasgowCS:GCSPatientensOejne",
+        "value_type": "coding",
+        "value_coding_code": "GCSOejne0010"
+      },
+      {
+        "linkId": "VurdGlasgowCS:GCSPatientensVerbaleRespons",
+        "value_type": "coding",
+        "value_coding_code": "GCSVR0010"
+      },
+      {
+        "linkId": "VurdGlasgowCS:GCSPatientensMotoriskeRespons",
+        "value_type": "coding",
+        "value_coding_code": "GCSMR0010"
+      },
+      {
+        "linkId": "VurdGlasgowCS:GCSTotalScore",
+        "value_type": "integer",
+        "value_int": 15
+      }
+    ]
+  },
+  "expected_sfi_datapoint_rows": 4,
+  "expected_sfi_datapoint_filter_examples": [
+    {
+      "filter": "element_system='urn:dk:ifdb:sfi' AND element_code='RM_Generelle:edGCSTotalScore'",
+      "expected_value_int": 15
+    }
+  ],
+  "notes": [
+    "Klassificering (Vaerdi=\"4: Spontant\", Kode=GCSOejne0010) skal mappes til coding-value type med value_coding_code=Kode.",
+    "Total score skal vaere querybar som element_code='RM_Generelle:edGCSTotalScore' AND value_int=15."
+  ]
+}

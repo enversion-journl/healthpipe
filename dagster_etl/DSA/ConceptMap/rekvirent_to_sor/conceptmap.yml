@@ -1,0 +1,18 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+resourceType: ConceptMap
+id: "rekvirent-to-sor"
+url: "http://example.dk/fhir/ConceptMap/rekvirent-to-sor"
+status: active
+name: "RekvirentToSor"
+title: "Rekvirent to SOR"
+description: "Maps ILS rekvirent codes to SOR organisation codes"
+sourceScopeUri: "https://example.org/ils/rekvirent"
+targetScopeUri: "https://sundhedsdatastyrelsen.dk/sor"
+group:
+  - source: "https://example.org/ils/rekvirent"
+    target: "https://sundhedsdatastyrelsen.dk/sor"

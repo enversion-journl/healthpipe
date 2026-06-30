@@ -1,0 +1,103 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: dimension
+  TableName: dim.Faktura
+  Domain: [ERP]
+  Description: "Fakturametadata-dimension fra MySupply"
+  Grain: "Én række pr. faktura-header (CVR + FakturaNr)"
+
+  SourceSystems:
+    - mysupply: [dbo.statistic_invoice_header, dbo.metadata, dbo.statistic_invoice_header_allowance_charge]
+
+  Columns:
+    DW_EK_Faktura: { Type: PK, DataType: INT }
+    FakturaNr:            { DataType: NVARCHAR(100), Source: [mysupply.dbo.statistic_invoice_header.FakturaNr] }
+    FakturaValutaKode:    { DataType: NVARCHAR(10), Source: [mysupply.dbo.statistic_invoice_header.FakturaValutaKode] }
+    FirmaNavn:            { DataType: NVARCHAR(255), Source: [mysupply.dbo.metadata.FirmaNavn] }
+    LeverandorCVR:        { DataType: NVARCHAR(50), Source: [mysupply.dbo.metadata.LeverandorCVR] }
+    Adresse:              { DataType: NVARCHAR(255), Source: [mysupply.dbo.metadata.Adresse] }
+    ByNavn:               { DataType: NVARCHAR(255), Source: [mysupply.dbo.metadata.By] }
+    Postnummer:           { DataType: NVARCHAR(20), Source: [mysupply.dbo.metadata.Postnummer] }
+    DokumentType:         { DataType: NVARCHAR(20), Source: [mysupply.dbo.metadata.Type], Expr: "CASE WHEN Type IN ('PIE','PIP','OIOUBL Invoice') THEN 'Faktura' WHEN Type IN ('PCM','PCP','OIOUBL CreditNote') THEN 'Kreditnota' ELSE 'Ukendt' END" }
+    RegningsModtagerID:   { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.RegningsModtagerID] }
+    RegningsModtagerID_Type: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.RegningsModtagerID_Type] }
+    KøbsOrdreNummer:      { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.KøbsOrdreNummer] }
+    SalgsOrdreNummer:     { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.SalgsOrdreNummer] }
+    KundeIdentification:  { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.KundeIdentification] }
+    KundeIdentification_Type: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.KundeIdentification_Type] }
+    DimensionKontoStreng: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.DimensionKontoStreng] }
+    KundeNavn:            { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.KundeNavn] }
+    KundeVejNavn:         { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.KundeVejNavn] }
+    KundeHusNr:           { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.KundeHusNr] }
+    KundeByNavn:          { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.KundeByNavn] }
+    KundePostNr:          { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.KundePostNr] }
+    KundeLandeKode:       { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.KundeLandeKode] }
+    KundeReferenceID:     { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.KundeReferenceID] }
+    KundeReferenceNavn:   { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.KundeReferenceNavn] }
+    KundeReferenceTelefonNr: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.KundeReferenceTelefonNr] }
+    KundeReferenceFaxNr:  { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.KundeReferenceFaxNr] }
+    KundeReferenceEMail:  { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.KundeReferenceE-Mail] }
+    KundeReferenceRolle:  { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.KundeReferenceRolle] }
+    Juridisk_KundeIdentification: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.Juridisk_KundeIdentification] }
+    Juridisk_KundeIdentification_Type: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.Juridisk_KundeIdentification_Type] }
+    Juridisk_DimensionKontoStreng: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.Juridisk_DimensionKontoStreng] }
+    Juridisk_KundeNavn:   { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.Juridisk_KundeNavn] }
+    Juridisk_KundeVejNavn: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.Juridisk_KundeVejNavn] }
+    Juridisk_KundeHusNr:  { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.Juridisk_KundeHusNr] }
+    Juridisk_KundeByNavn: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.Juridisk_KundeByNavn] }
+    Juridisk_KundePostNr: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.Juridisk_KundePostNr] }
+    Juridisk_KundeLandeKode: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.Juridisk_KundeLandeKode] }
+    Juridisk_KundeReferenceID: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.Juridisk_KundeReferenceID] }
+    Juridisk_KundeReferenceNavn: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.Juridisk_KundeReferenceNavn] }
+    Juridisk_KundeReferenceTelefonNr: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.Juridisk_KundeReferenceTelefonNr] }
+    Juridisk_KundeReferenceFaxNr: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.Juridisk_KundeReferenceFaxNr] }
+    Juridisk_KundeReferenceEMail: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.Juridisk_KundeReferenceE-Mail] }
+    Juridisk_KundeReferenceRolle: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.Juridisk_KundeReferenceRolle] }
+    FakturaUdstederIdentifikation: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.FakturaUdstederIdentifikation] }
+    FakturaUdstederIdentifikation_Type: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.FakturaUdstederIdentifikation_Type] }
+    FakturaUdstederNavn:  { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.FakturaUdstederNavn] }
+    FakturaUdstederAdresseID_Vareafsendelse: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.FakturaUdstederAdresseID_Vareafsendelse] }
+    FakturaUdstederVejNavn_Vareafsendelse: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.FakturaUdstederVejNavn_Vareafsendelse] }
+    FakturaUdstederHusNr_Vareafsendelse: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.FakturaUdstederHusNr_Vareafsendelse] }
+    FakturaUdstederByNavn_Vareafsendelse: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.FakturaUdstederByNavn_Vareafsendelse] }
+    FakturaUdstederPostNr_Vareafsendelse: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.FakturaUdstederPostNr_Vareafsendelse] }
+    FakturaUdstederLandKode_Vareafsendelse: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.FakturaUdstederLandKode_Vareafsendelse] }
+    FakturaUdstederCVRNummer: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.FakturaUdstederCVRNummer] }
+    FakturaUdstederCVRNummer_Type: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.FakturaUdstederCVRNummer_Type] }
+    FakturaUdstederReferenceIdenrifikation: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.FakturaUdstederReferenceIdenrifikation] }
+    FakturaUdstederReferenceNavn: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.FakturaUdstederReferenceNavn] }
+    FakturaUdstederReferenceTelefonNr: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.FakturaUdstederReferenceTelefonNr] }
+    FakturaUdstederReferenceFaxNr: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.FakturaUdstederReferenceFaxNr] }
+    FakturaUdstederReferenceEMail: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.FakturaUdstederReferenceEMail] }
+    KortArtsKode:         { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.KortArtsKode] }
+    BetalingsType:        { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.BetalingsType] }
+    BetalingsID:          { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.BetalingsID] }
+    Kreditnummer:         { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.Kreditnummer] }
+    Kontonummer:          { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.Kontonummer] }
+    Kontotype:            { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.Kontotype] }
+    AfdelingsID:          { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.AfdelingsID] }
+    BankID:               { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.BankID] }
+    BankNavn:             { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.BankNavn] }
+    ToldKurs:             { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.ToldKurs] }
+    ToldKurs_Type:        { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.ToldKurs_Type] }
+    Kontantrabatsats:     { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.Kontantrabatsats] }
+    Strafrentesats:       { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.Strafrentesats] }
+    KontantRabatDato:     { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.KontantRabatDato] }
+    StartRenteDato:       { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.StartRenteDato] }
+    ZeroRated_AfgiftsKategori: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.ZERO-RATED_AfgiftsKategori] }
+    ZeroRated_AfgiftsKategoriProcent: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header.ZERO-RATED_AfgiftsKategoriProcent] }
+    GebyrRabatAarsag: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header_allowance_charge.GebyrKategoriÅrsag, mysupply.dbo.statistic_invoice_header_allowance_charge.GebyrKategoriTotal], Expr: "STRING_AGG af CONCAT(Aarsag,':',Total) '#'-delimiteret (ORDER BY id) for rækker med Indikering='false' og Total <> 0/NULL" }
+    GebyrRabatKategori: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header_allowance_charge.GebyrKategori], Expr: "STRING_AGG '#'-delimiteret (ORDER BY id) for rækker med Indikering='false' og Total <> 0/NULL" }
+    GebyrRabatFinanskonto: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header_allowance_charge.GebyrKategoriFinanskonto], Expr: "STRING_AGG '#'-delimiteret (ORDER BY id) for rækker med Indikering='false' og Total <> 0/NULL" }
+    GebyrTillaegAarsag: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header_allowance_charge.GebyrKategoriÅrsag, mysupply.dbo.statistic_invoice_header_allowance_charge.GebyrKategoriTotal], Expr: "STRING_AGG af CONCAT(Aarsag,':',Total) '#'-delimiteret (ORDER BY id) for rækker med Indikering<>'false'/NULL og Total <> 0/NULL" }
+    GebyrTillaegKategori: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header_allowance_charge.GebyrKategori], Expr: "STRING_AGG '#'-delimiteret (ORDER BY id) for rækker med Indikering<>'false'/NULL og Total <> 0/NULL" }
+    GebyrTillaegFinanskonto: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_header_allowance_charge.GebyrKategoriFinanskonto], Expr: "STRING_AGG '#'-delimiteret (ORDER BY id) for rækker med Indikering<>'false'/NULL og Total <> 0/NULL" }
+    DW_Timestamp_Insert: { Type: Audit, DataType: DATETIME2(0), Expr: "SYSDATETIME() ved første INSERT" }
+    DW_Timestamp_Update: { Type: Audit, DataType: DATETIME2(0), Expr: "SYSDATETIME() ved UPDATE (NULL indtil første opdatering)" }
+  Notes:
+    - "Gebyr-kolonner: statistic_invoice_header_allowance_charge er 1:n pr. faktura. Splittet i Rabat (Indikering='false') og Tillaeg (Indikering='true'/NULL). Rækker med Total = 0/NULL ekskluderes. Aarsag er en composite '{Aarsag}:{Total}' per position. Kolonner '#'-delimiteret, position-aligned (ORDER BY id), '#' strippet fra kildeværdier, ':' strippet fra Aarsag (composite-delimiter)."

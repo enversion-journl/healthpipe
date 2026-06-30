@@ -1,0 +1,41 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: dimension
+  TableName: dim.Kreditor
+  Domain: [ERP]
+  Description: "Leverandør-/kreditordimension konsolideret fra SydAX, ILS og MySupply via CVR"
+  Grain: "Én række pr. leverandør/kreditor"
+
+  SourceSystems:
+    - sydax: [Kreditor.Kreditor]
+    - ils: [dbo.lev]
+    - mysupply: [dbo.metadata, dbo.statistic_invoice_header]
+
+  Columns:
+    DW_EK_Kreditor:  { Type: PK, DataType: INT }
+    CleanCode_Kreditor: { DataType: NVARCHAR(255) }
+    KreditorId:      { DataType: BIGINT, Source: [sydax.Kreditor.Kreditor.KreditorId] }
+    Kreditorkonto:   { DataType: NVARCHAR(50), Source: [sydax.Kreditor.Kreditor.Kreditorkonto] }
+    Cvrnr:           { DataType: NVARCHAR(20), Source: [sydax.Kreditor.Kreditor.JuridiskEnhed, ils.dbo.lev.se_nr, mysupply.dbo.metadata.LeverandorCVR] }
+    KreditorNavn:    { DataType: NVARCHAR(255), Source: [sydax.Kreditor.Kreditor.Kreditornavn, ils.dbo.lev.navn, mysupply.dbo.metadata.FirmaNavn] }
+    ByNavn:          { DataType: NVARCHAR(255), Source: [ils.dbo.lev.adr2, mysupply.dbo.metadata.ByNavn] }
+    Vejnavn:         { DataType: NVARCHAR(255), Source: [ils.dbo.lev.adr, mysupply.dbo.metadata.Adresse] }
+    Postnummer:      { DataType: NVARCHAR(20), Source: [ils.dbo.lev.postdi, mysupply.dbo.metadata.Postnummer] }
+    Kreditornummer:  { DataType: NVARCHAR(50), Source: [sydax.Kreditor.Kreditor.Kreditornummer, ils.dbo.lev.lnr] }
+    Valutakode:      { DataType: NVARCHAR(10), Source: [mysupply.dbo.statistic_invoice_header.FakturaValutaKode] }
+    SprogId:         { DataType: NVARCHAR(10), Source: [sydax.Kreditor.Kreditor.SprogId] }
+    BrancheId:       { DataType: NVARCHAR(20), Source: [sydax.Kreditor.Kreditor.BrancheId] }
+    Cvrnr_SydAX:     { DataType: NVARCHAR(50), Source: [sydax.Kreditor.Kreditor.JuridiskEnhed] }
+    Cvrnr_Ils:       { DataType: NVARCHAR(50), Source: [ils.dbo.lev.se_nr] }
+    Cvrnr_MySupply:  { DataType: NVARCHAR(50), Source: [mysupply.dbo.metadata.LeverandorCVR] }
+    ILS_Kreditor_Navn: { DataType: NVARCHAR(255), Source: [ils.dbo.lev.navn] }
+    ILS_Adresse1:      { DataType: NVARCHAR(255), Source: [ils.dbo.lev.adr] }
+    ILS_Adresse2:      { DataType: NVARCHAR(255), Source: [ils.dbo.lev.adr2] }
+    ILS_Postdistrikt:  { DataType: NVARCHAR(255), Source: [ils.dbo.lev.postdi] }
+    ILS_ByNavn:        { DataType: NVARCHAR(255), Source: [ils.dbo.lev.adr2, ils.dbo.lev.navn] }
+    ILS_Kontakt:       { DataType: NVARCHAR(255), Source: [ils.dbo.lev.kontakt] }

@@ -1,0 +1,26 @@
+{
+  "resourceType": "ViewDefinition",
+  "name": "careplan_view",
+  "resource": "CarePlan",
+  "status": "active",
+  "where": [
+    {
+      "path": "category.coding.where(system='http://example.org/fhir/CodeSystem/patient-rights-type' and code='alle_markoerer').exists()"
+    }
+  ],
+  "select": [
+    {
+      "column": [
+        {"name": "careplan_id", "path": "id"},
+        {"name": "patient_id", "path": "subject.getReferenceKey(Patient)"},
+        {"name": "status", "path": "status"},
+        {"name": "intent", "path": "intent"},
+        {"name": "category_code", "path": "category[0].coding[0].code"},
+        {"name": "period_start", "path": "period.start"},
+        {"name": "period_end", "path": "period.end"},
+        {"name": "organization_id", "path": "author.getReferenceKey(Organization)"},
+        {"name": "identifier_value", "path": "identifier.where(system='urn:dk:sundhed:alle-markoerer:careplan').value.first()"}
+      ]
+    }
+  ]
+}
