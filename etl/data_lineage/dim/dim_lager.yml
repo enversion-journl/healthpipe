@@ -1,0 +1,33 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: dimension
+  TableName: dim.Lager
+  Domain: [ERP]
+  Description: "Lagerdimension fra ILS med SOR-organisationskobling"
+  Grain: "Én række pr. lager-/oplagringssted"
+
+  SourceSystems:
+    - ils: [dbo.sgh, dbo.lgr, codesystem.LagerHierarchy]
+    - sor: [SOR_registry]
+
+  Columns:
+    dw_ek_Lager:          { Type: PK, DataType: INT }
+    code:                 { DataType: VARCHAR(100), Source: [ils.dbo.sgh.Code] }
+    display:              { DataType: NVARCHAR(500), Source: [ils.dbo.sgh.Display] }
+    parent_code:           { DataType: VARCHAR(100), Expr: "afledt af sgh-hierarki" }
+    level:                { DataType: INT, Expr: "beregnet fra hierarkidybde i sgh" }
+    entity_type:           { DataType: NVARCHAR(200), Source: [ils.dbo.sgh.entityType] }
+    sgh:                  { DataType: NVARCHAR(200), Source: [ils.dbo.sgh.sgh] }
+    lgr:                  { DataType: NVARCHAR(200), Source: [ils.dbo.lgr.lgr] }
+    adr:                  { DataType: NVARCHAR(200), Source: [ils.dbo.sgh.adr] }
+    land:                 { DataType: NVARCHAR(200), Source: [ils.dbo.sgh.land] }
+    postdi:               { DataType: NVARCHAR(200), Source: [ils.dbo.sgh.postdi] }
+    tlf:                  { DataType: NVARCHAR(200), Source: [ils.dbo.sgh.tlf] }
+    code_sor:              { DataType: VARCHAR(50), Source: [sor.SOR_registry.CodeSOR] }
+    dw_ek_Organisation:   { Type: FK, DataType: INT, Source: [sor.SOR_registry.SORId] }
+    dw_ek_Lager_parent:   { Type: FK, DataType: INT, FK-Target: dim.Lager, Source: [ils.codesystem.LagerHierarchy.parent_code] }

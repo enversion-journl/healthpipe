@@ -1,0 +1,45 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fhir
+  TableName: fhir.Condition
+  Domain: [FHIR]
+  Description: "FHIR Condition ressource — diagnoser fra IFDB.DIAGNOSE og IFDB.PAS_DIAGNOSE. Én række pr. diagnose; kun den primære diagnosekode projiceres (valgt via code.coding.where(userSelected = true)). SKS-tillaegskoder (bl.a. ATC-medicinkoder) projiceres IKKE — de bliver på Aidbox-resourcet til en fremtidig AllergyIntolerance-model."
+  Grain: "Én række pr. tilstand (diagnose) — PK: condition_id. code/code_system/code_display bærer den primære diagnose-coding (userSelected = true)."
+  FhirResource: Condition
+
+  SourceSystems:
+    - ifdb_diagnose: [IFDB.DIAGNOSE]
+    - ifdb_pas_diagnose: [IFDB.PAS_DIAGNOSE]
+    - ifdb_pas_diagnose_encounter_ref: [IFDB.PAS_DIAGNOSE_ENCOUNTER_REF]
+    - ifdb_ris_ydelse: [IFDB.RIS_YDELSE]
+
+  Columns:
+    condition_id:        { Type: PK, DataType: NVARCHAR(255), FhirPath: "id", Source: [ifdb_diagnose.IFDB.DIAGNOSE.OBJEKT_ID, ifdb_pas_diagnose.IFDB.PAS_DIAGNOSE.OBJEKT_ID, ifdb_ris_ydelse.IFDB.RIS_YDELSE.OBJEKT_ID], Description: "FHIR resource id (Aidbox UUID) — resolver-/servertildelt ved posting ud fra OBJEKT_ID." }
+    code:                { DataType: NVARCHAR(255), FhirPath: "code.coding.where(userSelected = true).code.first()", Source: [ifdb_diagnose.IFDB.DIAGNOSE.DIAGNOSE_KODE, ifdb_pas_diagnose.IFDB.PAS_DIAGNOSE.DIAGNOSE_KODE, ifdb_ris_ydelse.IFDB.RIS_YDELSE.XML] }
+    code_system:         { DataType: NVARCHAR(500), FhirPath: "code.coding.where(userSelected = true).system.first()" }
+    code_display:        { DataType: NVARCHAR(500), FhirPath: "code.coding.where(userSelected = true).display.first()", Source: [ifdb_diagnose.IFDB.DIAGNOSE.DIAGNOSE_KODETEKST, ifdb_pas_diagnose.IFDB.PAS_DIAGNOSE.DIAGNOSE_KODETEKST] }
+    category_code:       { DataType: NVARCHAR(100), FhirPath: "category.coding.code.first()" }
+    diagnosetype:        { DataType: NVARCHAR(50), FhirPath: "extension('http://regionsyddanmark.dk/fhir/StructureDefinition/diagnosetype').valueString.first()", Source: [ifdb_pas_diagnose.IFDB.PAS_DIAGNOSE.DIAGNOSETYPE] }
+    patient_id:          { DataType: NVARCHAR(255), FhirPath: "subject.id", FK-Target: fhir.Patient, FK-Key: patient_id, FK-Required: true, Source: [ifdb_diagnose.IFDB.DIAGNOSE.PATIENT_ID, ifdb_pas_diagnose.IFDB.PAS_DIAGNOSE.PATIENT_ID], Description: "FHIR-tildelt Patient-reference" }
+    encounter_id:        { DataType: NVARCHAR(255), FhirPath: "encounter.id", FK-Target: fhir.Encounter, FK-Key: encounter_id, FK-Required: false, Source: [ifdb_pas_diagnose_encounter_ref.IFDB.PAS_DIAGNOSE_ENCOUNTER_REF.ENCOUNTER_ID], Description: "FHIR-tildelt Encounter-reference" }
+    clinical_status:     { DataType: NVARCHAR(50), FhirPath: "clinicalStatus.coding.code" }
+    verification_status: { DataType: NVARCHAR(50), FhirPath: "verificationStatus.coding.code" }
+    recorded_date:       { DataType: NVARCHAR(50), FhirPath: "recordedDate", Source: [ifdb_diagnose.IFDB.DIAGNOSE.BESLUT_TIDSPUNKT] }
+    source_system:       { DataType: NVARCHAR(100), FhirPath: "identifier.system.first()" }
+    source_identifier_value: { DataType: NVARCHAR(255), FhirPath: "identifier.value.first()", Source: [ifdb_diagnose.IFDB.DIAGNOSE.OBJEKT_ID, ifdb_pas_diagnose.IFDB.PAS_DIAGNOSE.OBJEKT_ID] }
+    modtidspunkt:        { DataType: DATETIME2, FhirPath: "extension.where(url='http://regionsyddanmark.dk/fhir/StructureDefinition/modtidspunkt').valueDateTime", Source: [ifdb_diagnose.IFDB.DIAGNOSE.MODTIDSPUNKT, ifdb_pas_diagnose.IFDB.PAS_DIAGNOSE.MODTIDSPUNKT] }
+    dw_is_deleted:       { DataType: INT, FhirPath: "extension.where(url='urn:fhir:isDeleted').valueInteger", Source: [ifdb_diagnose.IFDB.DIAGNOSE.SLETTET, ifdb_pas_diagnose.IFDB.PAS_DIAGNOSE.SLETTET] }
+    last_updated:        { DataType: DATETIME2, FhirPath: "r.ts" }
+    created_at:          { DataType: DATETIME2, FhirPath: "r.cts" }
+
+  # FHIR-resource-felter som bygges/postes til Aidbox men IKKE projiceres ned i
+  # den flade fhir.Condition DWH-tabel (SoF-viewet udelader dem). Bevaret her som
+  # lineage-dokumentation; ignoreres af lineage↔DDL-verifieren og star-schema-generatoren.
+  NonProjectedFhirFields:
+    onset_datetime:      { DataType: NVARCHAR(50), FhirPath: "onsetDateTime", Source: [ifdb_diagnose.IFDB.DIAGNOSE.OPRET_TIDSPUNKT] }
+    abatement_datetime:  { DataType: NVARCHAR(50), FhirPath: "abatementDateTime", Source: [ifdb_diagnose.IFDB.DIAGNOSE.AFSLUT_TIDSPUNKT] }

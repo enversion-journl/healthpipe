@@ -1,0 +1,27 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fhir
+  TableName: fhir.Procedure_tillaegskode
+  Domain: [FHIR]
+  Description: "Supplerende procedurekoder på Procedure — child-tabel i eget grain."
+  Grain: "Én række pr. tillægskode pr. Procedure — PK: procedure_id + tillaegskode_kode + tillaegskode_system"
+  FhirResource: Procedure
+
+  SourceSystems:
+    - ifdb_administrative_procedure_suppl: [IFDB.ADMINISTRATIVE_PROCEDURE_SUPPL_CODES]
+    - ifdb_ris_ydelse: [IFDB.RIS_YDELSE]
+
+  Columns:
+    procedure_id:            { Type: PK, DataType: NVARCHAR(255), FhirPath: "id", FK-Target: fhir.Procedure, FK-Key: procedure_id, FK-Required: true }
+    source_identifier_value: { DataType: NVARCHAR(255), FhirPath: "identifier.value.first()" }
+    tillaegskode_kode:       { Type: PK, DataType: NVARCHAR(255), FhirPath: "code", Source: [ifdb_administrative_procedure_suppl.IFDB.ADMINISTRATIVE_PROCEDURE_SUPPL_CODES.SUPPL_CODE, ifdb_ris_ydelse.IFDB.RIS_YDELSE.XML] }
+    tillaegskode_system:     { Type: PK, DataType: NVARCHAR(500), FhirPath: "system" }
+    tillaegskode_display:    { DataType: NVARCHAR(500), FhirPath: "display" }
+    dw_is_deleted:           { DataType: INT, Description: "Slettet-flag (0 = live, 1 = slettet). Warehouse-styret: foraeldre-resourcen baerer urn:fhir:isDeleted, men dette grain projicerer ikke feltet — det saettes kun af dqa_fhir_server_cleanup naar foraeldre-resourcen er hard-slettet i Aidbox, og nulstilles ved MERGE-match. NOT NULL DEFAULT 0. BEMAERK: '= 0' betyder 'ikke markeret af cleanup', IKKE 'findes stadig under foraeldren' — child-grain reconcile er ikke slaaet til her." }
+    last_updated:            { DataType: DATETIME2, FhirPath: "r.ts" }
+    created_at:              { DataType: DATETIME2, FhirPath: "r.cts" }

@@ -1,0 +1,27 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fhir
+  TableName: fhir.Condition_tillaegskode
+  Domain: [FHIR]
+  Description: "SKS tillægskoder på Condition — child-tabel i eget grain (non-userSelected codings)."
+  Grain: "Én række pr. tillægskode pr. Condition — PK: condition_id + tillaegskode_kode + tillaegskode_system"
+  FhirResource: Condition
+
+  SourceSystems:
+    - ifdb_pas_diagnose_tillaegskode: [IFDB.PAS_DIAGNOSE_TILLAEGSKODE]
+    - ifdb_diagnose_tillaegskode: [IFDB.DIAGNOSE_TILLAEGSKODE]
+
+  Columns:
+    condition_id:            { Type: PK, DataType: NVARCHAR(255), FhirPath: "id", FK-Target: fhir.Condition, FK-Key: condition_id, FK-Required: true }
+    source_identifier_value: { DataType: NVARCHAR(255), FhirPath: "identifier.value.first()", Source: [ifdb_pas_diagnose_tillaegskode.IFDB.PAS_DIAGNOSE_TILLAEGSKODE.PAS_DIAGNOSE_ID, ifdb_diagnose_tillaegskode.IFDB.DIAGNOSE_TILLAEGSKODE.DIAGNOSE_ID] }
+    tillaegskode_kode:       { Type: PK, DataType: NVARCHAR(255), FhirPath: "code", Source: [ifdb_pas_diagnose_tillaegskode.IFDB.PAS_DIAGNOSE_TILLAEGSKODE.TILLAEGSKODE_KODE, ifdb_diagnose_tillaegskode.IFDB.DIAGNOSE_TILLAEGSKODE.TILLAEGSKODE_KODE] }
+    tillaegskode_system:     { Type: PK, DataType: NVARCHAR(500), FhirPath: "system" }
+    tillaegskode_display:    { DataType: NVARCHAR(500), FhirPath: "display", Source: [ifdb_pas_diagnose_tillaegskode.IFDB.PAS_DIAGNOSE_TILLAEGSKODE.TILLAEGSKODE_KODETEKST, ifdb_diagnose_tillaegskode.IFDB.DIAGNOSE_TILLAEGSKODE.TILLAEGSKODE_KODETEKST] }
+    dw_is_deleted:           { DataType: INT, Description: "Slettet-flag (0 = live, 1 = slettet). Warehouse-styret: foraeldre-resourcen baerer urn:fhir:isDeleted, men dette grain projicerer ikke feltet — det saettes kun af dqa_fhir_server_cleanup naar foraeldre-resourcen er hard-slettet i Aidbox, og nulstilles ved MERGE-match. NOT NULL DEFAULT 0. BEMAERK: '= 0' betyder 'ikke markeret af cleanup', IKKE 'findes stadig under foraeldren' — child-grain reconcile er ikke slaaet til her." }
+    last_updated:            { DataType: DATETIME2, FhirPath: "r.ts" }
+    created_at:              { DataType: DATETIME2, FhirPath: "r.cts" }

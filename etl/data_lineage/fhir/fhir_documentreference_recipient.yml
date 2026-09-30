@@ -1,0 +1,35 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fhir
+  TableName: fhir.DocumentReference_Recipient
+  Domain: [FHIR]
+  Description: "FHIR DocumentReference modtagere — fladet fra recipients-extensionen (IFDB.EPIKRISE_MODTAGER og IFDB.CARE_DISCHARGE_REPORT_RECEIVER)"
+  Grain: "Én række pr. modtager pr. dokument (forEach over recipients-extensionen)"
+  FhirResource: DocumentReference
+
+  Extensions:
+    document_reference_recipients: urn:source:ifdb:document_reference_recipients
+
+  SourceSystems:
+    - ifdb_epikrise_modtager: [IFDB.EPIKRISE_MODTAGER]
+    - ifdb_care_discharge_report_receiver: [IFDB.CARE_DISCHARGE_REPORT_RECEIVER]
+
+  Columns:
+    documentreference_id: { Type: PK, DataType: NVARCHAR(255), FhirPath: "id" }
+    recipient_key:        { Type: PK, DataType: NVARCHAR(255), FhirPath: "extension.where(url='urn:source:ifdb:document_reference_recipients').extension.extension.where(url='recipientKey').valueIdentifier.value", Source: [ifdb_epikrise_modtager.IFDB.EPIKRISE_MODTAGER.OBJEKT_ID, ifdb_care_discharge_report_receiver.IFDB.CARE_DISCHARGE_REPORT_RECEIVER.RECEIVER_AFDELING_KODE, ifdb_care_discharge_report_receiver.IFDB.CARE_DISCHARGE_REPORT_RECEIVER.CCRECEIVER] }
+    recipient_type:       { DataType: NVARCHAR(100), FhirPath: "extension.where(url='urn:source:ifdb:document_reference_recipients').extension.extension.where(url='type').valueString", Source: [ifdb_epikrise_modtager.IFDB.EPIKRISE_MODTAGER.MODTAGERTYPE] }
+    organization_ref:     { DataType: NVARCHAR(512), FhirPath: "extension.where(url='urn:source:ifdb:document_reference_recipients').extension.extension.where(url='organization').valueReference.identifier.value", Source: [ifdb_care_discharge_report_receiver.IFDB.CARE_DISCHARGE_REPORT_RECEIVER.RECEIVER_AFDELING_SORKODE] }
+    recipient_name:       { DataType: NVARCHAR(512), FhirPath: "extension.where(url='urn:source:ifdb:document_reference_recipients').extension.extension.where(url='name').valueString", Source: [ifdb_epikrise_modtager.IFDB.EPIKRISE_MODTAGER.NAVN] }
+    recipient_address:    { DataType: NVARCHAR(512), FhirPath: "extension.where(url='urn:source:ifdb:document_reference_recipients').extension.extension.where(url='address').valueString", Source: [ifdb_epikrise_modtager.IFDB.EPIKRISE_MODTAGER.ADRESSE] }
+    cc_flag:              { DataType: NVARCHAR(10), FhirPath: "extension.where(url='urn:source:ifdb:document_reference_recipients').extension.extension.where(url='ccFlag').valueBoolean", Source: [ifdb_care_discharge_report_receiver.IFDB.CARE_DISCHARGE_REPORT_RECEIVER.CCRECEIVER] }
+    status_code:          { DataType: NVARCHAR(512), FhirPath: "extension.where(url='urn:source:ifdb:document_reference_recipients').extension.extension.where(url='statusCode').valueString", Source: [ifdb_care_discharge_report_receiver.IFDB.CARE_DISCHARGE_REPORT_RECEIVER.STATE_KODE] }
+    status_text:          { DataType: NVARCHAR(255), FhirPath: "extension.where(url='urn:source:ifdb:document_reference_recipients').extension.extension.where(url='statusText').valueString", Source: [ifdb_care_discharge_report_receiver.IFDB.CARE_DISCHARGE_REPORT_RECEIVER.STATE_KODETEXT] }
+    transmission_time:    { DataType: NVARCHAR(50), FhirPath: "extension.where(url='urn:source:ifdb:document_reference_recipients').extension.extension.where(url='timestamp').valueDateTime", Source: [ifdb_care_discharge_report_receiver.IFDB.CARE_DISCHARGE_REPORT_RECEIVER.TRANSMISSION_TIME] }
+    dw_is_deleted:        { DataType: INT, Description: "Slettet-flag (0 = live, 1 = slettet). Warehouse-styret: foraeldre-resourcen baerer urn:fhir:isDeleted, men dette grain projicerer ikke feltet — det saettes kun af dqa_fhir_server_cleanup naar foraeldre-resourcen er hard-slettet i Aidbox, og nulstilles ved MERGE-match. NOT NULL DEFAULT 0. BEMAERK: '= 0' betyder 'ikke markeret af cleanup', IKKE 'findes stadig under foraeldren' — child-grain reconcile er ikke slaaet til her." }
+    last_updated:         { DataType: DATETIME2, FhirPath: "r.ts" }
+    created_at:           { DataType: DATETIME2, FhirPath: "r.cts" }

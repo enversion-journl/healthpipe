@@ -1,0 +1,48 @@
+{
+  "name": "Healthpipe Dev",
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "devcontainer",
+  "workspaceFolder": "/workspaces/healthpipe",
+  "remoteUser": "vscode",
+  "features": {
+    "ghcr.io/devcontainers/features/git:1": {}
+  },
+  "extensions": [
+    "ms-python.debugpy",
+    "ms-python.python",
+    "ms-azuretools.vscode-docker",
+    "cweijan.vscode-mysql-client2",
+    "mtxr.sqltools",
+    "mtxr.sqltools-driver-mssql",
+    "mtxr.sqltools-driver-pg",
+    "bierner.markdown-mermaid",
+    "charliermarsh.ruff"
+  ],
+  "mounts": [
+    // Mount the host ssh folder ~/.ssh to /home/vscode/.ssh
+    "source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached"
+  ],
+  "forwardPorts": [
+    3000,
+    8888
+  ],
+  // Auto-install pre-commit + gitleaks (the secret/PII commit guard) on container create,
+  // so the hook is active for everyone using the devcontainer (not opt-in).
+  "postCreateCommand": "mkdir -p /workspaces/healthpipe/data && python -m pip install -e .[dev] --no-cache-dir && python .devcontainer/startup_scripts/create_databases.py && bash .devcontainer/startup_scripts/setup-precommit.sh",
+  "postStartCommand": "bash .devcontainer/startup_scripts/setup-ssh.sh",
+  "remoteEnv": {
+    "MSSQL_SA_PASSWORD": "${containerEnv:MSSQL_SA_PASSWORD}",
+    "FHIR_SERVER_URL": "http://fhir-server:8888",
+    "FHIR_CLIENT_USERNAME": "root",
+    "FHIR_CLIENT_PASSWORD": "secret",
+    "DAGSTER_HOME": "/workspaces/healthpipe/.devcontainer/dagster_home",
+    "DAGSTER_POSTGRES_USER": "postgres_user",
+    "DAGSTER_POSTGRES_PASSWORD": "postgres_password",
+    "DAGSTER_POSTGRES_DB": "postgres_db",
+    "DAGSTER_POSTGRES_HOST": "postgres",
+    // dagster_home/dagster.yaml interpolates all five of these with `env:`. An
+    // undeclared one fails every dagster CLI call with a DagsterInvalidConfigError
+    // before any code is loaded, so the port cannot be left to the root .env.
+    "DAGSTER_POSTGRES_PORT": "5432"
+  }
+}

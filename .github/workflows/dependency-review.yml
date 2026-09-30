@@ -1,0 +1,38 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+# Dependency review for the public HealthPipe repo.
+#
+# Runs on pull requests: inspects the dependency-manifest changes (pyproject.toml) and
+# BLOCKS the PR if it introduces a dependency with a known high/critical vulnerability.
+# PR-time complement to the report-only `pip-audit` job, which scans what is already
+# merged. Requires GitHub's Dependency Graph (on by default for public repos).
+#
+# All `uses:` are SHA-pinned (org policy). Dormant while the repo lives on Azure DevOps;
+# activates on the GitHub cut-over (HealthPipe).
+name: dependency-review
+
+on:
+  pull_request:
+    branches: [main, development]
+
+permissions:
+  contents: read
+  pull-requests: write # for comment-summary-in-pr
+
+jobs:
+  dependency-review:
+    name: dependency review
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: on-failure

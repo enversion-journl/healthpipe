@@ -1,0 +1,59 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fact
+  TableName: fct.Postering
+  Domain: [ERP]
+  Description: "Finanspostering fact tabel — én række pr. postering fra SydAX"
+  Grain: "Én række pr. finanspostering/bogføringstransaktion fra SydAX"
+
+  SourceSystems:
+    - sydax: [Kreditor.Kreditortransaktion, Kreditor.Kreditor, Finans.Finanspostering, Finans.OmkostningsstedHierarki]
+
+  Columns:
+    ref_ledgertrans_id:    { DataType: BIGINT, Source: [sydax.Finans.Finanspostering.ref_LedgertransId], Description: "SydAX forretningsnøgle / clustered PK i DDL / MERGE-nøgle." }
+
+    dw_ek_Postering:     { Type: FK, DataType: INT, FK-Target: dim.Postering, Source: [sydax.Finans.Finanspostering.Kildesystem, sydax.Finans.Finanspostering.ref_LedgertransId], Description: "Surrogatnøgle fra map.Postering; PK i fct.Postering og FK til dim.Postering." }
+    clean_code_Postering: { DataType: NVARCHAR(100), Source: [sydax.Finans.Finanspostering.Kildesystem, sydax.Finans.Finanspostering.ref_LedgertransId], Expr: "UPPER(TRIM(Kildesystem)) + '_' + ref_ledgertrans_id (fx 'SYDAX_123')" }
+
+    dw_ek_Kreditor:      { Type: FK, DataType: INT, Source: [sydax.Kreditor.Kreditor.JuridiskEnhed] }
+    dw_ek_Kontoplan:     { Type: FK, DataType: INT, Source: [sydax.Finans.Finanspostering.FinanskontoId] }
+    dw_ek_Faktura:       { Type: FK, DataType: INT, FK-Target: dim.Faktura, Expr: "hardcoded -1 (ikke opløst)" }
+    dw_ek_Okosted:       { Type: FK, DataType: INT, FK-Target: dim.Okosted, Source: [sydax.Finans.OmkostningsstedHierarki.nummer1..nummer20], Expr: "Dybeste ikke-NULL niveau (nummer20..nummer1) → map.Okosted via clean_code_Okosted" }
+    dw_ek_Finanskladdelinje: { Type: FK, DataType: INT, Source: [sydax.Finans.Finanspostering.ref_LedgertransId] }
+
+    dw_ek_Dato_godkendelse:    { Type: FK, DataType: INT, Source: [sydax.Kreditor.Kreditortransaktion.GodkendtDato] }
+    dato_tid_godkendelse:      { DataType: DATETIME2, Source: [sydax.Kreditor.Kreditortransaktion.GodkendtDato] }
+    dw_ek_Dato_lukket:         { Type: FK, DataType: INT, Source: [sydax.Kreditor.Kreditortransaktion.LukketDato] }
+    dato_tid_lukket:            { DataType: DATETIME2, Source: [sydax.Kreditor.Kreditortransaktion.LukketDato] }
+    dw_ek_Dato_trans_oprettet:  { Type: FK, DataType: INT, Source: [sydax.Kreditor.Kreditortransaktion.Oprettelsestidspunkt] }
+    dato_tid_trans_oprettet:    { DataType: DATETIME2, Source: [sydax.Kreditor.Kreditortransaktion.Oprettelsestidspunkt] }
+    dw_ek_Dato_forfald:        { Type: FK, DataType: INT, Source: [sydax.Kreditor.Kreditortransaktion.Forfaldsdato] }
+    dato_tid_forfald:           { DataType: DATETIME2, Source: [sydax.Kreditor.Kreditortransaktion.Forfaldsdato] }
+    dw_ek_Dato_journal_faktura: { Type: FK, DataType: INT, Source: [sydax.Kreditor.Kreditortransaktion.Fakturadato] }
+    dato_tid_journal_faktura:   { DataType: DATETIME2, Source: [sydax.Kreditor.Kreditortransaktion.Fakturadato] }
+    dw_ek_Dato_sidst_udlignet:  { Type: FK, DataType: INT, Source: [sydax.Kreditor.Kreditortransaktion.SidstUdlignetDato] }
+    dato_tid_sidst_udlignet:    { DataType: DATETIME2, Source: [sydax.Kreditor.Kreditortransaktion.SidstUdlignetDato] }
+    dw_ek_Dato_transaktion:    { Type: FK, DataType: INT, Source: [sydax.Kreditor.Kreditortransaktion.Transaktionsdato] }
+    dato_tid_transaktion:       { DataType: DATETIME2, Source: [sydax.Kreditor.Kreditortransaktion.Transaktionsdato] }
+    dw_ek_Dato_bogfoering:     { Type: FK, DataType: INT, Source: [sydax.Finans.Finanspostering.Bogfoeringsdato] }
+    dato_tid_bogfoering:        { DataType: DATETIME2, Source: [sydax.Finans.Finanspostering.Bogfoeringsdato] }
+    dw_ek_Dato_post_oprettet:   { Type: FK, DataType: INT, Source: [sydax.Finans.Finanspostering.Oprettelsestidspunkt] }
+    dato_tid_post_oprettet:     { DataType: DATETIME2, Source: [sydax.Finans.Finanspostering.Oprettelsestidspunkt] }
+
+    dw_haendelsestidspunkt:       { DataType: DATETIME2, Source: [sydax.Finans.Finanspostering.Oprettelsestidspunkt] }
+
+    transaktionsbeloeb_valuta:     { Type: Measure, DataType: DECIMAL(30,12), Source: [sydax.Kreditor.Kreditortransaktion.TransaktionsbeloebValuta] }
+    transaktionsbeloeb:           { Type: Measure, DataType: DECIMAL(30,12), Source: [sydax.Kreditor.Kreditortransaktion.Transaktionsbeloeb] }
+    udlignet_beloeb_valuta:         { Type: Measure, DataType: DECIMAL(30,12), Source: [sydax.Kreditor.Kreditortransaktion.UdlignetBeloebValuta] }
+    udlignet_beloeb:               { Type: Measure, DataType: DECIMAL(30,12), Source: [sydax.Kreditor.Kreditortransaktion.UdlignetBeloeb] }
+    posteringsbeloeb:             { Type: Measure, DataType: DECIMAL(30,12), Source: [sydax.Finans.Finanspostering.Posteringsbeloeb] }
+
+    faktura_nr:                    { DataType: NVARCHAR(100), Source: [sydax.Kreditor.Kreditortransaktion.Fakturanummer] }
+
+  Notes:
+    - "SOR organisation for reporting: opløses via conceptmap.OkostedToSOR (vw_okosted_to_sor: dw_ek_Okosted → DW_EK_Organisation_Target). fct.Postering has no dw_ek_Organisation column."

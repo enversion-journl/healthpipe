@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: mailto:support@journl.dk
+    about: Please report security issues privately by email — do not open a public issue. See SECURITY.md for what to include.

@@ -25,11 +25,11 @@ FROM ${BASE_IMAGE}
 ARG BUILD_TIMESTAMP=unknown
 RUN echo "Build timestamp: ${BUILD_TIMESTAMP}"
 
-# Copy user code (dagster_etl directory with all packages)
-COPY dagster_etl/ /opt/dagster/app/dagster_etl/
+# Copy user code (etl directory with all packages)
+COPY etl/ /opt/dagster/app/etl/
 
-# Set PYTHONPATH to include the dagster_etl directory for proper module imports
-ENV PYTHONPATH=/opt/dagster/app/dagster_etl
+# Set PYTHONPATH to include the etl directory for proper module imports
+ENV PYTHONPATH=/opt/dagster/app/etl
 
 # Expose gRPC port
 EXPOSE 4000
@@ -39,4 +39,4 @@ EXPOSE 4000
 # -p: port to listen on
 # -m: module name containing Definitions
 # -d: working directory
-CMD ["dagster", "api", "grpc", "-h", "0.0.0.0", "-p", "4000", "-m", "definitions", "-d", "/opt/dagster/app/dagster_etl"]
+CMD ["dagster", "api", "grpc", "-h", "0.0.0.0", "-p", "4000", "-m", "definitions", "-d", "/opt/dagster/app/etl"]

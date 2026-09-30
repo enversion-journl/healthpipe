@@ -1,0 +1,26 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: dimension
+  TableName: dim.Okosted
+  Domain: [Shared]
+  Description: "Omkostningssted (cost centre) hierarki fra SydAX — selvrefererende forælder-barn"
+  Grain: "Én række pr. omkostningssted"
+
+  SourceSystems:
+    - sydax: [SydAX_OmkostningsstedHierarki]
+
+  Columns:
+    dw_ek_Okosted:         { Type: PK, DataType: INT }
+    code_okosted:            { DataType: VARCHAR(50), Source: [sydax.SydAX_OmkostningsstedHierarki.Omkostningsstednummer] }
+    name:                   { DataType: NVARCHAR(500), Source: [sydax.SydAX_OmkostningsstedHierarki.Omkostningsstedtekst] }
+    level:                  { DataType: INT, Description: "Hierarkidybde (root=1, op til 20 niveauer jf. nummer1..nummer20 i kildehierarkiet)" }
+    dw_ek_Okosted_parent:  { Type: FK, DataType: INT, FK-Target: dim.Okosted, Source: [sydax.SydAX_OmkostningsstedHierarki.ParentCode] }
+    parent_code:             { DataType: VARCHAR(50), Description: "Forældrekode i Okosted-hierarki" }
+    active:                 { DataType: BIT, Source: [sydax.SydAX_OmkostningsstedHierarki.Aktiv] }
+    dw_timestamp_insert:    { Type: Audit, DataType: DATETIME2(0), Expr: "SYSDATETIME() ved første INSERT" }
+    dw_timestamp_update:    { Type: Audit, DataType: DATETIME2(0), Expr: "SYSDATETIME() ved UPDATE (NULL indtil første opdatering)" }

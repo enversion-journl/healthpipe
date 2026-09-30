@@ -1,0 +1,22 @@
+{
+  "resourceType": "ViewDefinition",
+  "name": "condition_tillaegskode_view",
+  "resource": "Condition",
+  "status": "active",
+  "select": [
+    {
+      "column": [
+        {"name": "condition_id", "path": "id"},
+        {"name": "source_identifier_value", "path": "identifier.value.first()"}
+      ]
+    },
+    {
+      "forEach": "code.coding.where(userSelected.empty() or userSelected = false)",
+      "column": [
+        {"name": "tillaegskode_kode", "path": "code"},
+        {"name": "tillaegskode_system", "path": "system"},
+        {"name": "tillaegskode_display", "path": "display"}
+      ]
+    }
+  ]
+}
