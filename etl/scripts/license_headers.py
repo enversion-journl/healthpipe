@@ -43,7 +43,7 @@ INCLUDE_ROOTS = [
     # covers every commentable file that ships to the public repo.
     ".gitleaks.toml",
     ".dockerignore",
-    ".github/workflows",
+    ".github",
     "infrastructure/containers/dockerfiles/code-server.Dockerfile",
     "infrastructure/containers/dockerfiles/code-server-base.Dockerfile",
     "infrastructure/devops/scripts/build-push.sh",
@@ -220,6 +220,7 @@ def has_header(text: str, style: CommentStyle, max_lines: int = 15) -> bool:
             if stripped.startswith(style.line_prefix) and "SPDX-License-Identifier:" in stripped:
                 return True
         return False
+    assert style.block is not None
     open_token, _, close_token = style.block
     in_block = False
     for line in lines:

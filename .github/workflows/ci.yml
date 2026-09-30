@@ -131,6 +131,8 @@ jobs:
       SYDAX_PROD_MSSQL_DATABASE: placeholder
       SYDAX_PROD_MSSQL_USERNAME: placeholder
       SYDAX_PROD_MSSQL_PASSWORD: placeholder
+      SYDAX_PROD_MSSQL_SCHEMA_FINANS: placeholder
+      SYDAX_PROD_MSSQL_SCHEMA_KREDITOR: placeholder
       ILS_PROD_MSSQL_SERVER: placeholder
       ILS_PROD_MSSQL_PORT: "1433"
       ILS_PROD_MSSQL_DATABASE: placeholder
