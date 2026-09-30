@@ -47,6 +47,8 @@ INCLUDE_ROOTS = [
     "infrastructure/containers/dockerfiles/code-server.Dockerfile",
     "infrastructure/containers/dockerfiles/code-server-base.Dockerfile",
     "infrastructure/devops/scripts/build-push.sh",
+    "infrastructure/devops/scripts/check_hook_entries.py",
+    "infrastructure/devops/scripts/check_ruff_pin.py",
 ]
 
 # Exclude globs are fnmatch patterns over repo-root-relative POSIX paths.

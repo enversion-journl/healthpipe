@@ -435,9 +435,7 @@ def test_strip_cli_roundtrip(tmp_path, monkeypatch):
     assert lh.main(["--check"]) == 0
     assert lh.main(["--strip"]) == 0
     assert lh.main(["--check"]) == 1
-    assert "SPDX-License-Identifier" not in (tmp_path / "etl/a.py").read_text(
-        encoding="utf-8"
-    )
+    assert "SPDX-License-Identifier" not in (tmp_path / "etl/a.py").read_text(encoding="utf-8")
 
 
 def test_strip_cli_prints_summary(tmp_path, monkeypatch, capsys):
