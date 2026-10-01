@@ -63,6 +63,7 @@ EXCLUDE_GLOBS = [
     "CONTRIBUTING.md",
     "CODE_OF_CONDUCT.md",
     "SECURITY.md",
+    "CHANGELOG.md",
     "*.lock",
     "package-lock.json",
     "uv.lock",
