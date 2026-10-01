@@ -50,7 +50,7 @@ def normalize_frames(stack: list[str], max_frames: int = 5) -> list[str]:
 def failure_fingerprint(step_key: str, error_class: str, stack: list[str]) -> str:
     """Stable 12-char id for a failure signature (step, exception class, code path)."""
     raw = "|".join([step_key, error_class, *normalize_frames(stack)])
-    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:12]
+    return hashlib.sha1(raw.encode("utf-8"), usedforsecurity=False).hexdigest()[:12]
 
 
 def truncate_trace(trace: str, limit: int = MAX_TRACE_CHARS) -> str:

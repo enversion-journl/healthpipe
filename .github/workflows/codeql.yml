@@ -9,13 +9,12 @@
 # Completes the security triad: gitleaks (secret-scan.yml) covers secrets/PII, pip-audit
 # (ci.yml) covers known-CVE dependencies, and CodeQL covers CODE-level flaws (injection,
 # unsafe deserialization, path traversal, …). Findings land in Security -> Code scanning;
-# make them blocking by requiring the check via branch protection (story 28519).
+# make them blocking by requiring the check via branch protection.
 #
 # Python only — the codebase is pure Python (requires-python == 3.12.*) with no compiled
 # build step, so CodeQL's `build-mode: none` applies.
 #
-# All `uses:` are SHA-pinned (org policy). Dormant while the repo lives on Azure DevOps;
-# activates on the GitHub cut-over (HealthPipe).
+# All `uses:` are SHA-pinned (org policy).
 name: codeql
 
 on:

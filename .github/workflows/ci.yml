@@ -4,36 +4,32 @@
 # This file is part of Healthpipe. See the LICENSE file in the project
 # root for the full AGPL-3.0 license text.
 
-# Continuous Integration for the public HealthPipe repo (US 28518).
+# Continuous Integration for the public HealthPipe repo.
 #
 # Jobs:
-#   - lint  (REQUIRED): runs the pre-commit config (Black, Ruff, isort, flake8, file
-#           hooks) on the files CHANGED in the PR / push — not the whole tree. Single
+#   - lint  (REQUIRED): runs the pre-commit config (Black, Ruff, Bandit, file hooks)
+#           on the files CHANGED in the PR / push — not the whole tree. Single
 #           source of truth = .pre-commit-config.yaml. Changed-files scoping keeps the
 #           gate green while still holding all new/modified code to the standard; the
 #           repo-wide pre-existing formatting debt is intentionally NOT gated here.
 #   - test  (REQUIRED): runs the FULL unit suite (etl/tests/unit/) on a native
 #           runner, now with coverage (term-missing + coverage.xml + junit). Integration
 #           / real_resources tests need a real database and are intentionally NOT run.
-#   - defs-validate / typecheck (mypy) / audit (pip-audit)  (REPORT-ONLY for now,
-#           task 28647): each runs with `continue-on-error: true`, so it surfaces its
-#           findings (broken code location, type errors, dependency CVEs) as annotations
-#           WITHOUT blocking merges while the tree/deps are brought up to standard.
-#           Promote each to a REQUIRED status check once it is green (branch protection,
-#           story 28519). pip-audit findings are triaged with `--ignore-vuln <id>`
-#           (rationale inline) or by bumping the pin.
+#   - defs-validate (REQUIRED): loads the full Dagster code location.
+#   - typecheck (mypy) / audit (pip-audit)  (REPORT-ONLY for now): each runs with
+#           `continue-on-error: true`, so it surfaces its findings (type errors,
+#           dependency CVEs) as annotations WITHOUT blocking merges while the tree/deps
+#           are brought up to standard. Promote each to a REQUIRED status check once it
+#           is green (branch protection). pip-audit findings are triaged with
+#           `--ignore-vuln <id>` (rationale inline) or by bumping the pin.
 #
 # All `uses:` are pinned to full-length commit SHAs — the org enforces "Require actions
 # to be pinned to a full-length commit SHA"; tag refs (`@v4`) cause a startup failure.
 # The trailing `# vN` comment records the human-readable version.
 #
 # No GitHub Secrets are required. The unit tests + the definitions load run with
-# placeholder DB env vars and mocked resources, exactly as the former Azure DevOps test
-# pipeline did. The variable groups / service connections that secrets would "replace"
-# were for deployment (ACR build/push + Nomad), out of scope here (infrastructure repo).
-#
-# NOTE: GitHub Actions only runs on GitHub. This file is dormant while the repo lives on
-# Azure DevOps and activates automatically once on GitHub (HealthPipe).
+# placeholder DB env vars (workflow-level `env` below) and mocked resources. Deployment
+# (image build/push + rollout) is out of scope here.
 
 name: ci
 
@@ -49,6 +45,38 @@ concurrency:
 
 permissions:
   contents: read
+
+# Placeholder connection settings — unit tests and the definitions load use mocked
+# resources and never open a real connection, so no GitHub Secrets are needed.
+env:
+  MYSUPPLY_PROD_MSSQL_SERVER: placeholder
+  MYSUPPLY_PROD_MSSQL_PORT: "1433"
+  MYSUPPLY_PROD_MSSQL_DATABASE: placeholder
+  MYSUPPLY_PROD_MSSQL_USERNAME: placeholder
+  MYSUPPLY_PROD_MSSQL_PASSWORD: placeholder
+  SYDAX_PROD_MSSQL_SERVER: placeholder
+  SYDAX_PROD_MSSQL_PORT: "1433"
+  SYDAX_PROD_MSSQL_DATABASE: placeholder
+  SYDAX_PROD_MSSQL_USERNAME: placeholder
+  SYDAX_PROD_MSSQL_PASSWORD: placeholder
+  SYDAX_PROD_MSSQL_SCHEMA_FINANS: placeholder
+  SYDAX_PROD_MSSQL_SCHEMA_KREDITOR: placeholder
+  ILS_PROD_MSSQL_SERVER: placeholder
+  ILS_PROD_MSSQL_PORT: "1433"
+  ILS_PROD_MSSQL_DATABASE: placeholder
+  ILS_PROD_MSSQL_USERNAME: placeholder
+  ILS_PROD_MSSQL_PASSWORD: placeholder
+  COSMIC_PROD_MSSQL_SERVER: placeholder
+  COSMIC_PROD_MSSQL_PORT: "1433"
+  COSMIC_PROD_MSSQL_DATABASE: placeholder
+  COSMIC_PROD_MSSQL_USERNAME: placeholder
+  COSMIC_PROD_MSSQL_PASSWORD: placeholder
+  IFDB_PROD_ORACLE_SERVER: placeholder
+  IFDB_PROD_ORACLE_PORT: "1521"
+  IFDB_PROD_ORACLE_DATABASE: placeholder
+  IFDB_PROD_ORACLE_USERNAME: placeholder
+  IFDB_PROD_ORACLE_PASSWORD: placeholder
+  IFDB_PROD_ORACLE_SCHEMA: placeholder
 
 jobs:
   lint:
@@ -118,38 +146,6 @@ jobs:
   test:
     name: test (pytest unit)
     runs-on: ubuntu-latest
-    env:
-      # Placeholder connection settings — unit tests use mocked resources and never
-      # open a real connection. Mirrors the former Azure DevOps test pipeline so the
-      # workflow needs no GitHub Secrets.
-      MYSUPPLY_PROD_MSSQL_SERVER: placeholder
-      MYSUPPLY_PROD_MSSQL_PORT: "1433"
-      MYSUPPLY_PROD_MSSQL_DATABASE: placeholder
-      MYSUPPLY_PROD_MSSQL_USERNAME: placeholder
-      MYSUPPLY_PROD_MSSQL_PASSWORD: placeholder
-      SYDAX_PROD_MSSQL_SERVER: placeholder
-      SYDAX_PROD_MSSQL_PORT: "1433"
-      SYDAX_PROD_MSSQL_DATABASE: placeholder
-      SYDAX_PROD_MSSQL_USERNAME: placeholder
-      SYDAX_PROD_MSSQL_PASSWORD: placeholder
-      SYDAX_PROD_MSSQL_SCHEMA_FINANS: placeholder
-      SYDAX_PROD_MSSQL_SCHEMA_KREDITOR: placeholder
-      ILS_PROD_MSSQL_SERVER: placeholder
-      ILS_PROD_MSSQL_PORT: "1433"
-      ILS_PROD_MSSQL_DATABASE: placeholder
-      ILS_PROD_MSSQL_USERNAME: placeholder
-      ILS_PROD_MSSQL_PASSWORD: placeholder
-      COSMIC_PROD_MSSQL_SERVER: placeholder
-      COSMIC_PROD_MSSQL_PORT: "1433"
-      COSMIC_PROD_MSSQL_DATABASE: placeholder
-      COSMIC_PROD_MSSQL_USERNAME: placeholder
-      COSMIC_PROD_MSSQL_PASSWORD: placeholder
-      IFDB_PROD_ORACLE_SERVER: placeholder
-      IFDB_PROD_ORACLE_PORT: "1521"
-      IFDB_PROD_ORACLE_DATABASE: placeholder
-      IFDB_PROD_ORACLE_USERNAME: placeholder
-      IFDB_PROD_ORACLE_PASSWORD: placeholder
-      IFDB_PROD_ORACLE_SCHEMA: placeholder
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -186,43 +182,11 @@ jobs:
   defs-validate:
     name: dagster definitions validate
     runs-on: ubuntu-latest
-    # REPORT-ONLY on introduction (task 28647): loading the full code location on a
-    # bare runner is unverified until the first GitHub run. Promote to a required
-    # check once it is confirmed green at cut-over (story 28519).
-    continue-on-error: true
     env:
       # definitions.py + its packages (core, DSA, …) live under etl/, imported
       # as top-level modules, so etl must be the source root on sys.path. The
       # root pyproject's [tool.dagster] module_name = "definitions" then resolves.
       PYTHONPATH: ${{ github.workspace }}/etl
-      # Same placeholder connection settings as `test` — building the Definitions object
-      # must not open a real connection. No GitHub Secrets required.
-      MYSUPPLY_PROD_MSSQL_SERVER: placeholder
-      MYSUPPLY_PROD_MSSQL_PORT: "1433"
-      MYSUPPLY_PROD_MSSQL_DATABASE: placeholder
-      MYSUPPLY_PROD_MSSQL_USERNAME: placeholder
-      MYSUPPLY_PROD_MSSQL_PASSWORD: placeholder
-      SYDAX_PROD_MSSQL_SERVER: placeholder
-      SYDAX_PROD_MSSQL_PORT: "1433"
-      SYDAX_PROD_MSSQL_DATABASE: placeholder
-      SYDAX_PROD_MSSQL_USERNAME: placeholder
-      SYDAX_PROD_MSSQL_PASSWORD: placeholder
-      ILS_PROD_MSSQL_SERVER: placeholder
-      ILS_PROD_MSSQL_PORT: "1433"
-      ILS_PROD_MSSQL_DATABASE: placeholder
-      ILS_PROD_MSSQL_USERNAME: placeholder
-      ILS_PROD_MSSQL_PASSWORD: placeholder
-      COSMIC_PROD_MSSQL_SERVER: placeholder
-      COSMIC_PROD_MSSQL_PORT: "1433"
-      COSMIC_PROD_MSSQL_DATABASE: placeholder
-      COSMIC_PROD_MSSQL_USERNAME: placeholder
-      COSMIC_PROD_MSSQL_PASSWORD: placeholder
-      IFDB_PROD_ORACLE_SERVER: placeholder
-      IFDB_PROD_ORACLE_PORT: "1521"
-      IFDB_PROD_ORACLE_DATABASE: placeholder
-      IFDB_PROD_ORACLE_USERNAME: placeholder
-      IFDB_PROD_ORACLE_PASSWORD: placeholder
-      IFDB_PROD_ORACLE_SCHEMA: placeholder
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -245,7 +209,7 @@ jobs:
   typecheck:
     name: typecheck (mypy)
     runs-on: ubuntu-latest
-    # REPORT-ONLY (task 28647): the existing tree is largely untyped, so mypy will
+    # REPORT-ONLY: the existing tree is largely untyped, so mypy will
     # surface many findings. Surface them as annotations now; promote to required once
     # the tree is mypy-clean. Config + lenient defaults live in [tool.mypy] (pyproject).
     continue-on-error: true
@@ -271,7 +235,7 @@ jobs:
   audit:
     name: dependency audit (pip-audit)
     runs-on: ubuntu-latest
-    # REPORT-ONLY (task 28647): pip-audit gates the full installed dependency tree
+    # REPORT-ONLY: pip-audit gates the full installed dependency tree
     # against the PyPI advisory DB. The real tree will surface CVEs that need triage —
     # accept each with `--ignore-vuln <id>` + rationale, or bump the pin — then promote
     # this to a required check.

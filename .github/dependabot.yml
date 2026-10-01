@@ -9,10 +9,7 @@
 # Complements the report-only `pip-audit` job in ci.yml: pip-audit *detects* known CVEs
 # in installed deps, while Dependabot *opens PRs* that bump them. The github-actions
 # ecosystem additionally keeps our SHA-pinned `uses:` refs current — otherwise the pins
-# silently rot (org policy requires full-SHA pins; see ci.yml / task 28646).
-#
-# NOTE: GitHub-only feature. Dormant while the repo lives on Azure DevOps; activates on
-# the GitHub cut-over (HealthPipe).
+# silently rot (org policy requires full-SHA pins; see ci.yml).
 version: 2
 updates:
   # Python deps declared in pyproject.toml ([project] + [project.optional-dependencies]).
@@ -32,8 +29,6 @@ updates:
           - "pytest*"
           - "black"
           - "ruff"
-          - "isort"
-          - "flake8*"
           - "mypy"
           - "pip-audit"
           - "pre-commit"
@@ -50,5 +45,19 @@ updates:
       - github-actions
     groups:
       actions:
+        patterns:
+          - "*"
+
+  - package-ecosystem: pre-commit
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - pre-commit
+    groups:
+      hooks:
         patterns:
           - "*"

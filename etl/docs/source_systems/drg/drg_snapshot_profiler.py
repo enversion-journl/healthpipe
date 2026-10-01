@@ -110,7 +110,10 @@ def find_one(directory: str, pattern: str) -> str | None:
 
 
 def bucket_of(key: str) -> int:
-    return int(hashlib.md5(key.encode("utf-8", "replace")).hexdigest()[:2], 16) % N_BUCKETS
+    return (
+        int(hashlib.md5(key.encode("utf-8", "replace"), usedforsecurity=False).hexdigest()[:2], 16)
+        % N_BUCKETS
+    )
 
 
 class BucketWriter:

@@ -14,8 +14,7 @@
 # CI can all invoke it the same way — each only needs a thin wrapper that
 # (a) authenticates to the registry and (b) maps its own native build-metadata
 # variables onto the env vars below. That keeps a future migration between CI
-# hosts down to swapping the ~10-line wrapper, not the build logic. See task
-# #28544.
+# hosts down to swapping the ~10-line wrapper, not the build logic.
 #
 # Registry authentication is the CALLER's responsibility — it is the one piece
 # that is inherently host-specific. Either authenticate before calling (e.g.

@@ -11,8 +11,7 @@
 # Code scanning. `publish_results: true` also feeds the public Scorecard API/badge.
 #
 # Some checks need the default branch, so this runs on a schedule + push to the default
-# branch (`main` after cut-over) rather than on PRs. All `uses:` are SHA-pinned (org
-# policy). Dormant while the repo lives on Azure DevOps; activates on the GitHub cut-over.
+# branch (`main`) rather than on PRs. All `uses:` are SHA-pinned (org policy).
 name: scorecard
 
 on:

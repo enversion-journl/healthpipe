@@ -1,0 +1,50 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+# Build (not push) the code-server images so a broken Dockerfile fails the PR.
+name: docker
+
+on:
+  pull_request:
+    paths:
+      - "infrastructure/containers/**"
+      - "pyproject.toml"
+      - ".dockerignore"
+      - ".github/workflows/docker.yml"
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: docker build (code-server)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Build base image
+        run: >
+          docker build
+          -f infrastructure/containers/dockerfiles/code-server-base.Dockerfile
+          -t healthpipe-code-server-base:ci .
+
+      - name: Build code-server image
+        run: >
+          docker build
+          -f infrastructure/containers/dockerfiles/code-server.Dockerfile
+          --build-arg BASE_IMAGE=healthpipe-code-server-base:ci
+          --build-arg BUILD_TIMESTAMP=${{ github.sha }}
+          -t healthpipe-code-server:ci .
