@@ -25,7 +25,7 @@ Aidbox/FHIR). In short:
   start. The devcontainer guide explains the two `.env` files and every setting.
 - **Pre-commit hooks** — installed automatically on container create
   (`.devcontainer/startup_scripts/setup-precommit.sh`): gitleaks (secret/PII scan of
-  the staged diff) plus black, ruff and flake8. CI runs the same checks. Never commit
+  the staged diff) plus black, ruff and bandit. CI runs the same checks. Never commit
   with `--no-verify`.
 
 ## Quick start

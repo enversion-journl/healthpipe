@@ -11,8 +11,7 @@
 # PR-time complement to the report-only `pip-audit` job, which scans what is already
 # merged. Requires GitHub's Dependency Graph (on by default for public repos).
 #
-# All `uses:` are SHA-pinned (org policy). Dormant while the repo lives on Azure DevOps;
-# activates on the GitHub cut-over (HealthPipe).
+# All `uses:` are SHA-pinned (org policy).
 name: dependency-review
 
 on:

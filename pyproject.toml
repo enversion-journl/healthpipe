@@ -10,7 +10,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "healthpipe"
-version = "0.1.0"
+version = "1.0.75"
 description = "Healthpipe — an open-source healthcare data pipeline platform"
 readme = "README.md"
 requires-python = "==3.12.*"
@@ -55,14 +55,13 @@ dev = [
     # Must equal the ruff-pre-commit rev in .pre-commit-config.yaml; the
     # check-ruff-pin hook enforces it.
     "ruff==0.16.3",
-    "flake8==7.3.0",
     # Dagster development tools
     "dagster-graphql==1.13.18",
     "pre-commit==4.3.0",
     # Testing utilities
     "responses>=0.24.0",  # For HTTP mocking (FHIR server)
     "uv>=0.10.2",
-    # Coverage + static analysis used by the GitLab CI pipeline (test / mypy / pip-audit jobs)
+    # Coverage + static analysis used by CI (test / mypy / pip-audit jobs)
     "pytest-cov>=5.0",
     # mypy pinned: `>=1.11` let CI install 2.3.1 on its own, and a major version of
     # the type checker changes what the gate reports without anyone deciding to.
@@ -156,7 +155,7 @@ preview = true
 
 [tool.ruff.lint]
 # Keep this focused; expand later as desired
-select = ["E", "F", "UP", "B", "TID", "I"]
+select = ["E", "W", "F", "UP", "B", "TID", "I"]
 # Delegate line-length to Black (no line length enforcement in Ruff)
 # Ruff (I) is the only import sorter — do not add a second one alongside it.
 # UP042/UP046/UP047 want StrEnum and PEP 695 generics — unsafe-fix-only rewrites
@@ -192,49 +191,7 @@ ban-relative-imports = "all"
 # Frozen-config immutability test (asserts mutation is rejected; exact exc type is an impl detail)
 "etl/tests/unit/test_dfm_extract_factory.py" = ["B017"]
 
-# Flake8 configuration
-[tool.flake8]
-max-line-length = 100
-extend-ignore = ["E203", "E402", "E501"]
-exclude = [
-    ".eggs",
-    ".git",
-    ".hg",
-    ".mypy_cache",
-    ".tox",
-    ".venv",
-    "build",
-    "dist",
-    "nomad_stack",
-    "daniel",
-    "output",
-    "nomad_data",
-    "notebooks",
-]
-per-file-ignores = [
-    "etl/DSA/FHIR/IFDB/assets/episode_of_care.py:F841",
-    "etl/DSA/FHIR/IFDB/assets/condition.py:F841",
-    "etl/DSA/FHIR/IFDB/assets/patient.py:B007",
-    "etl/DSA/FHIR/IFDB/utils/validation.py:F821",
-    "etl/DSA/FHIR/IFDB/utils/yaml_loader.py:B007",
-    "etl/DSA/FHIR/assets/__init__.py:F401",
-    "etl/utils/codegen.py:F841,B904",
-    "etl/utils/fhir_codegen.py:F841",
-    "etl/utils/fhir_validator.py:E722",
-    "etl/mock_data/sql_snippets/run_mock_data_scripts.py:E741",
-    "etl/tests/conftest.py:F405,E402",
-    "etl/tests/fixtures/test_data.py:B011",
-    "etl/tests/utils/query_helpers.py:F841",
-    "etl/tests/utils/verification_helpers.py:B904",
-    "etl/sources/oracle/__init__.py:F401",
-    "etl/sources/oracle/ifdb_assets.py:F841",
-    "etl/DSI/extract/IFDB/__init__.py:F401",
-    "etl/DSI/oracle/__init__.py:F401",
-    "etl/tests/integration/fhir_ifdb/conftest.py:F821",
-    ".devcontainer/startup_scripts/create_databases.py:F821",
-]
-
-# Mypy configuration — REPORT-ONLY in the GitLab CI pipeline (allow_failure). The tree is
+# Mypy configuration — REPORT-ONLY in CI (continue-on-error). The tree is
 # largely untyped, so keep this lenient: resolve what we can, ignore missing third-party
 # stubs, and skip the test / mock-data trees. Tighten incrementally as modules gain types.
 [tool.mypy]

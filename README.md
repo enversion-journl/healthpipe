@@ -1,5 +1,8 @@
 # Healthpipe
 
+[![ci](https://github.com/enversion-journl/healthpipe/actions/workflows/ci.yml/badge.svg)](https://github.com/enversion-journl/healthpipe/actions/workflows/ci.yml)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
+
 A containerized ETL pipeline built on [Dagster](https://dagster.io/), designed to work with Microsoft SQL Server, Oracle, PostgreSQL, and FHIR (Aidbox). It ships a self-contained devcontainer so you can run the full stack locally with Docker.
 
 ## Prerequisites
@@ -61,10 +64,13 @@ The FHIR server runs as part of the docker-compose stack. The Dagster code reads
 ```
 .
 ├── etl/           # Dagster application code (assets, jobs, resources)
-│   └── infrastructure/    # DW schema (ddl/) + setup assets
+│   ├── infrastructure/    # DW schema (ddl/) + setup assets
+│   └── docs/              # Documentation
 ├── .devcontainer/         # DevContainer configuration (compose, Dockerfile, startup scripts)
-└── docs/                  # Documentation
+└── infrastructure/        # Code-server Dockerfiles and build scripts
 ```
+
+See [`etl/docs/README.md`](etl/docs/README.md) for the architecture, implementation guides and runbooks.
 
 ## Troubleshooting
 
@@ -94,10 +100,7 @@ docker compose -f .devcontainer/docker-compose.yml ps          # compose service
 
 ## Contributing
 
-1. Create a feature branch
-2. Make your changes
-3. Test with the devcontainer
-4. Submit a pull request
+Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) before you open a pull request. Every commit needs a DCO sign-off (`git commit -s`). Report security issues as described in [SECURITY.md](SECURITY.md). See [CHANGELOG.md](CHANGELOG.md) for the release history.
 
 ## License
 

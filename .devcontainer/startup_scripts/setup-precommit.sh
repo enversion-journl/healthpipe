@@ -95,7 +95,7 @@ echo "Installing pre-commit hooks..."
 pre-commit install
 
 # Surface the current pre-commit state across the tree (informational only).
-# Non-fatal: the tree is autofix-clean, but ruff/flake8 still report ~70
+# Non-fatal: the tree is autofix-clean, but ruff still reports ~70
 # un-auto-fixed lint findings (tracked debt) that would otherwise exit non-zero
 # and fail postCreateCommand. `|| true` keeps container-create green; the hooks
 # still enforce per-commit on staged files.
