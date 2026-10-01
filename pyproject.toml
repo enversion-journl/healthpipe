@@ -60,7 +60,7 @@ dev = [
     "pre-commit==4.3.0",
     # Testing utilities
     "responses>=0.24.0",  # For HTTP mocking (FHIR server)
-    "uv>=0.10.2",
+    "uv>=0.12.19",
     # Coverage + static analysis used by CI (test / mypy / pip-audit jobs)
     "pytest-cov>=5.0",
     # mypy pinned: `>=1.11` let CI install 2.3.1 on its own, and a major version of
