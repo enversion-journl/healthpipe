@@ -1,0 +1,56 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fact
+  TableName: fct.Fakturalinje
+  Domain: [ERP]
+  Description: "Fakturalinje fact tabel — én række pr. fakturalinje fra MySupply, beriget med UNSPSC via KMD SpendAnalysisLines-match"
+  Grain: "Én række pr. fakturalinje, identificeret ved metadata + header + linje sammensat nøgle"
+
+  SourceSystems:
+    - mysupply: [dbo.statistic_invoice_header, dbo.statistic_invoice_line, dbo.metadata, dbo.statistic_invoice_line_allowance_charge]
+    - kmd_uddata: [fact.SpendAnalysisLines, dimension.UNSPSC, dimension.Invoice]
+
+  Columns:
+    dw_ek_Fakturalinje: { Type: PK, DataType: INT, FK-Target: dim.Fakturalinje }
+    clean_code_Fakturalinje: { DataType: NVARCHAR(500), Expr: "FakturaMetadata_CleanCode + '_' + FakturaHeader_CleanCode + '_' + COALESCE(FakturaLines_CleanCode, 'NULL')" }
+    bk_faktura_lines:        { DataType: NVARCHAR(500), Source: [mysupply.dbo.statistic_invoice_line.id], Expr: "CAST(id AS NVARCHAR(500))" }
+    bk_faktura_header:       { DataType: NVARCHAR(500), Source: [mysupply.dbo.statistic_invoice_header.id], Expr: "CAST(id AS NVARCHAR(500))" }
+    bk_faktura_metadata:     { DataType: NVARCHAR(500), Source: [mysupply.dbo.metadata.id], Expr: "CAST(id AS NVARCHAR(500))" }
+
+    dw_ek_Kreditor:     { Type: FK, DataType: INT, Source: [mysupply.dbo.statistic_invoice_header.FakturaUdstederCVRNummer, mysupply.dbo.metadata.LeverandorCVR] }
+    dw_ek_Leverandoervare:         { Type: FK, DataType: INT, Source: [mysupply.dbo.statistic_invoice_header.FakturaUdstederCVRNummer, mysupply.dbo.statistic_invoice_line.Item_FakturaUdstederVareNr] }
+    dw_ek_Faktura:      { Type: FK, DataType: INT, FK-Target: dim.Faktura, Source: [mysupply.dbo.metadata.id, mysupply.dbo.statistic_invoice_header.id] }
+    dw_ek_EAN_regningsmodtager: { Type: FK, DataType: INT, Source: [mysupply.dbo.statistic_invoice_header.RegningsModtagerID] }
+
+    dw_ek_UNSPSC:       {Type: FK, DataType: INT, FK-Target: dim.UNSPSC, Source: [kmd_uddata.fact.SpendAnalysisLines.DW_SK_UNSPSC, kmd_uddata.dimension.UNSPSC.UNSPSCClassID], Description: "ref lookup bygges uafhængigt; dw_ek_UNSPSC påsættes i apply-pass efter fct.Fakturalinje load." }
+
+    dw_ek_Dato_faktura:     { Type: FK, DataType: INT, Source: [mysupply.dbo.statistic_invoice_header.FakturaDato] }
+    dato_tid_faktura:        { DataType: DATETIME2, Source: [mysupply.dbo.statistic_invoice_header.FakturaDato] }
+    dw_ek_Dato_ordre:       { Type: FK, DataType: INT, Source: [mysupply.dbo.statistic_invoice_header.OrdreDato] }
+    dato_tid_ordre:           { DataType: DATETIME2, Source: [mysupply.dbo.statistic_invoice_header.OrdreDato] }
+    dw_ek_Dato_betaling:    { Type: FK, DataType: INT, Source: [mysupply.dbo.statistic_invoice_header.BetalingsDato] }
+    dato_tid_betaling:        { DataType: DATETIME2, Source: [mysupply.dbo.statistic_invoice_header.BetalingsDato] }
+    dw_ek_Dato_modtagelse:  { Type: FK, DataType: INT, Expr: "hardcoded -1 (UKENDT)" }
+    dato_tid_modtagelse:      { DataType: DATETIME2, Expr: "hardcoded NULL (UKENDT, mirrors dw_ek_Dato_modtagelse)" }
+
+    faktura_nr:              { DataType: NVARCHAR(100), Source: [mysupply.dbo.statistic_invoice_header.FakturaNr] }
+    antal_enheder_faktureret: { Type: Measure, DataType: DECIMAL(18,4), Source: [mysupply.dbo.statistic_invoice_line.AntalEnhederFaktureret] }
+    linje_beloeb:            { Type: Measure, DataType: DECIMAL(18,4), Source: [mysupply.dbo.statistic_invoice_line.LinjeBeloeb] }
+    enheds_pris:             { Type: Measure, DataType: DECIMAL(18,4), Source: [mysupply.dbo.statistic_invoice_line.BasePrice_EnhedsPris] }
+
+    valutakode_linje:      { DataType: NVARCHAR(10), Source: [mysupply.dbo.statistic_invoice_line.LinjeBeloeb_Valuta] }
+    valutakode_enhedspris: { DataType: NVARCHAR(10), Source: [mysupply.dbo.statistic_invoice_line.BasePrice_EnhedsPris_Valuta] }
+    valutakode_faktura:    { DataType: NVARCHAR(10), Source: [mysupply.dbo.statistic_invoice_header.FakturaValutaKode] }
+
+    gebyr_beloeb: { Type: Measure, DataType: DECIMAL(18,4), Source: [mysupply.dbo.statistic_invoice_line_allowance_charge.FakturaUdstederGebyrKategoriTotal], Expr: "SUM af gebyrer pr. linje (FakturaUdstederGebyrKategoriIndikering <> 'false'); 0 hvis linjen ingen gebyr-rækker har; detaljer ligger '#'-konkateneret på dim.Fakturalinje. FORTEGN: gemt verbatim fra kilden, ingen fortegnsnormalisering (i praksis positiv magnitude) — LÆGGES TIL i totaler." }
+    rabatbeloeb: { Type: Measure, DataType: DECIMAL(18,4), Source: [mysupply.dbo.statistic_invoice_line_allowance_charge.FakturaUdstederGebyrKategoriTotal], Expr: "SUM af rabatter pr. linje (FakturaUdstederGebyrKategoriIndikering = 'false'); 0 hvis linjen ingen gebyr-rækker har; detaljer ligger '#'-konkateneret på dim.Fakturalinje. FORTEGN: gemt verbatim fra kilden, ingen fortegnsnormalisering (i praksis positiv magnitude) — TRÆKKES FRA i totaler. Rapport-total = grundbeløb + gebyr_beloeb − rabatbeloeb." }
+
+    dw_timestamp_insert: { Type: Audit, DataType: DATETIME2(0), Expr: "SYSDATETIME() ved første INSERT" }
+    dw_timestamp_update: { Type: Audit, DataType: DATETIME2(0), Expr: "SYSDATETIME() ved UPDATE (NULL indtil første opdatering)" }
+  Notes:
+    - "Transaktionsdimension: dw_ek_fakturalinje er en delt nøgle med dim.Fakturalinje (begge sourced fra map.Fakturalinje via clean_code_Fakturalinje)."

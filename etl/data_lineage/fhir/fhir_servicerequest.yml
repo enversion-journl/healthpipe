@@ -1,0 +1,48 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fhir
+  TableName: fhir.ServiceRequest
+  Domain: [FHIR]
+  Description: "FHIR ServiceRequest resource -- henvisninger, RIS rekvisitioner og genoptræningsplaner (G-GOP)"
+  Grain: "One row per ServiceRequest from HENVISNING, RIS_YDELSE service group, or REHABILITATION_PLAN (genoptræningsplan)"
+  FhirResource: ServiceRequest
+
+  SourceSystems:
+    - ifdb_henvisning: [IFDB.HENVISNING]
+    - ifdb_henvisning_historik: [IFDB.HENVISNING_HISTORIK]
+    - ifdb_referralinformation: [IFDB.REFERRALINFORMATION]
+    - ifdb_ris_ydelse: [IFDB.RIS_YDELSE]
+    - ifdb_rehabilitation_plan: [IFDB.REHABILITATION_PLAN]
+    - ifdb_rehabilitation_plan_receiver: [IFDB.REHABILITATION_PLAN_RECEIVER]
+
+  Columns:
+    service_request_id: { Type: PK, DataType: NVARCHAR(255), FhirPath: "id", Description: "FHIR resource id (Aidbox UUID) — resolver-/servertildelt ved posting ud fra OBJEKT_ID. Findes ikke i kilden; forretningsnøglen (OBJEKT_ID) bæres i identifier_value." }
+    identifier_system:  { DataType: NVARCHAR(255), FhirPath: "identifier.system" }
+    identifier_value:   { DataType: NVARCHAR(255), FhirPath: "identifier.value", Source: [ifdb_henvisning.IFDB.HENVISNING.OBJEKT_ID, ifdb_ris_ydelse.IFDB.RIS_YDELSE.OBJEKT_ID, ifdb_rehabilitation_plan.IFDB.REHABILITATION_PLAN.OBJECT_ID] }
+    patient_id:         { DataType: NVARCHAR(255), FhirPath: "subject.id", FK-Target: fhir.Patient, FK-Key: patient_id, FK-Required: true, Description: "FHIR-tildelt Patient-reference (Aidbox UUID) — resolver-tildelt ved posting ud fra IFDB.HENVISNING.patient_id_ifdb / IFDB.RIS_YDELSE.patient_id_ifdb; ikke direkte projiceret fra kilden." }
+    episode_of_care_id: { DataType: NVARCHAR(255), FhirPath: "extension.where(url='http://regionsyddanmark.dk/fhir/StructureDefinition/episodeOfCare').valueReference.id", FK-Target: fhir.EpisodeOfCare, FK-Key: episode_of_care_id, FK-Required: false, Description: "FHIR-tildelt EpisodeOfCare-reference (Aidbox UUID) — resolver-tildelt ved posting ud fra IFDB.HENVISNING.EPISODE_OF_CARE_ID / IFDB.RIS_YDELSE.EPISODE_OF_CARE_ID; ikke direkte projiceret fra kilden." }
+    encounter_id:       { DataType: NVARCHAR(255), FhirPath: "encounter.id", FK-Target: fhir.Encounter, FK-Key: encounter_id, FK-Required: false, Description: "FHIR-tildelt Encounter-reference (Aidbox UUID) — resolver-tildelt ved posting ud fra IFDB.RIS_YDELSE.ENCOUNTER_ID; ikke direkte projiceret fra kilden." }
+    status:             { DataType: NVARCHAR(50), FhirPath: "status", Source: [ifdb_henvisning.IFDB.HENVISNING.STATUS_KODE, ifdb_ris_ydelse.IFDB.RIS_YDELSE.STATE, ifdb_rehabilitation_plan.IFDB.REHABILITATION_PLAN.DELETED] }
+    intent:             { DataType: NVARCHAR(50), FhirPath: "intent" }
+    priority:           { DataType: NVARCHAR(50), FhirPath: "priority", Source: [ifdb_henvisning.IFDB.HENVISNING.INDKALDELSESPRIORIT_KODE, ifdb_ris_ydelse.IFDB.RIS_YDELSE.XML] }
+    # RIS_YDELSE rows carry the constant category "radiology" (no source column).
+    category_code:      { DataType: NVARCHAR(255), FhirPath: "category.coding.code", Source: [ifdb_henvisning.IFDB.HENVISNING.TYPE_KODE] }
+    category_display:   { DataType: NVARCHAR(500), FhirPath: "category.coding.display", Source: [ifdb_henvisning.IFDB.HENVISNING.TYPE_KODETEKST] }
+    code:               { DataType: NVARCHAR(255), FhirPath: "code.coding.code", Source: [ifdb_ris_ydelse.IFDB.RIS_YDELSE.XML, ifdb_rehabilitation_plan.IFDB.REHABILITATION_PLAN.TYPE_KODETEKST] }
+    code_system:        { DataType: NVARCHAR(500), FhirPath: "code.coding.system" }
+    code_display:       { DataType: NVARCHAR(500), FhirPath: "code.coding.display", Source: [ifdb_rehabilitation_plan.IFDB.REHABILITATION_PLAN.TYPE_KODETEKST] }
+    reason_reference_id: { DataType: NVARCHAR(255), FhirPath: "reasonReference.id.first()", FK-Target: fhir.Condition, FK-Key: condition_id, FK-Required: false, Source: [ifdb_henvisning_historik.IFDB.HENVISNING_HISTORIK.DIAGNOSE_ID, ifdb_ris_ydelse.IFDB.RIS_YDELSE.XML] }
+    authored_on:        { DataType: NVARCHAR(50), FhirPath: "authoredOn", Source: [ifdb_henvisning.IFDB.HENVISNING.HENVISNINGSDATO, ifdb_henvisning.IFDB.HENVISNING.AFSENDELSESDATO, ifdb_ris_ydelse.IFDB.RIS_YDELSE.XML, ifdb_rehabilitation_plan.IFDB.REHABILITATION_PLAN.MODIFICATION_TIME] }
+    occurrence_start:   { DataType: NVARCHAR(50), FhirPath: "occurrencePeriod.start", Source: [ifdb_ris_ydelse.IFDB.RIS_YDELSE.PERIOD_START] }
+    occurrence_end:     { DataType: NVARCHAR(50), FhirPath: "occurrencePeriod.end", Source: [ifdb_henvisning.IFDB.HENVISNING.SLUTDATO, ifdb_ris_ydelse.IFDB.RIS_YDELSE.PERIOD_END] }
+    requester_id:       { DataType: NVARCHAR(255), FhirPath: "requester.id", FK-Target: fhir.Organization, FK-Key: organization_id, FK-Required: false, Description: "FHIR-tildelt Organization-reference (Aidbox UUID) — resolver-tildelt ved posting ud fra SOR-kode (IFDB.HENVISNING.HENVIST_FRA_AFDELING_SORKODE / IFDB.REFERRALINFORMATION.REFERRAL_ORG_SORCODE / IFDB.REHABILITATION_PLAN.SENDER_AFDELING_SORKODE); ikke direkte projiceret fra kilden." }
+    performer_id:       { DataType: NVARCHAR(255), FhirPath: "performer.id", FK-Target: fhir.Organization, FK-Key: organization_id, FK-Required: false, Description: "FHIR-tildelt Organization-reference (Aidbox UUID) — resolver-tildelt ved posting ud fra SOR-kode (IFDB.HENVISNING.HENVIST_TIL_AFDELING_SORKODE / IFDB.RIS_YDELSE.UDFOERT_ADMENHED_SORCODE); ikke direkte projiceret fra kilden." }
+    source_table:       { DataType: NVARCHAR(100), FhirPath: "extension('http://regionsyddanmark.dk/fhir/StructureDefinition/sourceTable').valueString" }
+    dw_is_deleted:         { DataType: INT, FhirPath: "extension.where(url='urn:fhir:isDeleted').valueInteger", Source: [ifdb_henvisning.IFDB.HENVISNING.SLETTET, ifdb_ris_ydelse.IFDB.RIS_YDELSE.SLETTET, ifdb_rehabilitation_plan.IFDB.REHABILITATION_PLAN.DELETED] }
+    last_updated:       { DataType: DATETIME2, FhirPath: "r.ts" }
+    created_at:         { DataType: DATETIME2, FhirPath: "r.cts" }

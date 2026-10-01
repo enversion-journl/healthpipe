@@ -1,0 +1,29 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: bridge
+  TableName: bridge.LeverandoervareILSVare
+  Domain: [ERP]
+  Description: >
+    Bridge for mange-til-mange-relationen dim.Leverandoervare <-> dim.ILSVare.
+    Bridgen indeholder alle observerede (vare, ILS-vare)-koblinger fra ILS-bridgekilder, og kun ILS kan observere en kobling (MySupply baerer intet vnr).
+    Bridgen indeholder altså IKKE alle vare- og ILS-vare-entiteter, men kun de vare- og ILS-vare-entiteter, der har en relation til hinanden.
+    MySupply-only vare-entiteter findes i dim.Leverandoervare (dw_source_mysupply = 1) men har
+    ingen raekker i broen. Tilsvarende har ILSVarer uden Vare-relation ingen
+    raekker i bridgen. Fravaer af raekke ER "ingen relation".
+  Grain: "Én række pr. (dw_ek_Leverandoervare, dw_ek_ILSVare)-par; seed-række (-1, -1)"
+  Privacy: >
+    Ingen PII — kun surrogatnøgler og kilde-metadata.
+
+  SourceSystems:
+    - ils: [dbo.laftdstam, dbo.lgrvare, dbo.indkfak, dbo.laftd, dbo.pmdm, dbo.lev]
+
+  Columns:
+    dw_ek_Leverandoervare:       { Type: FK, DataType: INT, FK-Target: dim.Leverandoervare, Source: [ils.dbo.lev.se_nr, ils.dbo.laftdstam.lvnr##1, ils.dbo.lgrvare.lvnr, ils.dbo.indkfak.levvarenr, ils.dbo.laftd.lvnr##1, ils.dbo.pmdm.lvnr], Description: "Del af sammensat PK. Opslag via map.Leverandoervare (clean_code_Kreditor + '_' + clean_code_LeverandoerVarenummer)" }
+    dw_ek_ILSVare:    { Type: FK, DataType: INT, FK-Target: dim.ILSVare, Source: [ils.dbo.laftdstam.vnr, ils.dbo.lgrvare.vnr, ils.dbo.indkfak.vnr, ils.dbo.laftd.vnr, ils.dbo.pmdm.vnr], Description: "Del af sammensat PK. Opslag via map.ILSVare (ILSVARE_<vnr>)" }
+    dw_is_deleted:    { DataType: BIT, Expr: "Soft-delete: 1 naar parret ikke laengere findes i kilderne. Saettes kun for entiteter i deltaet (fuld historik kendt)" }
+    bridge_kilder:    { DataType: NVARCHAR(100), Expr: "Kommasepareret liste af ILS-kildetabeller, prioritetsordnet (STRING_AGG; foerste element = bedste kildeprioritet: laftdstam > lgrvare > indkfak > laftd > pmdm)" }

@@ -1,0 +1,35 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fhir
+  TableName: fhir.ServiceRequest_Recipient
+  Domain: [FHIR]
+  Description: "FHIR ServiceRequest modtagere — fladet fra rehabilitation_plan_receivers-extensionen (IFDB.REHABILITATION_PLAN_RECEIVER). Kun ServiceRequests med source_table='REHABILITATION_PLAN' bærer extensionen; HENVISNING/RIS-rækker giver 0 child-rækker (forEach over fraværende extension)."
+  Grain: "Én række pr. modtager pr. genoptræningsplan (forEach over rehabilitation_plan_receivers-extensionen)"
+  FhirResource: ServiceRequest
+
+  Extensions:
+    rehabilitation_plan_receivers: urn:source:ifdb:rehabilitation_plan_receivers
+
+  SourceSystems:
+    - ifdb_rehabilitation_plan_receiver: [IFDB.REHABILITATION_PLAN_RECEIVER]
+
+  Columns:
+    service_request_id: { Type: PK, DataType: NVARCHAR(255), FhirPath: "id", Description: "FHIR ServiceRequest id (Aidbox UUID) på parent-genoptræningsplanen." }
+    recipient_key:      { Type: PK, DataType: NVARCHAR(255), FhirPath: "extension.where(url='urn:source:ifdb:rehabilitation_plan_receivers').extension.extension.where(url='receiverKey').valueIdentifier.value", Source: [ifdb_rehabilitation_plan_receiver.IFDB.REHABILITATION_PLAN_RECEIVER.RECEIVER_YDER_NUMMER, ifdb_rehabilitation_plan_receiver.IFDB.REHABILITATION_PLAN_RECEIVER.RECEIVER_AFDELING_KODE, ifdb_rehabilitation_plan_receiver.IFDB.REHABILITATION_PLAN_RECEIVER.TRANSMISSION_TIME], Description: "Kilden har ingen PK — komposit yder_nummer|afdeling_kode|<rå TRANSMISSION_TIME verbatim, ikke formateret> (sentinel '__NULL__' for NULL på de to identitetskolonner, mappet til tom streng her). Identitetsløse dublet-grupper i kilden (begge identitetskolonner NULL) afleder samme nøgle og kollapser bevidst; transformen deduplikerer eksplicit på denne nøgle, så to arc-rækker med samme afledte nøgle aldrig giver to child-rækker for samme service_request_id." }
+    receiver_type:      { DataType: NVARCHAR(100), FhirPath: "extension.where(url='urn:source:ifdb:rehabilitation_plan_receivers').extension.extension.where(url='receiverType').valueString", Source: [ifdb_rehabilitation_plan_receiver.IFDB.REHABILITATION_PLAN_RECEIVER.RECEIVER_YDER_NUMMER, ifdb_rehabilitation_plan_receiver.IFDB.REHABILITATION_PLAN_RECEIVER.RECEIVER_AFDELING_KODE], Description: "Afledt: yder hvis YDER_NUMMER sat, ellers afdeling hvis AFDELING_KODE sat, ellers ukendt." }
+    yder_nummer:        { DataType: NVARCHAR(50), FhirPath: "extension.where(url='urn:source:ifdb:rehabilitation_plan_receivers').extension.extension.where(url='yderNummer').valueString", Source: [ifdb_rehabilitation_plan_receiver.IFDB.REHABILITATION_PLAN_RECEIVER.RECEIVER_YDER_NUMMER] }
+    yder_navn:          { DataType: NVARCHAR(512), FhirPath: "extension.where(url='urn:source:ifdb:rehabilitation_plan_receivers').extension.extension.where(url='yderNavn').valueString", Source: [ifdb_rehabilitation_plan_receiver.IFDB.REHABILITATION_PLAN_RECEIVER.RECEIVER_YDER_NAVN] }
+    afdeling_kode:      { DataType: NVARCHAR(512), FhirPath: "extension.where(url='urn:source:ifdb:rehabilitation_plan_receivers').extension.extension.where(url='afdelingKode').valueString", Source: [ifdb_rehabilitation_plan_receiver.IFDB.REHABILITATION_PLAN_RECEIVER.RECEIVER_AFDELING_KODE] }
+    afdeling_kodetekst: { DataType: NVARCHAR(255), FhirPath: "extension.where(url='urn:source:ifdb:rehabilitation_plan_receivers').extension.extension.where(url='afdelingKodetekst').valueString", Source: [ifdb_rehabilitation_plan_receiver.IFDB.REHABILITATION_PLAN_RECEIVER.RECEIVER_AFDELING_KODETEKST] }
+    organization_ref:   { DataType: NVARCHAR(512), FhirPath: "extension.where(url='urn:source:ifdb:rehabilitation_plan_receivers').extension.extension.where(url='organization').valueReference.identifier.value", Source: [ifdb_rehabilitation_plan_receiver.IFDB.REHABILITATION_PLAN_RECEIVER.RECEIVER_AFDELING_SORKODE], Description: "Kun 2,9% udfyldt; identifier-baseret (SOR), resolves ikke (nested wrapper)." }
+    status_code:        { DataType: NVARCHAR(512), FhirPath: "extension.where(url='urn:source:ifdb:rehabilitation_plan_receivers').extension.extension.where(url='statusCode').valueString", Source: [ifdb_rehabilitation_plan_receiver.IFDB.REHABILITATION_PLAN_RECEIVER.STATE_KODE], Description: "Transmissionsstatus pr. modtager (IKKE ServiceRequest.status)." }
+    status_text:        { DataType: NVARCHAR(255), FhirPath: "extension.where(url='urn:source:ifdb:rehabilitation_plan_receivers').extension.extension.where(url='statusText').valueString", Source: [ifdb_rehabilitation_plan_receiver.IFDB.REHABILITATION_PLAN_RECEIVER.STATE_KODETEXT] }
+    transmission_time:  { DataType: NVARCHAR(50), FhirPath: "extension.where(url='urn:source:ifdb:rehabilitation_plan_receivers').extension.extension.where(url='timestamp').valueDateTime", Source: [ifdb_rehabilitation_plan_receiver.IFDB.REHABILITATION_PLAN_RECEIVER.TRANSMISSION_TIME] }
+    dw_is_deleted:      { DataType: INT, Description: "Slettet-flag (0 = live, 1 = slettet). Warehouse-styret: foraeldre-resourcen baerer urn:fhir:isDeleted, men dette grain projicerer ikke feltet — det saettes kun af dqa_fhir_server_cleanup naar foraeldre-resourcen er hard-slettet i Aidbox, og nulstilles ved MERGE-match. NOT NULL DEFAULT 0. BEMAERK: '= 0' betyder 'ikke markeret af cleanup', IKKE 'findes stadig under foraeldren' — child-grain reconcile er ikke slaaet til her." }
+    last_updated:       { DataType: DATETIME2, FhirPath: "r.ts" }
+    created_at:         { DataType: DATETIME2, FhirPath: "r.cts" }

@@ -60,7 +60,7 @@ The FHIR server runs as part of the docker-compose stack. The Dagster code reads
 
 ```
 .
-├── dagster_etl/           # Dagster application code (assets, jobs, resources)
+├── etl/           # Dagster application code (assets, jobs, resources)
 │   └── infrastructure/    # DW schema (ddl/) + setup assets
 ├── .devcontainer/         # DevContainer configuration (compose, Dockerfile, startup scripts)
 └── docs/                  # Documentation

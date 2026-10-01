@@ -1,0 +1,55 @@
+{
+  "resourceType": "CodeSystem",
+  "url": "https://regionsyd.dk/ils/lager",
+  "version": "20260408-082816",
+  "name": "ILSLager",
+  "title": "ILS Lager - Lagerorganisation fra ILS systemet",
+  "description": "Lagerorganisation fra ILS systemet. Hierarki: Region Syddanmark → Sygehus → Lager",
+  "status": "active",
+  "hierarchyMeaning": "is-a",
+  "publisher": "Region Syddanmark",
+  "date": "2026-04-08",
+  "content": "not-present",
+  "property": [
+    {
+      "code": "entityType",
+      "description": "Entity type (region, sygehus, lager)",
+      "type": "string"
+    },
+    {
+      "code": "sgh",
+      "description": "Sygehus code",
+      "type": "string"
+    },
+    {
+      "code": "lgr",
+      "description": "Lager code",
+      "type": "string"
+    },
+    {
+      "code": "mapCode",
+      "description": "MAP code for lookup (format: sgh-lgr)",
+      "type": "string"
+    },
+    {
+      "code": "adr",
+      "description": "adresse",
+      "type": "string"
+    },
+    {
+      "code": "land",
+      "description": "land",
+      "type": "string"
+    },
+    {
+      "code": "postdi",
+      "description": "Postdistrikt",
+      "type": "string"
+    },
+    {
+      "code": "tlf",
+      "description": "Telefon",
+      "type": "string"
+    }
+  ]
+}

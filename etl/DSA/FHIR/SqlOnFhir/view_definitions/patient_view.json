@@ -1,0 +1,43 @@
+{
+  "resourceType": "ViewDefinition",
+  "name": "patient_view",
+  "resource": "Patient",
+  "status": "active",
+  "select": [
+    {
+      "column": [
+        {"name": "patient_id", "path": "id"},
+        {"name": "patient_ssn", "path": "identifier.where(system='urn:dk:cpr').value.first()"},
+        {"name": "previous_ssn", "path": "identifier.where(system='urn:dk:cpr' and use='old').value.first()"},
+        {"name": "x_ecpr", "path": "identifier.where(system='urn:oid:1.2.208.176.1.5.X').value.first()"},
+        {"name": "d_ecpr", "path": "identifier.where(system='urn:oid:1.2.208.176.1.5.D').value.first()"},
+        {"name": "ifdb_patient_id", "path": "identifier.where(system='urn:source:ifdb:patient_id').value.first()"},
+        {"name": "active", "path": "active"},
+        {"name": "deceased", "path": "deceasedBoolean"},
+        {"name": "name_use", "path": "name.where(use='official').use.first()"},
+        {"name": "name_given", "path": "name.where(use='official').given.first()"},
+        {"name": "name_family", "path": "name.where(use='official').family.first()"},
+        {"name": "name_text", "path": "name.where(use='official').text.first()"},
+        {"name": "gender", "path": "gender"},
+        {"name": "birth_date", "path": "birthDate"},
+        {"name": "marital_status_code", "path": "maritalStatus.coding.code.first()"},
+        {"name": "marital_status_display", "path": "maritalStatus.coding.display.first()"},
+        {"name": "gp_display", "path": "generalPractitioner.display.first()"},
+        {"name": "gp_identifier", "path": "generalPractitioner.identifier.where(system='urn:oid:1.2.208.176.1.4').value.first()"},
+        {"name": "citizenship_code", "path": "extension('http://hl7.org/fhir/StructureDefinition/patient-citizenship').extension('code').valueCodeableConcept.coding.code.first()"},
+        {"name": "citizenship_display", "path": "extension('http://hl7.org/fhir/StructureDefinition/patient-citizenship').extension('code').valueCodeableConcept.coding.display.first()"},
+        {"name": "mother_ssn", "path": "extension('http://regionsyddanmark.dk/fhir/StructureDefinition/motherIdentifier').valueIdentifier.value.first()"},
+        {"name": "father_ssn", "path": "extension('http://regionsyddanmark.dk/fhir/StructureDefinition/fatherIdentifier').valueIdentifier.value.first()"},
+        {"name": "address_protection", "path": "extension('http://regionsyddanmark.dk/fhir/StructureDefinition/address-protection').valueBoolean.first()"},
+        {"name": "discretion_flag", "path": "extension('http://regionsyddanmark.dk/fhir/StructureDefinition/discretionFlag').valueBoolean.first()"},
+        {"name": "medcom_test_person", "path": "meta.tag.where(code='test').exists()"},
+        {"name": "district_code", "path": "extension('http://regionsyddanmark.dk/fhir/StructureDefinition/district').extension('code').valueString.first()"},
+        {"name": "district_text", "path": "extension('http://regionsyddanmark.dk/fhir/StructureDefinition/district').extension('text').valueString.first()"},
+        {"name": "social_district_code", "path": "extension('http://regionsyddanmark.dk/fhir/StructureDefinition/social-district').extension('code').valueString.first()"},
+        {"name": "social_district_text", "path": "extension('http://regionsyddanmark.dk/fhir/StructureDefinition/social-district').extension('text').valueString.first()"},
+        {"name": "modtidspunkt", "path": "extension('http://regionsyddanmark.dk/fhir/StructureDefinition/modtidspunkt').valueDateTime.first()"},
+        {"name": "dw_is_deleted", "path": "extension('urn:fhir:isDeleted').valueInteger.first()"}
+      ]
+    }
+  ]
+}

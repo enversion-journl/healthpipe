@@ -1,0 +1,69 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: dimension
+  TableName: dim.Dato
+  Domain: [Shared]
+  Description: "Fælles datodimension med kalenderhierarkier, periodemarkeringer og relative offsets"
+  Grain: "Én række pr. kalenderdato samt sentinel-rækker for ukendt/før/blank/efter range"
+
+  Columns:
+    dw_ek_Dato:             { Type: PK, DataType: INT, Expr: "YYYYMMDD smart key; sentinels: -1 (ukendt), -2 (før min), 99999998 (blank), 99999999 (efter max)" }
+    dato:                   { DataType: DATE, Expr: "Kalenderdato (NULL på sentinel-rækker)" }
+    aar:                    { DataType: SMALLINT, Expr: "YEAR(dato)" }
+    aar_startdato:          { DataType: DATE, Expr: "DATEFROMPARTS(aar,1,1)" }
+    aar_slutdato:           { DataType: DATE, Expr: "DATEFROMPARTS(aar,12,31)" }
+    aar_afsluttet:          { DataType: BIT, Expr: "1 når aar < current year (Europe/Copenhagen)" }
+    aar_antal_dage:         { DataType: SMALLINT, Expr: "COUNT(*) pr. aar" }
+    aar_relativ:            { DataType: SMALLINT, Expr: "Antal år fra i dag (Europe/Copenhagen)" }
+    kvartal_id:             { DataType: TINYINT, Expr: "DATEPART(QUARTER, dato)" }
+    kvartal:                { DataType: NVARCHAR(50), Expr: "K1-K4" }
+    kvartals_startdato:     { DataType: DATE, Expr: "Første dato i kvartalet" }
+    kvartals_slutdato:      { DataType: DATE, Expr: "Sidste dato i kvartalet" }
+    kvartal_afsluttet:      { DataType: BIT, Expr: "1 når kvartal ligger før indeværende kvartal" }
+    kvartal_aar_id:         { DataType: INT, Expr: "YYYYQQ (fx 202001 for Q1 2020)" }
+    kvartal_aar:            { DataType: NVARCHAR(50), Expr: "K<kvartal> <år>, fx K1 2020" }
+    kvartal_antal_dage:     { DataType: TINYINT, Expr: "COUNT(*) pr. kvartal_aar_id" }
+    kvartal_relativ:        { DataType: SMALLINT, Expr: "Antal kvartaler fra i dag (Europe/Copenhagen)" }
+    maaned_id:              { DataType: TINYINT, Expr: "1-12" }
+    maaned_lang:            { DataType: NVARCHAR(50), Expr: "Fuldt månedsnavn (dansk)" }
+    maaned:                 { DataType: NVARCHAR(50), Expr: "Kort månedsnavn (dansk, 3 tegn)" }
+    maaned_startdato:       { DataType: DATE, Expr: "Første dato i måneden" }
+    maaned_slutdato:        { DataType: DATE, Expr: "Sidste dato i måneden" }
+    maaned_afsluttet:       { DataType: BIT, Expr: "1 når måneden ligger før indeværende måned" }
+    maaned_aar_id:          { DataType: INT, Expr: "YYYYMM" }
+    maaned_aar:             { DataType: NVARCHAR(50), Expr: "Kort månedsnavn + år, fx Jan 2020" }
+    maaned_antal_dage:      { DataType: TINYINT, Expr: "COUNT(*) pr. maaned_aar_id" }
+    maaned_relativ:         { DataType: SMALLINT, Expr: "Antal måneder fra i dag (Europe/Copenhagen)" }
+    uge_id:                 { DataType: TINYINT, Expr: "ISO-uge (1-53)" }
+    uge:                    { DataType: NVARCHAR(50), Expr: "U<uge>, fx U1" }
+    uge_startdato:          { DataType: DATE, Expr: "Mandag i ISO-ugen" }
+    uge_slutdato:           { DataType: DATE, Expr: "Søndag i ISO-ugen" }
+    uge_afsluttet:          { DataType: BIT, Expr: "1 når ugen ligger før indeværende uge" }
+    uge_aar_id:             { DataType: INT, Expr: "YYYYWW (ISO uge-år)" }
+    uge_aar:                { DataType: NVARCHAR(50), Expr: "U<uge med 2 cifre> <uge-år>, fx U01 2020" }
+    uge_relativ:            { DataType: SMALLINT, Expr: "Antal uger fra i dag (Europe/Copenhagen)" }
+    dag_aar:                { DataType: SMALLINT, Expr: "Dagnummer i året (1-366)" }
+    dag_kvartal:            { DataType: TINYINT, Expr: "Dagnummer i kvartalet (1-92)" }
+    dag_maaned:             { DataType: TINYINT, Expr: "Dagnummer i måneden (1-31)" }
+    dag_uge:                { DataType: TINYINT, Expr: "Dagnummer i ugen (1=mandag, 7=søndag)" }
+    dag_relativ:            { DataType: SMALLINT, Expr: "Antal dage fra i dag (Europe/Copenhagen)" }
+    ugedag_lang:            { DataType: NVARCHAR(50), Expr: "Fuldt ugedagsnavn (dansk)" }
+    ugedag:                 { DataType: NVARCHAR(50), Expr: "Kort ugedagsnavn (dansk, 3 tegn)" }
+    er_hverdag:             { DataType: BIT, Expr: "1 for mandag-fredag, ellers 0" }
+    hverdag_weekend:        { DataType: NVARCHAR(50), Expr: "Hverdag eller Weekend" }
+    er_helligdag:           { DataType: BIT, Expr: "1 på officielle danske helligdage, ellers 0" }
+    helligdag:              { DataType: NVARCHAR(50), Expr: "Helligdagsnavn eller 'Ikke en helligdag'" }
+    er_beredskabshelligdag: { DataType: BIT, Expr: "1 for officielle helligdage samt 24/12 og 31/12" }
+    beredskabshelligdag:    { DataType: NVARCHAR(50), Expr: "Helligdagsnavn, Juleaften, Nytårsaften eller 'Ikke en beredskabshelligdag'" }
+    dw_timestamp_insert:    { Type: Audit, DataType: DATETIME2(0), Expr: "SYSDATETIME() ved første insert" }
+    dw_timestamp_update:    { Type: Audit, DataType: DATETIME2(0), Expr: "SYSDATETIME() ved ændringer" }
+
+  Notes:
+    - "Kalenderrækker seedes i begge databaser via tables/shared_dimensions/04_seeds.sql."
+    - "Relative/afsluttet kolonner opdateres dagligt via tables/shared_dimensions/05_dato_relativ.sql (infra + dim_Dato asset)."
+    - "Sentinel-rækker: -1 (ukendt), -2 (før min), 99999998 (blank), 99999999 (efter max)."

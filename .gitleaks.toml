@@ -1,0 +1,113 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+# gitleaks configuration — RegionSyddanmark / HealthPipe
+#
+# Commit-time secret + PII guard (follow-up to work item 27068).
+# Auto-loaded by gitleaks from the repo root; wired in via .pre-commit-config.yaml
+# (the "gitleaks" hook scans the STAGED diff on every commit).
+#
+# Goal: block commits that would leak real secrets/tokens or PII (CPR, email,
+# phone, person names), while letting known LOCAL-DEV placeholders through.
+#
+# False positive? Add an inline  # gitleaks:allow  comment on the offending line,
+# or extend the [allowlist] below.
+
+title = "RegionSyddanmark / HealthPipe gitleaks config"
+
+[extend]
+# Inherit all built-in rules (AWS/Azure/GCP keys, JWTs, private keys,
+# high-entropy generic API keys, provider tokens, etc.).
+useDefault = true
+
+# ---------------------------------------------------------------------------
+# Custom PII rules (Danish health-data context)
+# ---------------------------------------------------------------------------
+
+[[rules]]
+id = "danish-cpr"
+description = "Danish CPR number (personnummer)"
+# DDMMYY[-]SSSS with a valid day (01-31) and month (01-12). Word-boundaried so
+# 13-digit EAN/SOR codes do not match. The hyphen is optional.
+regex = '''\b(0[1-9]|[12][0-9]|3[01])(0[1-9]|1[0-2])\d{2}-?\d{4}\b'''
+tags = ["pii", "cpr"]
+
+  # Synthetic test fixtures, analysis notebooks, and doc format-examples
+  # legitimately contain fake CPR numbers. Exempt them from the CPR rule ONLY —
+  # the built-in secret/token rules still scan these paths.
+  [[rules.allowlists]]
+  description = "Synthetic CPRs in tests / notebooks / markdown docs"
+  paths = [
+      '''(^|/)tests?/''',
+      '''(^|/)notebooks/''',
+      '''\.ipynb$''',
+      '''\.md$''',
+  ]
+
+[[rules]]
+id = "email-address"
+description = "Email address (possible PII / internal contact)"
+regex = '''[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}'''
+tags = ["pii", "email"]
+
+[[rules]]
+id = "danish-phone"
+description = "Danish phone number (+45 prefixed or labelled tlf/phone/mobil)"
+# Either a +45-prefixed 8-digit number, or 8 digits next to a phone keyword.
+# Bare 8-digit numbers are intentionally NOT matched (too noisy).
+regex = '''(?i)(?:\+45[ ]?\d{2}[ ]?\d{2}[ ]?\d{2}[ ]?\d{2}\b|\b(?:tlf|telefon|phone|mobil|tel)\.?[ :="']{1,3}(?:\+45[ ]?)?\d{2}[ ]?\d{2}[ ]?\d{2}[ ]?\d{2}\b)'''
+tags = ["pii", "phone"]
+
+[[rules]]
+id = "person-name-in-context"
+description = "Possible person name adjacent to a name/patient field"
+# Context-anchored: a capitalized 'Firstname Lastname' (case-sensitive, via the
+# (?-i:) group) immediately after a PII-specific key. Free-floating name
+# detection is deliberately avoided (it would flag every CamelCase identifier).
+# The bare English keyword "name" and the bare "patient" token are deliberately
+# EXCLUDED: "name" matches every JSON/YAML config field ("name": "Python Debugger")
+# and "patient" is the FHIR resource type, ubiquitous in this codebase
+# (Patient Data Column, Patient Idempotency Tests). Structured fields
+# (first_name/last_name/full_name/patientnavn/patient_name) are kept.
+regex = '''(?i)\b(navn|fornavn|efternavn|first[_]?name|last[_]?name|full[_]?name|patient(?:navn|[_]?name)|kontaktperson|contact[_]?person)\b["'\s:=]{1,4}["']?(?-i:[A-ZÆØÅ][a-zæøå]+ [A-ZÆØÅ][a-zæøå]+)'''
+tags = ["pii", "name"]
+
+# ---------------------------------------------------------------------------
+# Allowlist — local-dev placeholders, templates, public registry data, FPs
+# ---------------------------------------------------------------------------
+
+[allowlist]
+description = "Local-dev placeholders, templates, public SOR/EAN registry data, and known false positives"
+
+paths = [
+    '''(^|/)\.env\.template$''',                    # placeholder env, no real values
+    '''(^|/)[^/]*test\.env\.example$''',            # test placeholder env
+    '''(^|/)\.gitleaks\.toml$''',                   # this file (contains example literals)
+    '''etl/DSI/csv_files/data/.*\.csv$''',          # public SOR/EAN registry mappings (B-note: not patient data)
+]
+
+# Explicit dev/synthetic credentials — allowed via substring match (belt-and-suspenders).
+# These are local-container/test values only; they are meaningless outside the
+# private dev images and are mirrored in .env.template.
+stopwords = [
+    "postgres_password",
+    "postgres_user",
+    "DanielIsStrong1!",
+    "StrongPassword1!",
+    "IFDBStrongPassword1!",
+    "auth-key-secret",
+    "the-private-secret",
+    "the-public-secret",
+]
+
+regexes = [
+    '''AIDBOX_(?:CLIENT_SECRET|ADMIN_PASSWORD)\s*[:=]\s*["']?secret["']?''',  # devcontainer dev defaults
+    '''ifdb_aktivitet_id=1001''',                                            # test-fixture grouping key (known FP)
+    '''[a-zA-Z0-9._%+\-]+@example\.(?:com|org|net)''',                       # documentation example emails
+    '''noreply@''',                                                          # no-reply system addresses
+    '''support@journl\.dk''',                                                # project public contact (OSS meta files)
+    '''your@email\.com''',                                                   # placeholder example in CONTRIBUTING.md
+]

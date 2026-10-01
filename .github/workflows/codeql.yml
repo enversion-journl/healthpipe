@@ -1,0 +1,58 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+# CodeQL static analysis (SAST) for the public HealthPipe repo.
+#
+# Completes the security triad: gitleaks (secret-scan.yml) covers secrets/PII, pip-audit
+# (ci.yml) covers known-CVE dependencies, and CodeQL covers CODE-level flaws (injection,
+# unsafe deserialization, path traversal, …). Findings land in Security -> Code scanning;
+# make them blocking by requiring the check via branch protection (story 28519).
+#
+# Python only — the codebase is pure Python (requires-python == 3.12.*) with no compiled
+# build step, so CodeQL's `build-mode: none` applies.
+#
+# All `uses:` are SHA-pinned (org policy). Dormant while the repo lives on Azure DevOps;
+# activates on the GitHub cut-over (HealthPipe).
+name: codeql
+
+on:
+  push:
+    branches: [main, development]
+  pull_request:
+    branches: [main, development]
+  schedule:
+    - cron: "0 4 * * 1" # weekly, Mondays 04:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: analyze (python)
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write # upload SARIF to code scanning
+      actions: read
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@dd903d2e4f5405488e5ef1422510ee31c8b32357 # v3
+        with:
+          languages: python
+          build-mode: none
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@dd903d2e4f5405488e5ef1422510ee31c8b32357 # v3
+        with:
+          category: "/language:python"

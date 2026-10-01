@@ -1,0 +1,42 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fhir
+  TableName: fhir.QuestionnaireResponse
+  Domain: [FHIR]
+  Description: "FHIR QuestionnaireResponse ressource — SFI-besvarelser fra IFDB.AKTIVITETSRESULTAT"
+  Grain: "Én række pr. QuestionnaireResponse (SFI-besvarelse pr. aktivitetsresultat)"
+  FhirResource: QuestionnaireResponse
+
+  SourceSystems:
+    - ifdb_aktivitetsresultat: [IFDB.AKTIVITETSRESULTAT]
+
+  # Kolonner projiceret ned i den flade fhir.QuestionnaireResponse DWH-tabel af SoF-viewet
+  # questionnaire_response_view (rækkefølge/typer følger infrastructure/ddl/tables/fhir/01_tables.sql).
+  # questionnaire_canonical/_version udledes fra 'questionnaire' (canonical|version) i migration.
+  Columns:
+    qr_id:                   { Type: PK, DataType: NVARCHAR(255), FhirPath: "id" }
+    questionnaire:           { DataType: NVARCHAR(600), FhirPath: "questionnaire", Expr: "canonical|version reference tilbage til fhir.Questionnaire" }
+    questionnaire_canonical: { DataType: NVARCHAR(500), Expr: "LEFT(questionnaire, CHARINDEX('|')-1) — canonical-del af 'questionnaire'" }
+    questionnaire_version:   { DataType: NVARCHAR(100), Expr: "SUBSTRING efter '|' i 'questionnaire' — version-del" }
+    status:                  { DataType: NVARCHAR(50), FhirPath: "status" }
+    patient_id:              { DataType: NVARCHAR(255), FhirPath: "subject.id", FK-Target: fhir.Patient, FK-Key: patient_id, FK-Required: false, Description: "FHIR-tildelt Patient-reference (Aidbox UUID) — resolver-tildelt ved posting ud fra IFDB.AKTIVITETSRESULTAT.patient_id_ifdb; ikke direkte projiceret fra kilden." }
+    encounter_id:            { DataType: NVARCHAR(255), FhirPath: "encounter.id", FK-Target: fhir.Encounter, FK-Key: encounter_id, FK-Required: false, Description: "FHIR-tildelt Encounter-reference (Aidbox UUID) — resolver-tildelt ved posting ud fra IFDB.AKTIVITETSRESULTAT.ENCOUNTER_ID; ikke direkte projiceret fra kilden." }
+    organization_id:         { DataType: NVARCHAR(255), FhirPath: "author.getReferenceKey(Organization)", FK-Target: fhir.Organization, FK-Key: organization_id, FK-Required: false }
+    practitioner_id:         { DataType: NVARCHAR(255), FhirPath: "author.where(type='Practitioner').identifier.value.first()", FK-None: true, Description: "Behandler-identifikatorværdi (ingen fhir.Practitioner-fladtabel) — ikke en reference." }
+    practitioner_display:    { DataType: NVARCHAR(500), FhirPath: "author.where(type='Practitioner').display.first()" }
+    authored:                { DataType: NVARCHAR(50), FhirPath: "authored", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.UDFOERT_TIDSPUNKT] }
+    source_aktivitet_id:     { DataType: NVARCHAR(255), FhirPath: "identifier.where(system='urn:source:ifdb:aktivitetsresultat').value.first()", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.OBJEKT_ID], FK-None: true }
+    source_model_name:       { DataType: NVARCHAR(255), Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.MODELLERINGSNAVN], Expr: "Modelnavn fra den refererede Questionnaire" }
+    source_model_version:    { DataType: NVARCHAR(100), Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.MODELLERINGSVERSION], Expr: "Modelversion fra den refererede Questionnaire" }
+    dw_is_deleted:           { DataType: INT, Description: "Slettet-flag (0 = live, 1 = slettet). Warehouse-styret: resourcen baerer ingen urn:fhir:isDeleted-extension, og viewet projicerer ikke feltet. Saettes kun af dqa_fhir_server_cleanup og nulstilles ved MERGE-match. NOT NULL DEFAULT 0, saa konsumenter kan skrive '= 0' ensartet paa tvaers af alle fhir.*-tabeller." }
+    last_updated:            { DataType: DATETIME2, FhirPath: "r.ts" }
+    created_at:              { DataType: DATETIME2, FhirPath: "r.cts" }
+    dw_timestamp_effective:  { Type: Audit, DataType: DATETIME2, Expr: "ISNULL(dw_timestamp_update, dw_timestamp_insert) PERSISTED — sargbar delta-discovery-kolonne" }
+
+  Notes:
+    - "De flade svar-rækker (item/answer) ligger i fhir.QuestionnaireResponse_item (intern child-tabel, ikke en selvstændig lineage-ressource). QR.item.linkId matcher Questionnaire.item.linkId (SFI-koden)."

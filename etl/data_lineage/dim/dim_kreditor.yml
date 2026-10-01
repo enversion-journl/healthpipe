@@ -1,0 +1,40 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: dimension
+  TableName: dim.Kreditor
+  Domain: [ERP]
+  Description: "Leverandør-/kreditordimension konsolideret fra SydAX, ILS og MySupply via cvr"
+  Grain: "Én række pr. leverandør/kreditor"
+
+  SourceSystems:
+    - sydax: [Kreditor.Kreditor]
+    - ils: [dbo.lev]
+    - mysupply: [dbo.metadata, dbo.statistic_invoice_header]
+
+  Columns:
+    dw_ek_Kreditor:  { Type: PK, DataType: INT }
+    clean_code_Kreditor: { DataType: NVARCHAR(255), Source: [sydax.Kreditor.Kreditor.JuridiskEnhed, ils.dbo.lev.se_nr, mysupply.dbo.metadata.LeverandorCVR], Expr: "'CVR_' + juridisk_enhed/cvr (DK-landepræfiks trimmet)" }
+    cvrnr:           { DataType: NVARCHAR(50), Source: [sydax.Kreditor.Kreditor.JuridiskEnhed, ils.dbo.lev.se_nr, ils.dbo.lev.cvr_nr, mysupply.dbo.metadata.LeverandorCVR], Expr: "COALESCE-prioritet SydAX -> ILS (se_nr, ellers cvr_nr) -> MySupply; trimmet råværdi (DK-præfiks IKKE trimmet); 'UNKNOWN' hvis alle mangler" }
+    kreditornavn:    { DataType: NVARCHAR(255), Source: [sydax.Kreditor.Kreditor.Kreditornavn, ils.dbo.lev.navn, mysupply.dbo.metadata.FirmaNavn], Expr: "COALESCE-prioritet SydAX -> ILS -> MySupply" }
+    kreditornavn_sydax:    { DataType: NVARCHAR(255), Source: [sydax.Kreditor.Kreditor.Kreditornavn] }
+    kreditornavn_ils:      { DataType: NVARCHAR(255), Source: [ils.dbo.lev.navn] }
+    kreditornavn_mysupply: { DataType: NVARCHAR(255), Source: [mysupply.dbo.metadata.FirmaNavn] }
+    vejnavn:         { DataType: NVARCHAR(255), Source: [ils.dbo.lev.adr, mysupply.dbo.metadata.Adresse], Expr: "COALESCE-prioritet ILS -> MySupply" }
+    vejnavn_ils:      { DataType: NVARCHAR(255), Source: [ils.dbo.lev.adr] }
+    vejnavn_mysupply: { DataType: NVARCHAR(255), Source: [mysupply.dbo.metadata.Adresse] }
+    bynavn:          { DataType: NVARCHAR(255), Source: [ils.dbo.lev.adr2, mysupply.dbo.metadata.ByNavn], Expr: "COALESCE-prioritet ILS -> MySupply" }
+    bynavn_ils:      { DataType: NVARCHAR(255), Source: [ils.dbo.lev.adr2] }
+    bynavn_mysupply: { DataType: NVARCHAR(255), Source: [mysupply.dbo.metadata.ByNavn] }
+    postnummer:      { DataType: NVARCHAR(20), Source: [ils.dbo.lev.postdi, mysupply.dbo.metadata.Postnummer], Expr: "COALESCE-prioritet ILS -> MySupply" }
+    postnummer_ils:      { DataType: NVARCHAR(255), Source: [ils.dbo.lev.postdi] }
+    postnummer_mysupply: { DataType: NVARCHAR(50), Source: [mysupply.dbo.metadata.Postnummer] }
+    kontakt:         { DataType: NVARCHAR(255), Source: [ils.dbo.lev.kontakt] }
+    valutakode:      { DataType: NVARCHAR(10), Source: [mysupply.dbo.statistic_invoice_header.FakturaValutaKode] }
+    dw_source_sydax:    { DataType: BIT, Expr: "1 hvis CVR'et nogensinde er set i SydAX, ellers 0 (sticky via map.Kreditor — flippes aldrig tilbage til 0)" }
+    dw_source_ils:      { DataType: BIT, Expr: "1 hvis CVR'et nogensinde er set i ILS, ellers 0 (sticky via map.Kreditor — flippes aldrig tilbage til 0)" }
+    dw_source_mysupply: { DataType: BIT, Expr: "1 hvis CVR'et nogensinde er set i MySupply, ellers 0 (sticky via map.Kreditor — flippes aldrig tilbage til 0)" }

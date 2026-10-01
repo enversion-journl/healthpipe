@@ -1,0 +1,11 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: mailto:support@journl.dk
+    about: Please report security issues privately by email — do not open a public issue. See SECURITY.md for what to include.
