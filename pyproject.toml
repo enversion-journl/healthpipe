@@ -56,7 +56,7 @@ dev = [
     # check-ruff-pin hook enforces it.
     "ruff==0.16.3",
     # Dagster development tools
-    "dagster-graphql==1.13.18",
+    "dagster-graphql==1.13.24",
     "pre-commit==4.3.0",
     # Testing utilities
     "responses>=0.24.0",  # For HTTP mocking (FHIR server)
