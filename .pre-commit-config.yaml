@@ -54,7 +54,7 @@ repos:
 
   # Pre-commit hooks for general file checks
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.6.0
+    rev: v6.0.0
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer
@@ -77,7 +77,7 @@ repos:
 
   # Black for formatting (including long lines)
   - repo: https://github.com/psf/black
-    rev: 25.9.0
+    rev: 26.5.1
     hooks:
       - id: black
         language_version: python3.12
@@ -86,7 +86,7 @@ repos:
 
   # Ruff for linting with auto-fixes
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.16.3
+    rev: v0.16.9
     hooks:
       # ruff-check, not the `ruff` legacy alias. Lint only — black is the formatter,
       # so the ruff-format hook is deliberately absent.
