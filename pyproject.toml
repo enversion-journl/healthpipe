@@ -48,26 +48,26 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "pytest==9.0.3",
-    "pytest-mock>=3.12.0",
-    "pytest-order>=1.0.0",
-    "black==25.9.0",
+    "pytest==9.1.1",
+    "pytest-mock>=3.16.0",
+    "pytest-order>=1.5.0",
+    "black==26.5.1",
     # Must equal the ruff-pre-commit rev in .pre-commit-config.yaml; the
     # check-ruff-pin hook enforces it.
-    "ruff==0.16.3",
+    "ruff==0.16.9",
     # Dagster development tools
     "dagster-graphql==1.13.18",
-    "pre-commit==4.3.0",
+    "pre-commit==4.6.2",
     # Testing utilities
     "responses>=0.24.0",  # For HTTP mocking (FHIR server)
     "uv>=0.10.2",
     # Coverage + static analysis used by CI (test / mypy / pip-audit jobs)
-    "pytest-cov>=5.0",
+    "pytest-cov>=7.1.0",
     # mypy pinned: `>=1.11` let CI install 2.3.1 on its own, and a major version of
     # the type checker changes what the gate reports without anyone deciding to.
     # pip-audit stays floating on purpose — the CVE data should be fresh.
     "mypy==2.3.1",
-    "pip-audit>=2.7",
+    "pip-audit>=2.10.1",
 ]
 
 # Jupyter was a hard RUNTIME dependency until 2026-08-25, which meant it shipped
