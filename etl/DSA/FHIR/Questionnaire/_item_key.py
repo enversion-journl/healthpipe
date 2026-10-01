@@ -19,5 +19,5 @@ def stable_sfi_item_id(prefix: str, primary: Any, *fallback_parts: Any) -> str:
         if primary_text:
             return f"{prefix}-{primary_text}"[:64]
     seed = "|".join("" if part is None else str(part) for part in fallback_parts)
-    digest = hashlib.sha1(seed.encode("utf-8")).hexdigest()[:16]
+    digest = hashlib.sha1(seed.encode("utf-8"), usedforsecurity=False).hexdigest()[:16]
     return f"{prefix}-{digest}"

@@ -254,7 +254,9 @@ class SharedIdentifierCache:
         """
         if cache_dir is None:
             cache_dir = SharedIdentifierCache.default_cache_dir()
-        disc_hash = hashlib.md5("|".join(sorted(discriminator)).encode()).hexdigest()[:10]
+        disc_hash = hashlib.md5(
+            "|".join(sorted(discriminator)).encode(), usedforsecurity=False
+        ).hexdigest()[:10]
         safe_ns = SharedIdentifierCache.safe_namespace(namespace)
         return os.path.join(cache_dir, f"{safe_ns}_{disc_hash}.sqlite")
 
