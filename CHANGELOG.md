@@ -11,7 +11,6 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - DCO sign-off check for pull requests.
 - CI job that builds the code-server Docker images.
-- Dependabot updates for pre-commit hooks.
 - Release-note categories (`.github/release.yml`), `CHANGELOG.md` and `.editorconfig`.
 
 ### Changed
@@ -19,6 +18,11 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Ruff replaces flake8 as the only linter. Bandit now blocks high-severity findings.
 - `dagster definitions validate` is now a required CI check.
 - CODEOWNERS points to `@enversion-journl/developers`.
+
+### Removed
+
+- Dependabot version updates. Each release replaces the files that Dependabot changes,
+  so its pull requests could not be kept.
 
 ## [1.0.75] - 2026-09-30
 
