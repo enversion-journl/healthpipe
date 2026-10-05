@@ -1,0 +1,35 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: dimension
+  TableName: dim.BudgetEgenskaber
+  Domain: [ERP]
+  Description: "Budgetegenskabsdimension — budgetmodel og budgetpost-attributter fra SydAX"
+  Grain: "Én række pr. unik kombination af budgetmodel og budgetpost-egenskaber"
+
+  SourceSystems:
+    - sydax: [Finans.Budgetpost, Finans.Budgetmodel, Finans.BudgetpostStatus, Finans.BudgetbeløbType, Finans.BudgetmodelType, Finans.OmkostningsstedHierarki]
+
+  Columns:
+    dw_ek_BudgetEgenskaber:    { Type: PK, DataType: INT }
+    bk_ref_budgetmodel_id:      { DataType: NVARCHAR(100), Source: [sydax.Finans.Budgetmodel.ref_BudgetmodelId] }
+
+    budgetmodelnummer:    { DataType: NVARCHAR(100), Source: [sydax.Finans.Budgetmodel.Budgetmodelnummer] }
+    budgetmodeltekst:     { DataType: NVARCHAR(255), Source: [sydax.Finans.Budgetmodel.Budgetmodeltekst] }
+    budgetmodeltype:      { DataType: NVARCHAR(255), Source: [sydax.Finans.BudgetmodelType.BudgetmodelTypeTekst] }
+    er_lukket:             { DataType: BIT, Source: [sydax.Finans.Budgetmodel.ErLukket] }
+
+    valutakode:               { DataType: NVARCHAR(10), Source: [sydax.Finans.Budgetpost.Valutakode] }
+    debet_kredit:              { DataType: NVARCHAR(20), Source: [sydax.Finans.Budgetpost.DebetKredit] }
+    budgetkode:               { DataType: NVARCHAR(50), Source: [sydax.Finans.Budgetpost.Budgetkode] }
+    aendringstype:            { DataType: NVARCHAR(50), Source: [sydax.Finans.Budgetpost.Ændringstype] }
+    aendringstype_beskrivelse: { DataType: NVARCHAR(255), Source: [sydax.Finans.Budgetpost.ÆndringstypeBeskrivelse] }
+    beloebstype_id:            { DataType: NVARCHAR(50), Source: [sydax.Finans.Budgetpost.BeloebstypeId] }
+    budgetbeloeb_typetekst:    { DataType: NVARCHAR(1000), Source: [sydax.Finans.BudgetbeløbType.BudgetbeløbTypetekst] }
+    budgetpost_status_id:       { DataType: NVARCHAR(50), Source: [sydax.Finans.BudgetpostStatus.BudgetpostStatusId] }
+    budgetpost_status_tekst:    { DataType: NVARCHAR(255), Source: [sydax.Finans.BudgetpostStatus.BudgetpostStatustekst] }
+    omkostningsstednummer:    { DataType: NVARCHAR(50), Source: [sydax.Finans.OmkostningsstedHierarki.nummer1..nummer20], Expr: "dybeste ikke-null niveau fra hierarki" }

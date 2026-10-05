@@ -10,25 +10,23 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "healthpipe"
-version = "0.1.0"
+version = "1.0.1"
 description = "Healthpipe — an open-source healthcare data pipeline platform"
 readme = "README.md"
 requires-python = "==3.12.*"
 dependencies = [
     "pandas==2.3.2",
-    "jupyter==1.1.1",
     "sqlalchemy==2.0.43",
     "pymssql==2.3.7",
     # "psycopg2-binary",
     "psycopg[binary]>=3.1,<4",
     # Dagster core
-    "dagster==1.11.11",
-    "dagster-webserver==1.11.11",
+    "dagster==1.13.18",
+    "dagster-webserver==1.13.18",
     # Dagster integrations
-    "dagster-postgres==0.27.11",
-    "dagster-docker==0.27.11",
-    "dagster-pandas==0.27.11",
-    "dagster-sqlalchemy==0.3.5",
+    "dagster-postgres==0.29.18",
+    "dagster-docker==0.29.18",
+    "dagster-pandas==0.29.18",
     # Other dependencies (Dagster)
     "python-tds>=1.12,<2",
     "python-dotenv>=1.0,<2",
@@ -40,40 +38,66 @@ dependencies = [
     "oracledb>=3.4.0",
     "csv2db>=1.6.1",
     "networkx>=3.5",
-    "mssql-python>=1.5.0",
+    "mssql-python==1.13.0",
     "lxml>=6.1.1",
     "orjson>=3.9.0",
+    # AD/LDAP security extraction (infrastructure/security/export_healthpipe_ad_groups.py -> extract_security asset)
+    "ldap3>=2.9,<3",
+    "pycryptodome>=3.20,<4",  # NTLM auth (MD4) on Python 3.12+
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest==8.4.2",
+    "pytest==9.0.3",
     "pytest-mock>=3.12.0",
     "pytest-order>=1.0.0",
     "black==25.9.0",
-    "ruff>=0.6.0",
-    "flake8==7.3.0",
-    "isort==7.0.0",
+    # Must equal the ruff-pre-commit rev in .pre-commit-config.yaml; the
+    # check-ruff-pin hook enforces it.
+    "ruff==0.16.3",
     # Dagster development tools
-    "dagster-graphql==1.11.11",
+    "dagster-graphql==1.13.18",
     "pre-commit==4.3.0",
     # Testing utilities
     "responses>=0.24.0",  # For HTTP mocking (FHIR server)
     "uv>=0.10.2",
-    # Coverage + static analysis used by the GitLab CI pipeline (test / mypy / pip-audit jobs)
+    # Coverage + static analysis used by CI (test / mypy / pip-audit jobs)
     "pytest-cov>=5.0",
-    "mypy>=1.11",
+    # mypy pinned: `>=1.11` let CI install 2.3.1 on its own, and a major version of
+    # the type checker changes what the gate reports without anyone deciding to.
+    # pip-audit stays floating on purpose — the CVE data should be fresh.
+    "mypy==2.3.1",
     "pip-audit>=2.7",
 ]
 
+# Jupyter was a hard RUNTIME dependency until 2026-08-25, which meant it shipped
+# in the production code-server images too. Nothing in this repo imports it —
+# no `import jupyter`/`IPython`/`nbformat`/`ipywidgets` anywhere, and there is no
+# notebooks/ directory — yet it dragged in 72 transitive packages: jupyterlab,
+# notebook, nbconvert, ipykernel, ipywidgets, jupyter-server and their tails.
+#
+# Measured effect of moving it out (resolved for py3.12):
+#   packages          224 -> 152
+#   site-packages     803 MB -> 645 MB
+#   CI image          336 MB -> 290 MB compressed
+# The full unit suite is unchanged without it: 3341 passed, 9 skipped, 1 xfailed,
+# and `dagster definitions validate` still passes.
+#
+# The point is not CI speed — that is only ~1s per job. It is that 72 packages
+# that nothing imports were being shipped to production and audited by pip-audit
+# on every pipeline. Install with `.[notebooks]` if you want a local notebook.
+notebooks = [
+    "jupyter==1.1.1",
+]
+
 # Explicit package discovery: this is a flat layout (the importable code lives
-# under dagster_etl/), so without this setuptools sees sibling dirs (data/, work/,
+# under etl/), so without this setuptools sees sibling dirs (data/, work/,
 # node_modules/, …) as ambiguous top-level packages and refuses to build. Scope
-# discovery to dagster_etl* so `pip install -e .` works regardless of what else
+# discovery to etl* so `pip install -e .` works regardless of what else
 # is present in the workspace.
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["dagster_etl*"]
+include = ["etl*"]
 
 # Dagster configuration
 [tool.dagster]
@@ -131,101 +155,43 @@ preview = true
 
 [tool.ruff.lint]
 # Keep this focused; expand later as desired
-select = ["E", "F", "UP", "B"]
+select = ["E", "W", "F", "UP", "B", "TID", "I"]
 # Delegate line-length to Black (no line length enforcement in Ruff)
-# Import sorting handled by isort (removed "I" to avoid conflicts)
-ignore = ["E203", "E402", "E501"]
+# Ruff (I) is the only import sorter — do not add a second one alongside it.
+# UP042/UP046/UP047 want StrEnum and PEP 695 generics — unsafe-fix-only rewrites
+# (StrEnum changes what str()/f-strings return; PEP 695 rewrites signatures in the
+# parallel core). Adopt deliberately, not as a side effect of a linter bump.
+ignore = ["E203", "E402", "E501", "UP042", "UP046", "UP047"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+# Absolute imports everywhere (rule 00); __init__.py re-exports are exempt below
+ban-relative-imports = "all"
 
 [tool.ruff.lint.per-file-ignores]
-# DSA FHIR
-"dagster_etl/DSA/FHIR/IFDB/assets/episode_of_care.py" = ["F841"]
-"dagster_etl/DSA/FHIR/IFDB/assets/condition.py" = ["F841"]
-"dagster_etl/DSA/FHIR/IFDB/assets/patient.py" = ["B007"]
-"dagster_etl/DSA/FHIR/IFDB/utils/validation.py" = ["F821"]
-"dagster_etl/DSA/FHIR/IFDB/utils/yaml_loader.py" = ["B007"]
-"dagster_etl/DSA/FHIR/assets/__init__.py" = ["F401"]
-# Utils
-"dagster_etl/utils/fhir_validator.py" = ["E722"]
-"dagster_etl/mock_data/sql_snippets/run_mock_data_scripts.py" = ["E741"]
+# Re-export files keep their relative imports, and their import ORDER is
+# load-bearing for re-exports and cycles — hence I001 is exempt here too.
+"**/__init__.py" = ["TID252", "I001"]
 # Tests
-"dagster_etl/tests/conftest.py" = ["F405", "E402"]
-"dagster_etl/tests/fixtures/test_data.py" = ["B011"]
-"dagster_etl/tests/test_fixture_setups.py" = ["F841"]
-"dagster_etl/tests/test_setup_verification.py" = ["F841", "F401", "E402"]
-"dagster_etl/tests/utils/query_helpers.py" = ["F841"]
-"dagster_etl/tests/utils/verification_helpers.py" = ["B904"]
+"etl/tests/conftest.py" = ["F405", "E402"]
+"etl/tests/fixtures/test_data.py" = ["B011"]
+"etl/tests/utils/query_helpers.py" = ["F841"]
+"etl/tests/utils/verification_helpers.py" = ["B904"]
 # Sources
-"dagster_etl/sources/oracle/__init__.py" = ["F401"]
-"dagster_etl/sources/oracle/ifdb_assets.py" = ["F841"]
+"etl/sources/oracle/__init__.py" = ["F401"]
+"etl/sources/oracle/ifdb_assets.py" = ["F841"]
 # DSI re-export packages (intentional public-API re-exports)
-"dagster_etl/DSI/extract/IFDB/__init__.py" = ["F401"]
-"dagster_etl/DSI/oracle/__init__.py" = ["F401"]
+"etl/DSI/extract/IFDB/__init__.py" = ["F401"]
+"etl/DSI/oracle/__init__.py" = ["F401"]
 # Forward-ref / lazy-import string annotations (types imported lazily / under TYPE_CHECKING)
-"dagster_etl/tests/integration/fhir_ifdb/conftest.py" = ["F821"]
+"etl/tests/integration/fhir_ifdb/conftest.py" = ["F821"]
 ".devcontainer/startup_scripts/create_databases.py" = ["F821"]
 # Benign loop-var closures (invoked in-iteration) in perf benchmarks
-"dagster_etl/tests/performance/test_batch_upsert_performance.py" = ["B023"]
-"dagster_etl/tests/performance/test_memory_cache_vs_postgres.py" = ["B023"]
+"etl/tests/performance/test_batch_upsert_performance.py" = ["B023"]
+"etl/tests/performance/test_memory_cache_vs_postgres.py" = ["B023"]
 # Frozen-config immutability test (asserts mutation is rejected; exact exc type is an impl detail)
-"dagster_etl/tests/unit/test_dfm_extract_factory.py" = ["B017"]
+"etl/tests/unit/test_dfm_extract_factory.py" = ["B017"]
 
-# Flake8 configuration
-[tool.flake8]
-max-line-length = 100
-extend-ignore = ["E203", "E402", "E501"]
-exclude = [
-    ".eggs",
-    ".git",
-    ".hg",
-    ".mypy_cache",
-    ".tox",
-    ".venv",
-    "build",
-    "dist",
-    "nomad_stack",
-    "daniel",
-    "output",
-    "nomad_data",
-    "notebooks",
-]
-per-file-ignores = [
-    "dagster_etl/DSA/FHIR/IFDB/assets/episode_of_care.py:F841",
-    "dagster_etl/DSA/FHIR/IFDB/assets/condition.py:F841",
-    "dagster_etl/DSA/FHIR/IFDB/assets/patient.py:B007",
-    "dagster_etl/DSA/FHIR/IFDB/utils/validation.py:F821",
-    "dagster_etl/DSA/FHIR/IFDB/utils/yaml_loader.py:B007",
-    "dagster_etl/DSA/FHIR/assets/__init__.py:F401",
-    "dagster_etl/utils/codegen.py:F841,B904",
-    "dagster_etl/utils/fhir_codegen.py:F841",
-    "dagster_etl/utils/fhir_validator.py:E722",
-    "dagster_etl/mock_data/sql_snippets/run_mock_data_scripts.py:E741",
-    "dagster_etl/tests/conftest.py:F405,E402",
-    "dagster_etl/tests/fixtures/test_data.py:B011",
-    "dagster_etl/tests/test_fixture_setups.py:F841",
-    "dagster_etl/tests/test_setup_verification.py:F841,F401,E402",
-    "dagster_etl/tests/utils/query_helpers.py:F841",
-    "dagster_etl/tests/utils/verification_helpers.py:B904",
-    "dagster_etl/sources/oracle/__init__.py:F401",
-    "dagster_etl/sources/oracle/ifdb_assets.py:F841",
-    "dagster_etl/DSI/extract/IFDB/__init__.py:F401",
-    "dagster_etl/DSI/oracle/__init__.py:F401",
-    "dagster_etl/tests/integration/fhir_ifdb/conftest.py:F821",
-    ".devcontainer/startup_scripts/create_databases.py:F821",
-]
-
-# isort configuration
-[tool.isort]
-profile = "black"
-line_length = 100
-multi_line_output = 3
-include_trailing_comma = true
-force_grid_wrap = 0
-use_parentheses = true
-ensure_newline_before_comments = true
-known_first_party = ["dagster_etl"]
-skip = ["__init__.py"]
-
-# Mypy configuration — REPORT-ONLY in the GitLab CI pipeline (allow_failure). The tree is
+# Mypy configuration — REPORT-ONLY in CI (continue-on-error). The tree is
 # largely untyped, so keep this lenient: resolve what we can, ignore missing third-party
 # stubs, and skip the test / mock-data trees. Tighten incrementally as modules gain types.
 [tool.mypy]
@@ -235,21 +201,37 @@ follow_imports = "silent"
 warn_unused_ignores = false
 no_implicit_optional = true
 exclude = [
-    '^dagster_etl/tests/',
-    '^dagster_etl/mock_data/',
+    '^etl/tests/',
+    '^etl/mock_data/',
 ]
 
+# fhir.resources models are pydantic models whose optional fields mypy reads as
+# required, so every `Extension(url=…)` reported one "Missing named argument" per
+# unset field: 4709 of the typecheck job's 5456 errors, and zero of them real
+# (`Encounter(class_fhir=…)` was flagged as an unexpected keyword and is valid at
+# runtime). `follow_imports = "skip"` types the package as Any, which drops the
+# noise while leaving ordinary type errors in our own code visible. The pydantic
+# mypy plugin was tried first and changed nothing — fhir.resources does not declare
+# its fields the way the plugin expects.
+#
+# The trade-off: mypy no longer checks FHIR model construction at all, so a
+# misspelled field name there will not be caught. Revisit if fhir.resources ships
+# mypy-friendly models.
+[[tool.mypy.overrides]]
+module = "fhir.resources.*"
+follow_imports = "skip"
+
 # Pytest configuration
-# Note: Tests should be run from dagster_etl/ directory which has pytest.ini
+# Note: Tests should be run from etl/ directory which has pytest.ini
 # This configuration is disabled at root level to prevent duplicate test discovery
 # Remove or comment out to allow root-level test discovery
 # [tool.pytest.ini_options]
-# testpaths = ["dagster_etl/tests"]
+# testpaths = ["etl/tests"]
 # python_files = ["test_*.py", "*_test.py"]
 # python_classes = ["Test*"]
 # python_functions = ["test_*"]
 # addopts = "-v --tb=short --strict-markers"
-# pythonpath = ["dagster_etl"]
+# pythonpath = ["etl"]
 # filterwarnings = [
 #     "ignore::UserWarning",
 #     "ignore::pydantic.warnings.PydanticDeprecatedSince20",

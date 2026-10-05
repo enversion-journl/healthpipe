@@ -1,0 +1,170 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+services:
+  devcontainer:
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
+    volumes:
+      - ..:/workspaces/healthpipe:cached
+    ports:
+      - "3000:3000"
+    environment:
+      - FHIR_SERVER_URL=http://fhir-server:8888
+      - FHIR_CLIENT_USERNAME=${FHIR_CLIENT_USERNAME:-root}
+      - FHIR_CLIENT_PASSWORD=${FHIR_CLIENT_PASSWORD:-secret}
+      # Non-secret paths belong here, next to the mount they are derived from — not
+      # in the root .env, which is a secret handed out via Bitwarden and therefore
+      # cannot be updated by a commit. `environment:` also overrides `env_file:`, so
+      # a stale copy in someone's .env can't win, and these hold for every process
+      # in the container (a plain `docker exec` too), not just the editor's.
+      #
+      # PYTHONPATH: definitions.py and its packages (core, DSA, …) are imported as
+      # top-level modules, so etl/ must be the source root on sys.path for the root
+      # pyproject's [tool.dagster] module_name = "definitions" to resolve. Without
+      # it, `dagster definitions validate` fails with a bare
+      # "ModuleNotFoundError: No module named 'definitions'". The production images
+      # set the same variable in the Dockerfile (ENV PYTHONPATH=…/etl).
+      - PYTHONPATH=/workspaces/healthpipe/etl
+      - DATA_DIR=/workspaces/healthpipe/data
+    env_file:
+      - ../.env
+
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_password}
+      POSTGRES_DB: ${POSTGRES_DB:-postgres_db}
+    volumes:
+      - postgresdata:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD", "pg_isready", "-U", "${POSTGRES_USER:-postgres_user}", "-d", "${POSTGRES_DB:-postgres_db}" ]
+      interval: 3s
+      retries: 30
+
+  fhir-server-db:
+    image: healthsamurai/aidboxdb:17.5
+    environment:
+      POSTGRES_USER: ${FHIR_SERVER_DB_USER:-postgres_user}
+      POSTGRES_PASSWORD: ${FHIR_SERVER_DB_PASSWORD:-postgres_password}
+      POSTGRES_DB: ${FHIR_SERVER_DB_DATABASE:-aidbox}
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_buffers=256MB"
+      - "-c"
+      - "work_mem=16MB"
+      - "-c"
+      - "maintenance_work_mem=128MB"
+    volumes:
+      - fhir-server-dbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD", "pg_isready", "-U", "${FHIR_SERVER_DB_USER:-postgres_user}", "-d", "${FHIR_SERVER_DB_DATABASE:-aidbox}" ]
+      interval: 3s
+      retries: 60
+
+  fhir-server:
+    image: healthsamurai/aidboxone:2508
+    depends_on:
+      - fhir-server-db
+    env_file:
+      - ../.env
+    environment:
+      # Cap the JVM heap so the content-complete CodeSystem PUTs (~69 MB SOR)
+      # don't let the JVM balloon and OOM-kill the container.
+      JAVA_TOOL_OPTIONS: "-Xmx2560m -Xms256m"
+      AIDBOX_DEV_MODE: "true"
+      PGPORT: 5432
+      PGHOST: fhir-server-db
+      PGUSER: ${FHIR_SERVER_DB_USER:-postgres_user}
+      PGPASSWORD: ${FHIR_SERVER_DB_PASSWORD:-postgres_password}
+      PGDATABASE: ${FHIR_SERVER_DB_DATABASE:-aidbox}
+      AIDBOX_CLIENT_SECRET: ${AIDBOX_CLIENT_SECRET:-secret}
+      AIDBOX_ADMIN_PASSWORD: ${AIDBOX_ADMIN_PASSWORD:-secret}
+      # AIDBOX_LICENSE is injected from the gitignored root .env via env_file (../.env).
+      # Obtain a free development license from the Aidbox vendor; never commit it.
+      BOX_AUTH_KEYS_SECRET: auth-key-secret
+      BOX_AUTH_KEYS_PRIVATE: the-private-secret
+      BOX_AUTH_KEYS_PUBLIC: the-public-secret
+      AIDBOX_PORT: 8888
+      AIDBOX_BASE_URL: http://fhir-server:8888
+      AIDBOX_FHIR_INIT_BUNDLE_PATH: /init-bundle.json
+      # FHIR Schema engine configuration
+      BOX_FHIR_SCHEMA_VALIDATION: "true"
+      BOX_BOOTSTRAP_FHIR_PACKAGES: "hl7.fhir.r4.core#4.0.1"
+      AIDBOX_FHIR_VERSION: "4.0.1"
+      # Hybrid terminology engine: required so the content-complete CodeSystem PUT
+      # is indexed for native $lookup / $validate-code. Codes resolve from local
+      # content; the tx-server is a guaranteed-unreachable .invalid placeholder so
+      # no codes egress externally.
+      BOX_FHIR_TERMINOLOGY_ENGINE: "hybrid"
+      BOX_FHIR_TERMINOLOGY_ENGINE_HYBRID_EXTERNAL_TX_SERVER: "http://tx-not-configured.invalid"
+      # Max request body in bytes (Aidbox default 20 MiB). Content-complete
+      # CodeSystem PUTs exceed the default (HTTP 413); 256 MB gives headroom.
+      BOX_WEB_MAX_BODY: "268435456"
+    ports:
+      - "8888:8888"
+    volumes:
+      - "./init-bundle.json:/init-bundle.json"
+      - "./tmp:/tmp"
+    healthcheck:
+      test: [ "CMD", "curl", "-sf", "http://localhost:8888/__healthcheck" ]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+
+  mssql:
+    image: ${MSSQL_IMAGE:-mcr.microsoft.com/mssql/server:2022-latest}
+    platform: ${MSSQL_PLATFORM:-linux/amd64}
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_USERNAME: ${MSSQL_USERNAME:-sa}
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:-tempPassword1!}
+      # Cap the buffer pool so SQL Server can't exhaust the Docker VM and starve
+      # the other DB containers (Oracle/Postgres/Aidbox). Tune in .devcontainer/.env.
+      MSSQL_MEMORY_LIMIT_MB: ${MSSQL_MEMORY_LIMIT_MB:-1024}
+      MSSQL_STAGING_DB: ${MSSQL_STAGING_DB:-staging}
+      MSSQL_DSO_DB: ${MSSQL_DSO_DB:-dso}
+      MSSQL_ILS_DB: ${MSSQL_ILS_DB:-ils}
+      MSSQL_COSMIC_DB: ${MSSQL_COSMIC_DB:-cosmic}
+      MSSQL_MYSUPPLY_DB: ${MSSQL_MYSUPPLY_DB:-mysupply}
+      MSSQL_SYDAX_DB: ${MSSQL_SYDAX_DB:-sydax}
+    healthcheck:
+      test: [ "CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U ${MSSQL_USERNAME:-sa} -P \"$${MSSQL_SA_PASSWORD:-tempPassword1!}\" -C -Q \"SELECT 1\" || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    volumes:
+      - mssql-data-v2:/var/opt/mssql
+
+  oracle:
+    image: ${ORACLE_IMAGE:-gvenzl/oracle-free:full-faststart}
+    environment:
+      ORACLE_PASSWORD: ${ORACLE_PASSWORD:-tempPassword1!}
+      ORACLE_DATABASE: ${ORACLE_DATABASE:-ORACLE_DB}
+      APP_USER: ${APP_USER:-myuser}
+      APP_USER_PASSWORD: ${APP_USER_PASSWORD:-tempPassword1!}
+    volumes:
+      - oracle-v1:/opt/oracle/oradata
+    ports:
+      - "1522:1521"
+    healthcheck:
+      test: [ "CMD", "sqlplus", "-L", "system/${ORACLE_PASSWORD:-tempPassword1!}@localhost:1521/${ORACLE_DATABASE:-ORACLE_DB}", "@/dev/null" ]
+      interval: 30s
+      timeout: 10s
+      retries: 30
+      start_period: 60s
+
+volumes:
+  postgresdata:
+  fhir-server-dbdata:
+  fhir-server-data: # …-v1 suffix on the data-baked DB volumes: bump it when the baked image's
+
+  oracle-v1:
+  mssql-data-v2:

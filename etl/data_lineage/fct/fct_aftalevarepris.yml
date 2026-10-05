@@ -1,0 +1,48 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fact
+  TableName: fct.AftaleVarePris
+  Domain: [ERP]
+  Description: "Prisversioner pr. aftalelinje fra ILS — kildeleveret historik. Bridge for mange-mange relationen dim.Leverandoervare <-> dim.Aftale."
+  Grain: "Én række pr. prisversion pr. aftalelinje (lnr, aftale, vnr, start_, startklk)"
+
+  SourceSystems:
+    - ils: [dbo.laftdpris, dbo.laftd, dbo.lafth, dbo.laftdstam, dbo.lev, dbo.vare]
+
+  Columns:
+    dw_sk_AftaleVarePris: { Type: PK, DataType: BIGINT, Expr: "IDENTITY — én pr. prisversionsraekke" }
+    dw_ek_AftaleVarePris: { DataType: INT, FK-None: true, Expr: "Entitetsnoegle fra map.AftaleVarePris — stabil pr. aftale x vare-par paa tvaers af prisversioner (dw_sk er unik pr. prisversion)" }
+    dw_ek_Aftale:         { Type: FK, DataType: INT, FK-Target: dim.Aftale, Source: [ils.dbo.laftdpris.lnr, ils.dbo.laftdpris.aftale] }
+    dw_ek_Leverandoervare:           { Type: FK, DataType: INT, FK-Target: dim.Leverandoervare, Source: [ils.dbo.lev.se_nr, ils.dbo.laftdstam.lvnr1], Description: "-1 naar lvnr1/CVR mangler i kilden" }
+    dw_ek_ILSVare:        { Type: FK, DataType: INT, FK-Target: dim.ILSVare, Source: [ils.dbo.laftdpris.vnr] }
+    dw_ek_Kreditor:       { Type: FK, DataType: INT, FK-Target: dim.Kreditor, Source: [ils.dbo.lev.se_nr] }
+    clean_code_AftaleVarePris: { DataType: NVARCHAR(500), Expr: "AFTALE_{lnr}_{aftalenr}_VARE_{vnr}" }
+    bk_prrowid:           { DataType: NVARCHAR(100), Source: [ils.dbo.laftdpris.prrowid], Description: "Unik merge-noegle" }
+    bk_leverandoernummer: { DataType: NVARCHAR(100), Source: [ils.dbo.laftdpris.lnr] }
+    bk_aftale_nummer:      { DataType: NVARCHAR(100), Source: [ils.dbo.laftdpris.aftale] }
+    bk_ils_varenummer:     { DataType: NVARCHAR(100), Source: [ils.dbo.laftdpris.vnr] }
+    pris1:                { DataType: DECIMAL(18,4), Source: [ils.dbo.laftdpris.pris1] }
+    pris2:                { DataType: DECIMAL(18,4), Source: [ils.dbo.laftdpris.pris2] }
+    pris3:                { DataType: DECIMAL(18,4), Source: [ils.dbo.laftdpris.pris3] }
+    pris4:                { DataType: DECIMAL(18,4), Source: [ils.dbo.laftdpris.pris4] }
+    pakkestoerrelse1:     { DataType: DECIMAL(18,4), Source: [ils.dbo.laftdpris.pakstr1] }
+    pakkestoerrelse2:     { DataType: DECIMAL(18,4), Source: [ils.dbo.laftdpris.pakstr2] }
+    pakkestoerrelse3:     { DataType: DECIMAL(18,4), Source: [ils.dbo.laftdpris.pakstr3] }
+    pakkestoerrelse4:     { DataType: DECIMAL(18,4), Source: [ils.dbo.laftdpris.pakstr4] }
+    momskode:             { DataType: NVARCHAR(50), Source: [ils.dbo.vare.momskd] }
+    kreditorvarenummer1:  { DataType: NVARCHAR(100), Source: [ils.dbo.laftdstam.lvnr1] }
+    kreditorvarenummer2:  { DataType: NVARCHAR(100), Source: [ils.dbo.laftd.lvnr2] }
+    kreditorvarenummer3:  { DataType: NVARCHAR(100), Source: [ils.dbo.laftd.lvnr3] }
+    maerke:               { DataType: NVARCHAR(255), Source: [ils.dbo.laftd.maerke] }
+    linje_start:           { DataType: DATETIME2, Source: [ils.dbo.laftd.start_] }
+    linje_slut:            { DataType: DATETIME2, Source: [ils.dbo.laftd.slut] }
+    dw_valid_from:         { DataType: DATETIME2(0), Source: [ils.dbo.laftdpris.start_, ils.dbo.laftdpris.startklk], Expr: "DATEADD(SECOND, startklk, start_) — kildeleveret gyldighed" }
+    dw_valid_to:           { DataType: DATETIME2(0), Source: [ils.dbo.laftdpris.slut] }
+    dw_is_current:            { DataType: BIT, Expr: "1 for nyeste ikrafttraadte prisversion pr. aftalelinje (start_ <= i dag, ROW_NUMBER start_ DESC, startklk DESC)" }
+    source_aktiv:          { DataType: BIT, Source: [ils.dbo.laftdpris.aktiv] }
+    dw_is_deleted:         { DataType: BIT, Expr: "Blød sletning (1 = slettet)" }

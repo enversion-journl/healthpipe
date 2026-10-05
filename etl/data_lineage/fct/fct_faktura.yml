@@ -1,0 +1,59 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fact
+  TableName: fct.Faktura
+  Domain: [ERP]
+  Description: "Fakturahoved fact tabel — én række pr. faktura fra MySupply"
+  Grain: "Én række pr. faktura, identificeret ved metadata + header-ID fra MySupply"
+
+  SourceSystems:
+    - mysupply: [dbo.statistic_invoice_header, dbo.statistic_invoice_line, dbo.metadata, dbo.statistic_invoice_header_allowance_charge]
+
+  Columns:
+    dw_ek_Faktura:      { Type: PK, DataType: INT, FK-Target: dim.Faktura }
+
+    dw_ek_Kreditor:     { Type: FK, DataType: INT, Source: [mysupply.dbo.statistic_invoice_header.FakturaUdstederCVRNummer, mysupply.dbo.metadata.LeverandorCVR] }
+    dw_ek_EAN_regningsmodtager: { Type: FK, DataType: INT, Source: [mysupply.dbo.statistic_invoice_header.RegningsModtagerID] }
+
+    dw_ek_Dato_faktura:   { Type: FK, DataType: INT, Source: [mysupply.dbo.statistic_invoice_header.FakturaDato] }
+    dato_tid_faktura:      { DataType: DATETIME2, Source: [mysupply.dbo.statistic_invoice_header.FakturaDato] }
+    dw_ek_Dato_ordre:     { Type: FK, DataType: INT, Source: [mysupply.dbo.statistic_invoice_header.OrdreDato] }
+    dato_tid_ordre:         { DataType: DATETIME2, Source: [mysupply.dbo.statistic_invoice_header.OrdreDato] }
+    dw_ek_Dato_betaling:  { Type: FK, DataType: INT, Source: [mysupply.dbo.statistic_invoice_header.BetalingsDato] }
+    dato_tid_betaling:      { DataType: DATETIME2, Source: [mysupply.dbo.statistic_invoice_header.BetalingsDato] }
+
+    faktura_nr:          { DataType: NVARCHAR(100), Source: [mysupply.dbo.statistic_invoice_header.FakturaNr] }
+
+    moms_procent:        { Type: Measure, DataType: DECIMAL(9,4), Source: [mysupply.dbo.statistic_invoice_header.VAT_AfgiftsKategoriProcent] }
+    moms_grundlag:       { Type: Measure, DataType: DECIMAL(18,4), Source: [mysupply.dbo.statistic_invoice_header.VAT_CategoryTotal_AfgiftsKategoriMomsGrundlag] }
+    momsbeloeb:         { Type: Measure, DataType: DECIMAL(18,4), Source: [mysupply.dbo.statistic_invoice_header.VAT_TaxAmounts_AfgiftsKategoriMomsBeloeb] }
+
+    linje_total:         { Type: Measure, DataType: DECIMAL(18,4), Source: [mysupply.dbo.statistic_invoice_header.FakturaLinjeTotal] }
+    faktura_total:       { Type: Measure, DataType: DECIMAL(18,4), Expr: "COALESCE(mysupply.dbo.statistic_invoice_header.faktura_total, mysupply.dbo.metadata.faktura_total)" }
+
+    valutakode_faktura:      { DataType: NVARCHAR(10), Source: [mysupply.dbo.statistic_invoice_header.FakturaValutaKode] }
+    vat_afgifts_kategori:     { DataType: NVARCHAR(50), Source: [mysupply.dbo.statistic_invoice_header.VAT_AfgiftsKategori] }
+    valutakode_moms_grundlag: { DataType: NVARCHAR(10), Source: [mysupply.dbo.statistic_invoice_header.VAT_TaxAmounts_AfgiftsKategoriMomsGrundlag_Valuta], Expr: "LEFT(...,3) hvis ikke-numerisk, ellers NULL" }
+    valutakode_momsbeloeb:   { DataType: NVARCHAR(10), Source: [mysupply.dbo.statistic_invoice_header.VAT_TaxAmounts_AfgiftsKategoriMomsBeloeb_Valuta], Expr: "LEFT(...,3) hvis ikke-numerisk, ellers NULL" }
+    valutakode_linje_total:   { DataType: NVARCHAR(10), Source: [mysupply.dbo.statistic_invoice_header.FakturaLinjeTotal_Valuta], Expr: "LEFT(...,3) hvis ikke-numerisk, ellers NULL" }
+    valutakode_faktura_total: { DataType: NVARCHAR(10), Source: [mysupply.dbo.statistic_invoice_header.FakturaTotal_Valuta], Expr: "LEFT(...,3) hvis ikke-numerisk, ellers NULL" }
+
+    zero_rated_moms_grundlag:  { Type: Measure, DataType: DECIMAL(18,4), Source: [mysupply.dbo.statistic_invoice_header.ZERO-RATED_TaxAmounts_AfgiftsKategoriMomsGrundlag] }
+    valutakode_zero_rated_moms_grundlag: { DataType: NVARCHAR(10), Source: [mysupply.dbo.statistic_invoice_header.ZERO-RATED_TaxAmounts_AfgiftsKategoriMomsGrundlag_Valuta], Expr: "LEFT(...,3) hvis ikke-numerisk, ellers NULL" }
+    zero_rated_momsbeloeb:    { Type: Measure, DataType: DECIMAL(18,4), Source: [mysupply.dbo.statistic_invoice_header.ZERO-RATED_TaxAmounts_AfgiftsKategoriMomsBeloeb] }
+    valutakode_zero_rated_momsbeloeb: { DataType: NVARCHAR(10), Source: [mysupply.dbo.statistic_invoice_header.ZERO-RATED_TaxAmounts_AfgiftsKategoriMomsBeloeb_Valuta], Expr: "LEFT(...,3) hvis ikke-numerisk, ellers NULL" }
+
+    gebyr_beloeb: { Type: Measure, DataType: DECIMAL(18,4), Source: [mysupply.dbo.statistic_invoice_header_allowance_charge.GebyrKategoriTotal], Expr: "SUM af gebyrer pr. faktura (GebyrKategoriIndikering <> 'false'); 0 hvis fakturaen ingen gebyr-rækker har; detaljer ligger '#'-konkateneret på dim.Faktura. FORTEGN: gemt verbatim fra kilden, ingen fortegnsnormalisering (i praksis positiv magnitude) — LÆGGES TIL i totaler." }
+    rabatbeloeb: { Type: Measure, DataType: DECIMAL(18,4), Source: [mysupply.dbo.statistic_invoice_header_allowance_charge.GebyrKategoriTotal], Expr: "SUM af rabatter pr. faktura (GebyrKategoriIndikering = 'false'); 0 hvis fakturaen ingen gebyr-rækker har; detaljer ligger '#'-konkateneret på dim.Faktura. FORTEGN: gemt verbatim fra kilden, ingen fortegnsnormalisering (i praksis positiv magnitude) — TRÆKKES FRA i totaler. Rapport-total = grundbeløb + gebyr_beloeb − rabatbeloeb." }
+
+    dw_timestamp_insert: { Type: Audit, DataType: DATETIME2(0), Expr: "SYSDATETIME() ved første INSERT" }
+    dw_timestamp_update: { Type: Audit, DataType: DATETIME2(0), Expr: "SYSDATETIME() ved UPDATE (NULL indtil første opdatering)" }
+  Notes:
+    - "SOR organisation for reporting: vw_fct.Faktura.dw_ek_Organisation_regningsmodtager (conceptmap.EANToSOR via dw_ek_EAN_regningsmodtager). fct.Faktura has no dw_ek_Organisation column."
+    - "Header-niveau measures fra fct.Fakturalinje er konsolideret her: vat_afgifts_kategori, Valutakode_Moms*, valutakode_linje_total, valutakode_faktura_total, zero_rated_moms_grundlag/momsbeloeb."
+    - "Kontoplan/Postering (finding 2.2): fct.Faktura lagrer INGEN dw_ek_Kontoplan eller dw_ek_Postering — ingen fact-to-fact FK. vw_fct.Faktura eksponerer dw_ek_Kontoplan_postering og dw_ek_Postering fra den NYESTE relaterede postering via ref.FakturaToPostering (join på dw_ek_Faktura, rn_newest_per_faktura=1). Disse er single-valued (nyeste postering) og kun beskrivende; for konto-vægtede beløb skal man aggregere fct.Postering på dw_ek_Kontoplan (kontoen ligger på postering-grain)."

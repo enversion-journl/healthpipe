@@ -1,0 +1,42 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fhir
+  TableName: fhir.DocumentReference
+  Domain: [FHIR]
+  Description: "FHIR DocumentReference ressource — dokument-indeks fra IFDB.EPIKRISE og IFDB.CARE_DISCHARGE_REPORT"
+  Grain: "Én række pr. dokument (epikrise eller udskrivningsrapport), skelnet via source_table"
+  FhirResource: DocumentReference
+
+  Extensions:
+    document_reference_recipients: urn:source:ifdb:document_reference_recipients
+    document_reference_priority: urn:source:ifdb:document_reference_priority
+    document_reference_signature_role: urn:source:ifdb:document_reference_signature_role
+    dw_is_deleted: urn:fhir:isDeleted
+
+  SourceSystems:
+    - ifdb_epikrise: [IFDB.EPIKRISE]
+    - ifdb_care_discharge_report: [IFDB.CARE_DISCHARGE_REPORT]
+
+  Columns:
+    documentreference_id:      { Type: PK, DataType: NVARCHAR(255), FhirPath: "id", Source: [ifdb_epikrise.IFDB.EPIKRISE.OBJEKT_ID, ifdb_care_discharge_report.IFDB.CARE_DISCHARGE_REPORT.OBJECT_ID] }
+    source_table:              { DataType: NVARCHAR(100), FhirPath: "meta.tag.where(system='urn:source:ifdb:source_table').code.first()" }
+    status:                    { DataType: NVARCHAR(50), FhirPath: "status", Source: [ifdb_epikrise.IFDB.EPIKRISE.SLETTET, ifdb_care_discharge_report.IFDB.CARE_DISCHARGE_REPORT.DELETED] }
+    doc_status:                { DataType: NVARCHAR(50), FhirPath: "docStatus", Source: [ifdb_epikrise.IFDB.EPIKRISE.EPIKRISESTATUS_KODETEKST] }
+    type_code:                 { DataType: NVARCHAR(512), FhirPath: "type.coding.code.first()", Source: [ifdb_epikrise.IFDB.EPIKRISE.EPIKRISETYPE_KODE] }
+    type_system:               { DataType: NVARCHAR(512), FhirPath: "type.coding.system.first()" }
+    type_display:              { DataType: NVARCHAR(255), FhirPath: "type.coding.display.first()", Source: [ifdb_epikrise.IFDB.EPIKRISE.EPIKRISETYPE_KODETEKST] }
+    patient_id:                { DataType: NVARCHAR(255), FhirPath: "subject.id", Source: [ifdb_epikrise.IFDB.EPIKRISE.PATIENT_ID, ifdb_care_discharge_report.IFDB.CARE_DISCHARGE_REPORT.PATIENT_ID], FK-Target: fhir.Patient, FK-Key: patient_id, FK-Required: true, Description: "FHIR-tildelt Patient-reference (Aidbox UUID) — resolver-tildelt ved posting ud fra IFDB.EPIKRISE.PATIENT_ID / IFDB.CARE_DISCHARGE_REPORT.PATIENT_ID (med CPR-fallback); ikke direkte projiceret fra kilden." }
+    author_org_ref:            { DataType: NVARCHAR(512), FhirPath: "author.id.first()", Source: [ifdb_epikrise.IFDB.EPIKRISE.AFSENDER_ADMENHED_SORKODE, ifdb_care_discharge_report.IFDB.CARE_DISCHARGE_REPORT.SENDER_AFDELING_SORKODE] }
+    doc_date:                  { DataType: NVARCHAR(50), FhirPath: "date", Source: [ifdb_epikrise.IFDB.EPIKRISE.FOERSTE_AFSENDELSESTIDSPUNKT, ifdb_care_discharge_report.IFDB.CARE_DISCHARGE_REPORT.MODIFICATION_TIME] }
+    epikrise_id:               { DataType: NVARCHAR(255), FhirPath: "identifier.where(system='urn:source:ifdb:epikrise').value.first()", Source: [ifdb_epikrise.IFDB.EPIKRISE.OBJEKT_ID], FK-None: true, Description: "IFDB EPIKRISE.OBJEKT_ID — kilde-id bevaret som identifier; ikke en fladtabel-reference." }
+    care_discharge_report_id:  { DataType: NVARCHAR(255), FhirPath: "identifier.where(system='urn:source:ifdb:care_discharge_report').value.first()", Source: [ifdb_care_discharge_report.IFDB.CARE_DISCHARGE_REPORT.OBJECT_ID], FK-None: true, Description: "IFDB CARE_DISCHARGE_REPORT.OBJECT_ID — kilde-id bevaret som identifier; ikke en fladtabel-reference." }
+    notification_identifier:   { DataType: NVARCHAR(255), FhirPath: "identifier.where(system='urn:source:ifdb:notification_identifier').value.first()", Source: [ifdb_care_discharge_report.IFDB.CARE_DISCHARGE_REPORT.NOTIFICATION_IDENTIFIER] }
+    priority:                  { DataType: NVARCHAR(255), FhirPath: "extension.where(url='urn:source:ifdb:document_reference_priority').valueString.first()", Source: [ifdb_epikrise.IFDB.EPIKRISE.PRIORITET] }
+    dw_is_deleted:             { DataType: INT, FhirPath: "extension.where(url='urn:fhir:isDeleted').valueInteger.first()", Source: [ifdb_epikrise.IFDB.EPIKRISE.SLETTET, ifdb_care_discharge_report.IFDB.CARE_DISCHARGE_REPORT.DELETED] }
+    last_updated:              { DataType: DATETIME2, FhirPath: "r.ts" }
+    created_at:                { DataType: DATETIME2, FhirPath: "r.cts" }

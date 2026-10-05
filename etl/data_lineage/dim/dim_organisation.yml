@@ -1,0 +1,69 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: dimension
+  TableName: dim.Organisation
+  Domain: [Shared]
+  Description: "Organisatorisk hierarki fra SOR — selvrefererende forælder-barn (kun SOR), udfoldet i kode_niveau/navn_niveau. Bygges fra fhir.Organization + ref.Organisation."
+  Grain: "Én række pr. dw_ek_Organisation (UUID-grain). Én live række (dw_is_deleted = 0) pr. SOR-kode."
+  SCD: type1
+
+  SourceSystems:
+    - sor: [SOR_registry]
+
+  Keys:
+    dw_ek_Organisation: "INT — entity-nøgle. Tildeles som INT IDENTITY i ref.Organisation ud fra fhir.Organization.organization_id. dim.Organisation MERGE'r på denne — Type 1, én aktuel række pr. organisation."
+
+  Columns:
+    dw_ek_Organisation:      { Type: PK, DataType: INT, Expr: "Fra ref.Organisation (INT IDENTITY tildelt ud fra fhir.Organization.organization_id)" }
+    kode:                    { DataType: VARCHAR(50), Source: [sor.SOR_registry.SORId], Expr: "fhir.Organization.identifier_value_sor (= ref.Organisation.sor_code)" }
+    dw_ek_Organisation_parent:        { Type: FK, DataType: INT, FK-Target: dim.Organisation, Expr: "Resolves fhir.Organization.part_of_id -> ref.Organisation.dw_ek_Organisation; -1 hvis ingen/ukendt forælder" }
+    parent_kode:              { DataType: VARCHAR(50), Source: [sor.SOR_registry.ParentSorId], Expr: "Forælderens sor_code (fra fhir.Organization)" }
+    navn:                    { DataType: NVARCHAR(500), Source: [sor.SOR_registry.EntityName], Expr: "fhir.Organization.name" }
+    aktiv:                   { DataType: BIT, Source: [sor.SOR_registry.Status], Expr: "1 hvor fhir.Organization.active = 'true'" }
+    hierarki_niveau:         { DataType: INT, Expr: "Dybde fra SOR-rod (1 = rod). NULL på sentinel -1. Afledt af dw_ek_Organisation_parent-kæden." }
+    kode_niveau1:            { DataType: VARCHAR(50), Source: [sor.SOR_registry.SORId], Expr: "SOR-kode på hierarkiniveau 1 (rod)" }
+    navn_niveau1:            { DataType: NVARCHAR(500), Source: [sor.SOR_registry.EntityName], Expr: "Navn på hierarkiniveau 1 (rod)" }
+    kode_niveau2:            { DataType: VARCHAR(50), Source: [sor.SOR_registry.SORId], Expr: "SOR-kode på hierarkiniveau 2" }
+    navn_niveau2:            { DataType: NVARCHAR(500), Source: [sor.SOR_registry.EntityName], Expr: "Navn på hierarkiniveau 2" }
+    kode_niveau3:            { DataType: VARCHAR(50), Source: [sor.SOR_registry.SORId], Expr: "SOR-kode på hierarkiniveau 3" }
+    navn_niveau3:            { DataType: NVARCHAR(500), Source: [sor.SOR_registry.EntityName], Expr: "Navn på hierarkiniveau 3" }
+    kode_niveau4:            { DataType: VARCHAR(50), Source: [sor.SOR_registry.SORId], Expr: "SOR-kode på hierarkiniveau 4" }
+    navn_niveau4:            { DataType: NVARCHAR(500), Source: [sor.SOR_registry.EntityName], Expr: "Navn på hierarkiniveau 4" }
+    kode_niveau5:            { DataType: VARCHAR(50), Source: [sor.SOR_registry.SORId], Expr: "SOR-kode på hierarkiniveau 5" }
+    navn_niveau5:            { DataType: NVARCHAR(500), Source: [sor.SOR_registry.EntityName], Expr: "Navn på hierarkiniveau 5" }
+    kode_niveau6:            { DataType: VARCHAR(50), Source: [sor.SOR_registry.SORId], Expr: "SOR-kode på hierarkiniveau 6" }
+    navn_niveau6:            { DataType: NVARCHAR(500), Source: [sor.SOR_registry.EntityName], Expr: "Navn på hierarkiniveau 6" }
+    kode_niveau7:            { DataType: VARCHAR(50), Source: [sor.SOR_registry.SORId], Expr: "SOR-kode på hierarkiniveau 7" }
+    navn_niveau7:            { DataType: NVARCHAR(500), Source: [sor.SOR_registry.EntityName], Expr: "Navn på hierarkiniveau 7" }
+    kode_niveau8:            { DataType: VARCHAR(50), Source: [sor.SOR_registry.SORId], Expr: "SOR-kode på hierarkiniveau 8" }
+    navn_niveau8:            { DataType: NVARCHAR(500), Source: [sor.SOR_registry.EntityName], Expr: "Navn på hierarkiniveau 8" }
+    kode_niveau9:            { DataType: VARCHAR(50), Source: [sor.SOR_registry.SORId], Expr: "SOR-kode på hierarkiniveau 9" }
+    navn_niveau9:            { DataType: NVARCHAR(500), Source: [sor.SOR_registry.EntityName], Expr: "Navn på hierarkiniveau 9" }
+    dw_is_deleted:           { Type: Audit, DataType: BIT, Expr: "Kopi af ref.Organisation.dw_is_deleted. 0 = live (filtered UNIQUE på kode). Rækker slettes aldrig fysisk." }
+    dw_timestamp_insert:     { Type: Audit, DataType: DATETIME2(0), Expr: "GETDATE() ved første INSERT" }
+    dw_timestamp_update:     { Type: Audit, DataType: DATETIME2(0), Expr: "GETDATE() ved attribut- eller hierarkiændring" }
+
+  Notes: |
+    Bygges fra fhir.Organization + ref.Organisation:
+      - ref.Organisation tildeler dw_ek_Organisation (INT IDENTITY) pr.
+        organization_id.
+      - dim.Organisation MERGE'r attributter (navn/aktiv) fra
+        fhir.Organization og resolver dw_ek_Organisation_parent via part_of_id.
+      - Pass 2 udfolder parent-kæden til kode_niveau/navn_niveau (niveau1 =
+        rod; org selv sidder på hierarki_niveau). dw_timestamp_update sættes
+        kun når hierarkiværdierne ændrer sig.
+      - Type 1 SCD: ingen dw_valid_from/dw_valid_to/dw_is_current; alle attributter
+        overskrives ved opdatering. Rækker slettes aldrig fysisk; dw_is_deleted
+        spejler ref.Organisation (live SOR-kode er unik).
+    Upstream dannes fhir.Organization fra CodeSystem SOR
+    (codesystem.SORConcept/SORProperties/SORHierarchy <- arc.sor_register <-
+    ét fælles SOR-udtræk med modes current/all_historical). Enhedens
+    gyldighedsperiode kan afledes af codesystem.SORProperties
+    (openingDate/closingDate); dimensionen forbliver bevidst type 1 UDEN
+    validity-kolonner — historik pr. version ligger i arc.sor_register, og
+    lukkede enheder repræsenteres via aktiv = 0.

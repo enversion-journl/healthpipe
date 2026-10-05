@@ -1,0 +1,27 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fhir
+  TableName: fhir.Encounter_Location
+  Domain: [FHIR]
+  Description: "FHIR Encounter lokationer — kontakt-til-lokation-kobling"
+  Grain: "Én række pr. lokationstildeling pr. kontakt pr. periodestart"
+  FhirResource: Encounter
+
+  SourceSystems:
+    - ifdb_encounter: [IFDB.ENCOUNTER]
+    - ifdb_location: [IFDB.LOCATION]
+
+  Columns:
+    encounter_id:          { Type: PK, DataType: NVARCHAR(255), FhirPath: "id", FK-Target: fhir.Encounter, FK-Key: encounter_id, FK-Required: true, Description: "FHIR Encounter resource id (Aidbox UUID) — FK til fhir.Encounter. Forretningsnøglen (ENCOUNTER.OBJECT_ID) bæres i fhir.Encounter.identifier_value." }
+    location_id:           { DataType: NVARCHAR(255), FhirPath: "location.location.id", FK-Target: fhir.Location, FK-Key: location_id, FK-Required: false, FK-Ignore: [''], Description: "FHIR-tildelt Location-reference (Aidbox UUID) — resolver-tildelt ved posting ud fra IFDB.LOCATION.LOCATION_CODE; ikke direkte projiceret fra kilden." }
+    location_status:       { DataType: NVARCHAR(50), FhirPath: "location.status" }
+    location_period_start: { DataType: NVARCHAR(50), FhirPath: "location.period.start", Source: [ifdb_location.IFDB.LOCATION.PERIOD_START] }
+    location_period_end:   { DataType: NVARCHAR(50), FhirPath: "location.period.end", Source: [ifdb_location.IFDB.LOCATION.PERIOD_END] }
+    dw_is_deleted:            { DataType: INT, Description: "Slettet-flag (0 = live, 1 = slettet). Warehouse-styret: foraeldre-resourcen baerer urn:fhir:isDeleted, men dette grain projicerer ikke feltet — det saettes kun af dqa_fhir_server_cleanup naar foraeldre-resourcen er hard-slettet i Aidbox, og nulstilles ved MERGE-match. NOT NULL DEFAULT 0. BEMAERK: '= 0' betyder 'ikke markeret af cleanup', IKKE 'findes stadig under foraeldren' — child-grain reconcile er ikke slaaet til her." }
+    last_updated:          { DataType: DATETIME2, FhirPath: "r.ts" }
+    created_at:            { DataType: DATETIME2, FhirPath: "r.cts" }

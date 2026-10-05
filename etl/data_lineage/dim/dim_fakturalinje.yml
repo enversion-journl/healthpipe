@@ -1,0 +1,61 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: dimension
+  TableName: dim.Fakturalinje
+  Domain: [ERP]
+  Description: "Fakturalinje-dimension fra MySupply"
+  Grain: "Én række pr. fakturalinje"
+  Privacy: >
+    dim.Fakturalinje består udelukkende af MySupply fritekst (brugerindtastede
+    varenumre, -navne og -beskrivelser) og kan derfor indeholde personfølsomme
+    oplysninger (navne/CPR). Adgang styres kolonnebegrænset i vw_dim.Fakturalinje:
+    brugere uden rolle i sec.RolleDomaene (Sikkerhedsdomaene DPA_ERP) ser ingen
+    rækker; Rolle 'K' maskerer alle beskrivende felter ([MASKERET]); Rolle 'U'
+    viser klartekst. Entitetsnøgle (dw_ek_Fakturalinje) og audit-timestamps er altid synlige.
+
+  SourceSystems:
+    - mysupply: [dbo.statistic_invoice_line, dbo.statistic_invoice_line_allowance_charge]
+
+  Columns:
+    dw_ek_Fakturalinje:        { Type: PK, DataType: INT }
+    item_faktura_udsteder_vare_nr:   { DataType: NVARCHAR(255), Source: [mysupply.dbo.statistic_invoice_line.Item_FakturaUdstederVareNr] }
+    item_faktura_udsteder_vare_navn: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_line.Item_FakturaUdstederVareNavn] }
+    faktura_linje_nr:            { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_line.FakturaLinjeNr] }
+    antal_enheder_faktureret_type: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_line.AntalEnhederFaktureret_Type] }
+    item_faktura_udstederens_vare_nr: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_line.Item_FakturaUdstederensVareNr] }
+    item_faktura_udstederens_vare_nr_type: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_line.Item_FakturaUdstederensVareNr_Type] }
+    base_price_enheds_stoerrelse:  { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_line.BasePrice_EnhedsStørrelse] }
+    base_price_enheds_stoerrelse_type: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_line.BasePrice_EnhedsStørrelse_Type] }
+    item_faktura_udsteder_vare_navn_kort: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_line.Item_FakturaUdstederVareNavnKort] }
+    line_dimensions_konto_streng: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_line.DimensionsKontoStreng] }
+    leverance_krav:             { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_line.LeveranceKrav] }
+    leverings_dato_2:           { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_line.LeveringsDato_2] }
+    item_kundens_vare_nr:        { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_line.Item_KundensVareNr] }
+    item_kundens_vare_nr_type:   { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_line.Item_KundensVareNr_Type] }
+    item_kundens_vare_beskrivelse: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_line.Item_KundensVareBeskrivelse] }
+    item_faktura_udstederens_vare_beskrivelse: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_line.Item_FakturaUdstederensVareBeskrivelse] }
+    item_fabrikantens_vare_nr:   { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_line.Item_FabrikantensVareNr] }
+    item_fabrikantens_vare_nr_type: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_line.Item_FabrikantensVareNr_Type] }
+    item_fabrikantens_vare_beskrivelse: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_line.Item_FabrikantensVareBeskrivelse] }
+    item_standardiseret_vare_nr: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_line.Item_StandardiseretVareNr] }
+    item_standardiseret_vare_nr_type: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_line.Item_StandardiseretVareNr_Type] }
+    item_standardiseret_vare_beskrivelse: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_line.Item_StandardiseretVareBeskrivelse] }
+    item_vare_klassifikation:   { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_line.Item_VareKlassifikation] }
+    item_vare_klassifikation_type: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_line.Item_VareKlassifikation_Type] }
+    item_afgifts_kategori:      { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_line.Item_AfgiftsKategori] }
+    item_afgifts_kategori_procent: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_line.Item_AfgiftsKategoriProcent] }
+    faktura_udsteder_gebyr_rabat_aarsag: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_line_allowance_charge.FakturaUdstederGebyrKategoriÅrsag, mysupply.dbo.statistic_invoice_line_allowance_charge.FakturaUdstederGebyrKategoriTotal], Expr: "STRING_AGG af CONCAT(Aarsag,':',Total) '#'-delimiteret (ORDER BY id) for rækker med Indikering='false' og Total <> 0/NULL" }
+    faktura_udsteder_gebyr_rabat_kategori: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_line_allowance_charge.FakturaUdstederGebyrKategori], Expr: "STRING_AGG '#'-delimiteret (ORDER BY id) for rækker med Indikering='false' og Total <> 0/NULL" }
+    faktura_udsteder_gebyr_rabat_finanskonto: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_line_allowance_charge.FakturaUdstederGebyrKategoriFinanskonto], Expr: "STRING_AGG '#'-delimiteret (ORDER BY id) for rækker med Indikering='false' og Total <> 0/NULL" }
+    faktura_udsteder_gebyr_tillaeg_aarsag: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_line_allowance_charge.FakturaUdstederGebyrKategoriÅrsag, mysupply.dbo.statistic_invoice_line_allowance_charge.FakturaUdstederGebyrKategoriTotal], Expr: "STRING_AGG af CONCAT(Aarsag,':',Total) '#'-delimiteret (ORDER BY id) for rækker med Indikering<>'false'/NULL og Total <> 0/NULL" }
+    faktura_udsteder_gebyr_tillaeg_kategori: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_line_allowance_charge.FakturaUdstederGebyrKategori], Expr: "STRING_AGG '#'-delimiteret (ORDER BY id) for rækker med Indikering<>'false'/NULL og Total <> 0/NULL" }
+    faktura_udsteder_gebyr_tillaeg_finanskonto: { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_line_allowance_charge.FakturaUdstederGebyrKategoriFinanskonto], Expr: "STRING_AGG '#'-delimiteret (ORDER BY id) for rækker med Indikering<>'false'/NULL og Total <> 0/NULL" }
+    dw_timestamp_insert: { Type: Audit, DataType: DATETIME2(0), Expr: "SYSDATETIME() ved første INSERT" }
+    dw_timestamp_update: { Type: Audit, DataType: DATETIME2(0), Expr: "SYSDATETIME() ved UPDATE (NULL indtil første opdatering)" }
+  Notes:
+    - "Gebyr-kolonner: statistic_invoice_line_allowance_charge er 1:n pr. fakturalinje. Splittet i Rabat (Indikering='false') og Tillaeg (Indikering='true'/NULL). Rækker med Total = 0/NULL ekskluderes. Aarsag er en composite '{Aarsag}:{Total}' per position. Kolonner '#'-delimiteret, position-aligned (ORDER BY id), '#' strippet fra kildeværdier, ':' strippet fra Aarsag (composite-delimiter)."

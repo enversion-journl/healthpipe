@@ -1,0 +1,45 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fhir
+  TableName: fhir.Procedure
+  Domain: [FHIR]
+  Description: "FHIR Procedure ressource — kliniske og administrative procedurer"
+  Grain: "Én række pr. procedure fra administrative procedurer eller RIS-ydelser"
+  FhirResource: Procedure
+
+  SourceSystems:
+    - ifdb_administrative_procedure: [IFDB.ADMINISTRATIVE_PROCEDURE]
+    - ifdb_ris_ydelse: [IFDB.RIS_YDELSE]
+    - ifdb_adm_procedure_suppl_codes: [IFDB.ADM_PROCEDURE_SUPPL_CODES]
+
+  Columns:
+    procedure_id:           { Type: PK, DataType: NVARCHAR(255), FhirPath: "id", Description: "FHIR resource id (Aidbox UUID) — resolver-/servertildelt ved posting ud fra OBJECT_ID. Findes ikke i kilden; forretningsnøglen bæres i Procedure.identifier (source_system)." }
+    patient_id:             { DataType: NVARCHAR(255), FhirPath: "subject.id", FK-Target: fhir.Patient, FK-Key: patient_id, FK-Required: true, Description: "FHIR-tildelt Patient-reference (Aidbox UUID) — resolver-tildelt ved posting ud fra IFDB.ADMINISTRATIVE_PROCEDURE.patient_id_ifdb / IFDB.RIS_YDELSE.patient_id_ifdb; ikke direkte projiceret fra kilden." }
+    encounter_id:           { DataType: NVARCHAR(255), FhirPath: "encounter.id", FK-Target: fhir.Encounter, FK-Key: encounter_id, FK-Required: false, Description: "FHIR-tildelt Encounter-reference (Aidbox UUID) — resolver-tildelt ved posting ud fra IFDB.ADMINISTRATIVE_PROCEDURE.ENCOUNTER_ID / IFDB.RIS_YDELSE.ENCOUNTER_ID; ikke direkte projiceret fra kilden." }
+    episode_of_care_id:     { DataType: NVARCHAR(255), FhirPath: "extension.where(url='http://example.org/fhir/StructureDefinition/episodeOfCare').valueReference.id", FK-Target: fhir.EpisodeOfCare, FK-Key: episode_of_care_id, FK-Required: false, Description: "FHIR-tildelt EpisodeOfCare-reference (Aidbox UUID) — resolver-tildelt ved posting ud fra IFDB.ADMINISTRATIVE_PROCEDURE.EPISODE_OF_CARE_ID / IFDB.RIS_YDELSE.EPISODE_OF_CARE_ID; ikke direkte projiceret fra kilden." }
+    status:                 { DataType: NVARCHAR(50), FhirPath: "status" }
+    category_code:          { DataType: NVARCHAR(255), FhirPath: "category.coding.code", Source: [ifdb_ris_ydelse.IFDB.RIS_YDELSE.TYPE] }
+    category_display:       { DataType: NVARCHAR(500), FhirPath: "category.coding.display", Source: [ifdb_ris_ydelse.IFDB.RIS_YDELSE.STATE] }
+    code:                   { DataType: NVARCHAR(255), FhirPath: "code.coding.where(userSelected = true).code.first()", Source: [ifdb_administrative_procedure.IFDB.ADMINISTRATIVE_PROCEDURE.PROCEDURE_CODE, ifdb_ris_ydelse.IFDB.RIS_YDELSE.TYPE] }
+    code_system:            { DataType: NVARCHAR(500), FhirPath: "code.coding.where(userSelected = true).system.first()" }
+    code_display:           { DataType: NVARCHAR(500), FhirPath: "code.coding.where(userSelected = true).display.first()", Source: [ifdb_administrative_procedure.IFDB.ADMINISTRATIVE_PROCEDURE.PROCEDURE_TEXT, ifdb_ris_ydelse.IFDB.RIS_YDELSE.STATE] }
+    performed_datetime:     { DataType: NVARCHAR(50), FhirPath: "performedDateTime", Source: [ifdb_administrative_procedure.IFDB.ADMINISTRATIVE_PROCEDURE.PERIOD_START, ifdb_ris_ydelse.IFDB.RIS_YDELSE.UDFOERT_TIDSPUNKT] }
+    performed_period_start: { DataType: NVARCHAR(50), FhirPath: "performedPeriod.start" }
+    performed_period_end:   { DataType: NVARCHAR(50), FhirPath: "performedPeriod.end" }
+    body_site_code:         { DataType: NVARCHAR(255), FhirPath: "bodySite.coding.code" }
+    body_site_display:      { DataType: NVARCHAR(500), FhirPath: "bodySite.first().text" }
+    source_system:          { DataType: NVARCHAR(100), FhirPath: "identifier.system" }
+    ifdb_aktivitet_id:      { DataType: NVARCHAR(255), FhirPath: "identifier.where(system='urn:source:ifdb:aktivitetsresultat_procedure').value.first()", Source: [ifdb_administrative_procedure.IFDB.ADMINISTRATIVE_PROCEDURE.OBJECT_ID, ifdb_ris_ydelse.IFDB.RIS_YDELSE.OBJEKT_ID], FK-None: true }
+    dw_is_deleted:          { DataType: INT, FhirPath: "extension('urn:fhir:isDeleted').valueInteger.first()", Source: [ifdb_administrative_procedure.IFDB.ADMINISTRATIVE_PROCEDURE.DELETED, ifdb_ris_ydelse.IFDB.RIS_YDELSE.SLETTET], Description: "Slettet-flag (1 = slettet) fra kildens deletion-markør. NOT NULL DEFAULT 0; manglende extension coalesces til 0 i loadet." }
+    last_updated:           { DataType: DATETIME2, FhirPath: "r.ts" }
+    created_at:             { DataType: DATETIME2, FhirPath: "r.cts" }
+
+  # FHIR-resource-felter som bygges/postes til Aidbox men IKKE projiceres ned i
+  # den flade fhir.Procedure DWH-tabel (SoF-viewet udelader dem). Bevaret her som
+  # lineage-dokumentation; ignoreres af lineage↔DDL-verifieren og star-schema-generatoren.
+  NonProjectedFhirFields:

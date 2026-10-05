@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+resourceType: ConceptMap
+id: "shak-to-sor"
+url: "https://example.org/fhir/ConceptMap/shak-to-sor"
+status: active
+name: "SHAKToSor"
+title: "SHAK to SOR"
+description: "Authoritative direct mapping from SHAK (Sygehus-Afdelingsklassifikation) codes to SOR organisation codes, derived from SHAKSORMap (Sundhedsdatastyrelsen)."
+sourceUri: "urn:dk:shak"
+targetUri: "https://sundhedsdatastyrelsen.dk/sor"

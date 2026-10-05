@@ -1,0 +1,54 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: dimension
+  TableName: dim.ILSVare
+  Domain: [ERP]
+  Description: "ILS varedimension med varestamdata fra ILS"
+  Grain: "Én række pr. ILS-vare"
+
+  SourceSystems:
+    - ils: [dbo.vare, dbo.vareart, dbo.varegrp, dbo.varetype, dbo.momskd, dbo.zz_oper]
+
+  Columns:
+    dw_ek_ILSVare:        { Type: PK, DataType: INT }
+    clean_code_ILSVare:    { DataType: NVARCHAR(100), Source: [ils.dbo.vare.vnr], Expr: "'ILSVARE_' + UPPER(TRIM(vnr))" }
+    varenummer:            { DataType: NVARCHAR(100), Source: [ils.dbo.vare.vnr] }
+    varenavn:              { DataType: NVARCHAR(MAX), Source: [ils.dbo.vare.navn] }
+    varenavn2:             { DataType: NVARCHAR(MAX), Source: [ils.dbo.vare.navn2] }
+    varestr:               { DataType: NVARCHAR(255), Source: [ils.dbo.vare.varestr] }
+    basisenhed:            { DataType: NVARCHAR(50), Source: [ils.dbo.vare.basisenh] }
+    gruppering:            { DataType: NVARCHAR(50), Source: [ils.dbo.vare.vareart], Description: "ILS vareart = SydAX gruppering (art/gruppering byttet om i ILS)" }
+    gruppering_navn:       { DataType: NVARCHAR(255), Source: [ils.dbo.vareart.navn] }
+    art:                   { DataType: NVARCHAR(50), Source: [ils.dbo.vare.varegrp], Description: "ILS varegrp = SydAX art (byttet om i ILS)" }
+    art_navn:              { DataType: NVARCHAR(255), Source: [ils.dbo.varegrp.navn] }
+    varetype:              { DataType: NVARCHAR(50), Source: [ils.dbo.vare.varetype] }
+    varetype_navn:         { DataType: NVARCHAR(255), Source: [ils.dbo.varetype.navn] }
+    momskode:              { DataType: NVARCHAR(50), Source: [ils.dbo.vare.momskd] }
+    momskode_navn:         { DataType: NVARCHAR(255), Source: [ils.dbo.momskd.navn] }
+    momsprocent:           { DataType: DECIMAL(18,4), Source: [ils.dbo.momskd.procent] }
+    dw_ek_Dato_oprettet:  { Type: FK, DataType: INT, Source: [ils.dbo.vare.oprdto] }
+    dato_tid_oprettet:      { DataType: DATETIME2, Source: [ils.dbo.vare.oprdto] }
+    dw_ek_UNSPSC:
+      Type: FK
+      DataType: INT
+      Source: [ils.dbo.vare.unspc]
+      Description: "FK til dim.UNSPSC via map.UNSPSC (kilde: ils.dbo.vare.unspc)"
+    dw_ek_UNSPSC_intern:
+      Type: FK
+      DataType: INT
+      Source: [ils.dbo.vare.unspsc2]
+      Description: "FK til dim.UNSPSC via map.UNSPSC (kilde: ils.dbo.vare.unspsc2, '.0'-suffiks trimmet)"
+    faelles_varenummer:     { DataType: NVARCHAR(100), Source: [ils.dbo.vare.faelvnr] }
+    ean_varenummer:        { DataType: NVARCHAR(100), Source: [ils.dbo.vare.ean_vnr] }
+    billede:               { DataType: NVARCHAR(MAX), Source: [ils.dbo.vare.billed] }
+    opr_bruger:             { DataType: NVARCHAR(50), Source: [ils.dbo.vare.oprbruger], Description: "UPPER af init" }
+    opr_bruger_navn:        { DataType: NVARCHAR(255), Source: [ils.dbo.zz_oper.bd_navn], Description: "Fuldt navn via join zz_oper.bd_init = vare.oprbruger" }
+    weblink:               { DataType: NVARCHAR(MAX), Source: [ils.dbo.vare.billedli] }
+    maa_ikke_lukkes:         { DataType: NVARCHAR(50), Source: [ils.dbo.vare.ejlukkes] }
+    hygiejne:              { DataType: NVARCHAR(50), Source: [ils.dbo.vare.steril] }
+    aktiv:                 { DataType: BIT, Source: [ils.dbo.vare.aktiv] }

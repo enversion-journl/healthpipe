@@ -1,0 +1,27 @@
+{
+  "resourceType": "ViewDefinition",
+  "name": "documentreference_view",
+  "resource": "DocumentReference",
+  "status": "active",
+  "select": [
+    {
+      "column": [
+        {"name": "documentreference_id", "path": "id"},
+        {"name": "source_table", "path": "meta.tag.where(system='urn:source:ifdb:source_table').code.first()"},
+        {"name": "status", "path": "status"},
+        {"name": "doc_status", "path": "docStatus"},
+        {"name": "type_code", "path": "type.coding.code.first()"},
+        {"name": "type_system", "path": "type.coding.system.first()"},
+        {"name": "type_display", "path": "type.coding.display.first()"},
+        {"name": "patient_id", "path": "subject.id"},
+        {"name": "author_org_ref", "path": "author.id.first()"},
+        {"name": "doc_date", "path": "date"},
+        {"name": "epikrise_id", "path": "identifier.where(system='urn:source:ifdb:epikrise').value.first()"},
+        {"name": "care_discharge_report_id", "path": "identifier.where(system='urn:source:ifdb:care_discharge_report').value.first()"},
+        {"name": "notification_identifier", "path": "identifier.where(system='urn:source:ifdb:notification_identifier').value.first()"},
+        {"name": "priority", "path": "extension('urn:source:ifdb:document_reference_priority').valueString.first()"},
+        {"name": "dw_is_deleted", "path": "extension('urn:fhir:isDeleted').valueInteger.first()"}
+      ]
+    }
+  ]
+}

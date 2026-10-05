@@ -1,0 +1,17 @@
+# Code owners for the public HealthPipe repo.
+#
+# On GitHub, a PR that touches a matching path auto-requests review from the owner(s)
+# below; combined with branch protection ("Require review from Code Owners") this
+# enforces maintainer sign-off.
+#
+# IMPORTANT: the team below MUST exist in the `enversion-journl` org (Org -> Teams)
+# before this file has any effect — GitHub silently ignores unknown owners.
+
+# Default owner for everything in the repo.
+*                           @enversion-journl/developers
+
+# CI / security / governance config — keep explicitly maintainer-owned.
+/.github/                   @enversion-journl/developers
+/pyproject.toml             @enversion-journl/developers
+/.pre-commit-config.yaml    @enversion-journl/developers
+/.gitleaks.toml             @enversion-journl/developers

@@ -1,0 +1,32 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: dimension
+  TableName: dim.Aftale
+  Domain: [ERP]
+  Description: "Aftale-/kontraktdimension fra ILS — SCD Type 2. Noegle: (lnr, aftale)"
+  Grain: "Én række pr. (leverandoer, aftale) fra ILS"
+  SCD: type2
+
+  SourceSystems:
+    - ils: [dbo.lafth, dbo.laftd, dbo.lev]
+
+  Columns:
+    dw_ek_Aftale:        { Type: PK, DataType: INT }
+    clean_code_Aftale:   { DataType: NVARCHAR(255), Source: [ils.dbo.laftd.lnr, ils.dbo.lafth.aftale], Expr: "AFTALE_{lnr}_{aftalenr}" }
+    aftale_nummer:       { DataType: NVARCHAR(100), Source: [ils.dbo.lafth.aftale] }
+    leverandoernummer:   { DataType: NVARCHAR(100), Source: [ils.dbo.laftd.lnr] }
+    dw_ek_Kreditor:      { Type: FK, DataType: INT, FK-Target: dim.Kreditor, Source: [ils.dbo.lev.se_nr], Description: "Via lnr -> lev.se_nr -> dim.Kreditor" }
+    aftale_dato:         { DataType: DATETIME2, Source: [ils.dbo.lafth.aftdto] }
+    aftale_ansvarlig:    { DataType: NVARCHAR(100), Source: [ils.dbo.lafth.ansvar] }
+    aftaletype:          { DataType: NVARCHAR(50), Source: [ils.dbo.lafth.afttype] }
+    aftaletekst:         { DataType: NVARCHAR(MAX), Source: [ils.dbo.lafth.txt] }
+    hoved_start:         { DataType: DATETIME2, Source: [ils.dbo.lafth.start_] }
+    hoved_slut:          { DataType: DATETIME2, Source: [ils.dbo.lafth.slut] }
+    dw_valid_from:       { DataType: DATETIME2(0), Expr: "SYSDATETIME() ved ændring, 1900-01-01 for initial" }
+    dw_valid_to:         { DataType: DATETIME2(0), Expr: "9999-12-31 (åben) indtil afløst" }
+    dw_is_deleted:       { DataType: BIT, Expr: "1 når kilderækken forsvinder (blød sletning)" }

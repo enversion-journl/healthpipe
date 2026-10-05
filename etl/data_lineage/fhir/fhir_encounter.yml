@@ -1,0 +1,31 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fhir
+  TableName: fhir.Encounter
+  Domain: [FHIR]
+  Description: "FHIR Encounter ressource — kliniske kontakter fra IFDB"
+  Grain: "Én række pr. klinisk kontakt (besøg)"
+  FhirResource: Encounter
+
+  SourceSystems:
+    - ifdb: [IFDB.ENCOUNTER]
+
+  Columns:
+    encounter_id:       { Type: PK, DataType: NVARCHAR(255), FhirPath: "id", Description: "FHIR resource id (Aidbox UUID) — resolver-/servertildelt ved posting ud fra OBJECT_ID. Findes ikke i kilden; forretningsnøglen (OBJECT_ID) bæres i identifier_value." }
+    patient_id:         { DataType: NVARCHAR(255), FhirPath: "subject.id", FK-Target: fhir.Patient, FK-Key: patient_id, FK-Required: true, Description: "FHIR-tildelt Patient-reference (Aidbox UUID) — resolver-tildelt ved posting ud fra IFDB.ENCOUNTER.patient_id_ifdb; ikke direkte projiceret fra kilden." }
+    episode_of_care_id: { DataType: NVARCHAR(255), FhirPath: "episodeOfCare.id", FK-Target: fhir.EpisodeOfCare, FK-Key: episode_of_care_id, FK-Required: false, Description: "FHIR-tildelt EpisodeOfCare-reference (Aidbox UUID) — resolver-tildelt ved posting ud fra IFDB.ENCOUNTER.EPISODE_OF_CARE_ID; ikke direkte projiceret fra kilden." }
+    service_provider_id: { DataType: NVARCHAR(255), FhirPath: "serviceProvider.id", FK-Target: fhir.Organization, FK-Key: organization_id, FK-Required: false, Description: "FHIR-tildelt Organization-reference (Aidbox UUID) — resolver-tildelt ved posting ud fra SOR-kode (IFDB.ENCOUNTER.SERVICE_PROVIDER_SORCODE); ikke direkte projiceret fra kilden." }
+    identifier_value:   { DataType: NVARCHAR(255), FhirPath: "identifier.value", Source: [ifdb.IFDB.ENCOUNTER.OBJECT_ID] }
+    status:             { DataType: NVARCHAR(50), FhirPath: "status", Source: [ifdb.IFDB.ENCOUNTER.STATUS_TEXT] }
+    class_code:         { DataType: NVARCHAR(100), FhirPath: "class.code", Source: [ifdb.IFDB.ENCOUNTER.CLASS_CODE] }
+    class_display:      { DataType: NVARCHAR(255), FhirPath: "class.display", Source: [ifdb.IFDB.ENCOUNTER.CLASS_TEXT] }
+    period_start:       { DataType: NVARCHAR(50), FhirPath: "period.start", Source: [ifdb.IFDB.ENCOUNTER.PERIOD_START] }
+    period_end:         { DataType: NVARCHAR(50), FhirPath: "period.end", Source: [ifdb.IFDB.ENCOUNTER.PERIOD_END] }
+    dw_is_deleted:         { DataType: INT, FhirPath: "extension.where(url='urn:fhir:isDeleted').valueInteger" }
+    last_updated:       { DataType: DATETIME2, FhirPath: "r.ts" }
+    created_at:         { DataType: DATETIME2, FhirPath: "r.cts" }

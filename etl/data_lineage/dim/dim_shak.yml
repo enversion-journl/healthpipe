@@ -1,0 +1,26 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: dimension
+  TableName: dim.SHAK
+  Domain: [Shared]
+  Description: "SHAK (Sygehus-Afdelingsklassifikation) hierarki — selvrefererende forælder-barn udledt af koderne"
+  Grain: "Én række pr. SHAK-kode"
+
+  SourceSystems:
+    - sor: [SHAKSORMap]
+
+  Columns:
+    dw_ek_SHAK:           { Type: PK, DataType: INT }
+    code_shak:             { DataType: VARCHAR(50), Source: [sor.SHAKSORMap.ShakId] }
+    name:                 { DataType: NVARCHAR(500), Source: [sor.SHAKSORMap.ShakName] }
+    level:                { DataType: INT, Description: "Hierarkidybde (root=1) udledt af kodelængde/præfiks" }
+    dw_ek_SHAK_parent:    { Type: FK, DataType: INT, FK-Target: dim.SHAK, Description: "Forælderens dw_ek_SHAK udledt af kodepræfiks" }
+    parent_code:           { DataType: VARCHAR(50), Description: "Forældrekode i SHAK-hierarki" }
+    active:               { DataType: BIT, Description: "aktiv (SHAK-koder fra nyeste SOR-snapshot)" }
+    dw_timestamp_insert:  { Type: Audit, DataType: DATETIME2(0), Expr: "SYSDATETIME() ved første INSERT" }
+    dw_timestamp_update:  { Type: Audit, DataType: DATETIME2(0), Expr: "SYSDATETIME() ved UPDATE" }

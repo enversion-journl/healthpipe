@@ -1,0 +1,35 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: dimension
+  TableName: dim.Leverandoervare
+  Domain: [ERP]
+  Description: "MySupply-styret varedimension; ILS kan foede raekker (source-flags); al ILS-kobling via bridge.LeverandoervareILSVare"
+  Grain: "Én række pr. vare/produkt"
+  Privacy: >
+    dim.Leverandoervare bruger KUN MySupply/ILS-kilder.
+    KMD ItemDescription/ItemName indeholder potentielt personfølsomt fritekst
+    og må ALDRIG indgå i denne dimension.
+    Fakturalinje-fritekst fra MySupply persisteres i varenavn/varenavn_mysupply, og
+    varenummer_kreditor kan være CPR-formateret. Disse felter kan derfor indeholde
+    personfølsomme oplysninger (CPR). Adgang styres kolonnebegrænset i vw_dim.Leverandoervare: brugere uden rolle i
+    sec.RolleDomaene (Sikkerhedsdomaene DPA_ERP) ser ingen rækker; Rolle 'K'
+    maskerer fritekstfelter ([MASKERET]); Rolle 'U' viser klartekst. Rene
+    varenavne hentes via dim.ILSVare (koblet via bridge.LeverandoervareILSVare) / vw_dim.ILSVare.
+
+  SourceSystems:
+    - mysupply: [dbo.statistic_invoice_line, dbo.metadata]
+    - ils: [dbo.laftdstam, dbo.lgrvare, dbo.indkfak, dbo.laftd, dbo.pmdm, dbo.lev]
+
+  Columns:
+    dw_ek_Leverandoervare:           { Type: PK, DataType: INT }
+    cvr:                  { DataType: NVARCHAR(255), Source: [mysupply.dbo.metadata.LeverandorCVR, ils.dbo.lev.se_nr], Expr: "Kreditor-forretningsnoegle i cleancode-format (CVR_<nummer>) — matcher map.Leverandoervare.bk_kreditor" }
+    varenummer_kreditor:  { DataType: NVARCHAR(255), Source: [mysupply.dbo.statistic_invoice_line.Item_FakturaUdstederVareNr, ils.dbo.laftdstam.lvnr##1, ils.dbo.lgrvare.lvnr, ils.dbo.indkfak.levvarenr, ils.dbo.laftd.lvnr##1, ils.dbo.pmdm.lvnr], Expr: "Leverandoerens varenummer i cleancode-format (LEVVARE_<nummer>) — matcher map.Leverandoervare.bk_leverandoer_varenummer" }
+    varenavn:             { DataType: NVARCHAR(MAX), Expr: "COALESCE(NULLIF(varenavn_mysupply,''), 'UNKNOWN') — ILS-navne bor paa dim.ILSVare.navn (vnr-grain) og naas via bridge.LeverandoervareILSVare" }
+    varenavn_mysupply:    { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_line.Item_FakturaUdstederVareNavn] }
+    dw_source_mysupply:   { DataType: BIT, Expr: "1 hvis entiteten findes i MySupply (afledt af fuldt kildebillede via EXISTS)" }
+    dw_source_ils:        { DataType: BIT, Expr: "1 hvis entiteten findes i ILS-bridgekilderne (afledt af fuldt kildebillede via EXISTS)" }

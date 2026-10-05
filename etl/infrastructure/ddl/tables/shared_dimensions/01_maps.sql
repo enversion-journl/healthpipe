@@ -1,0 +1,18 @@
+-- SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+-- SPDX-License-Identifier: AGPL-3.0-or-later
+--
+-- This file is part of Healthpipe. See the LICENSE file in the project
+-- root for the full AGPL-3.0 license text.
+
+-- ============================================================================
+-- Shared Dimensions: Map Tables
+--
+-- (Intentionally empty.)
+--
+-- map.Borger was removed when the Borger pipeline switched to the FHIR +
+-- ref-table architecture. dw_ek_Borger is now assigned by ref.PatientToBorger
+-- (see infrastructure/ddl/tables/ref/01_tables.sql) instead of a separate
+-- BIGINT IDENTITY in this schema.
+--
+-- New shared-dimension map tables, if introduced, belong here.
+-- ============================================================================

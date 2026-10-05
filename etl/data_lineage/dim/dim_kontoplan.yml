@@ -1,0 +1,63 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: dimension
+  TableName: dim.Kontoplan
+  Domain: [ERP]
+  Description: "Kontoplandimension fra SydAX — hierarkisk F/D/S/G/A-opdeling"
+  Grain: "Én række pr. finanskonto"
+
+  SourceSystems:
+    - sydax:
+        [
+          Finans.Finanskonto,
+          Finans.Hovedkonto,
+          Finans.OmkostningsstedHierarki,
+          Finans.Funktion,
+          Finans.Dranst,
+          Finans.Art,
+          Finans.Gruppering,
+          Finans.GrupperingAutoriseret,
+        ]
+
+  Columns:
+    dw_ek_Kontoplan:      { Type: PK, DataType: INT }
+    clean_code_Kontoplan:  { DataType: NVARCHAR(255), Source: [sydax.Finans.Finanskonto.FinanskontoId], Expr: "'KONTOPLAN_' + UPPER(TRIM(finanskonto_id))" }
+    finanskonto_id:        { DataType: BIGINT, Source: [sydax.Finans.Finanskonto.FinanskontoId] }
+    kontonummer:          { DataType: NVARCHAR(255), Source: [sydax.Finans.Finanskonto.Kontonummer] }
+    f1:                   { DataType: NVARCHAR(50), Source: [sydax.Finans.Hovedkonto.F1] }
+    f2:                   { DataType: NVARCHAR(50), Source: [sydax.Finans.Hovedkonto.F2] }
+    f3:                   { DataType: NVARCHAR(50), Source: [sydax.Finans.Hovedkonto.F3] }
+    d1:                   { DataType: NVARCHAR(50), Source: [sydax.Finans.Hovedkonto.D1] }
+    g1:                   { DataType: NVARCHAR(50), Source: [sydax.Finans.Hovedkonto.G1] }
+    s1:                   { DataType: NVARCHAR(50), Source: [sydax.Finans.OmkostningsstedHierarki.Nummer1] }
+    s2:                   { DataType: NVARCHAR(50), Source: [sydax.Finans.OmkostningsstedHierarki.Nummer2] }
+    s3:                   { DataType: NVARCHAR(50), Source: [sydax.Finans.OmkostningsstedHierarki.Nummer3] }
+    s4:                   { DataType: NVARCHAR(50), Source: [sydax.Finans.OmkostningsstedHierarki.Nummer4] }
+    s5:                   { DataType: NVARCHAR(50), Source: [sydax.Finans.OmkostningsstedHierarki.Nummer5] }
+    s6:                   { DataType: NVARCHAR(50), Source: [sydax.Finans.OmkostningsstedHierarki.Nummer6] }
+    s7:                   { DataType: NVARCHAR(50), Source: [sydax.Finans.OmkostningsstedHierarki.Nummer7] }
+    g2:                   { DataType: NVARCHAR(50), Source: [sydax.Finans.Gruppering.Grupperingsnummer] }
+    a1:                   { DataType: NVARCHAR(50), Source: [sydax.Finans.Art.A1] }
+    a2:                   { DataType: NVARCHAR(50), Source: [sydax.Finans.Art.A2] }
+    tekst_s1:             { DataType: NVARCHAR(255), Source: [sydax.Finans.OmkostningsstedHierarki.Tekst1] }
+    tekst_s2:             { DataType: NVARCHAR(255), Source: [sydax.Finans.OmkostningsstedHierarki.Tekst2] }
+    tekst_s3:             { DataType: NVARCHAR(255), Source: [sydax.Finans.OmkostningsstedHierarki.Tekst3] }
+    tekst_s4:             { DataType: NVARCHAR(255), Source: [sydax.Finans.OmkostningsstedHierarki.Tekst4] }
+    tekst_s5:             { DataType: NVARCHAR(255), Source: [sydax.Finans.OmkostningsstedHierarki.Tekst5] }
+    tekst_s6:             { DataType: NVARCHAR(255), Source: [sydax.Finans.OmkostningsstedHierarki.Tekst6] }
+    tekst_s7:             { DataType: NVARCHAR(255), Source: [sydax.Finans.OmkostningsstedHierarki.Tekst7] }
+    tekst_g1:             { DataType: NVARCHAR(255), Source: [sydax.Finans.GrupperingAutoriseret.G1Tekst, sydax.Finans.Gruppering.Grupperingstekst] }
+    tekst_g2:             { DataType: NVARCHAR(255), Source: [sydax.Finans.Gruppering.Grupperingstekst] }
+    tekst_a1:             { DataType: NVARCHAR(255), Source: [sydax.Finans.Art.Artstekst] }
+    tekst_a2:             { DataType: NVARCHAR(255), Source: [sydax.Finans.Art.Artstekst] }
+    tekst_f1:             { DataType: NVARCHAR(255), Source: [sydax.Finans.Funktion.FunktionTekst] }
+    tekst_f2:             { DataType: NVARCHAR(255), Source: [sydax.Finans.Funktion.FunktionTekst] }
+    tekst_f3:             { DataType: NVARCHAR(255), Source: [sydax.Finans.Funktion.FunktionTekst] }
+    tekst_d1:             { DataType: NVARCHAR(255), Source: [sydax.Finans.Dranst.D1Tekst] }
+    omkostningsstednummer:    { DataType: NVARCHAR(50), Expr: "COALESCE(s7, s6, s5, s4, s3, s2, s1)" }
+    omkostningssted_niveau:   { DataType: INT, Expr: "CASE WHEN s7 IS NOT NULL THEN 7 ... ELSE NULL END" }

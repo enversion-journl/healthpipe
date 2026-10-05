@@ -1,0 +1,23 @@
+{
+  "resourceType": "ViewDefinition",
+  "name": "encounter_view",
+  "resource": "Encounter",
+  "status": "active",
+  "select": [
+    {
+      "column": [
+        {"name": "encounter_id", "path": "id"},
+        {"name": "patient_id", "path": "subject.id"},
+        {"name": "status", "path": "status"},
+        {"name": "class_code", "path": "class.code"},
+        {"name": "class_display", "path": "class.display"},
+        {"name": "period_start", "path": "period.start"},
+        {"name": "period_end", "path": "period.end"},
+        {"name": "episode_of_care_id", "path": "episodeOfCare.id.first()"},
+        {"name": "service_provider_id", "path": "serviceProvider.id"},
+        {"name": "identifier_value", "path": "identifier.value.first()"},
+        {"name": "dw_is_deleted", "path": "extension('urn:fhir:isDeleted').valueInteger.first()"}
+      ]
+    }
+  ]
+}

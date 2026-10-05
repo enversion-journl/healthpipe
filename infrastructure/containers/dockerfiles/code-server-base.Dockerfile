@@ -20,23 +20,37 @@
 
 FROM python:3.12-slim-bookworm
 
-# Install system dependencies needed for SQL tooling, Oracle, and builds
+# System dependencies.
+#
+# There is NO msodbcsql18 / unixodbc install here, and that is deliberate. Every
+# database client in pyproject.toml carries its own driver:
+#   mssql-python  bundles Microsoft's DDBC driver inside ddbc_bindings*.so
+#   pymssql       bundles FreeTDS in its wheel
+#   oracledb      thin mode, pure Python — no Oracle Instant Client
+#   psycopg[binary]  bundles libpq
+# Nothing in this repo imports pyodbc, and no connection string names an ODBC
+# driver (etl/core/resources.py builds SERVER=/DATABASE=/UID=/PWD= strings that
+# mssql-python resolves itself), so the system ODBC driver manager was never on
+# any code path.
+#
+# libltdl7 and libgssapi-krb5-2 ARE required: mssql-python dlopens both at
+# connect time. Without them every query fails with "DDBC Error: Failed to load
+# the driver" — verified on python:3.12-slim-bookworm/amd64, where adding just
+# those two turns that error into a plain "[Microsoft]TCP Provider" network
+# error, i.e. the driver loads.
+#
+# Dropping the Microsoft apt repo is what lets this image build on gitlab.com
+# SHARED runners. They cannot reach packages.microsoft.com — the curl there died
+# with "Recv failure: Connection reset by peer" after 126s (job 16167332804),
+# which failed build:base:qa and skipped build:qa with it, so release/1.0.75
+# never got an image at all. gnupg and apt-transport-https went with the repo;
+# they existed only to add and trust it.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     build-essential \
     curl \
-    gnupg \
-    apt-transport-https \
-    unixodbc \
-    unixodbc-dev \
-    odbcinst && \
-    rm -rf /var/lib/apt/lists/*
-
-# Install Microsoft ODBC Driver 18 for SQL Server
-RUN curl https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg && \
-    curl https://packages.microsoft.com/config/debian/12/prod.list > /etc/apt/sources.list.d/mssql-release.list && \
-    apt-get update && \
-    ACCEPT_EULA=Y apt-get install -y msodbcsql18 && \
+    libltdl7 \
+    libgssapi-krb5-2 && \
     rm -rf /var/lib/apt/lists/*
 
 # Create app directory

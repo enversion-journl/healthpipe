@@ -1,0 +1,54 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fhir
+  TableName: fhir.Appointment
+  Domain: [FHIR]
+  Description: "FHIR Appointment ressource — aftaler/bookinger fra BOM_IFDB"
+  Grain: "Én række pr. aftale (booking)"
+  FhirResource: Appointment
+
+  SourceSystems:
+    - bom_ifdb: [BOM_IFDB.AFTALE, BOM_IFDB.AFTALEBOOKINGHISTORIK, BOM_IFDB.PATIENTINFO, BOM_IFDB.ORGENHED, BOM_IFDB.SORENHED, BOM_IFDB.AFTALERESSOURCEDELTAGER, BOM_IFDB.OPGAVE, BOM_IFDB.OPGAVETYPE, BOM_IFDB.AFVIKLINGSSTATUS, BOM_IFDB.REKVISITION, BOM_IFDB.PRIORITET]
+
+  Columns:
+    appointment_id:               { Type: PK, DataType: NVARCHAR(255), FhirPath: "id", Description: "FHIR resource id (Aidbox UUID) — resolver-/servertildelt ved posting ud fra AFTALE.OID. Findes ikke i kilden; forretningsnøglen (OID) bæres i identifier_oid." }
+    identifier_value:             { DataType: NVARCHAR(255), FhirPath: "identifier.where(system='urn:source:bom_ifdb:aftale_oid').value.first()", Source: [bom_ifdb.BOM_IFDB.AFTALE.OID] }
+    status:                       { DataType: NVARCHAR(50), FhirPath: "status", Source: [bom_ifdb.BOM_IFDB.AFTALEBOOKINGHISTORIK.STATUS, bom_ifdb.BOM_IFDB.AFTALE.BOOKINGSTATUS, bom_ifdb.BOM_IFDB.AFVIKLINGSSTATUS.STATUSTYPE] }
+    appointment_type_code:        { DataType: NVARCHAR(100), FhirPath: "appointmentType.coding.code", Source: [bom_ifdb.BOM_IFDB.OPGAVETYPE.SKSKODE] }
+    appointment_type_display:     { DataType: NVARCHAR(255), FhirPath: "appointmentType.coding.display", Source: [bom_ifdb.BOM_IFDB.OPGAVETYPE.NAVN] }
+    appointment_type_text:        { DataType: NVARCHAR(255), FhirPath: "appointmentType.text", Source: [bom_ifdb.BOM_IFDB.OPGAVE.TITEL, bom_ifdb.BOM_IFDB.OPGAVE.NAVN] }
+    service_type_code:            { DataType: NVARCHAR(100), FhirPath: "serviceType.first().coding.first().code", Source: [bom_ifdb.BOM_IFDB.AFTALE.KONTAKTTYPE] }
+    cancelation_reason_code:      { DataType: NVARCHAR(100), FhirPath: "cancelationReason.coding.code", Source: [bom_ifdb.BOM_IFDB.AFTALEBOOKINGHISTORIK.AARSAG_TYPE] }
+    cancelation_reason_display:   { DataType: NVARCHAR(500), FhirPath: "cancelationReason.coding.display", Source: [bom_ifdb.BOM_IFDB.AFTALEBOOKINGHISTORIK.AARSAG_KODE_TEKST] }
+    cancelation_reason_text:      { DataType: NVARCHAR(500), FhirPath: "cancelationReason.text", Source: [bom_ifdb.BOM_IFDB.AFTALEBOOKINGHISTORIK.AARSAG_EGENTEKST, bom_ifdb.BOM_IFDB.AFTALEBOOKINGHISTORIK.AARSAG_KODE_TEKST] }
+    description:                  { DataType: NVARCHAR(MAX), FhirPath: "description", Source: [bom_ifdb.BOM_IFDB.AFTALE.ANGAAENDE] }
+    patient_instruction:          { DataType: NVARCHAR(MAX), FhirPath: "patientInstruction", Source: [bom_ifdb.BOM_IFDB.AFTALE.BORGERTITEL] }
+    comment:                      { DataType: NVARCHAR(MAX), FhirPath: "comment", Source: [bom_ifdb.BOM_IFDB.AFTALE.BREVTEKST] }
+    start:                        { DataType: NVARCHAR(50), FhirPath: "start", Source: [bom_ifdb.BOM_IFDB.AFTALEBOOKINGHISTORIK.PATIENT_MOEDEDATOTID, bom_ifdb.BOM_IFDB.AFTALE.PATIENT_MOEDEDATOTID] }
+    end:                          { DataType: NVARCHAR(50), FhirPath: "end", Source: [bom_ifdb.BOM_IFDB.AFTALE.RESTRAEK_STARTDATOTID, bom_ifdb.BOM_IFDB.AFTALE.RESTRAEKTOTALMINUTTER] }
+    minutes_duration:             { DataType: INT, FhirPath: "minutesDuration", Source: [bom_ifdb.BOM_IFDB.AFTALE.RESTRAEKTOTALMINUTTER] }
+    created:                      { DataType: NVARCHAR(50), FhirPath: "created", Source: [bom_ifdb.BOM_IFDB.AFTALE.OPRETTETDATOTID] }
+    patient_id:                   { DataType: NVARCHAR(255), FhirPath: "participant.where(actor.type='Patient').first().actor.id", FK-Target: fhir.Patient, FK-Key: patient_id, FK-Required: false, Description: "FHIR-tildelt Patient-reference (Aidbox UUID) — resolver-tildelt ved posting ud fra CPR (BOM_IFDB.PATIENTINFO.CPRNR); ikke direkte projiceret fra kilden." }
+    performing_location_id:       { DataType: NVARCHAR(255), FhirPath: "participant.where(actor.type='Location').first().actor.id", FK-Target: fhir.Location, FK-Key: location_id, FK-Required: false, Description: "FHIR-tildelt Location-reference (Aidbox UUID) — resolver-tildelt ved posting ud fra SOR-kode (BOM_IFDB.SORENHED.SORKODE); ikke direkte projiceret fra kilden." }
+    dw_is_deleted:                   { DataType: INT, FhirPath: "extension.where(url='urn:fhir:isDeleted').valueInteger", Source: [bom_ifdb.BOM_IFDB.AFTALE.DATOSLETTET] }
+    last_updated:                 { DataType: DATETIME2, FhirPath: "r.ts" }
+    created_at:                   { DataType: DATETIME2, FhirPath: "r.cts" }
+
+  # FHIR-resource-felter som bygges/postes til Aidbox men IKKE projiceres ned i
+  # den flade fhir.Appointment DWH-tabel (SoF-viewet udelader dem). identifier_value
+  # bærer aftale_oid; identifier_columna (Columna-systemet) projiceres ikke. Bevaret
+  # her som lineage-dokumentation; ignoreres af verifieren og star-schema-generatoren.
+  NonProjectedFhirFields:
+    identifier_oid:               { DataType: NVARCHAR(255), FhirPath: "identifier.where(system='urn:source:bom_ifdb:aftale_oid').value", Source: [bom_ifdb.BOM_IFDB.AFTALE.OID] }
+    identifier_columna:           { DataType: NVARCHAR(60), FhirPath: "identifier.where(system='urn:source:columna:booking_activity_id').value", Source: [bom_ifdb.BOM_IFDB.AFTALE.COLUMNA_AFTALEIDENTIFIKATION] }
+    based_on_service_request:     { DataType: NVARCHAR(255), FhirPath: "basedOn.where(type='ServiceRequest').identifier.value", Source: [bom_ifdb.BOM_IFDB.AFTALE.REKVISITIONOID] }
+    priority:                     { DataType: INT, FhirPath: "priority", Source: [bom_ifdb.BOM_IFDB.PRIORITET.NR] }
+    requested_period_start:       { DataType: NVARCHAR(50), FhirPath: "requestedPeriod.first().start", Source: [bom_ifdb.BOM_IFDB.AFTALE.SOEGEPERIODE_FRADATO] }
+    requested_period_end:         { DataType: NVARCHAR(50), FhirPath: "requestedPeriod.first().end", Source: [bom_ifdb.BOM_IFDB.AFTALE.SOEGEPERIODE_TILDATO] }
+    patient_required:             { DataType: NVARCHAR(20), FhirPath: "participant.where(actor.type='Patient').first().required", Source: [bom_ifdb.BOM_IFDB.AFTALE.PATIENTDELTAGER] }
+    meta_security_code:           { DataType: NVARCHAR(10), FhirPath: "meta.security.first().code", Source: [bom_ifdb.BOM_IFDB.AFTALE.SKAERMNING_SKAERMET] }

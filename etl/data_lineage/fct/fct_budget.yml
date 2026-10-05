@@ -1,0 +1,40 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fact
+  TableName: fct.Budget
+  Domain: [ERP]
+  Description: "Budgetfaktatabel — én række pr. budgetpost fra SydAX"
+  Grain: "Én række pr. budgetpost, identificeret ved dw_ek_Budget (fra map.Budget)"
+
+  SourceSystems:
+    - sydax: [Finans.Budgetpost, Finans.Budgetmodel, Finans.OmkostningsstedHierarki]
+
+  Columns:
+    dw_ek_Budget:             { Type: PK, DataType: INT }
+    bk_ref_ledgerbudget_id:    { DataType: NVARCHAR(100), Source: [sydax.Finans.Budgetpost.ref_LedgerbudgetId] }
+
+    dw_ek_BudgetEgenskaber: { Type: FK, DataType: INT, Source: [sydax.Finans.Budgetpost.ref_BudgetmodelId, sydax.Finans.Budgetmodel.Budgetmodelnummer, sydax.Finans.Budgetmodel.Budgetmodeltype] }
+    dw_ek_Kontoplan:        { Type: FK, DataType: INT, Source: [sydax.Finans.Budgetpost.FinanskontoId] }
+    dw_ek_Okosted:          { Type: FK, DataType: INT, FK-Target: dim.Okosted, Source: [sydax.Finans.OmkostningsstedHierarki.nummer1..nummer20], Expr: "Dybeste ikke-NULL niveau (nummer20..nummer1) → map.Okosted via clean_code_Okosted" }
+
+    dw_ek_Dato_budget:          { Type: FK, DataType: INT, Source: [sydax.Finans.Budgetpost.Budgetdato] }
+    dato_tid_budget:             { DataType: DATETIME2, Source: [sydax.Finans.Budgetpost.Budgetdato] }
+    dw_ek_Dato_budget_adopted:   { Type: FK, DataType: INT, Source: [sydax.Finans.Budgetpost.BudgetAdoptedDate] }
+    dato_tid_budget_adopted:      { DataType: DATETIME2, Source: [sydax.Finans.Budgetpost.BudgetAdoptedDate] }
+    dw_ek_Dato_budget_oprettet:  { Type: FK, DataType: INT, Source: [sydax.Finans.Budgetpost.Oprettelsestidspunkt] }
+    dato_tid_budget_oprettet:     { DataType: DATETIME2, Source: [sydax.Finans.Budgetpost.Oprettelsestidspunkt] }
+    dw_ek_Dato_budget_aendret:   { Type: FK, DataType: INT, Source: [sydax.Finans.Budgetpost.SidstAendretTidspunkt] }
+    dato_tid_budget_aendret:      { DataType: DATETIME2, Source: [sydax.Finans.Budgetpost.SidstAendretTidspunkt] }
+
+    budgetbeloeb:       { Type: Measure, DataType: DECIMAL(30,12), Source: [sydax.Finans.Budgetpost.Budgetbeloeb] }
+    budgetbeloeb_valuta: { Type: Measure, DataType: DECIMAL(30,12), Source: [sydax.Finans.Budgetpost.BudgetbeloebValuta] }
+
+    dw_haendelsestidspunkt: { DataType: DATETIME2, Source: [sydax.Finans.Budgetpost.Oprettelsestidspunkt] }
+
+  Notes:
+    - "SOR organisation for reporting: opløses via conceptmap.OkostedToSOR (vw_okosted_to_sor: dw_ek_Okosted → dw_ek_Organisation_target). fct.Budget has no dw_ek_Organisation column."

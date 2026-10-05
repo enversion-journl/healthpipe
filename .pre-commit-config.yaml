@@ -1,0 +1,129 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+repos:
+# >>> healthpipe-license-hooks (managed by license_headers.py) >>>
+  - repo: local
+    hooks:
+      - id: license-headers-apply
+        name: Insert missing SPDX license headers
+        entry: python etl/scripts/license_headers.py --apply
+        language: system
+        pass_filenames: true
+        require_serial: true
+      - id: license-headers
+        name: Verify SPDX license headers
+        entry: python etl/scripts/license_headers.py --check
+        language: system
+        pass_filenames: true
+        require_serial: true
+# <<< healthpipe-license-hooks <<<
+  # Security gate: scan the STAGED diff for secrets/tokens and PII (CPR, email,
+  # phone, person names) before anything else. Backed by gitleaks + .gitleaks.toml.
+  # Requires the gitleaks binary on PATH (installed by
+  # .devcontainer/startup_scripts/setup-precommit.sh; macOS host: `brew install gitleaks`).
+  # Bypass a false positive with an inline `# gitleaks:allow` comment or the [allowlist].
+  - repo: local
+    hooks:
+      - id: gitleaks
+        name: gitleaks (secret + PII scan of staged diff)
+        description: Block commits containing secrets, tokens, or PII
+        entry: gitleaks git --pre-commit --staged --redact --no-banner --config .gitleaks.toml
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: check-hook-entries
+        name: pre-commit hook scripts are git-tracked
+        description: Catch a hook entry that only exists on the author's machine
+        entry: python3 infrastructure/devops/scripts/check_hook_entries.py
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: check-ruff-pin
+        name: ruff pin matches pyproject + pre-commit + installed
+        description: Block drift between the ruff versions CI and local run
+        entry: python3 infrastructure/devops/scripts/check_ruff_pin.py
+        language: system
+        pass_filenames: false
+        always_run: true
+
+  # Pre-commit hooks for general file checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+        # Two tracked reference datasets are legitimately far past any sane
+        # threshold (UNSPSC ~11MB, rekvirent-to-SOR conceptmap ~5MB). The hook only
+        # inspects ADDED files, so they are invisible on incremental commits but hit
+        # every fresh checkout-and-add. Excluding them by path keeps the default
+        # 500kB ceiling meaningful for everything else.
+        exclude: |
+          (?x)^(
+            etl/DSI/csv_files/data/unspsc_udbudskategori\.csv|
+            etl/DSI/organisation/conceptmaps/rekvirent-to-sor/conceptmap\.json
+          )$
+      - id: check-merge-conflict
+      - id: check-toml
+      - id: debug-statements
+      - id: check-docstring-first
+
+  # Black for formatting (including long lines)
+  - repo: https://github.com/psf/black
+    rev: 25.9.0
+    hooks:
+      - id: black
+        language_version: python3.12
+        # No args needed; uses pyproject.toml
+        exclude: ^(\.eggs/|\.git/|\.hg/|\.mypy_cache/|\.tox/|\.venv/|build/|dist/|nomad_stack/|daniel/|output/|nomad_data/|notebooks/)
+
+  # Ruff for linting with auto-fixes
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.3
+    hooks:
+      # ruff-check, not the `ruff` legacy alias. Lint only — black is the formatter,
+      # so the ruff-format hook is deliberately absent.
+      - id: ruff-check
+        args: [--fix]
+        language_version: python3.12
+        exclude: ^(\.eggs/|\.git/|\.hg/|\.mypy_cache/|\.tox/|\.venv/|build/|dist/|nomad_stack/|daniel/|output/|nomad_data/|notebooks/)
+
+  # Pytest for running tests
+  # - repo: local # Skip for now
+  #   hooks:
+  #     - id: pytest
+  #       name: pytest
+  #       entry: pytest
+  #       language: system
+  #       types: [python]
+  #       pass_filenames: false
+  #       always_run: true
+  #       args: [tests/, -v, --tb=short]
+
+  # Security checks (fast mode - only check changed files)
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.9.4
+    hooks:
+      - id: bandit
+        args: [-c, pyproject.toml, --severity-level, high, --confidence-level, high]
+        exclude: ^(tests|nomad_stack|daniel|output|nomad_data)/
+        files: \.py$
+
+  # # Import sorting and unused imports (conservative - only imports)
+  # - repo: https://github.com/pycqa/autoflake
+  #   rev: v2.3.1
+  #   hooks:
+  #     - id: autoflake
+  #       args: [--remove-all-unused-imports, --in-place, --check]
+  #       exclude: ^(nomad_stack|daniel|output|nomad_data)/
+
+# Global configuration
+default_stages: [pre-commit]
+fail_fast: true

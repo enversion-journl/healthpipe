@@ -1,0 +1,33 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: dimension
+  TableName: dim.Rekvirent
+  Domain: [ERP]
+  Description: "Rekvirent-/afdelingsdimension fra ILS med SOR-kobling"
+  Grain: "Én række pr. rekvirent/afdeling"
+
+  SourceSystems:
+    - ils: [codesystem.RekvirentConcept, codesystem.RekvirentHierarchy, codesystem.RekvirentProperties, ils_pro2_log.dbo.rekvUndtagne]
+    - sor: [SOR_registry]
+
+  Columns:
+    dw_ek_Rekvirent:          { Type: PK, DataType: INT }
+    code:                     { DataType: VARCHAR(100), Source: [ils.codesystem.RekvirentConcept.CODE] }
+    display:                  { DataType: NVARCHAR(500), Source: [ils.codesystem.RekvirentConcept.DISPLAY] }
+    parent_code:               { DataType: VARCHAR(100), Source: [ils.codesystem.RekvirentHierarchy.parent_code] }
+    level:                    { DataType: INT, Expr: "beregnet fra hierarkidybde" }
+    entity_type:               { DataType: NVARCHAR(200), Source: [ils.codesystem.RekvirentProperties.entityType] }
+    sgh:                      { DataType: NVARCHAR(200), Source: [ils.codesystem.RekvirentProperties.sgh] }
+    rgrp:                     { DataType: NVARCHAR(200), Source: [ils.codesystem.RekvirentProperties.rgrp] }
+    rtyp:                     { DataType: NVARCHAR(200), Source: [ils.codesystem.RekvirentProperties.rtyp] }
+    rnr:                      { DataType: NVARCHAR(200), Source: [ils.codesystem.RekvirentProperties.rnr] }
+    code_sor:                  { DataType: VARCHAR(50), Source: [sor.SOR_registry.CodeSOR] }
+    sor_relationship:          { DataType: VARCHAR(50), Source: [sor.SOR_registry.SORRelationship] }
+    dw_ek_Organisation:       { Type: FK, DataType: INT, Source: [sor.SOR_registry.SORId] }
+    dw_ek_Rekvirent_parent:   { Type: FK, DataType: INT, FK-Target: dim.Rekvirent, Source: [ils.codesystem.RekvirentHierarchy.parent_code] }
+    er_undtaget:               { DataType: BIT, Source: [ils.ils_pro2_log.dbo.rekvUndtagne.sgh, ils.ils_pro2_log.dbo.rekvUndtagne.rnr], Expr: "1 når (sgh,rnr) findes i ref.RekvirentUndtagelse; join på normaliseret sgh+rnr. Orphans findes kun i ref." }

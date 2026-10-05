@@ -1,0 +1,94 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fhir
+  TableName: fhir.Observation
+  Domain: [FHIR]
+  Description: "FHIR Observation ressource — kliniske målinger/SFI-datapunkter fra IFDB"
+  Grain: "Én række pr. klinisk observation (SFI-element/måling/resultat)"
+  FhirResource: Observation
+
+  SourceSystems:
+    - ifdb_aktivitetsresultat: [IFDB.AKTIVITETSRESULTAT]
+    - ifdb_aktivitetsudfoerelse: [IFDB.AKTIVITETSUDFOERELSE]
+    - ifdb_aktivitetsudfoerelse_speciale: [IFDB.AKTIVITETSUDFOERELSE_SPECIALE]
+
+  # Kolonner projiceret ned i den flade fhir.Observation DWH-tabel af SoF-viewet
+  # observation_view (rækkefølge/typer følger infrastructure/ddl/tables/fhir/01_tables.sql).
+  Columns:
+    observation_id:        { Type: PK, DataType: NVARCHAR(255), FhirPath: "id", Description: "FHIR resource id (Aidbox UUID) — resolver-/servertildelt ved posting ud fra OBJEKT_ID (Aidbox-UUID via identifier-cache, mint uuid4 ved cache-miss), ikke selve OBJEKT_ID. Forretningsnøglen bæres i identifier (SYSTEM_IFDB_AKTIVITETSRESULTAT)." }
+    patient_id:            { DataType: NVARCHAR(255), FhirPath: "subject.id", FK-Target: fhir.Patient, FK-Key: patient_id, FK-Required: true, Description: "FHIR-tildelt Patient-reference (Aidbox UUID) — resolver-tildelt ved posting ud fra IFDB.AKTIVITETSRESULTAT.patient_id_ifdb; ikke direkte projiceret fra kilden." }
+    encounter_id:          { DataType: NVARCHAR(255), FhirPath: "encounter.id", FK-Target: fhir.Encounter, FK-Key: encounter_id, FK-Required: false, Description: "FHIR-tildelt Encounter-reference (Aidbox UUID) — resolver-tildelt ved posting ud fra IFDB.AKTIVITETSRESULTAT.ENCOUNTER_ID; ikke direkte projiceret fra kilden." }
+    organization_id:       { DataType: NVARCHAR(255), FhirPath: "performer.getReferenceKey(Organization)", FK-Target: fhir.Organization, FK-Key: organization_id, FK-Required: false }
+    practitioner_id:       { DataType: NVARCHAR(255), FhirPath: "performer.where(type='Practitioner').identifier.value.first()", FK-None: true, Description: "Behandler-identifikatorværdi (ingen fhir.Practitioner-fladtabel endnu)." }
+    practitioner_display:  { DataType: NVARCHAR(500), FhirPath: "performer.where(type='Practitioner').display.first()" }
+    status:                { DataType: NVARCHAR(50), FhirPath: "status" }
+    category_code:         { DataType: NVARCHAR(255), FhirPath: "category.coding.code.first()", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.AKTIVITETTYPE_KODE] }
+    code:                  { DataType: NVARCHAR(255), FhirPath: "code.coding.code.first()", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.AKTIVITETTYPE_KODE] }
+    code_system:           { DataType: NVARCHAR(500), FhirPath: "code.coding.system.first()" }
+    code_display:          { DataType: NVARCHAR(500), FhirPath: "code.coding.display.first()", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.AKTIVITETTYPE_KODETEKST] }
+    element_system:        { DataType: NVARCHAR(500), FhirPath: "code.coding.where(system='urn:dk:ifdb:sfi').system.first()" }
+    element_code:          { DataType: NVARCHAR(255), FhirPath: "code.coding.where(system='urn:dk:ifdb:sfi').code.first()" }
+    element_display:       { DataType: NVARCHAR(500), FhirPath: "code.coding.where(system='urn:dk:ifdb:sfi').display.first()" }
+    effective_date:        { DataType: NVARCHAR(50), FhirPath: "effectiveDateTime", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.PERIOD_START] }
+    value_type:            { DataType: NVARCHAR(50), FhirPath: "'fhir_value'", Expr: "SoF-udledt værditype (int/dec/string/datetime/bool/quantity/coding)" }
+    value_int:             { DataType: NVARCHAR(50), FhirPath: "valueInteger", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    value_dec:             { DataType: NVARCHAR(50), FhirPath: "valueDecimal", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    value_string:          { DataType: NVARCHAR(MAX), FhirPath: "valueString", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    value_datetime:        { DataType: NVARCHAR(50), FhirPath: "valueDateTime", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    value_bool:            { DataType: NVARCHAR(10), FhirPath: "valueBoolean", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    value_quantity:        { DataType: NVARCHAR(100), FhirPath: "valueQuantity.value", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    value_unit:            { DataType: NVARCHAR(100), FhirPath: "valueQuantity.unit", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    value_coding_system:   { DataType: NVARCHAR(500), FhirPath: "valueCodeableConcept.coding.system.first()", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    value_coding_code:     { DataType: NVARCHAR(255), FhirPath: "valueCodeableConcept.coding.code.first()", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    value_coding_display:  { DataType: NVARCHAR(500), FhirPath: "valueCodeableConcept.coding.display.first()", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    ifdb_aktivitet_id:     { DataType: NVARCHAR(255), FhirPath: "extension.where(url='http://example.org/fhir/StructureDefinition/sfiInstanceMeta').extension.where(url='aktivitetId').valueString.first()", FK-None: true }
+    ifdb_aktivitet_sfi_id: { DataType: NVARCHAR(255), FhirPath: "identifier.where(system='urn:source:ifdb:aktivitetsresultat_sfi').value.first()", FK-None: true }
+    element_nummer:        { DataType: NVARCHAR(50), FhirPath: "extension.where(url='http://example.org/fhir/StructureDefinition/sfiInstanceMeta').extension.where(url='elementNummer').valueInteger.first()" }
+    klynge_id:             { DataType: NVARCHAR(50), FhirPath: "extension.where(url='http://example.org/fhir/StructureDefinition/sfiInstanceMeta').extension.where(url='klyngeId').valueInteger.first()", FK-None: true }
+    klynge_id_hierarki:    { DataType: NVARCHAR(500), FhirPath: "extension.where(url='http://example.org/fhir/StructureDefinition/sfiInstanceMeta').extension.where(url='klyngeIdHierarki').valueString.first()" }
+    klynge_valg_ledetekst: { DataType: NVARCHAR(MAX), FhirPath: "extension.where(url='http://example.org/fhir/StructureDefinition/sfiInstanceMeta').extension.where(url='klyngeValgLedetekst').valueString.first()" }
+    klynge_parent_id:      { DataType: NVARCHAR(50), FhirPath: "extension.where(url='http://example.org/fhir/StructureDefinition/sfiInstanceMeta').extension.where(url='klyngeParentId').valueInteger.first()", FK-None: true }
+    repetition_id:         { DataType: NVARCHAR(50), FhirPath: "extension.where(url='http://example.org/fhir/StructureDefinition/sfiInstanceMeta').extension.where(url='repetitionId').valueInteger.first()", FK-None: true }
+    element_kode:          { DataType: NVARCHAR(255), FhirPath: "extension.where(url='http://example.org/fhir/StructureDefinition/sfiInstanceMeta').extension.where(url='elementKode').valueString.first()" }
+    element_original_kode: { DataType: NVARCHAR(255), FhirPath: "extension.where(url='http://example.org/fhir/StructureDefinition/sfiInstanceMeta').extension.where(url='elementOriginalKode').valueString.first()" }
+    element_administrativ_enhed_id: { DataType: NVARCHAR(255), FhirPath: "extension.where(url='http://example.org/fhir/StructureDefinition/sfiInstanceMeta').extension.where(url='elementAdminEnhedId').valueString.first()", FK-None: true }
+    repetition_id_hierarki: { DataType: NVARCHAR(500), FhirPath: "extension.where(url='http://example.org/fhir/StructureDefinition/sfiInstanceMeta').extension.where(url='repetitionIdHierarki').valueString.first()" }
+    opdateret_tid:         { DataType: NVARCHAR(50), FhirPath: "extension.where(url='http://example.org/fhir/StructureDefinition/sfiInstanceMeta').extension.where(url='opdateretTid').valueString.first()" }
+    xml_status:            { DataType: INT, FhirPath: "extension.where(url='http://example.org/fhir/StructureDefinition/sfiInstanceMeta').extension.where(url='xmlStatus').valueInteger.first()" }
+    xml_status_text:       { DataType: NVARCHAR(255), FhirPath: "extension.where(url='http://example.org/fhir/StructureDefinition/sfiInstanceMeta').extension.where(url='xmlStatusText').valueString.first()" }
+    dw_is_deleted:         { DataType: INT, FhirPath: "extension('urn:fhir:isDeleted').valueInteger.first()", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.SLETTET], Description: "Slettet-flag (1 = slettet) fra kildens deletion-markør. NOT NULL DEFAULT 0; manglende extension coalesces til 0 i loadet." }
+    last_updated:          { DataType: DATETIME2, FhirPath: "r.ts" }
+    created_at:            { DataType: DATETIME2, FhirPath: "r.cts" }
+    dw_timestamp_effective: { Type: Audit, DataType: DATETIME2, Expr: "ISNULL(dw_timestamp_update, dw_timestamp_insert) PERSISTED — sargbar delta-discovery-kolonne" }
+
+  # FHIR-resource-felter fra en tidligere Observation-model (speciale/udf/aktivitettype
+  # som FHIR-extensions) som IKKE projiceres ned i den nuværende flade DWH-tabel.
+  # Bevaret her som lineage-dokumentation; ignoreres af lineage↔DDL-verifieren og
+  # star-schema-generatoren (som kun læser 'Columns').
+  NonProjectedFhirFields:
+    category_system:  { DataType: NVARCHAR(500), FhirPath: "category.coding[0].system" }
+    category_raw:     { DataType: NVARCHAR(255), FhirPath: "category.coding[1].code", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.AKTIVITETTYPE_KODE] }
+    issued:           { DataType: NVARCHAR(50), FhirPath: "issued", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.UDFOERT_TIDSPUNKT] }
+    aktivitettype_level1: { DataType: NVARCHAR(255), FhirPath: "extension.where(url='...aktivitettypeKodeHierarki').extension.where(url='level1').valueString", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.AKTIVITETTYPE_KODE] }
+    aktivitettype_level2: { DataType: NVARCHAR(255), FhirPath: "extension.where(url='...aktivitettypeKodeHierarki').extension.where(url='level2').valueString", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.AKTIVITETTYPE_KODE] }
+    aktivitettype_level3: { DataType: NVARCHAR(255), FhirPath: "extension.where(url='...aktivitettypeKodeHierarki').extension.where(url='level3').valueString", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.AKTIVITETTYPE_KODE] }
+    udf_opret_persid:      { DataType: NVARCHAR(255), FhirPath: "extension.where(url='...aktivitetsudfoerelseMetadata').extension.where(url='oprettetPersId').valueString", Source: [ifdb_aktivitetsudfoerelse.IFDB.AKTIVITETSUDFOERELSE.OPRET_PERSID] }
+    udf_opret_tidspunkt:   { DataType: NVARCHAR(50), FhirPath: "extension.where(url='...aktivitetsudfoerelseMetadata').extension.where(url='oprettetTidspunkt').valueString", Source: [ifdb_aktivitetsudfoerelse.IFDB.AKTIVITETSUDFOERELSE.OPRET_TIDSPUNKT] }
+    udf_opret_admenhed:    { DataType: NVARCHAR(255), FhirPath: "extension.where(url='...aktivitetsudfoerelseMetadata').extension.where(url='oprettetAdmEnhedKode').valueString", Source: [ifdb_aktivitetsudfoerelse.IFDB.AKTIVITETSUDFOERELSE.OPRET_ADMENHED_KODE] }
+    udf_aendret_persid:    { DataType: NVARCHAR(255), FhirPath: "extension.where(url='...aktivitetsudfoerelseMetadata').extension.where(url='aendretPersId').valueString", Source: [ifdb_aktivitetsudfoerelse.IFDB.AKTIVITETSUDFOERELSE.AENDRET_PERSID] }
+    udf_aendret_tidspunkt: { DataType: NVARCHAR(50), FhirPath: "extension.where(url='...aktivitetsudfoerelseMetadata').extension.where(url='aendretTidspunkt').valueString", Source: [ifdb_aktivitetsudfoerelse.IFDB.AKTIVITETSUDFOERELSE.AENDRET_TIDSPUNKT] }
+    udf_aendret_admenhed:  { DataType: NVARCHAR(255), FhirPath: "extension.where(url='...aktivitetsudfoerelseMetadata').extension.where(url='aendretAdmEnhedKode').valueString", Source: [ifdb_aktivitetsudfoerelse.IFDB.AKTIVITETSUDFOERELSE.AENDRET_ADMENHED_KODE] }
+    udf_aktivitet_id:      { DataType: NVARCHAR(255), FhirPath: "extension.where(url='...aktivitetsudfoerelseMetadata').extension.where(url='aktivitetId').valueString", Source: [ifdb_aktivitetsudfoerelse.IFDB.AKTIVITETSUDFOERELSE.AKTIVITET_ID] }
+    udf_fortr_niveau:      { DataType: NVARCHAR(50), FhirPath: "extension.where(url='...aktivitetsudfoerelseMetadata').extension.where(url='fortrolighedsNiveau').valueString", Source: [ifdb_aktivitetsudfoerelse.IFDB.AKTIVITETSUDFOERELSE.FORTR_NIVEAU] }
+    udf_fortr_gruppe_id:   { DataType: NVARCHAR(255), FhirPath: "extension.where(url='...aktivitetsudfoerelseMetadata').extension.where(url='fortrolighedsGruppeId').valueString", Source: [ifdb_aktivitetsudfoerelse.IFDB.AKTIVITETSUDFOERELSE.FORTR_GRUPPE_ID] }
+    udf_fortr_gruppe_navn: { DataType: NVARCHAR(500), FhirPath: "extension.where(url='...aktivitetsudfoerelseMetadata').extension.where(url='fortrolighedsGruppeNavn').valueString", Source: [ifdb_aktivitetsudfoerelse.IFDB.AKTIVITETSUDFOERELSE.FORTR_GRUPPE_NAVN] }
+    speciale_kode:             { DataType: NVARCHAR(100), FhirPath: "extension.where(url='...aktivitetsudfoerelseSpeciale').extension.where(url='speciale').extension.where(url='specialeKode').valueString", Source: [ifdb_aktivitetsudfoerelse_speciale.IFDB.AKTIVITETSUDFOERELSE_SPECIALE.SPECIALE_KODE] }
+    speciale_kodetekst:        { DataType: NVARCHAR(500), FhirPath: "extension.where(url='...aktivitetsudfoerelseSpeciale').extension.where(url='speciale').extension.where(url='specialeKodetekst').valueString", Source: [ifdb_aktivitetsudfoerelse_speciale.IFDB.AKTIVITETSUDFOERELSE_SPECIALE.SPECIALE_KODETEKST] }
+    speciale_hospital_kode:    { DataType: NVARCHAR(100), FhirPath: "extension.where(url='...aktivitetsudfoerelseSpeciale').extension.where(url='speciale').extension.where(url='specialeHospitalKode').valueString", Source: [ifdb_aktivitetsudfoerelse_speciale.IFDB.AKTIVITETSUDFOERELSE_SPECIALE.SPECIALE_HOSPITAL_KODE] }
+    speciale_hospital_navn:    { DataType: NVARCHAR(500), FhirPath: "extension.where(url='...aktivitetsudfoerelseSpeciale').extension.where(url='speciale').extension.where(url='specialeHospitalNavn').valueString", Source: [ifdb_aktivitetsudfoerelse_speciale.IFDB.AKTIVITETSUDFOERELSE_SPECIALE.SPECIALE_HOSPITAL_NAVN] }
+    speciale_hospital_orgkode: { DataType: NVARCHAR(100), FhirPath: "extension.where(url='...aktivitetsudfoerelseSpeciale').extension.where(url='speciale').extension.where(url='specialeHospitalOrgkode').valueString", Source: [ifdb_aktivitetsudfoerelse_speciale.IFDB.AKTIVITETSUDFOERELSE_SPECIALE.SPECIALE_HOSPITAL_ORGKODE] }

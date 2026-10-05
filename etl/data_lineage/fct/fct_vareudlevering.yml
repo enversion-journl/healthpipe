@@ -1,0 +1,81 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fact
+  TableName: fct.Vareudlevering
+  Domain: [ERP]
+  Description: "Centrallager udlevering fact tabel — én række pr. udleveringslinje fra ILS"
+  Grain: "Én række pr. udleveringslinje fra ILS centrallager"
+
+  SourceSystems:
+    - ils_udlev: [dbo.udlev]
+    - ils: [dbo.vare]
+    - lager_codesystem: [codesystem.LagerConcept]
+
+  Columns:
+    dw_ek_Vareudlevering: { Type: PK, DataType: INT, FK-Target: dim.Vareudlevering }
+    clean_code_Vareudlevering: { DataType: NVARCHAR(500), Expr: "UDLEV_{prrowid}" }
+    bk_prrowid:           { DataType: NVARCHAR(100), Source: [ils_udlev.dbo.udlev.prrowid] }
+
+    dw_ek_ILSVare:                  { Type: FK, DataType: INT, Source: [ils_udlev.dbo.udlev.vnr] }
+    dw_ek_UNSPSC:
+      Type: FK
+      DataType: INT
+      FK-Target: dim.UNSPSC
+      Source: [ils.dbo.vare.unspc, ils.dbo.vare.unspsc2]
+      Expr: >
+        COALESCE((
+          SELECT um.dw_ek_UNSPSC
+          FROM [dim].[ILSVare] di
+          INNER JOIN [map].[UNSPSC] um
+            ON um.clean_code_UNSPSC = COALESCE(
+              NULLIF(LTRIM(RTRIM(di.UNSPSC)), ''),
+              CASE
+                WHEN di.UNSPSC_Intern LIKE '%.0'
+                THEN LEFT(
+                  LTRIM(RTRIM(di.UNSPSC_Intern)),
+                  LEN(LTRIM(RTRIM(di.UNSPSC_Intern))) - 2
+                )
+                ELSE NULLIF(LTRIM(RTRIM(di.UNSPSC_Intern)), '')
+              END
+            )
+          WHERE di.dw_ek_ILSVare = f.dw_ek_ILSVare
+        ), -1)
+      Description: >
+        Direkte FK på fact via map.UNSPSC; CleanCode fra dim.ILSVare UNSPSC/UNSPSC_Intern
+        (unspc prioriteres over unspsc2 med '.0'-strip). Ikke via dim.ILSVare.dw_ek_UNSPSC.
+    dw_ek_Lager:                    { Type: FK, DataType: BIGINT, Source: [ils_udlev.dbo.udlev.sgh, ils_udlev.dbo.udlev.lgr] }
+    dw_ek_Rekvirent:                { Type: FK, DataType: INT, Source: [ils_udlev.dbo.udlev.sgh, ils_udlev.dbo.udlev.rnr] }
+    dw_ek_Leverandoervare:
+      Type: FK
+      DataType: BIGINT
+      Source: [ils_udlev.dbo.udlev.lnr, ils_udlev.dbo.udlev.lvnr_1]
+      Description: >
+        Oploeses alene via den konstruerede LEVVARE-cleancode (CVR fra lnr +
+        lvnr_1) fra kilderaekken; raekker uden lvnr_1 faar -1. Yderligere
+        Vare-relationer kan potentielt oploeses ad hoc via dw_ek_ILSVare ->
+        bridge.LeverandoervareILSVare, men det er bevidst ikke indbygget i modellen.
+
+    dw_ek_Dato_vareudlevering: { Type: FK, DataType: INT, Source: [ils_udlev.dbo.udlev.udldto] }
+    dw_ek_Dato_udloeb:     { Type: FK, DataType: INT, Source: [ils_udlev.dbo.udlev.udlobdto] }
+    dw_ek_Dato_postering:  { Type: FK, DataType: INT, Source: [ils_udlev.dbo.udlev.postdto] }
+    dw_ek_Dato_aflevering: { Type: FK, DataType: INT, Source: [ils_udlev.dbo.udlev.aflevdto] }
+
+    vareudlevering_antal:  { Type: Measure, DataType: DECIMAL(18,4), Source: [ils_udlev.dbo.udlev.udlant] }
+    vareudlevering_beloeb: { Type: Measure, DataType: DECIMAL(19,4), Source: [ils_udlev.dbo.udlev.udlbel] }
+    indkoeb_beloeb:    { Type: Measure, DataType: DECIMAL(19,4), Source: [ils_udlev.dbo.udlev.indkbel] }
+    rabatbeloeb:      { Type: Measure, DataType: DECIMAL(19,4), Source: [ils_udlev.dbo.udlev.rabatbel] }
+    lager_antal:       { Type: Measure, DataType: DECIMAL(18,4), Source: [ils_udlev.dbo.udlev.lagerantal] }
+
+    dato_tid_vareudlevering: { DataType: DATETIME2, Expr: "DATEADD(SECOND, udlklk, udldto)" }
+    dato_tid_udloeb:         { DataType: DATETIME2, Source: [ils_udlev.dbo.udlev.udlobdto] }
+    dato_tid_postering:      { DataType: DATETIME2, Source: [ils_udlev.dbo.udlev.postdto] }
+    dato_tid_aflevering:     { DataType: DATETIME2, Expr: "DATEADD(SECOND, aflevklk, aflevdto)" }
+
+    dw_haendelsestidspunkt: { DataType: DATETIME2, Expr: "DATEADD(SECOND, udlklk, udldto)" }
+  Notes:
+    - "Transaktionsdimension: dw_ek_Vareudlevering er en delt nøgle med dim.Vareudlevering (begge sourced fra map.Vareudlevering via clean_code_Vareudlevering)."

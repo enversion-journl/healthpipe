@@ -1,0 +1,56 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fact
+  TableName: fct.Lagerbeholdning
+  Domain: [ERP]
+  Description: "Lagerbeholdning periodisk snapshot fact tabel — dagligt fuldlæs fra ILS"
+  Grain: "Én række pr. lagerbeholdning-snapshot (Dato, sgh, lgr, vnr, lgrlok)"
+
+  SourceSystems:
+    - ils: [dbo.lgrbeh, dbo.vare]
+
+  Columns:
+    dw_ek_Lagerbeholdning:              { Type: PK, DataType: BIGINT }
+    dw_ek_Lager:                        { Type: FK, DataType: BIGINT, Source: [ils.dbo.lgrbeh.sgh, ils.dbo.lgrbeh.lgr] }
+    dw_ek_ILSVare:                      { Type: FK, DataType: INT, Source: [ils.dbo.lgrbeh.vnr] }
+    dw_ek_UNSPSC:
+      Type: FK
+      DataType: INT
+      FK-Target: dim.UNSPSC
+      Source: [ils.dbo.vare.unspc, ils.dbo.vare.unspsc2]
+      Expr: >
+        COALESCE((
+          SELECT um.dw_ek_UNSPSC
+          FROM [dim].[ILSVare] di
+          INNER JOIN [map].[UNSPSC] um
+            ON um.clean_code_UNSPSC = COALESCE(
+              NULLIF(LTRIM(RTRIM(di.UNSPSC)), ''),
+              CASE
+                WHEN di.UNSPSC_Intern LIKE '%.0'
+                THEN LEFT(
+                  LTRIM(RTRIM(di.UNSPSC_Intern)),
+                  LEN(LTRIM(RTRIM(di.UNSPSC_Intern))) - 2
+                )
+                ELSE NULLIF(LTRIM(RTRIM(di.UNSPSC_Intern)), '')
+              END
+            )
+          WHERE di.dw_ek_ILSVare = f.dw_ek_ILSVare
+        ), -1)
+      Description: >
+        Direkte FK på fact via map.UNSPSC; CleanCode fra dim.ILSVare UNSPSC/UNSPSC_Intern
+        (unspc prioriteres over unspsc2 med '.0'-strip). Ikke via dim.ILSVare.dw_ek_UNSPSC.
+    dw_ek_LagerbeholdningEgenskaber:    { Type: FK, DataType: INT, Source: [ils.dbo.lgrbeh.lgrlok, ils.dbo.lgrbeh.udlevenh, ils.dbo.lgrbeh.sw_erstat, ils.dbo.lgrbeh.lgrbeh_prio] }
+    dw_ek_Dato_snapshot:                { Type: FK, DataType: INT, Source: [ils.dbo.lgrbeh.DW_Timestamp_Update], Description: "Snapshot-Dato = datoen for ILS-udtrækket (dw_timestamp_update fra arc-laget), ikke en kolonne fra kildesystemet." }
+    dw_ek_Dato_udloeb:                  { Type: FK, DataType: INT, Source: [ils.dbo.lgrbeh.udlobdto] }
+    dato_tid_snapshot:                    { DataType: DATETIME2, Source: [ils.dbo.lgrbeh.snapshot_dato] }
+    dato_tid_udloeb:                      { DataType: DATETIME2, Source: [ils.dbo.lgrbeh.udlobdto] }
+    antal:                              { Type: Measure, DataType: DECIMAL(18,3), Source: [ils.dbo.lgrbeh.antal] }
+    dw_is_deleted:                       { DataType: BIT, Expr: "1 når rækken forsvinder fra snapshot (blød sletning)" }
+
+  Notes:
+    - "SOR organisation for reporting: vw_fct.Lagerbeholdning.DW_EK_Organisation_Lager (conceptmap.LagerToSOR via dw_ek_Lager). fct.Lagerbeholdning has no dw_ek_Organisation column."
