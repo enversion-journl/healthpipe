@@ -1,0 +1,41 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fhir
+  TableName: fhir.Organization
+  Domain: [FHIR]
+  Description: "FHIR Organization ressource — organisatoriske enheder (kun SOR-kilde). Dannes fra CodeSystem SOR (codesystem.SORConcept/SORProperties/SORHierarchy), som bygges af cs_sor fra arc.sor_register (persistent versionsarkiv over det ene fælles SOR-udtræk)."
+  Grain: "Én række pr. FHIR organization_id (Aidbox UUID). Én live række (dw_is_deleted = 0) pr. SOR-kode."
+  FhirResource: Organization
+
+  SourceSystems:
+    - sor: [SOR_registry]
+
+  Columns:
+    organization_id:    { Type: PK, DataType: NVARCHAR(255), FhirPath: "id", Description: "FHIR resource id (FHIR-server), servertildelt GUID — kanonisk organisations-identitet. Findes ikke i kilden; mappes til INT-surrogatet dw_ek_Organisation via ref.Organisation." }
+    name:               { DataType: NVARCHAR(500), FhirPath: "name", Source: [sor.SOR_registry.EntityName], Expr: "codesystem.SORConcept.display" }
+    active:             { DataType: NVARCHAR(10), FhirPath: "active", Source: [sor.SOR_registry.ToDate], Expr: "Afledt af codesystem.SORProperties property closingDate (= ToDate på den aktuelle version): aktiv når closingDate mangler eller ligger i fremtiden" }
+    type_code:          { DataType: NVARCHAR(255), FhirPath: "type.coding.code.first()", Source: [sor.SOR_registry.EntityTypeName], Expr: "codesystem.SORProperties property entityType" }
+    type_display:       { DataType: NVARCHAR(500), FhirPath: "type.coding.display.first()", Source: [sor.SOR_registry.EntityTypeName], Expr: "codesystem.SORProperties property entityType" }
+    part_of_id:         { DataType: NVARCHAR(255), FhirPath: "partOf.id", FK-Target: fhir.Organization, FK-Key: organization_id, FK-Required: false, Source: [sor.SOR_registry.ParentSorId], Description: "Forælderens FHIR resource id (servertildelt GUID), sat ved posting ud fra codesystem.SORHierarchy (parent_code). Findes ikke direkte i kilden. Selvreference (org-hierarki)." }
+    identifier_value_sor: { DataType: NVARCHAR(255), FhirPath: "identifier.where(system='https://sundhedsdatastyrelsen.dk/sor').value.first()", Source: [sor.SOR_registry.SorId], Expr: "codesystem.SORConcept.code" }
+    dw_is_deleted:         { DataType: INT, Description: "Slettet-flag (0 = live, 1 = slettet). Warehouse-styret — projiceres IKKE fra Aidbox (organization_view har ingen isDeleted). sof_organization er upartitioneret: hvert run er et fuldt snapshot; UUIDs der mangler i udtrækket sættes til 1, UUIDs der stadig er på serveren genskabes til 0. NOT NULL DEFAULT 0. Filtered UNIQUE på identifier_value_sor WHERE dw_is_deleted = 0." }
+    last_updated:       { DataType: DATETIME2, FhirPath: "r.ts" }
+    created_at:         { DataType: DATETIME2, FhirPath: "r.cts" }
+
+  Notes: |
+    Kildekæde: extract_sor_register (ét download, modes current/all_historical)
+      -> ext.sor_register (1:1, versions-grain)
+      -> arc.sor_register (DFM-arkiv, nøgle code+from_date, sletter aldrig)
+      -> cs_sor (aktuel version pr. code -> codesystem.SOR*)
+      -> fhir_organization_sor (DFM delta/full_load, checkpoint fhir_server.Organization)
+      -> sof_organization (fuldt udtræk; dw_is_deleted reconcile).
+    Gyldighedsperiode (valid from/to) kan udtrækkes fra codesystem.SORProperties:
+      openingDate (= FirstFromDate, enhedens første ikrafttrædelse) og
+      closingDate (= ToDate på den aktuelle version; tom/fremtidig = åben enhed).
+      Versionshistorik pr. enhed (from_date/to_date pr. version) ligger i
+      arc.sor_register.

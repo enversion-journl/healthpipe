@@ -1,0 +1,48 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: dimension
+  TableName: dim.Vareudlevering
+  Domain: [ERP]
+  Description: >
+    Transaktionsdimension: dw_ek_Vareudlevering er en delt nøgle med
+    fct.Vareudlevering via map.Vareudlevering.
+  Grain: "Én række pr. vareudlevering"
+
+  SourceSystems:
+    - ils: [dbo.udlev]
+
+  Columns:
+    dw_ek_Vareudlevering:     { Type: PK, DataType: INT }
+    clean_code_Vareudlevering: { DataType: NVARCHAR(500), Source: [ils.dbo.udlev.prrowid] }
+    rekvisitionsnummer:          { DataType: INT, Source: [ils.dbo.udlev.rvis] }
+    foelgeseddelnummer:       { DataType: NVARCHAR(100), Source: [ils.dbo.udlev.flgsednr] }
+    brik:                     { DataType: NVARCHAR(100), Source: [ils.dbo.udlev.brik] }
+    leverandoernummer:        { DataType: NVARCHAR(100), Source: [ils.dbo.udlev.lnr] }
+    ordrenummer:              { DataType: NVARCHAR(100), Source: [ils.dbo.udlev.ordre] }
+    ordrelinje:               { DataType: NVARCHAR(100), Source: [ils.dbo.udlev.ordlinie] }
+    sw_direkte_udlevering:    { DataType: NVARCHAR(10), Source: [ils.dbo.udlev.sw_direkte_udlevering] }
+    sw_pakkeseddel:           { DataType: NVARCHAR(10), Source: [ils.dbo.udlev.sw_pakkeseddel] }
+    sw_foelgeseddel:          { DataType: NVARCHAR(10), Source: [ils.dbo.udlev.sw_foelgeseddel] }
+    sw_fly:                   { DataType: NVARCHAR(10), Source: [ils.dbo.udlev.sw_fly] }
+    sw_haster:                { DataType: NVARCHAR(10), Source: [ils.dbo.udlev.sw_haster] }
+    sw_erstat:                { DataType: NVARCHAR(10), Source: [ils.dbo.udlev.sw_erstat] }
+    projektnummer:            { DataType: NVARCHAR(100), Source: [ils.dbo.udlev.projnr] }
+    kontonummer_kode:         { DataType: NVARCHAR(100), Source: [ils.dbo.udlev.kto] }
+    bruger:                   { DataType: NVARCHAR(100), Source: [ils.dbo.udlev.bruger] }
+    bk_prrowid:               { DataType: NVARCHAR(100), Source: [ils.dbo.udlev.id] }
+    referencenummer:          { DataType: NVARCHAR(100), Source: [ils.dbo.udlev.refnr] }
+    referencelinje:           { DataType: NVARCHAR(100), Source: [ils.dbo.udlev.reflinie] }
+    salgsordre:               { DataType: NVARCHAR(100), Source: [ils.dbo.udlev.salgsordre] }
+    salgsordre_id:             { DataType: NVARCHAR(100), Source: [ils.dbo.udlev.salgsordreint] }
+    salgsfakturanummer:       { DataType: NVARCHAR(100), Source: [ils.dbo.udlev.salgsfaknr] }
+    rekvisitionsvare_id:         { DataType: NVARCHAR(100), Source: [ils.dbo.udlev.rvisvareid] }
+    plukvarer_id:              { DataType: NVARCHAR(100), Source: [ils.dbo.udlev.plukvareid] }
+    afleveringsoperatoer:     { DataType: NVARCHAR(100), Source: [ils.dbo.udlev.aflevoper] }
+    afleveringstekst:         { DataType: NVARCHAR(100), Source: [ils.dbo.udlev.aflevtxt] }
+    afleveringsstregkode:     { DataType: NVARCHAR(100), Source: [ils.dbo.udlev.aflevstreg] }
+    vognnummer:               { DataType: NVARCHAR(100), Source: [ils.dbo.udlev.vognnummer] }

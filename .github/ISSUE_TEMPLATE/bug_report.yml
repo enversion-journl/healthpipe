@@ -1,0 +1,78 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+name: Bug report
+description: Report something that is broken or behaving unexpectedly
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report. Please make sure you have read the **Reporting Bugs** section of `CONTRIBUTING.md` first — this form mirrors the information requested there.
+
+        ⚠️ **Do not report security vulnerabilities here.** See the security policy and report privately instead (the link is on the previous "New issue" screen).
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: A clear, concise description of the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps to trigger the issue.
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: What you expected to happen.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      description: What actually happened.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Python version, OS, and relevant service versions (Dagster, SQL Server, PostgreSQL, FHIR server, Oracle).
+      placeholder: |
+        - Python: 3.12.x
+        - OS: macOS 14 / Ubuntu 22.04 / ...
+        - Service versions: Dagster ..., SQL Server ..., FHIR server ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / tracebacks
+      description: Relevant error output, if any.
+      placeholder: Paste relevant output — redact any credentials, connection strings, or secrets.
+      render: shell
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-submission checks
+      options:
+        - label: I have searched existing issues and this is not a duplicate.
+          required: true
+        - label: This is not a security vulnerability (those must be reported privately via the security policy, not as a public issue).
+          required: true

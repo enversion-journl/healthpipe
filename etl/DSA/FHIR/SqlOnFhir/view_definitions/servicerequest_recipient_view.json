@@ -1,0 +1,28 @@
+{
+  "resourceType": "ViewDefinition",
+  "name": "servicerequest_recipient_view",
+  "resource": "ServiceRequest",
+  "status": "active",
+  "select": [
+    {
+      "column": [
+        {"name": "service_request_id", "path": "id"}
+      ]
+    },
+    {
+      "forEach": "extension.where(url='urn:source:ifdb:rehabilitation_plan_receivers').extension",
+      "column": [
+        {"name": "recipient_key", "path": "extension.where(url='receiverKey').valueIdentifier.value.first()"},
+        {"name": "receiver_type", "path": "extension.where(url='receiverType').valueString.first()"},
+        {"name": "yder_nummer", "path": "extension.where(url='yderNummer').valueString.first()"},
+        {"name": "yder_navn", "path": "extension.where(url='yderNavn').valueString.first()"},
+        {"name": "afdeling_kode", "path": "extension.where(url='afdelingKode').valueString.first()"},
+        {"name": "afdeling_kodetekst", "path": "extension.where(url='afdelingKodetekst').valueString.first()"},
+        {"name": "organization_ref", "path": "extension.where(url='organization').valueReference.identifier.value.first()"},
+        {"name": "status_code", "path": "extension.where(url='statusCode').valueString.first()"},
+        {"name": "status_text", "path": "extension.where(url='statusText').valueString.first()"},
+        {"name": "transmission_time", "path": "extension.where(url='timestamp').valueDateTime.first()"}
+      ]
+    }
+  ]
+}

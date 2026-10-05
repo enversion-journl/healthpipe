@@ -1,0 +1,31 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: dimension
+  TableName: dim.Finanskladde
+  Domain: [ERP]
+  Description: "Finanskladde-dimension (journal header) fra SydAX"
+  Grain: "Én række pr. finanskladde/journal (ref_ledgerjournaltable_id)"
+
+  SourceSystems:
+    - sydax: [Finans.Finanskladde]
+
+  Columns:
+    dw_ek_Finanskladde:          { Type: PK, DataType: INT }
+    bk_ref_ledgerjournaltable_id: { DataType: NVARCHAR(100), Source: [sydax.Finans.Finanskladde.ref_LedgerjournaltableId] }
+    kladdenummer:                { DataType: NVARCHAR(20), Source: [sydax.Finans.Finanskladde.Kladdenummer] }
+    kladdetekst:                 { DataType: NVARCHAR(1000), Source: [sydax.Finans.Finanskladde.Kladdetekst] }
+    kladdenavn:                  { DataType: NVARCHAR(100), Source: [sydax.Finans.Finanskladde.Kladdenavn] }
+    er_lukket:                    { DataType: BIT, Source: [sydax.Finans.Finanskladde.ErLukket] }
+    data_area_id:                  { DataType: NVARCHAR(4), Source: [sydax.Finans.Finanskladde.DataAreaId] }
+    maskinnummer:                { DataType: NVARCHAR(5), Source: [sydax.Finans.Finanskladde.Maskinnummer] }
+    dw_ek_Dato_oprettet:         { Type: FK, DataType: INT, Source: [sydax.Finans.Finanskladde.CreatedOn] }
+    dato_tid_oprettet:            { DataType: DATETIME2, Source: [sydax.Finans.Finanskladde.CreatedOn] }
+    dw_ek_Dato_aendret:          { Type: FK, DataType: INT, Source: [sydax.Finans.Finanskladde.Modified] }
+    dato_tid_aendret:             { DataType: DATETIME2, Source: [sydax.Finans.Finanskladde.Modified] }
+    dw_timestamp_insert:         { Type: Audit, DataType: DATETIME2(0), Expr: "SYSDATETIME() ved første INSERT" }
+    dw_timestamp_update:         { Type: Audit, DataType: DATETIME2(0), Expr: "SYSDATETIME() ved INSERT (= dw_timestamp_insert) og ved hver UPDATE" }

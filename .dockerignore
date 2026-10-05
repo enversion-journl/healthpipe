@@ -1,0 +1,43 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+# Build-context trimming for the devcontainer image. The Dockerfile is
+# toolchain-only (project code is bind-mounted, not COPYed), so this mainly keeps
+# the build context small and keeps secrets out of it.
+
+# VCS
+.git/
+
+# Python caches / build artifacts
+**/__pycache__/
+**/*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+
+# Node
+node_modules/
+
+# Secrets — never send these to the build context
+.env
+.devcontainer/.env
+**/.env
+
+# Local-only / non-shipping working dirs
+.cursor/
+notebooks/
+data/
+output/
+work/
+nomad_data/
+nomad_stack/
+docs/superpowers/
+
+# OS cruft
+.DS_Store

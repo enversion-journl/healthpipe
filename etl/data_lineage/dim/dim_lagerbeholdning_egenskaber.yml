@@ -1,0 +1,24 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: dimension
+  TableName: dim.LagerbeholdningEgenskaber
+  Domain: [ERP]
+  Description: "Lagerbeholdning-egenskabsdimension fra ILS"
+  Grain: "Én række pr. lagerbeholdningslinje"
+
+  SourceSystems:
+    - ils: [dbo.lgrbeh]
+
+  Columns:
+    dw_ek_LagerbeholdningEgenskaber:      { Type: PK, DataType: INT }
+    clean_code_LagerbeholdningEgenskaber:  { DataType: NVARCHAR(500), Source: [ils.dbo.lgrbeh.lgrlok, ils.dbo.lgrbeh.udlevenh, ils.dbo.lgrbeh.sw_erstat, ils.dbo.lgrbeh.lgrbeh_prio], Expr: "CONCAT_WS('_', lgrlok, udlevenh, sw_erstat, lgrbeh_prio)" }
+    lnr:           { DataType: NVARCHAR(32), Source: [ils.dbo.lgrbeh.lnr] }
+    lgrlok:        { DataType: NVARCHAR(32), Source: [ils.dbo.lgrbeh.lgrlok] }
+    udlevenh:      { DataType: NVARCHAR(80), Source: [ils.dbo.lgrbeh.udlevenh] }
+    sw_erstat:     { DataType: BIT, Source: [ils.dbo.lgrbeh.sw_erstat] }
+    lgrbeh_prio:   { DataType: INT, Source: [ils.dbo.lgrbeh.lgrbeh_prio] }

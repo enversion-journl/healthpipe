@@ -1,0 +1,84 @@
+{
+  "resourceType": "Bundle",
+  "type": "transaction",
+  "entry": [
+    {
+      "resource": {
+        "resourceType": "User",
+        "id": "admin",
+        "password": "secret"
+      },
+      "request": {
+        "method": "PUT",
+        "url": "User/admin"
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Client",
+        "id": "root",
+        "name": "Root client",
+        "secret": "secret",
+        "first_party": true,
+        "grant_types": ["basic"]
+      },
+      "request": {
+        "method": "PUT",
+        "url": "Client/root"
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "AccessPolicy",
+        "id": "allow-admin-user",
+        "engine": "allow",
+        "link": [
+          {
+            "resourceType": "User",
+            "id": "admin"
+          }
+        ]
+      },
+      "request": {
+        "method": "PUT",
+        "url": "AccessPolicy/allow-admin-user"
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "AccessPolicy",
+        "id": "allow-root-client",
+        "engine": "allow",
+        "link": [
+          {
+            "resourceType": "Client",
+            "id": "root"
+          }
+        ]
+      },
+      "request": {
+        "method": "PUT",
+        "url": "AccessPolicy/allow-root-client"
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "SearchParameter",
+        "id": "Questionnaire-assemble-expectation",
+        "url": "http://hl7.org/fhir/uv/sdc/SearchParameter/Questionnaire-assemble-expectation",
+        "version": "3.0.0",
+        "name": "assemble-expectation",
+        "status": "active",
+        "description": "Questionnaire with the specified assemble-expectation extension value",
+        "code": "assemble-expectation",
+        "base": ["Questionnaire"],
+        "type": "token",
+        "expression": "Questionnaire.extension.where(url='http://hl7.org/fhir/uv/sdc/StructureDefinition/sdc-questionnaire-assemble-expectation').value"
+      },
+      "request": {
+        "method": "PUT",
+        "url": "SearchParameter/Questionnaire-assemble-expectation"
+      }
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fhir
+  TableName: fhir.Location
+  Domain: [FHIR]
+  Description: "FHIR Location ressource — fysiske lokationer fra IFDB"
+  Grain: "Én række pr. fysisk lokation"
+  FhirResource: Location
+
+  SourceSystems:
+    - ifdb: [IFDB.LOCATION]
+
+  Columns:
+    location_id:               { Type: PK, DataType: NVARCHAR(255), FhirPath: "id", Description: "FHIR resource id (Aidbox UUID) — resolver-/servertildelt ved posting ud fra LOCATION_CODE (SOR). Findes ikke i kilden; SOR-koden bæres i Location.identifier (projiceres pt. ikke som egen kolonne i dette view)." }
+    name:                      { DataType: NVARCHAR(500), FhirPath: "name", Source: [ifdb.IFDB.LOCATION.LOCATION_NAME] }
+    status:                    { DataType: NVARCHAR(50), FhirPath: "status" }
+    description:               { DataType: NVARCHAR(MAX), FhirPath: "description" }
+    type_code:                 { DataType: NVARCHAR(255), FhirPath: "type.coding.code" }
+    type_display:              { DataType: NVARCHAR(500), FhirPath: "type.coding.display" }
+    managing_organization_id:  { DataType: NVARCHAR(255), FhirPath: "managingOrganization.id", FK-Target: fhir.Organization, FK-Key: organization_id, FK-Required: false, Description: "FHIR-tildelt Organization-reference (Aidbox UUID) — resolver-tildelt ved posting ud fra SOR-kode (IFDB.LOCATION.LOCATION_SORCODE); ikke direkte projiceret fra kilden." }
+    identifier_value_sor:      { DataType: NVARCHAR(255), FhirPath: "identifier.where(system='https://sundhedsdatastyrelsen.dk/sor').value.first()", Source: [ifdb.IFDB.LOCATION.LOCATION_SORCODE], Description: "Forretningsnøgle (SOR-kode) fra Location.identifier — bærer kildenøglen, da location_id er en server-tildelt UUID. Reconciliation-nøgle mod kilden." }
+    dw_is_deleted:                { DataType: INT, Description: "Slettet-flag (0 = live, 1 = slettet). Warehouse-styret: projiceres ikke fra FHIR. Saettes til 1 af dqa_fhir_server_cleanup for raekker hvis Location er hard-slettet paa FHIR-serveren, og nulstilles til 0 ved MERGE-match (resurrect_soft_deleted), saa en genopstaaet Location ikke bliver haengende som slettet. NOT NULL DEFAULT 0." }
+    last_updated:              { DataType: DATETIME2, FhirPath: "r.ts" }
+    created_at:                { DataType: DATETIME2, FhirPath: "r.cts" }

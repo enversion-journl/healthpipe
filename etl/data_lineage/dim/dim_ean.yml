@@ -1,0 +1,21 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: dimension
+  TableName: dim.ean
+  Domain: [ERP]
+  Description: "ean-dimension med ean-numre og navne fra NemHandelsregisteret"
+  Grain: "Én række pr. ean-nummer"
+
+  SourceSystems:
+    - mysupply: [dbo.statistic_invoice_header]
+    - nemhandel: [NemHandelsregisteret]
+
+  Columns:
+    dw_ek_EAN:               { Type: PK, DataType: INT }
+    ean:                     { DataType: NVARCHAR(50), Source: [mysupply.dbo.statistic_invoice_header.EAN] }
+    navn_nemhandelsregister: { DataType: NVARCHAR(512), Source: [nemhandel.NemHandelsregisteret.Navn] }

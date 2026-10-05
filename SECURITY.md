@@ -1,5 +1,14 @@
 # Security
 
+## Supported Versions
+
+Only the latest release receives security fixes.
+
+| Version | Supported |
+| ------- | --------- |
+| Latest release (1.0.75) | Yes |
+| Older releases | No |
+
 ## Reporting Vulnerabilities
 
 If you discover a security vulnerability in this project, please **do not** open a public issue.
@@ -16,7 +25,7 @@ Include in your report:
 - Potential impact (scope, data exposure, etc.)
 - Suggested fix (if you have one)
 
-We aim to respond within a reasonable time and will keep you informed of the status. After confirmation and any fix, we will credit you in a security advisory (with your consent), unless you prefer to remain anonymous.
+We aim to acknowledge your report within 5 working days and will keep you informed of the status. After confirmation and any fix, we will credit you in a security advisory (with your consent), unless you prefer to remain anonymous.
 
 ## Security Practices
 

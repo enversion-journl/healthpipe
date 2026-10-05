@@ -1,0 +1,31 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fhir
+  TableName: fhir.CarePlan_Activity
+  Domain: [FHIR]
+  Description: "FHIR CarePlan Activity — alle markørforløbsaktiviteter"
+  Grain: "Én række pr. aktivitet (hændelsesmarkør) i en behandlingsplan"
+  FhirResource: CarePlan
+
+  SourceSystems:
+    - ifdb: [IFDB.EVENTMARKER]
+
+  Columns:
+    ifdb_eventmarker_id: { Type: PK, DataType: NVARCHAR(255), FhirPath: "activity.extension(activity-source-identifier).valueIdentifier.value", Source: [ifdb.IFDB.EVENTMARKER.OBJECT_ID] }
+    careplan_id:         { DataType: NVARCHAR(255), FhirPath: "id", FK-Target: fhir.CarePlan, FK-Key: careplan_id, FK-Required: true }
+    patient_id:          { DataType: NVARCHAR(255), FhirPath: "subject.getReferenceKey(Patient)", FK-Target: fhir.Patient, FK-Key: patient_id, FK-Required: true, Description: "FHIR-tildelt Patient-reference (Aidbox UUID) — resolver-tildelt ved posting ud fra IFDB.EVENTMARKER.patient_id_ifdb; ikke direkte projiceret fra kilden." }
+    category_code:       { DataType: NVARCHAR(100), FhirPath: "category[0].coding[0].code" }
+    episode_of_care_id:  { DataType: NVARCHAR(255), FhirPath: "activity.extension(activity-episode-of-care).valueReference.id", FK-Target: fhir.EpisodeOfCare, FK-Key: episode_of_care_id, FK-Required: false }
+    markoerkode:         { DataType: NVARCHAR(255), FhirPath: "activity.outcomeCodeableConcept[0].coding[0].code", Source: [ifdb.IFDB.EVENTMARKER.EVENT_CODE] }
+    markoer_display:     { DataType: NVARCHAR(500), FhirPath: "activity.outcomeCodeableConcept[0].coding[0].display", Source: [ifdb.IFDB.EVENTMARKER.EVENT_TEXT] }
+    organization_id:     { DataType: NVARCHAR(255), FhirPath: "activity.detail.performer.getReferenceKey(Organization)", FK-Target: fhir.Organization, FK-Key: organization_id, FK-Required: false }
+    practitioner_id:     { DataType: NVARCHAR(255), FhirPath: "activity.detail.performer.getReferenceKey(Practitioner)", FK-None: true, Description: "Personale-reference (ingen fhir.Practitioner endnu)." }
+    activity_timestamp:  { DataType: NVARCHAR(50), FhirPath: "activity.detail.scheduledPeriod.start", Source: [ifdb.IFDB.EVENTMARKER.TIME] }
+    dw_is_deleted:       { DataType: INT, Description: "Slettet-flag (0 = live, 1 = slettet). Warehouse-styret: resourcen baerer ingen urn:fhir:isDeleted-extension, og viewet projicerer ikke feltet. Saettes til 1 af dqa_fhir_server_cleanup naar foraeldre-resourcen er hard-slettet i Aidbox, og nulstilles til 0 ved MERGE-match. NOT NULL DEFAULT 0. BEMAERK: child-grain — '= 0' betyder 'ikke markeret af cleanup', IKKE 'findes stadig under foraeldren'; child-grain reconcile er ikke slaaet til her." }
+    last_updated:        { DataType: DATETIME2, FhirPath: "r.ts" }
+    created_at:          { DataType: DATETIME2, FhirPath: "r.cts" }

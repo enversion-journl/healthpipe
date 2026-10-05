@@ -67,13 +67,13 @@ Feature discussions help ensure alignment before significant implementation effo
 4. Set environment variables:
    ```bash
    export DAGSTER_HOME=$(pwd)/.devcontainer/dagster_home
-   export PYTHONPATH=$(pwd)/dagster_etl
+   export PYTHONPATH=$(pwd)/etl
    ```
 5. Run Dagster: `dagster dev -m definitions`
 6. Access Dagster at http://localhost:3000
 
 
-See the [Dagster Development Guide](dagster_etl/docs/implementation/dagster_development.md) for detailed setup and workflow instructions.
+See the [Dagster Development Guide](etl/docs/implementation/dagster_development.md) for detailed setup and workflow instructions.
 
 ## Contribution Process
 
@@ -94,12 +94,12 @@ When you open a pull request, the [PR template](.github/PULL_REQUEST_TEMPLATE.md
 - **Tests**: New functionality should have tests; existing tests must still pass
 - **Formatting**: Use Black (line-length=100) and Ruff for linting
 - **Imports**: Use absolute imports (`core.*`, `DSA.*`, `DSI.*`, `DSO.*`, `utils.*`) — never relative imports
-- **Documentation**: Update relevant guides in `dagster_etl/docs/` when changing architecture or flows
+- **Documentation**: Update relevant guides in `etl/docs/` when changing architecture or flows
 
 ### Run tests
 
 ```bash
-cd dagster_etl
+cd etl
 pytest
 ```
 

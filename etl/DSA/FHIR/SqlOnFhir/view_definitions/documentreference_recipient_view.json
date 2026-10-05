@@ -1,0 +1,27 @@
+{
+  "resourceType": "ViewDefinition",
+  "name": "documentreference_recipient_view",
+  "resource": "DocumentReference",
+  "status": "active",
+  "select": [
+    {
+      "column": [
+        {"name": "documentreference_id", "path": "id"}
+      ]
+    },
+    {
+      "forEach": "extension.where(url='urn:source:ifdb:document_reference_recipients').extension",
+      "column": [
+        {"name": "recipient_key", "path": "extension.where(url='recipientKey').valueIdentifier.value.first()"},
+        {"name": "recipient_type", "path": "extension.where(url='type').valueString.first()"},
+        {"name": "organization_ref", "path": "extension.where(url='organization').valueReference.identifier.value.first()"},
+        {"name": "recipient_name", "path": "extension.where(url='name').valueString.first()"},
+        {"name": "recipient_address", "path": "extension.where(url='address').valueString.first()"},
+        {"name": "cc_flag", "path": "extension.where(url='ccFlag').valueBoolean.first()"},
+        {"name": "status_code", "path": "extension.where(url='statusCode').valueString.first()"},
+        {"name": "status_text", "path": "extension.where(url='statusText').valueString.first()"},
+        {"name": "transmission_time", "path": "extension.where(url='timestamp').valueDateTime.first()"}
+      ]
+    }
+  ]
+}

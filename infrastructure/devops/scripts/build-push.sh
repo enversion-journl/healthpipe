@@ -14,8 +14,7 @@
 # CI can all invoke it the same way — each only needs a thin wrapper that
 # (a) authenticates to the registry and (b) maps its own native build-metadata
 # variables onto the env vars below. That keeps a future migration between CI
-# hosts down to swapping the ~10-line wrapper, not the build logic. See task
-# #28544.
+# hosts down to swapping the ~10-line wrapper, not the build logic.
 #
 # Registry authentication is the CALLER's responsibility — it is the one piece
 # that is inherently host-specific. Either authenticate before calling (e.g.
@@ -85,7 +84,26 @@ if ! is_dry_run; then
   fi
 
   # ─── buildx builder (docker-container driver enables registry cache export) ─
-  docker buildx create --name "$BUILDER_NAME" --driver docker-container --use 2>/dev/null \
+  # buildx refuses to host a docker-container builder when the daemon endpoint + TLS
+  # come from *environment* variables (e.g. GitLab CI docker-in-docker): "could not
+  # create a builder instance with TLS data loaded from environment". Capture the
+  # endpoint (with TLS material when present) in a real docker context and bind the
+  # builder to it. No-op when DOCKER_HOST is unset (local socket — hosted CI agents /
+  # a developer machine), where buildx create works directly.
+  builder_ctx=""
+  if [ -n "${DOCKER_HOST:-}" ]; then
+    builder_ctx="${BUILDER_NAME}-ctx"
+    if [ -n "${DOCKER_CERT_PATH:-}" ]; then
+      docker context create "$builder_ctx" --docker \
+        "host=${DOCKER_HOST},ca=${DOCKER_CERT_PATH}/ca.pem,cert=${DOCKER_CERT_PATH}/cert.pem,key=${DOCKER_CERT_PATH}/key.pem" \
+        >/dev/null 2>&1 || true
+    else
+      docker context create "$builder_ctx" --docker "host=${DOCKER_HOST}" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # stderr left visible on purpose — a silenced create error is what hid this bug.
+  docker buildx create --name "$BUILDER_NAME" --driver docker-container --use ${builder_ctx:+"$builder_ctx"} \
     || docker buildx use "$BUILDER_NAME"
   docker buildx inspect --bootstrap >/dev/null
 fi

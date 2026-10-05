@@ -1,0 +1,25 @@
+{
+  "resourceType": "CodeSystem",
+  "url": "https://registration.nemhandel.dk/NemHandelRegisterWeb/",
+  "version": "20260407-135607",
+  "name": "NemhandelRegisteretEAN",
+  "title": "ean koder fra NemHandelsregisteret",
+  "description": "ean koder fra NemHandelsregisteret. Ingen hierarki - alle koder er paa samme niveau.",
+  "status": "active",
+  "hierarchyMeaning": "is-a",
+  "publisher": "Region Syddanmark",
+  "date": "2026-04-07",
+  "content": "not-present",
+  "property": [
+    {
+      "code": "participantName",
+      "description": "Name from NemHandelsregisteret",
+      "type": "string"
+    },
+    {
+      "code": "participantOwnerId",
+      "description": "Owner ID from NemHandelsregisteret",
+      "type": "string"
+    }
+  ]
+}
