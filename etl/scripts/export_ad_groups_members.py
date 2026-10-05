@@ -21,7 +21,7 @@ på OU-navnet (søgning under nærmeste matchende base).
 
 Forudsætninger
 --------------
-- VPN aktivt (ldaps.rsyd.net er intern)
+- VPN aktivt (ldaps.example.org er intern)
 - Python-pakker: ``ldap3``, ``pycryptodome``, ``python-dotenv``
 - LDAP_* miljøvariabler sat i ``.env`` (repo-root)
 - ``LDAP_GROUP_OU_DN`` kan sættes; default er ``OU=SOC,OU=Service Areas,DC=Rsyd,DC=net``
@@ -37,7 +37,7 @@ LDAP_GROUP_PAGE_SIZE           200                         RFC 2696 paged result
 LDAP_MEMBER_PAGE_SIZE          200                         RFC 2696 paged result-størrelse (members)
 LDAP_OUTPUT_JSONL              scripts/output/ad_grupper.jsonl  Sti til JSONL-outputfil
 LDAP_OUTPUT_TXT                scripts/output/ad_grupper.txt    Sti til tekst-outputfil
-LDAP_SERVER                    ldaps.rsyd.net              LDAP-serverens hostname
+LDAP_SERVER                    ldaps.example.org           LDAP-serverens hostname
 LDAP_PORT                      636                         TCP-port (636 = LDAPS)
 LDAP_BIND_USER                 regionsyd\\svc-sasldap      Bind-brugernavn (DOMAIN\\user for NTLM)
 LDAP_PASSWORD                  *(påkrævet)*                Bind-password
@@ -159,7 +159,7 @@ def _env_required(name: str) -> str:
 
 
 def _connect() -> tuple[Server, Connection]:
-    ldap_server = os.environ.get("LDAP_SERVER", "ldaps.rsyd.net")
+    ldap_server = os.environ.get("LDAP_SERVER", "ldaps.example.org")
     ldap_port = int(os.environ.get("LDAP_PORT", "636"))
     ldap_bind_user = os.environ.get("LDAP_BIND_USER", r"regionsyd\svc-sasldap")
     ldap_password = os.environ.get("LDAP_PASSWORD", "")

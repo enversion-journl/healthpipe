@@ -32,7 +32,7 @@ The sensor auto-starts only on the static `development` location (via `get_senso
 | `ADO_PAT` | PAT, scope **Code Read & Write** | required; `ADO_WORKITEM_PAT` is accepted as a legacy fallback key |
 | `ADO_REPOSITORY` | `RegionSyddanmark` (default: project name) | optional |
 | `NIGHTLY_REPORT_BASE_BRANCH` | `development` (default) | branch the nightly branch is created from |
-| `DAGSTER_WEBSERVER_URL` | `https://dagster-dev.rcs.rsyd.net` | optional; makes reports link to the run |
+| `DAGSTER_WEBSERVER_URL` | `https://dagster-dev.example.org` | optional; makes reports link to the run |
 | `NIGHTLY_REPORT_ENV` | `dev` | optional override of env detection (used for smoke tests) |
 
 ## Setup steps

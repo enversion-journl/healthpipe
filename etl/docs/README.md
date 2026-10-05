@@ -75,19 +75,7 @@ for history — do not rely on them for current behavior).
 
 ## Archive (historical)
 
-Completed one-off plans, discovery notes and analyses in [archive/](archive/).
-They describe the state at the time of writing and are **not** kept up to date:
-
-| Document | What it was |
-|---|---|
-| [us_fhir_05_servicerequest_plan.md](archive/us_fhir_05_servicerequest_plan.md) | ServiceRequest implementation plan (implemented) |
-| [qr_sfi_join_key_hardening_plan.md](archive/qr_sfi_join_key_hardening_plan.md) | QR → SFI join-key hardening plan (implemented; runbook lives in guides/) |
-| [fhir_identifier_lookup_optimization_plan.md](archive/fhir_identifier_lookup_optimization_plan.md) | Identifier-lookup optimization proposal (not implemented) |
-| [org_specific_references.md](archive/org_specific_references.md) | Discovery of org-specific references (partially outdated) |
-| [2026-06-09_encounter_race_condition_handover.md](archive/2026-06-09_encounter_race_condition_handover.md) | Encounter race-condition analysis handover |
-| [2026-06-19_sfi_refresh_timestamp_churn.md](archive/2026-06-19_sfi_refresh_timestamp_churn.md) | SFI refresh timestamp-churn analysis |
-| [sfi_datapoint_store_data_quality_review.md](archive/sfi_datapoint_store_data_quality_review.md) | SFI datapoint store data-quality review |
-| `cleancode_health_checks.sql` | Ad-hoc CleanCode health-check queries |
+Historical plans and analyses stay in the private source repository and are not published.
 
 ## Glossary
 

@@ -7,38 +7,29 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-10-05
+
 ### Added
 
+- GitHub CI (lint, unit tests with coverage, definitions validate, mypy, pip-audit,
+  SPDX headers), CodeQL, OpenSSF Scorecard, dependency review and gitleaks workflows.
+- Issue forms, pull request template and CODEOWNERS.
+- Devcontainer with SQL Server, Oracle, PostgreSQL and Aidbox (FHIR).
+- Pre-commit hooks for secrets and PII (gitleaks) and SPDX license headers.
+- Data quality assessment (`etl/dqa/`).
 - DCO sign-off check for pull requests.
 - CI job that builds the code-server Docker images.
 - Release-note categories (`.github/release.yml`), `CHANGELOG.md` and `.editorconfig`.
 
 ### Changed
 
+- The application package moved from `dagster_etl/` to `etl/`.
+- Jupyter moved from a runtime dependency to the optional `notebooks` extra.
 - Ruff replaces flake8 as the only linter. Bandit now blocks high-severity findings.
 - `dagster definitions validate` is now a required CI check.
 - CODEOWNERS points to `@enversion-journl/developers`.
-
-### Removed
-
-- Dependabot version updates. Each release replaces the files that Dependabot changes,
-  so its pull requests could not be kept.
-
-## [1.0.75] - 2026-09-30
-
-### Added
-
-- GitHub CI (lint, unit tests with coverage, definitions validate, mypy, pip-audit,
-  SPDX headers), CodeQL, OpenSSF Scorecard, dependency review and gitleaks workflows.
-- Issue forms, pull request template, CODEOWNERS and Dependabot configuration.
-- Devcontainer with SQL Server, Oracle, PostgreSQL and Aidbox (FHIR).
-- Pre-commit hooks for secrets and PII (gitleaks) and SPDX license headers.
-- Data quality assessment (`etl/dqa/`).
-
-### Changed
-
-- The application package moved from `dagster_etl/` to `etl/`.
-- Jupyter moved from a runtime dependency to the optional `notebooks` extra.
+- The code-server base image no longer installs the Microsoft ODBC driver. It installs
+  only `libltdl7` and `libgssapi-krb5-2`, which `mssql-python` needs.
 
 ## [1.0.0] - 2026-06-30
 
@@ -46,6 +37,6 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - First public release.
 
-[Unreleased]: https://github.com/enversion-journl/healthpipe/compare/v1.0.75...HEAD
-[1.0.75]: https://github.com/enversion-journl/healthpipe/compare/v1.0.0...v1.0.75
+[Unreleased]: https://github.com/enversion-journl/healthpipe/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/enversion-journl/healthpipe/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/enversion-journl/healthpipe/releases/tag/v1.0.0

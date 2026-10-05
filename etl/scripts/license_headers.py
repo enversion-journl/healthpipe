@@ -239,6 +239,14 @@ def has_header(text: str, style: CommentStyle, max_lines: int = 15) -> bool:
 _BOM = "﻿"
 
 
+def is_generated(text: str, max_lines: int = 3) -> bool:
+    """True if the first lines mark the file as generated ("do not edit").
+
+    A header would change the bytes that the generator produces, so such files are skipped.
+    """
+    return "do not edit" in "\n".join(text.splitlines()[:max_lines]).lower()
+
+
 def _is_coding_cookie(line: str) -> bool:
     stripped = line.lstrip()
     return stripped.startswith("#") and ("coding:" in stripped or "coding=" in stripped)
@@ -432,6 +440,9 @@ def run(
             skipped.append(path)
             continue
         if skip_empty and text.strip() == "":
+            skipped.append(path)
+            continue
+        if mode != "strip" and is_generated(text):
             skipped.append(path)
             continue
         if mode == "strip":

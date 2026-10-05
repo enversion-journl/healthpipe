@@ -72,6 +72,8 @@ The FHIR server runs as part of the docker-compose stack. The Dagster code reads
 
 See [`etl/docs/README.md`](etl/docs/README.md) for the architecture, implementation guides and runbooks.
 
+Some documentation and code comments are in Danish, because the platform serves Danish healthcare.
+
 ## Troubleshooting
 
 1. **Port conflicts** — ensure ports `3000`, `1433`, `8888` are free (`lsof -i :3000` on macOS/Linux).

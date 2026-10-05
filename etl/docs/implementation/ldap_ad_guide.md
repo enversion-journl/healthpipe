@@ -125,7 +125,7 @@ at undgå at følge disse, da det kan give forvirrende fejl i test-scenarier.
 
 ### Netværk
 
-- **VPN** skal være aktivt — `ldaps.rsyd.net` er en intern server
+- **VPN** skal være aktivt — `ldaps.example.org` er en intern server
 - Bemærk: Kører du i en **Docker-container/devcontainer**, deles VPN fra
   værtsmaskinen ikke automatisk. Test evt. direkte på værten.
 
@@ -144,7 +144,7 @@ Disse er allerede i projektets `pyproject.toml`.
 Alle scripts læser credentials fra `.env` i repo-roden. Påkrævede variabler:
 
 ```env
-LDAP_SERVER=ldaps.rsyd.net
+LDAP_SERVER=ldaps.example.org
 LDAP_PORT=636
 LDAP_BIND_USER=regionsyd\svc-sasldap
 LDAP_PASSWORD=<hemmeligt>
@@ -182,7 +182,7 @@ python scripts/test_ldap_connection.py
 ### Eksempel: success
 
 ```
-Server:  ldaps.rsyd.net:636
+Server:  ldaps.example.org:636
 SSL:     True
 Auth:    NTLM
 bruger:  regionsyd\svc-sasldap
@@ -467,7 +467,7 @@ pip install pycryptodome
 
 ### `invalid server address` / timeout
 
-**Årsag:** DNS kan ikke opløse `ldaps.rsyd.net`, eller der er ingen
+**Årsag:** DNS kan ikke opløse `ldaps.example.org`, eller der er ingen
 netværksrute til serveren.
 
 **Løsning:**

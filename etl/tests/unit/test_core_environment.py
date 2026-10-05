@@ -36,13 +36,13 @@ def test_prod_detected_from_environment_name(monkeypatch, value):
 def test_prod_detected_from_staging_host(monkeypatch):
     """The host check must not be lost when merging the two copies."""
     monkeypatch.setenv("DAGSTER_ENVIRONMENT", "dev")
-    monkeypatch.setenv("MSSQL_TARGET_STAGING_HOST", "mssql-prod.rsyd.net")
+    monkeypatch.setenv("MSSQL_TARGET_STAGING_HOST", "mssql-prod.example.org")
     assert is_prod_environment() is True
     assert "MSSQL_TARGET_STAGING_HOST" in prod_environment_reason()
 
 
 def test_prod_detected_from_dso_host(monkeypatch):
-    monkeypatch.setenv("MSSQL_TARGET_DSO_HOST", "npdbaprod01.rsyd.net")
+    monkeypatch.setenv("MSSQL_TARGET_DSO_HOST", "npdbaprod01.example.org")
     assert is_prod_environment() is True
 
 

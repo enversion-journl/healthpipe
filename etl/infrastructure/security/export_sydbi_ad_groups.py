@@ -47,7 +47,7 @@ Alle grupper ligger under::
 
 Forudsætninger
 --------------
-- VPN aktivt (ldaps.rsyd.net er intern)
+- VPN aktivt (ldaps.example.org er intern)
 - Python-pakker: ``ldap3``, ``pycryptodome``, ``python-dotenv``
 - LDAP_* miljøvariabler sat i ``.env`` (repo-root)
 
@@ -206,7 +206,7 @@ def _load_dotenv_repo_root() -> None:
 
 
 def _connect() -> tuple[Server, Connection]:
-    ldap_server = os.environ.get("LDAP_SERVER", "ldaps.rsyd.net")
+    ldap_server = os.environ.get("LDAP_SERVER", "ldaps.example.org")
     ldap_port = int(os.environ.get("LDAP_PORT", "636"))
     ldap_bind_user = os.environ.get("LDAP_BIND_USER", r"regionsyd\svc-sasldap")
     ldap_password = os.environ.get("LDAP_PASSWORD", "")
