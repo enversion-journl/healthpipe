@@ -21,17 +21,21 @@
 #   - exact matches the full AKTIVITETTYPE_KODE or its stripped SKS suffix.
 #   - prefixes matches the full AKTIVITETTYPE_KODE.
 #   - bare_regex matches only the stripped SKS suffix.
+#   RESULTATTYPE_KODE is not an axis. Same SKS family in, same family out.
 # =============================================================================
 
 procedure_code_rules:
   # Exact codes can be added here when a specific aktivitetstype must be
-  # treated as Procedure even if it has no SKS.a.pro / SKS.a.opr prefix.
+  # treated as Procedure even if it has no SKS prefix.
   exact: []
 
-  # Standard IFDB/SKS operation and procedure prefixes.
+  # Alle SKS-typekoder danner Procedure. Tidligere var listen afgrænset til
+  # opr/pro/undU; afgrænsningen er ophævet, så populationen følger kilden og
+  # aftagerne selv vælger, hvad de vil tælle med. Konsekvensen er, at også
+  # administrative typekoder (adm*) og undersøgelseskoder ud over undU danner
+  # Procedure — herunder registreringer, der reelt beskriver en kontakt.
   prefixes:
-    - "SKS.a.opr"
-    - "SKS.a.pro"
+    - "SKS.a."
 
   # Kept empty by default. Do not add broad K/B patterns unless they are
   # carefully bounded, because KPYdelser.* and BomKS.* are IFDB namespaces,
@@ -41,5 +45,27 @@ procedure_code_rules:
   exclude_exact: []
 
   exclude_prefixes:
+    # IFDB-navnerum, ikke SKS-koder.
     - "KPYdelser."
     - "BomKS."
+    # Familier der ikke betegner en klinisk aktivitet. Linjen er: enhver
+    # SKS-familie, der beskriver noget, DER BLEV GJORT, danner Procedure.
+    # Familier der beskriver noget andet - et fund, et stof, en organisation,
+    # en modifikator - goer ikke, fordi de enten har deres eget spor i modellen
+    # eller ikke er en handling.
+    #
+    # dia: diagnoser danner Condition ad egen vej
+    #      (urn:source:ifdb:aktivitetsresultat_condition). Uden undtagelsen
+    #      ville samme registrering optraede baade som diagnose og procedure.
+    - "SKS.a.dia"
+    # til / SKS_Vaerdier: tillaegskoder er modifikatorer til en anden kode og
+    #      indgaar som tillaegskoder paa den procedure, de hoerer til.
+    - "SKS.a.til"
+    - "SKS_Vaerdier."
+    # atc: laegemiddelstoffer, ikke handlinger.
+    - "SKS.a.atc"
+    # afd / sgh: organisationskoder (afdeling, sygehus).
+    - "SKS.a.afd"
+    - "SKS.a.sgh"
+    # spc: specialekoder.
+    - "SKS.a.spc"

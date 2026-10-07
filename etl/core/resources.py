@@ -2523,9 +2523,11 @@ class FHIRDatabaseResource(dg.ConfigurableResource):
     @staticmethod
     def _prepare_resource_dicts_for_upsert(
         resource_dicts: list[tuple[str, dict]],
+        resource_type: str,
     ) -> tuple[list[tuple[str, dict]], int, list[str]]:
         return _direct_upsert._prepare_resource_dicts_for_upsert(
             resource_dicts=resource_dicts,
+            resource_type=resource_type,
         )
 
     @staticmethod

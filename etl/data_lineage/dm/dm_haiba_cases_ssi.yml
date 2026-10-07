@@ -1,0 +1,47 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fact
+  TableName: dm.HAIBA_CasesSSI
+  Domain: [HAIBA]
+  Description: "HAIBA-cases for postoperative sårinfektioner (SSI_HIP, SSI_KNEE) fra SDS — indeksoperation, evt. HAI og evt. reoperation pr. række"
+  Grain: "Én række pr. case (HAI_type, cprnr, operation_date) — grainet bor som rå kildeværdier på dm.HAIBA_CasesSSIEgenskaber (1:1 på dw_ek)"
+  Privacy: >
+    CPR-frit by construction: rå CPR lever kun i map.HAIBA_CasesSSI
+    (clean_code) og arc, som begge er staging-interne og aldrig synkes til DSO.
+    Borgeren bæres udelukkende som dw_ek_Borger.
+
+  SourceSystems:
+    - haiba: [cases_ssi]
+
+  Columns:
+    dw_ek_HAIBA_CasesSSI:                   { Type: PK, DataType: INT, FK-Target: dm.HAIBA_CasesSSIEgenskaber, Description: "Delt entitetsnøgle med transaktionsdimensionen — mintes append-only i map.HAIBA_CasesSSI pr. clean_code ('|'-joinet arc-PK; bærer CPR og er derfor staging-intern)." }
+    dw_ek_Borger:                            { Type: FK, DataType: INT, Source: [haiba.cases_ssi.cprnr], Expr: "Opslag i ref.PatientToBorger (MIN(dw_ek_Borger) pr. cpr, dw_is_deleted = 0); -1 = ukendt. Ukendte CPR oprettes som stub-patienter i Aidbox (fhir_patient_haiba) og resolver ved næste kørsel." }
+    dw_ek_Organisation_producent:            { Type: FK, DataType: INT, Source: [haiba.cases_ssi.HAI_producent], Expr: "Opslag i dim.Organisation.kode; -1 = UNKNOWN" }
+    dw_ek_Organisation_kontaktansvarlig:     { Type: FK, DataType: INT, Source: [haiba.cases_ssi.HAI_kontaktansvarlig], Expr: "Opslag i dim.Organisation.kode; -1 = UNKNOWN" }
+    dw_ek_Organisation_reo_producent:        { Type: FK, DataType: INT, Source: [haiba.cases_ssi.reo_producent], Expr: "Opslag i dim.Organisation.kode; -1 = UNKNOWN" }
+    dw_ek_Organisation_reo_kontaktansvarlig: { Type: FK, DataType: INT, Source: [haiba.cases_ssi.reo_kontaktansvarlig], Expr: "Opslag i dim.Organisation.kode; -1 = UNKNOWN" }
+    dw_ek_Dato_operation:                    { Type: FK, DataType: INT, Source: [haiba.cases_ssi.operation_date], Expr: "dim.Dato smart key YYYYMMDD via dato_key(); sentinels -1/-2/99999998/99999999. SAS-datoformat i kilden." }
+    dw_ek_Dato_hai:                          { Type: FK, DataType: INT, Source: [haiba.cases_ssi.HAI_date], Expr: "dim.Dato smart key; 99999998 (BLANK) er strukturelt normal — rækker uden infektion har ingen HAI_date." }
+    dw_ek_Dato_reo:                          { Type: FK, DataType: INT, Source: [haiba.cases_ssi.reo_date], Expr: "dim.Dato smart key; 99999998 (BLANK) er strukturelt normal — rækker uden reoperation har ingen reo_date. SAS-datoformat i kilden." }
+    HAI_kamme_positive_biopsies:             { Type: Measure, DataType: INT, Source: [haiba.cases_ssi.HAI_kamme_positive_biopsies], Expr: "TRY_CONVERT(INT, NULLIF(kilde, ''))" }
+    HAI_kamme_total_biopsies:                { Type: Measure, DataType: INT, Source: [haiba.cases_ssi.HAI_kamme_total_biopsies], Expr: "TRY_CONVERT(INT, NULLIF(kilde, ''))" }
+    SSI_acute_90:                            { Type: Measure, DataType: TINYINT, Source: [haiba.cases_ssi.SSI_acute_90], Expr: "TRY_CONVERT(TINYINT, NULLIF(kilde, '')) — TINYINT, ikke BIT: TRY_CONVERT(BIT, '2') = 1 ville skjule en afvigende kildekodning for konverteringstælleren" }
+    SSI_acute_365:                           { Type: Measure, DataType: TINYINT, Source: [haiba.cases_ssi.SSI_acute_365], Expr: "TRY_CONVERT(TINYINT, NULLIF(kilde, '')) — se SSI_acute_90" }
+    encounter_id_producent:                  { DataType: NVARCHAR(255), FK-Target: fhir.Encounter, FK-Key: encounter_id, FK-Required: false, Expr: "Stemples af haiba_kontakt-assettet efter rebuilden: FHIR-kontakt matchet via fhir.Organization.identifier_value_sor mod HAI_producent og encounter-perioden mod operation_date. Match-kvaliteten bor på _Egenskaber." }
+    encounter_id_kontaktansvarlig:           { DataType: NVARCHAR(255), FK-Target: fhir.Encounter, FK-Key: encounter_id, FK-Required: false, Expr: "Som encounter_id_producent, mod HAI_kontaktansvarlig og operation_date" }
+    encounter_id_reo_producent:              { DataType: NVARCHAR(255), FK-Target: fhir.Encounter, FK-Key: encounter_id, FK-Required: false, Expr: "Som encounter_id_producent, mod reo_producent og reo_date" }
+    encounter_id_reo_kontaktansvarlig:       { DataType: NVARCHAR(255), FK-Target: fhir.Encounter, FK-Key: encounter_id, FK-Required: false, Expr: "Som encounter_id_producent, mod reo_kontaktansvarlig og reo_date" }
+    leverance_dato:                          { DataType: DATE, Expr: "Afledt af leverancefilens navn (HAIBA_<HAI_type>_cases_RegS_<YYYY-MM-DD>.csv), ført med fra arc" }
+    dw_is_deleted:                           { DataType: BIT, Expr: "Ført med fra arc: 1 når casen er trukket tilbage af SDS. Konsumenter læser vw_dm.HAIBA_CasesSSI, der filtrerer dw_is_deleted = 0." }
+    dw_timestamp_insert:                     { Type: Audit, DataType: DATETIME2(0), Expr: "SYSDATETIME() ved rebuild (TRUNCATE + INSERT — seneste rebuild-tidspunkt, ikke først-set)" }
+    dw_timestamp_update:                     { Type: Audit, DataType: DATETIME2(0), Expr: "SYSDATETIME() ved rebuild" }
+
+  Notes:
+    - "Transaktionsdimension: dw_ek_HAIBA_CasesSSI er delt nøgle med dm.HAIBA_CasesSSIEgenskaber (begge fra map.HAIBA_CasesSSI via clean_code)."
+    - "Kilden er SDS' ugentlige CSV-leverancer (fuldt snapshot pr. leverance): filer HAIBA_<HAI_type>_cases_RegS_<dato>.csv i HAIBAcpr/ — én fil pr. HAI-type (SSI_HIP, SSI_KNEE), samme kolonnesæt; deklareret som den logiske kilde 'haiba.cases_ssi'."
+    - "Fire SOR-roller: producent/kontaktansvarlig for indeksoperationen og de tilsvarende for reoperationen. Tre datoroller: operation, HAI og reoperation."

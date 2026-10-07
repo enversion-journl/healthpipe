@@ -36,6 +36,7 @@ from DSO.load.sync_configs import (
     ALL_SYNC_CONFIGS,
     CODESYSTEM_SYNC_CONFIGS,
     CONCEPTMAP_SYNC_CONFIGS,
+    DRG_SYNC_CONFIGS,
     ERP_SYNC_CONFIGS,
     SECURITY_SYNC_CONFIGS,
     SHARED_DIMS_SYNC_CONFIGS,
@@ -66,6 +67,7 @@ from DSO.load.sync_dim import (
     dso_sync_dim_UNSPSC,
     dso_sync_dim_vareudlevering,
 )
+from DSO.load.sync_drg import all_drg_dso_sync_assets
 from DSO.load.sync_fct import (
     all_dso_sync_fct_assets,
     dso_sync_fct_AfdelingLagerbeholdning,
@@ -83,6 +85,17 @@ from DSO.load.sync_fhir import (
     all_fhir_dso_sync_dfm_assets,
     all_fhir_dso_sync_monthly_assets,
     dso_sync_fhir_organization,
+)
+from DSO.load.sync_haiba import (
+    all_haiba_dso_sync_assets,
+    dso_sync_dm_haiba_agg_infektion,
+    dso_sync_dm_haiba_agg_infektion_egenskaber,
+    dso_sync_dm_haiba_agg_ortopaedi,
+    dso_sync_dm_haiba_agg_ortopaedi_egenskaber,
+    dso_sync_dm_haiba_cases_infektion,
+    dso_sync_dm_haiba_cases_infektion_egenskaber,
+    dso_sync_dm_haiba_cases_ssi,
+    dso_sync_dm_haiba_cases_ssi_egenskaber,
 )
 from DSO.load.sync_ref_erp import (
     all_dso_sync_ref_erp_assets,
@@ -114,6 +127,8 @@ from DSO.load.sync_utils import (
 all_dso_sync_assets = (
     all_dso_sync_dim_assets
     + all_dso_sync_fct_assets
+    + all_haiba_dso_sync_assets
+    + all_drg_dso_sync_assets
     + all_dso_sync_ref_erp_assets
     + all_codesystem_dso_sync_assets
     + all_conceptmap_dso_sync_assets
@@ -145,6 +160,7 @@ __all__ = [
     "compare_row_counts",
     # Configurations
     "ALL_SYNC_CONFIGS",
+    "DRG_SYNC_CONFIGS",
     "CONCEPTMAP_SYNC_CONFIGS",
     "ERP_SYNC_CONFIGS",
     "SHARED_DIMS_SYNC_CONFIGS",
@@ -177,6 +193,16 @@ __all__ = [
     "dso_sync_dim_shak",
     # Fact sync assets
     "all_dso_sync_fct_assets",
+    "dso_sync_dm_haiba_agg_infektion",
+    "dso_sync_dm_haiba_agg_infektion_egenskaber",
+    "dso_sync_dm_haiba_agg_ortopaedi",
+    "dso_sync_dm_haiba_agg_ortopaedi_egenskaber",
+    "dso_sync_dm_haiba_cases_infektion",
+    "dso_sync_dm_haiba_cases_infektion_egenskaber",
+    "dso_sync_dm_haiba_cases_ssi",
+    "dso_sync_dm_haiba_cases_ssi_egenskaber",
+    "all_drg_dso_sync_assets",
+    "all_haiba_dso_sync_assets",
     "dso_sync_fct_faktura",
     "dso_sync_fct_fakturalinje",
     "dso_sync_fct_finanskladdelinje",

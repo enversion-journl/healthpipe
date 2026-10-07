@@ -91,6 +91,26 @@ dfm_infrastructure_job = dg.define_asset_job(
 
 
 # ============================================================================
+# DSO SyncWatermarks → DFMState cutover (one-shot per env)
+# ============================================================================
+
+migrate_dso_sync_watermarks_to_dfm_job = dg.define_asset_job(
+    name="migrate_dso_sync_watermarks_to_dfm_job",
+    selection=dg.AssetSelection.assets("migrate_dso_sync_watermarks_to_dfm"),
+    tags={
+        "layer": "cutover",
+        "type": "migration",
+        "run_once": "true",
+    },
+    description=(
+        "One-shot cutover: copy DSO meta.SyncWatermarks into staging "
+        "meta.DFMState (scope='dso'). Skips sfi_datapoint. Idempotent. "
+        "Run once per environment before first watermark DSO sync on DFM code."
+    ),
+)
+
+
+# ============================================================================
 # LINKED SERVER JOB (Staging user + DSO linked server + verification)
 # ============================================================================
 
@@ -117,5 +137,6 @@ __all__ = [
     "dso_infrastructure_job",
     "full_infrastructure_job",
     "dfm_infrastructure_job",
+    "migrate_dso_sync_watermarks_to_dfm_job",
     "linked_server_job",
 ]

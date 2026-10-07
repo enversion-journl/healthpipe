@@ -32,7 +32,12 @@ from dqa.model import Cadence, CheckSpecification, Severity
 
 _LINEAGE_DIR = Path(__file__).resolve().parents[2] / "data_lineage"
 _FHIR_DIR = _LINEAGE_DIR / "fhir"
-_DWH_DIRS = (_LINEAGE_DIR / "fct", _LINEAGE_DIR / "dim", _LINEAGE_DIR / "bridge")
+_DWH_DIRS = (
+    _LINEAGE_DIR / "fct",
+    _LINEAGE_DIR / "dim",
+    _LINEAGE_DIR / "bridge",
+    _LINEAGE_DIR / "dm",
+)
 
 # dw_ek_<Dim> or dw_ek_<Dim>_<role>; the dim name must not contain underscores.
 _DW_EK_RE = re.compile(r"^dw_ek_([A-Za-z][A-Za-z0-9]*)(?:_(.+))?$")

@@ -6,6 +6,12 @@
 
 """Infrastructure assets for staging and DSO databases."""
 
+from infrastructure.assets.db_space import (
+    all_db_space_assets,
+    all_db_space_checks,
+    infra_db_space_dso,
+    infra_db_space_staging,
+)
 from infrastructure.assets.dso_infrastructure import (
     dso_infra_codesystem,
     dso_infra_conceptmap,
@@ -13,6 +19,8 @@ from infrastructure.assets.dso_infrastructure import (
     dso_infra_etl_routing,
     dso_infra_fhir,
     dso_infra_functions,
+    dso_infra_drg,
+    dso_infra_haiba,
     dso_infra_meta,
     dso_infra_organisation,
     dso_infra_ref,
@@ -23,6 +31,8 @@ from infrastructure.assets.dso_infrastructure import (
     dso_infra_views_codesystem,
     dso_infra_views_erp,
     dso_infra_views_fhir,
+    dso_infra_views_drg,
+    dso_infra_views_haiba,
     dso_infra_views_security,
     dso_migrations,
 )
@@ -54,6 +64,9 @@ from infrastructure.assets.linked_server import (
     dso_infra_linked_server,
     dso_verify_linked_server,
 )
+from infrastructure.assets.migrate_dso_sync_watermarks import (
+    migrate_dso_sync_watermarks_to_dfm,
+)
 from infrastructure.assets.staging_infrastructure import (
     staging_infra_codesystem,
     staging_infra_conceptmap,
@@ -69,6 +82,7 @@ from infrastructure.assets.staging_infrastructure import (
     staging_infra_ifdb_archive,
     staging_infra_kmd_uddata,
     staging_infra_linked_server_user,
+    staging_infra_db_space,
     staging_infra_organisation,
     staging_infra_ref,
     staging_infra_db_settings,
@@ -116,8 +130,10 @@ __all__ = [
     "fhir_structure_definitions",
     # Staging Linked Server User
     "staging_infra_linked_server_user",
+    "staging_infra_db_space",
     # DFM
     "staging_infra_dfm",
+    "migrate_dso_sync_watermarks_to_dfm",
     # IFDB Archive
     "staging_infra_ifdb_archive",
     "staging_infra_dqa",
@@ -130,10 +146,14 @@ __all__ = [
     "dso_infra_shared_dimensions",
     "dso_infra_organisation",
     "dso_infra_erp",
+    "dso_infra_drg",
+    "dso_infra_haiba",
     "dso_infra_security",
     "dso_infra_views_erp",
     "dso_infra_views_fhir",
     "dso_infra_views_codesystem",
+    "dso_infra_views_drg",
+    "dso_infra_views_haiba",
     "dso_infra_views_security",
     "dso_infra_fhir",
     "dso_infra_codesystem",
@@ -150,6 +170,10 @@ __all__ = [
     "dso_watermark_indexes",
     # ERP index maintenance
     "erp_index_maintenance",
+    "infra_db_space_staging",
+    "infra_db_space_dso",
+    "all_db_space_assets",
+    "all_db_space_checks",
     # FHIR CodeSystem SKS (content-complete)
     "fhir_codesystem_sks_complete",
     # FHIR CodeSystem SOR (content-complete)

@@ -74,7 +74,7 @@ etl/
 │       └── sync_dim.py / sync_fct.py / sync_fhir.py
 ├── dqa/                        # Data Quality Assurance framework
 ├── data_quality/               # Standalone FHIR grain + deleted-resource checks (separate from dqa/)
-├── data_lineage/               # YAML lineage per table (dim/, fct/, fhir/) + tools
+├── data_lineage/               # YAML lineage per table (bridge/, dim/, dm/, fct/, fhir/) + tools
 ├── infrastructure/             # DDL setup assets (schemas, tables, views), security, seed data
 ├── migrations/                 # Tracked SQL migrations + migration runner asset
 ├── jobs/                       # Job definitions per domain
@@ -126,7 +126,7 @@ Views are not in this tree: DSO presentation views are SQL DDL under
 | DSO view | `infrastructure/ddl/views/{domain}/` | [SQL ETL guide](sql_etl_guide.md#view-layer-responsibilities) |
 | Table DDL | `infrastructure/ddl/tables/{domain}/` | [DSI ETL guide](dsi_etl_guide.md) |
 | Data quality check | `dqa/config/` | [DQA README](../architecture/dqa/README.md) |
-| Lineage documentation | `data_lineage/{dim,fct,fhir}/` | [Data lineage guide](data_lineage_guide.md) |
+| Lineage documentation | `data_lineage/{bridge,dim,dm,fct,fhir}/` | [Data lineage guide](data_lineage_guide.md) |
 
 ## Dagster terminology, as used here
 

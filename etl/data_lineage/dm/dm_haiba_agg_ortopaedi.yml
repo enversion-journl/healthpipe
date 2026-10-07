@@ -1,0 +1,31 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fact
+  TableName: dm.HAIBA_AggOrtopaedi
+  Domain: [HAIBA]
+  Description: "Aggregerede HAIBA-ortopæditall (Acute/Elective HIP/KNEE) fra SDS — infektioner og operationer pr. enhed og dato"
+  Grain: "Én række pr. (HAI, HAIBA_dato, Rolle_ansvar, RegionKode, SORIdentifier) — grainet bor som rå kildeværdier på dm.HAIBA_AggOrtopaediEgenskaber (1:1 på dw_ek)"
+
+  SourceSystems:
+    - haiba: [agg_ortopaedi]
+
+  Columns:
+    dw_ek_HAIBA_AggOrtopaedi: { Type: PK, DataType: INT, FK-Target: dm.HAIBA_AggOrtopaediEgenskaber, Description: "Delt entitetsnøgle med transaktionsdimensionen — mintes append-only i map.HAIBA_AggOrtopaedi pr. clean_code ('|'-joinet arc-PK)." }
+    dw_ek_Organisation:        { Type: FK, DataType: INT, Source: [haiba.agg_ortopaedi.SORIdentifier], Expr: "Opslag i dim.Organisation.kode; -1 = UNKNOWN. Tom SOR-kode er et landsaggregat — op til 85 % af rækkerne i Acute_HIP." }
+    dw_ek_Dato:                { Type: FK, DataType: INT, Source: [haiba.agg_ortopaedi.HAIBA_dato], Expr: "dim.Dato smart key YYYYMMDD via dato_key(); sentinels -1/-2/99999998/99999999." }
+    antal90:                   { Type: Measure, DataType: INT, Source: [haiba.agg_ortopaedi.antal90], Expr: "TRY_CONVERT(INT, NULLIF(kilde, ''))" }
+    antal365:                  { Type: Measure, DataType: INT, Source: [haiba.agg_ortopaedi.antal365], Expr: "TRY_CONVERT(INT, NULLIF(kilde, ''))" }
+    operationer:               { Type: Measure, DataType: INT, Source: [haiba.agg_ortopaedi.operationer], Expr: "TRY_CONVERT(INT, NULLIF(kilde, ''))" }
+    leverance_dato:            { DataType: DATE, Expr: "Afledt af leverancefilens navn (HAIBA_<HAI>_agg_RegS_<YYYY-MM-DD>.csv), ført med fra arc" }
+    dw_is_deleted:             { DataType: BIT, Expr: "Ført med fra arc: 1 når rækken er trukket tilbage af SDS. Konsumenter læser vw_dm.HAIBA_AggOrtopaedi, der filtrerer dw_is_deleted = 0." }
+    dw_timestamp_insert:       { Type: Audit, DataType: DATETIME2(0), Expr: "SYSDATETIME() ved rebuild (TRUNCATE + INSERT — seneste rebuild-tidspunkt, ikke først-set)" }
+    dw_timestamp_update:       { Type: Audit, DataType: DATETIME2(0), Expr: "SYSDATETIME() ved rebuild" }
+
+  Notes:
+    - "Transaktionsdimension: dw_ek_HAIBA_AggOrtopaedi er delt nøgle med dm.HAIBA_AggOrtopaediEgenskaber (begge fra map.HAIBA_AggOrtopaedi via clean_code)."
+    - "Kilden er SDS' ugentlige CSV-leverancer (fuldt snapshot pr. leverance): filer HAIBA_<HAI>_agg_RegS_<dato>.csv i HAIBAagg/ — én fil pr. HAI-type (Acute/Elective HIP/KNEE), samme kolonnesæt; deklareret som den logiske kilde 'haiba.agg_ortopaedi'."

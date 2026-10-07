@@ -238,8 +238,12 @@ def _recorded_delivery(mssql: MSSQLResource, source_table: str) -> str | None:
             cursor.close()
 
 
+# The register is per (kildetabel, hai_type) — its PK. leverance_dato is part
+# of the key too so the history accumulates one row per delivery of each type.
+_LEVERANCE_KEYS = ("kildetabel", "hai_type", "leverance_dato")
 LEVERANCE_COLUMNS = (
     "kildetabel",
+    "hai_type",
     "leverance_dato",
     "indlaesningstype",
     "raekker_indsat",
@@ -249,24 +253,22 @@ LEVERANCE_COLUMNS = (
 
 
 def build_leverance_sql() -> str:
-    """Upsert of one register row, keyed on (kildetabel, leverance_dato).
+    """Upsert of one register row, keyed on (kildetabel, hai_type, leverance_dato).
 
-    An upsert rather than an insert: re-running the same delivery must refresh
-    its counts, not add a second row for it.
+    An upsert rather than an insert: re-running the same delivery of a type must
+    refresh its row, not add a second one for it.
     """
     placeholders = ", ".join("?" * len(LEVERANCE_COLUMNS))
     columns = ", ".join(f"[{c}]" for c in LEVERANCE_COLUMNS)
     src_values = ", ".join(f"src.[{c}]" for c in LEVERANCE_COLUMNS)
+    on_clause = "\n   AND ".join(f"tgt.[{k}] = src.[{k}]" for k in _LEVERANCE_KEYS)
     updates = "\n    ".join(
-        f"tgt.[{c}] = src.[{c}],"
-        for c in LEVERANCE_COLUMNS
-        if c not in ("kildetabel", "leverance_dato")
+        f"tgt.[{c}] = src.[{c}]," for c in LEVERANCE_COLUMNS if c not in _LEVERANCE_KEYS
     )
     return f"""
 MERGE [meta].[{LEVERANCE_TABLE}] AS tgt
 USING (VALUES ({placeholders})) AS src ({columns})
-    ON tgt.[kildetabel] = src.[kildetabel]
-   AND tgt.[leverance_dato] = src.[leverance_dato]
+    ON {on_clause}
 WHEN MATCHED THEN UPDATE SET
     {updates}
     tgt.[dw_timestamp_update] = CAST(SYSDATETIME() AS datetime2(0))
@@ -278,17 +280,21 @@ WHEN NOT MATCHED THEN INSERT ({columns})
 def record_delivery(
     mssql: MSSQLResource,
     source_table: str,
+    hai_type: str,
     leverance_dato: str,
     indlaesningstype: str,
     inserted: int | None = None,
     updated: int | None = None,
     soft_deleted: int | None = None,
 ) -> None:
-    """Register the delivery the archive now stands on.
+    """Register one HAI type's delivery that the archive now stands on.
 
-    Runs after the load has committed. A failure here leaves the register behind
-    the data, which makes the direction guard permissive rather than wrongly
-    blocking — the safe direction for a bookkeeping write.
+    Called once per type (see _record_deliveries). Runs after the load has
+    committed. A failure here leaves the register behind the data, which makes
+    the direction guard permissive rather than wrongly blocking — the safe
+    direction for a bookkeeping write. The merge engine reports only table-level
+    counts, so the per-type count columns are left NULL; the run totals live in
+    the archive asset's metadata.
     """
     with mssql.get_connection() as conn:
         cursor = conn.cursor()
@@ -297,6 +303,7 @@ def record_delivery(
                 build_leverance_sql(),
                 (
                     source_table,
+                    hai_type,
                     leverance_dato,
                     indlaesningstype,
                     inserted,
@@ -307,6 +314,31 @@ def record_delivery(
             conn.commit()
         finally:
             cursor.close()
+
+
+def _ext_delivery_dates(mssql: MSSQLResource, schema: HaibaSchema) -> dict[str, str]:
+    """Newest leverance_dato per HAI type in the current ext snapshot.
+
+    Keyed by the arc-column type value (agg: 'COHA', not the filename's
+    'CDI_COHA') — the vocabulary the register and the per-type checks share.
+    One selected file per type means one date per type; MAX is defensive.
+    """
+    with mssql.get_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                f"SELECT [{schema.type_column}], MAX([leverance_dato]) "
+                f"FROM [ext].[{schema.ext_table}] GROUP BY [{schema.type_column}]"
+            )
+            return {str(t): str(d) for t, d in cursor.fetchall() if d is not None}
+        finally:
+            cursor.close()
+
+
+def _record_deliveries(mssql: MSSQLResource, schema: HaibaSchema, indlaesningstype: str) -> None:
+    """Register the current ext delivery of every HAI type it carries."""
+    for hai_type, leverance_dato in sorted(_ext_delivery_dates(mssql, schema).items()):
+        record_delivery(mssql, schema.ext_table, hai_type, leverance_dato, indlaesningstype)
 
 
 def guard_delivery_direction(
@@ -392,15 +424,10 @@ def _run_archive(
     )
 
     if ext_max:
-        record_delivery(
-            mssql,
-            schema.ext_table,
-            ext_max,
-            "merge",
-            inserted=result.rows_inserted,
-            updated=result.rows_updated,
-            soft_deleted=result.rows_soft_deleted,
-        )
+        # Per HAI type, from ext — a per-table watermark cannot see one type
+        # running on an old delivery, and the run's table-level counts are on
+        # the metadata below.
+        _record_deliveries(mssql, schema, "merge")
 
     metadata = build_archive_metadata(
         result,
@@ -439,7 +466,7 @@ def _run_backfill(
     # Recorded for the history, not as a watermark: the guard reads MAX, and a
     # backfill date is older than what is already there, so it cannot move it.
     if ext_max:
-        record_delivery(mssql, schema.ext_table, ext_max, "backfill", inserted=inserted)
+        _record_deliveries(mssql, schema, "backfill")
 
     context.log.info(f"Backfilled {inserted} historical row(s) into arc.{schema.ext_table}")
     return dg.MaterializeResult(

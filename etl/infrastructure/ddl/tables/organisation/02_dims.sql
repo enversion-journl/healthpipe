@@ -10,6 +10,11 @@
 -- Self-referencing parent-child hierarchy from SOR registry, unfolded into
 -- kode_niveau / navn_niveau columns (niveau1 = root).
 --
+-- The nominal column order is deliberate: keys
+-- first (dw_ek_Organisation, dw_ek_Organisation_parent, fhir_Organization_id),
+-- then business attributes, then the hierarchy unfolding, then the DW audit
+-- columns.
+--
 -- This file contains ONLY the desired end-state schema (CREATE TABLE + indexes).
 -- Schema migrations (column renames, type changes, etc.) belong in migrations/.
 -- ============================================================================
@@ -22,9 +27,10 @@ IF NOT EXISTS (
 BEGIN
     CREATE TABLE [dim].[Organisation] (
         [dw_ek_Organisation] [int] PRIMARY KEY,
-        [kode] [varchar](50) NOT NULL,
         [dw_ek_Organisation_parent] [int],
-        [parent_kode] [varchar](50),
+        [fhir_Organization_id] [nvarchar](255) NULL,
+        [kode] [varchar](50) NOT NULL,
+        [kode_parent] [varchar](50),
         [navn] [nvarchar](500),
         [aktiv] [bit] CONSTRAINT [DF_Organisation_aktiv] DEFAULT 1,
         [hierarki_niveau] [int] NULL,
@@ -46,9 +52,9 @@ BEGIN
         [navn_niveau8] [nvarchar](500) NULL,
         [kode_niveau9] [varchar](50) NULL,
         [navn_niveau9] [nvarchar](500) NULL,
+        [dw_is_deleted] [bit] NOT NULL CONSTRAINT [DF_Organisation_dw_is_deleted] DEFAULT 0,
         [dw_timestamp_insert] [datetime2](7) NOT NULL CONSTRAINT [DF_Organisation_dw_timestamp_insert] DEFAULT GETDATE(),
         [dw_timestamp_update] [datetime2](7) NOT NULL CONSTRAINT [DF_Organisation_dw_timestamp_update] DEFAULT GETDATE(),
-        [dw_is_deleted] [bit] NOT NULL CONSTRAINT [DF_Organisation_dw_is_deleted] DEFAULT 0,
         CONSTRAINT [CK_Dim_Organisation_hierarki_niveau] CHECK (
             [hierarki_niveau] IS NULL
             OR ([hierarki_niveau] >= 1 AND [hierarki_niveau] <= 9)
@@ -77,7 +83,7 @@ BEGIN
     EXEC('
         INSERT INTO [dim].[Organisation] (
             dw_ek_Organisation, kode,
-            dw_ek_Organisation_parent, parent_kode,
+            dw_ek_Organisation_parent, kode_parent,
             navn, aktiv,
             dw_timestamp_insert, dw_timestamp_update
         )

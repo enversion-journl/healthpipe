@@ -57,6 +57,8 @@ from utils.fhir.is_deleted_extension import build_is_deleted_extension
 
 BATCH_SIZE = 10_000
 
+_V3_ACT_CODE_SYSTEM = "http://terminology.hl7.org/CodeSystem/v3-ActCode"
+
 # =============================================================================
 # Reference Resolution Configuration
 # =============================================================================
@@ -202,7 +204,7 @@ def _transform_encounters_to_fhir(
         # Create class coding
         class_text = enc_row.get("CLASS_TEXT") or ""
         class_coding = Coding(
-            system="http://terminology.hl7.org/CodeSystem/v3-ActCode",
+            system=_V3_ACT_CODE_SYSTEM,
             code="AMB" if "ambulant" in class_text.lower() else "IMP",
             display=class_text or "Unknown",
         )

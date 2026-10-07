@@ -14,7 +14,7 @@ dso_lineage:
   Grain: "Én række pr. vareudlevering"
 
   SourceSystems:
-    - ils: [dbo.udlev]
+    - ils: [dbo.udlev, dbo.projekt, dbo.lgrvare, dbo.varetype2]
 
   Columns:
     dw_ek_Vareudlevering:     { Type: PK, DataType: INT }
@@ -32,6 +32,7 @@ dso_lineage:
     sw_haster:                { DataType: NVARCHAR(10), Source: [ils.dbo.udlev.sw_haster] }
     sw_erstat:                { DataType: NVARCHAR(10), Source: [ils.dbo.udlev.sw_erstat] }
     projektnummer:            { DataType: NVARCHAR(100), Source: [ils.dbo.udlev.projnr] }
+    projektnavn:              { DataType: NVARCHAR(80), Source: [ils.dbo.projekt.navn] }
     kontonummer_kode:         { DataType: NVARCHAR(100), Source: [ils.dbo.udlev.kto] }
     bruger:                   { DataType: NVARCHAR(100), Source: [ils.dbo.udlev.bruger] }
     bk_prrowid:               { DataType: NVARCHAR(100), Source: [ils.dbo.udlev.id] }
@@ -46,3 +47,7 @@ dso_lineage:
     afleveringstekst:         { DataType: NVARCHAR(100), Source: [ils.dbo.udlev.aflevtxt] }
     afleveringsstregkode:     { DataType: NVARCHAR(100), Source: [ils.dbo.udlev.aflevstreg] }
     vognnummer:               { DataType: NVARCHAR(100), Source: [ils.dbo.udlev.vognnummer] }
+    lgrlok:                   { DataType: NVARCHAR(16), Source: [ils.dbo.udlev.lgrlok] }
+    ekspeditionsnummer:       { DataType: INT, Source: [ils.dbo.udlev.udtraknr3] }
+    lager_varetype:           { DataType: NVARCHAR(12), Source: [ils.dbo.lgrvare.varetype2] , Description: "ILS varetype2 (kode) fra lgrvare på sgh+lgr+vnr; SAS ILS_GRD_DB_Forbrug.varetype2"   }
+    lager_varetype_navn:       { DataType: NVARCHAR(80), Source: [ils.dbo.varetype2.navn] , Description: "ILS varetype2.navn; SAS ILS_GRD_DB_Forbrug.varetype2_navn"   }

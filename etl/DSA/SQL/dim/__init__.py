@@ -16,6 +16,10 @@ from .dim_AfdelingLagerbeholdningEgenskaber import (
 )
 from .dim_Aftale import dim_Aftale
 from .dim_BudgetEgenskaber import dim_BudgetEgenskaber
+from .dim_DRGDiagnose import dim_DRGDiagnose
+from .dim_DRGKontaktEgenskaber import dim_DRGKontaktEgenskaber
+from .dim_DRGKontaktKlassifikation import dim_DRGKontaktKlassifikation
+from .dim_DRGProcedure import dim_DRGProcedure
 from .dim_Dato import dim_Dato
 from .dim_EAN import dim_EAN
 from .dim_Faktura import dim_Faktura
@@ -37,6 +41,10 @@ from .dim_UNSPSC import dim_UNSPSC
 from .dim_Vareudlevering import dim_Vareudlevering
 
 all_assets = [
+    dim_DRGProcedure,
+    dim_DRGDiagnose,
+    dim_DRGKontaktKlassifikation,
+    dim_DRGKontaktEgenskaber,
     dim_Aftale,
     dim_BudgetEgenskaber,
     dim_Dato,
@@ -63,6 +71,10 @@ all_assets = [
 ]
 
 __all__ = [
+    "dim_DRGProcedure",
+    "dim_DRGDiagnose",
+    "dim_DRGKontaktKlassifikation",
+    "dim_DRGKontaktEgenskaber",
     "all_assets",
     "dim_Aftale",
     "dim_BudgetEgenskaber",

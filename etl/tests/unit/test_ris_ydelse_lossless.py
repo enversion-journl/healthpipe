@@ -112,6 +112,9 @@ class _MockContext:
 class TestStandardFields:
     def test_identifier(self):
         procs = _transform_ris_ydelse_to_fhir([_full_row()], _MockContext())
+        # Præcis ét identifier: aftagerfladen joiner (source_system,
+        # source_identifier_value) som to uafhængige first() over listen.
+        assert len(procs[0].identifier) == 1
         assert procs[0].identifier[0].system == SYSTEM_IFDB_RIS_YDELSE
         assert procs[0].identifier[0].value == "RIS-001:1"
 
@@ -133,6 +136,7 @@ class TestStandardFields:
         assert code.coding[0].system == SYSTEM_SKS
         assert code.coding[0].code == "UXRC00"
         assert code.coding[0].userSelected is True
+        assert code.text == "UXRC00"
 
     def test_supplement_codes_on_code_coding_without_user_selected(self):
         procs = _transform_ris_ydelse_to_fhir([_full_row()], _MockContext())
@@ -191,6 +195,20 @@ class TestStandardFields:
             [_full_row(STATE=state)],
             _MockContext(),
             strict_source_validation=False,
+        )
+        assert procs == []
+
+    @pytest.mark.parametrize("state", [None, "", "  "])
+    def test_blank_state_skipped_even_with_xml(self, state: str | None):
+        """NULL/blank STATE is outside the kravspec IN-list and must not emit."""
+        procs = _transform_ris_ydelse_to_fhir([_full_row(STATE=state)], _MockContext())
+        assert procs == []
+
+    def test_strict_mode_also_skips_blank_state(self):
+        procs = _transform_ris_ydelse_to_fhir(
+            [_full_row(STATE=None)],
+            _MockContext(),
+            strict_source_validation=True,
         )
         assert procs == []
 
@@ -485,3 +503,18 @@ class TestColumnCoverage:
             if col in timestamp_cols or col in flag_cols or col in xml_cols:
                 continue
             assert str(val) in proc_json, f"Column {col} with value {val} not found in output"
+
+
+def test_space_sentinel_in_tillaegskode_is_dropped():
+    from DSA.FHIR.utils.ifdb.ris_ydelse_xml import extract_ris_services_from_xml
+
+    xml = """<rekvisition>
+      <service>
+        <kode>UXRC00</kode>
+        <tillaegskode>SPACE</tillaegskode>
+        <tillaegskode>ZZ1234</tillaegskode>
+      </service>
+    </rekvisition>"""
+    groups = extract_ris_services_from_xml(xml, objekt_id="RIS-001")
+    assert groups[0]["primary_code"] == "UXRC00"
+    assert groups[0]["tillaegskoder"] == ["ZZ1234"]

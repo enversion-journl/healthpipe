@@ -13,7 +13,7 @@ using System.Xml;
 
 /// <summary>
 /// Standalone C# XML parser for AKTIVITETSRESULTAT, ported from the original
-/// SSIS ScriptMain in Extract_UDPAKAKTIVITETXML.dtsx.
+/// reference implementation's XML unpacking routine.
 /// Reads XML strings from stdin (JSON array), parses them, and outputs
 /// results as JSON for comparison with the Python implementation.
 /// </summary>

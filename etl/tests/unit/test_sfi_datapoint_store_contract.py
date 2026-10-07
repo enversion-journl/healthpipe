@@ -45,7 +45,6 @@ STORE_COMPUTED_COLUMNS = frozenset()
 
 USER_FILTER_INDEXES = {
     "patient_id": [
-        "IX_FHIR_SFI_datapoint_store_PatientDate",
         "IX_FHIR_SFI_datapoint_store_PatientOccurredDt",
         "IX_FHIR_SFI_datapoint_store_ElementPatientDate",
     ],
@@ -53,17 +52,16 @@ USER_FILTER_INDEXES = {
         "IX_FHIR_SFI_datapoint_store_ElementPatientDate",
         "IX_FHIR_SFI_datapoint_store_ModelElement",
     ],
-    "occurred_at": [
-        "IX_FHIR_SFI_datapoint_store_PatientDate",
-        "IX_FHIR_SFI_datapoint_store_ElementPatientDate",
-    ],
     "occurred_at_dt": ["IX_FHIR_SFI_datapoint_store_PatientOccurredDt"],
     "source_model_name": ["IX_FHIR_SFI_datapoint_store_ModelElement"],
     "element_display": ["FULLTEXT"],
     "source_element_label": ["FULLTEXT"],
 }
 
-USER_FILTER_INCLUDE_ONLY = frozenset({"has_value", "source_resource", "value_type"})
+# occurred_at findes kun som INCLUDE-kolonne: patientindekset nøgler på den
+# typede occurred_at_dt, så filtre på strengformen er residual-prædikater og
+# ikke seek-nøgler.
+USER_FILTER_INCLUDE_ONLY = frozenset({"has_value", "source_resource", "value_type", "occurred_at"})
 
 SOURCE_GRAIN_COLUMNS = frozenset(
     {
@@ -224,9 +222,9 @@ class TestSfiDatapointStoreContract:
             re.IGNORECASE,
         )
         # Keep in sync with infrastructure/ddl/tables/fhir/02_sfi_datapoint_store.sql.
-        # Current set: ElementPatientDate, PatientDate, ModelElement,
-        # PatientOccurredDt, SourceResource.
-        assert len(nc_indexes) == 5, f"Expected 5 NC indexes on store, found {nc_indexes}"
+        # Current set: ElementPatientDate, ModelElement, PatientOccurredDt,
+        # SourceResource.
+        assert len(nc_indexes) == 4, f"Expected 4 NC indexes on store, found {nc_indexes}"
 
     def test_refresh_uses_singleton_lock_and_no_truncate(self, refresh_py: str):
         assert "TRUNCATE TABLE" not in refresh_py.upper()

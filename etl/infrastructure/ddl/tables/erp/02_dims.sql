@@ -447,6 +447,7 @@ BEGIN
         [sw_haster] NVARCHAR(10) NULL,
         [sw_erstat] NVARCHAR(10) NULL,
         [projektnummer] NVARCHAR(100) NULL,
+        [projektnavn] NVARCHAR(80) NULL,
         [kontonummer_kode] NVARCHAR(100) NULL,
         [bruger] NVARCHAR(100) NULL,
         [bk_prrowid] NVARCHAR(100) NULL,
@@ -461,6 +462,10 @@ BEGIN
         [afleveringstekst] NVARCHAR(100) NULL,
         [afleveringsstregkode] NVARCHAR(100) NULL,
         [vognnummer] NVARCHAR(100) NULL,
+        [lgrlok] NVARCHAR(16) NULL,
+        [ekspeditionsnummer] INT NULL,
+        [lager_varetype] NVARCHAR(12) NULL,
+        [lager_varetype_navn] NVARCHAR(80) NULL,
         [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Vareudlevering_dw_timestamp_insert] DEFAULT SYSDATETIME(),
         [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Vareudlevering_dw_timestamp_update] DEFAULT SYSDATETIME(),
         CONSTRAINT [PK_Dim_Vareudlevering] PRIMARY KEY CLUSTERED ([dw_ek_Vareudlevering] ASC)

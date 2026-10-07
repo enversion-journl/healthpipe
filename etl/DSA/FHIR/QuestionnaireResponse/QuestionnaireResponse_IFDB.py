@@ -56,6 +56,7 @@ from utils.fhir.identifier_systems import (
     SYSTEM_IFDB_PATIENT_ID,
     SYSTEM_IFDB_STAFF,
 )
+from utils.fhir.is_deleted_extension import build_is_deleted_extension_dict
 
 
 def _normalize_id(value: Any) -> str | None:
@@ -344,6 +345,11 @@ def build_questionnaire_response_dict(
         "status": _as_status(slettet, kladde),
         "questionnaire": questionnaire_ref,
     }
+    # Sletmarkeringen som udvidelse, ikke kun som status: de flade tabellers
+    # sletteflag-kolonner laeser udvidelsen, og skemasvar var den eneste af de
+    # fire ressourcetyper, der ikke skrev den. Samme sandhedsfortolkning som
+    # status, saa flag og status aldrig kan modsige hinanden.
+    resource["extension"] = [build_is_deleted_extension_dict(1 if _truthy(slettet) else 0)]
 
     norm_objekt = build_qr_identifier_value(objekt_id)
     if norm_objekt:

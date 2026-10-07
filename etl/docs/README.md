@@ -34,6 +34,7 @@ for history — do not rely on them for current behavior).
 | [dsi_etl_guide.md](implementation/dsi_etl_guide.md) | DSI: onboarding a new source system, and adding an archive table (`ext` → `arc`) |
 | [navngivningsstandard.md](implementation/navngivningsstandard.md) | The naming standard (snake_case grammar, `dw_*` columns) — single source of truth for naming |
 | [sql_etl_guide.md](implementation/sql_etl_guide.md) | DWH architecture and SQL ETL patterns: `ext` → `arc` → `pre_stg`/`stg` → `map`/`dim`/`fct` |
+| [kpi_aggregat_data_guide.md](implementation/kpi_aggregat_data_guide.md) | Externally delivered KPI/aggregate data as a source shape: revision strategy, ingestion guards, the dm path, and the five pitfalls |
 | [fhir_etl_guide.md](implementation/fhir_etl_guide.md) | FHIR pipeline patterns and IFDB extraction |
 | [codesystem_conceptmap_guide.md](implementation/codesystem_conceptmap_guide.md) | CodeSystem & ConceptMap pipeline patterns |
 | [dfm_extract_factory_guide.md](implementation/dfm_extract_factory_guide.md) | Building DFM-based extract/archive assets |

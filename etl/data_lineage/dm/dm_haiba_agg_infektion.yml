@@ -1,0 +1,31 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fact
+  TableName: dm.HAIBA_AggInfektion
+  Domain: [HAIBA]
+  Description: "Aggregerede HAIBA-infektionstal (BACT, UTI, COHA, HOHA) fra SDS — antal og risikodøgn pr. enhed og dato"
+  Grain: "Én række pr. (HAI, HAIBA_dato, Rolle_ansvar, RegionKode, SORIdentifier) — grainet bor som rå kildeværdier på dm.HAIBA_AggInfektionEgenskaber (1:1 på dw_ek)"
+
+  SourceSystems:
+    - haiba: [agg_infektion]
+
+  Columns:
+    dw_ek_HAIBA_AggInfektion: { Type: PK, DataType: INT, FK-Target: dm.HAIBA_AggInfektionEgenskaber, Description: "Delt entitetsnøgle med transaktionsdimensionen — mintes append-only i map.HAIBA_AggInfektion pr. clean_code ('|'-joinet arc-PK)." }
+    dw_ek_Organisation:        { Type: FK, DataType: INT, Source: [haiba.agg_infektion.SORIdentifier], Expr: "Opslag i dim.Organisation.kode; -1 = UNKNOWN. Tom SOR-kode er et landsaggregat (RegionKode 8888/9999), ikke et fejlet opslag." }
+    dw_ek_Dato:                { Type: FK, DataType: INT, Source: [haiba.agg_infektion.HAIBA_dato], Expr: "dim.Dato smart key YYYYMMDD via dato_key(); sentinels -1/-2/99999998/99999999." }
+    antal:                     { Type: Measure, DataType: INT, Source: [haiba.agg_infektion.antal], Expr: "TRY_CONVERT(INT, NULLIF(kilde, ''))" }
+    risikodoegn:               { Type: Measure, DataType: DECIMAL(18,2), Source: [haiba.agg_infektion.risikodoegn], Expr: "TRY_CONVERT(DECIMAL(18,2), NULLIF(kilde, '')) — kilden har decimaler med punktum" }
+    leverance_dato:            { DataType: DATE, Expr: "Afledt af leverancefilens navn (HAIBA_<HAI>_agg_RegS_<YYYY-MM-DD>.csv), ført med fra arc" }
+    dw_is_deleted:             { DataType: BIT, Expr: "Ført med fra arc: 1 når rækken er trukket tilbage af SDS (mangler i seneste fulde snapshot). Konsumenter læser vw_dm.HAIBA_AggInfektion, der filtrerer dw_is_deleted = 0." }
+    dw_timestamp_insert:       { Type: Audit, DataType: DATETIME2(0), Expr: "SYSDATETIME() ved rebuild (TRUNCATE + INSERT — seneste rebuild-tidspunkt, ikke først-set; først-set ligger i map)" }
+    dw_timestamp_update:       { Type: Audit, DataType: DATETIME2(0), Expr: "SYSDATETIME() ved rebuild" }
+
+  Notes:
+    - "Transaktionsdimension: dw_ek_HAIBA_AggInfektion er delt nøgle med dm.HAIBA_AggInfektionEgenskaber (begge fra map.HAIBA_AggInfektion via clean_code)."
+    - "Kilden er SDS' ugentlige CSV-leverancer (fuldt snapshot pr. leverance): filer HAIBA_<HAI>_agg_RegS_<dato>.csv i HAIBAagg/ — én fil pr. HAI-type (filnavns-token BACT, UTI, CDI_COHA, CDI_HOHA), samme kolonnesæt; deklareret som den logiske kilde 'haiba.agg_infektion'."
+    - "HAI-KOLONNEN bærer 'COHA'/'HOHA' (ikke filnavnets 'CDI_COHA'/'CDI_HOHA'), mens case-tabellerne bruger 'CDI_COHA'/'CDI_HOHA' i kolonnen — enhver join mellem agg og cases skal mappe."

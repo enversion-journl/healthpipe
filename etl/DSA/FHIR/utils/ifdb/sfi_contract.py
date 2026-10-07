@@ -14,8 +14,9 @@ registration side effects.
 from __future__ import annotations
 
 from DSA.FHIR.utils.ifdb.xml_aktivitetsresultat import AktivitetsresultatRow
+from utils.fhir.identifier_systems import SYSTEM_IFDB_SFI
 
-SFI_SYSTEM = "urn:dk:ifdb:sfi"
+SFI_SYSTEM = SYSTEM_IFDB_SFI
 SFI_FALLBACK_PREFIX = "_fb_"
 SFI_MODEL_SEPARATOR = "."
 

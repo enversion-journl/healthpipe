@@ -49,8 +49,10 @@ def _dso_subjects() -> list[tuple[DqaSubject, str]]:
     from DSO.load.sync_configs import (
         CODESYSTEM_SYNC_CONFIGS,
         CONCEPTMAP_SYNC_CONFIGS,
+        DRG_SYNC_CONFIGS,
         ERP_SYNC_CONFIGS,
         FHIR_SYNC_CONFIGS,
+        HAIBA_DM_CONFIGS,
         SECURITY_SYNC_CONFIGS,
         SHARED_DIMS_SYNC_CONFIGS,
     )
@@ -63,6 +65,8 @@ def _dso_subjects() -> list[tuple[DqaSubject, str]]:
         ("security", Track.DWH, SECURITY_SYNC_CONFIGS),
         ("codesystem", Track.DWH, CODESYSTEM_SYNC_CONFIGS),
         ("conceptmap", Track.DWH, CONCEPTMAP_SYNC_CONFIGS),
+        ("haiba", Track.DWH, HAIBA_DM_CONFIGS),
+        ("drg", Track.DWH, DRG_SYNC_CONFIGS),
     ]
     link = get_linked_server_config()
 

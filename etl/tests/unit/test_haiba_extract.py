@@ -134,19 +134,22 @@ def test_select_newest_skips_header_only_file_and_falls_back(tmp_path):
     _write(tmp_path / "HAIBA_UTI_cases_RegS_2026_03_21.csv", CASES_HEADER, "UTI;x;y")
     _write(tmp_path / "HAIBA_UTI_cases_RegS_2026_03_28.csv", CASES_HEADER)
 
-    selected, notes = select_newest(discover_files(str(tmp_path)), "cases")
+    selected, notes, unusable = select_newest(discover_files(str(tmp_path)), "cases")
 
     assert selected["UTI"].delivery_date == date(2026, 3, 21)
     assert any("2026_03_28" in note for note in notes)
+    assert unusable == []
 
 
 def test_select_newest_reports_type_with_no_usable_file(tmp_path):
     _write(tmp_path / "HAIBA_UTI_cases_RegS_2026_03_28.csv", CASES_HEADER)
 
-    selected, notes = select_newest(discover_files(str(tmp_path)), "cases")
+    selected, notes, unusable = select_newest(discover_files(str(tmp_path)), "cases")
 
     assert "UTI" not in selected
     assert any("no usable file" in note for note in notes)
+    # The structured value, not the log string, is what invariant 1's block reads.
+    assert unusable == ["UTI"]
 
 
 def test_select_newest_keeps_type_absent_from_latest_delivery(tmp_path):
@@ -159,7 +162,7 @@ def test_select_newest_keeps_type_absent_from_latest_delivery(tmp_path):
     _write(tmp_path / "HAIBA_BACT_agg_RegS_2026-04-25.csv", AGG_HEADER, _agg_row())
     _write(tmp_path / "HAIBA_UTI_agg_RegS_2026-01-10.csv", AGG_HEADER, _agg_row())
 
-    selected, _ = select_newest(discover_files(str(tmp_path)), "agg")
+    selected, _, _ = select_newest(discover_files(str(tmp_path)), "agg")
 
     assert set(selected) == {"BACT", "UTI"}
     assert selected["UTI"].delivery_date == date(2026, 1, 10)
@@ -169,7 +172,7 @@ def test_select_newest_prefers_latest_delivery(tmp_path):
     for day in ("2026-04-11", "2026-04-25", "2026-04-18"):
         _write(tmp_path / f"HAIBA_BACT_agg_RegS_{day}.csv", AGG_HEADER, _agg_row())
 
-    selected, notes = select_newest(discover_files(str(tmp_path)), "agg")
+    selected, notes, _ = select_newest(discover_files(str(tmp_path)), "agg")
 
     assert selected["BACT"].delivery_date == date(2026, 4, 25)
     assert notes == []
@@ -393,8 +396,8 @@ def test_select_newest_honours_delivery_pin(tmp_path):
     for day in ("2025-12-27", "2026-01-03", "2026-08-15"):
         _write(tmp_path / f"HAIBA_BACT_agg_RegS_{day}.csv", AGG_HEADER, _agg_row())
 
-    pinned, _ = select_newest(discover_files(str(tmp_path)), "agg", None, date(2025, 12, 27))
-    newest, _ = select_newest(discover_files(str(tmp_path)), "agg")
+    pinned, _, _ = select_newest(discover_files(str(tmp_path)), "agg", None, date(2025, 12, 27))
+    newest, _, _ = select_newest(discover_files(str(tmp_path)), "agg")
 
     assert pinned["BACT"].delivery_date == date(2025, 12, 27)
     assert newest["BACT"].delivery_date == date(2026, 8, 15)
@@ -405,7 +408,9 @@ def test_select_newest_pin_still_skips_empty_files(tmp_path):
     _write(tmp_path / "HAIBA_BACT_agg_RegS_2025-12-20.csv", AGG_HEADER, _agg_row())
     _write(tmp_path / "HAIBA_BACT_agg_RegS_2025-12-27.csv", AGG_HEADER)
 
-    selected, notes = select_newest(discover_files(str(tmp_path)), "agg", None, date(2025, 12, 27))
+    selected, notes, _ = select_newest(
+        discover_files(str(tmp_path)), "agg", None, date(2025, 12, 27)
+    )
 
     assert selected["BACT"].delivery_date == date(2025, 12, 20)
     assert any("2025-12-27" in n for n in notes)

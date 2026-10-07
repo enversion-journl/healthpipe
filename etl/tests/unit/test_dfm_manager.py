@@ -18,6 +18,7 @@ Tests with a mocked DB connection covering:
 
 Contract tests:
   - SCHEMA_TO_TARGET_TYPE matches the stored procedure CASE mapping
+  - Every DSO sync config schema is mapped; every watermark config is a checkpoint owner
 """
 
 from contextlib import contextmanager
@@ -30,6 +31,7 @@ from core.dfm_manager import (
     DfmManager,
     DfmRunContext,
 )
+from DSO.load.sync_configs import ALL_SYNC_CONFIGS
 
 pytestmark = pytest.mark.unit
 
@@ -399,6 +401,7 @@ class TestSchemaToTargetTypeContract:
         "stg": "staging",
         "dim": "dimension",
         "fct": "fact",
+        "dm": "datamart",
         "map": "mapping",
         "bridge": "bridge",
         "fhir_stg": "fhir_staging",
@@ -407,6 +410,7 @@ class TestSchemaToTargetTypeContract:
         "codesystem": "codesystem",
         "conceptmap": "conceptmap",
         "ref": "reference",
+        "sec": "security",
     }
 
     def test_python_covers_all_sp_branches(self):
@@ -442,6 +446,22 @@ class TestSchemaToTargetTypeContract:
             assert (
                 schema in SCHEMA_TO_TARGET_TYPE
             ), f"Checkpoint owner schema {schema!r} not in SCHEMA_TO_TARGET_TYPE"
+
+    def test_every_sync_config_schema_is_mapped(self):
+        """DSO sync schemas must be in SCHEMA_TO_TARGET_TYPE or start_dfm_run raises."""
+        for key, cfg in ALL_SYNC_CONFIGS.items():
+            assert (
+                cfg.schema in SCHEMA_TO_TARGET_TYPE
+            ), f"{key}: schema {cfg.schema!r} missing from SCHEMA_TO_TARGET_TYPE"
+
+    def test_every_watermark_config_is_a_checkpoint_owner(self):
+        """Watermark configs outside CHECKPOINT_OWNER_SCHEMAS never persist checkpoints."""
+        for key, cfg in ALL_SYNC_CONFIGS.items():
+            if cfg.mode == "watermark":
+                assert cfg.schema in CHECKPOINT_OWNER_SCHEMAS, (
+                    f"{key}: watermark config in non-owner schema {cfg.schema!r} — "
+                    f"checkpoint would never persist, full MERGE every run"
+                )
 
 
 # ===========================================================================

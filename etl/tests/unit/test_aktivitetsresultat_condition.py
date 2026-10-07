@@ -324,3 +324,43 @@ class TestCodeLevelSuppressionWhenXmlDiagnosis:
 
         assert len(conds) == 1
         assert conds[0][1]["identifier"][0]["system"] == SYSTEM_IFDB_AKTIVITETSRESULTAT_CONDITION
+
+
+class TestKladdeModtidspunktOgLpr3:
+    """SFI-diagnoser skal følge familiens kladde-, modtidspunkt- og LPR3-kontrakt."""
+
+    def test_kladde_giver_provisional(self) -> None:
+        _, cond = _build_aktivitetsresultat_condition_dict(_make_row(KLADDE="1"))
+        assert cond["verificationStatus"]["coding"][0]["code"] == "provisional"
+        assert cond["clinicalStatus"]["coding"][0]["code"] == "active"
+
+    def test_slettet_slaar_kladde(self) -> None:
+        _, cond = _build_aktivitetsresultat_condition_dict(_make_row(KLADDE="1", SLETTET="1"))
+        assert cond["verificationStatus"]["coding"][0]["code"] == "entered-in-error"
+
+    def test_uden_kladde_forbliver_confirmed(self) -> None:
+        _, cond = _build_aktivitetsresultat_condition_dict(_make_row(KLADDE=None))
+        assert cond["verificationStatus"]["coding"][0]["code"] == "confirmed"
+
+    def test_modtidspunkt_extension_saettes_som_datetime(self) -> None:
+        from utils.fhir.fhir_extensions import EXTENSION_MODTIDSPUNKT
+
+        _, cond = _build_aktivitetsresultat_condition_dict(_make_row())
+        ext = [e for e in cond["extension"] if e.get("url") == EXTENSION_MODTIDSPUNKT]
+        assert len(ext) == 1
+        # Sporets datetime-form er den samme som recordedDate bruger; den
+        # flade DATETIME2-kolonne kan caste begge varianter.
+        assert ext[0]["valueDateTime"].startswith("2024-06-15")
+        assert "12:00:00" in ext[0]["valueDateTime"]
+
+    def test_lpr3_flag_giver_meta_tag(self) -> None:
+        from utils.fhir.resource_flags import FLAG_LPR3_IGNORED
+
+        _, cond = _build_aktivitetsresultat_condition_dict(_make_row(LPR3_IGNORED="1"))
+        tags = cond.get("meta", {}).get("tag", [])
+        assert any(t.get("code") == FLAG_LPR3_IGNORED for t in tags)
+
+    def test_uden_lpr3_flag_intet_tag(self) -> None:
+        _, cond = _build_aktivitetsresultat_condition_dict(_make_row())
+        tags = cond.get("meta", {}).get("tag", [])
+        assert not any("lpr3" in str(t.get("code", "")) for t in tags)

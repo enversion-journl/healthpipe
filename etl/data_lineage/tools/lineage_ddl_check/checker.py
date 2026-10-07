@@ -123,15 +123,15 @@ def _is_relationship_column(schema: str, table_short: str, col: str) -> bool:
 
     - FHIR: any ``*_id`` column (a reference to another resource, or the row's own
       id, or a source/business id — the annotation disambiguates which).
-    - DWH (dim/fct/bridge): any ``dw_ek_<Dim>`` column EXCEPT the table's own PK
-      (``dw_ek_<TableName>``), which is not a foreign key. Post-overhaul the
+    - DWH (dim/fct/bridge/dm): any ``dw_ek_<Dim>`` column EXCEPT the table's own
+      PK (``dw_ek_<TableName>``), which is not a foreign key. Post-overhaul the
       prefix is lowercase only (navngivningsstandard.md); the pre-overhaul
       uppercase ``DW_EK_`` spelling is intentionally NOT recognized so any
       residue surfaces instead of passing silently.
     """
     if schema == "fhir":
         return col.lower().endswith("_id")
-    if schema in ("dim", "fct", "bridge"):
+    if schema in ("dim", "fct", "bridge", "dm"):
         prefix = next((p for p in _DW_EK_PREFIXES if col.startswith(p)), None)
         if prefix is None:
             return False

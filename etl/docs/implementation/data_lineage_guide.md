@@ -14,15 +14,22 @@ Lineage-filerne dokumenterer **hvor data kommer fra** med sporbarhed helt tilbag
 
 ```text
 etl/data_lineage/
+├── bridge/       # Bro-tabeller (mange-til-mange)
 ├── dim/          # Dimensionstabeller
+├── dm/           # Datamart-tabeller (fakta + _Egenskaber-transaktionsdimensioner, fx HAIBA)
 ├── fct/          # Fact tabeller
 └── fhir/         # FHIR-flade tabeller
 ```
 
+Mappenavnet er SQL-schemanavnet: validatoren (`tools/lineage_ddl_check/config.py`,
+`TARGET_SCHEMAS`) globber `data_lineage/<schema>/*.yml` og matcher mod
+`CREATE TABLE [<schema>]` i base-DDL'en — en ny mappe kræver derfor at schemaet
+tilføjes i `TARGET_SCHEMAS`.
+
 ## Navngivningskonvention
 
 - Filnavn: `{type}_{entitet}.yml` (typisk snake_case af tabelnavnet, men filnavnet er kun til organisering — det er `TableName`-feltet der er kilden til sandhed)
-- `type`-præfikser: `dim_`, `fct_`, `fhir_`
+- `type`-præfikser: `dim_`, `dm_`, `fct_`, `fhir_`
 - Root-nøgle er altid `dso_lineage`
 - Tabelnavnet angives altid eksplicit via det påkrævede `TableName`-felt (fx `TableName: dim.Fakturalinje`) — det udledes ikke fra filnavnet
 

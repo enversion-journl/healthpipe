@@ -42,6 +42,7 @@ from fhir.resources.R4B.identifier import Identifier
 from fhir.resources.R4B.location import Location as FhirLocation
 from fhir.resources.R4B.period import Period
 from fhir.resources.R4B.reference import Reference
+from utils.fhir.fhir_extensions import EXTENSION_LOCATION_VALIDITY_PERIOD
 from utils.fhir.identifier_systems import SYSTEM_SOR
 
 BATCH_SIZE = 10_000
@@ -164,7 +165,7 @@ def _transform_locations_to_fhir(
         if period_start or period_end:
             extensions.append(
                 Extension(
-                    url="http://example.org/fhir/StructureDefinition/locationValidityPeriod",
+                    url=EXTENSION_LOCATION_VALIDITY_PERIOD,
                     valuePeriod=Period(start=period_start, end=period_end),
                 )
             )

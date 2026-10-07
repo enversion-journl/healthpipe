@@ -41,9 +41,10 @@ CREATE OR ALTER VIEW [vw_dim].[Organisation]
 AS
 SELECT
     [dw_ek_Organisation],
-    [kode],
     [dw_ek_Organisation_parent],
-    [parent_kode],
+    [fhir_Organization_id],
+    [kode],
+    [kode_parent],
     [navn],
     [aktiv],
     [hierarki_niveau],
@@ -65,9 +66,9 @@ SELECT
     [navn_niveau8],
     [kode_niveau9],
     [navn_niveau9],
+    [dw_is_deleted],
     [dw_timestamp_insert],
-    [dw_timestamp_update],
-    [dw_is_deleted]
+    [dw_timestamp_update]
 FROM [dim].[Organisation];
 GO
 

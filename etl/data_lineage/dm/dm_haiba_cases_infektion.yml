@@ -1,0 +1,38 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fact
+  TableName: dm.HAIBA_CasesInfektion
+  Domain: [HAIBA]
+  Description: "HAIBA-infektionscases på borgerniveau fra SDS — én case pr. række; casen selv er tællingen (COUNT(*))"
+  Grain: "Én række pr. case (HAI_type, cprnr, HAI_date) — grainet bor som rå kildeværdier på dm.HAIBA_CasesInfektionEgenskaber (1:1 på dw_ek)"
+  Privacy: >
+    CPR-frit by construction: rå CPR lever kun i map.HAIBA_CasesInfektion
+    (clean_code) og arc, som begge er staging-interne og aldrig synkes til DSO.
+    Borgeren bæres udelukkende som dw_ek_Borger.
+
+  SourceSystems:
+    - haiba: [cases_infektion]
+
+  Columns:
+    dw_ek_HAIBA_CasesInfektion:       { Type: PK, DataType: INT, FK-Target: dm.HAIBA_CasesInfektionEgenskaber, Description: "Delt entitetsnøgle med transaktionsdimensionen — mintes append-only i map.HAIBA_CasesInfektion pr. clean_code ('|'-joinet arc-PK; bærer CPR og er derfor staging-intern)." }
+    dw_ek_Borger:                      { Type: FK, DataType: INT, Source: [haiba.cases_infektion.cprnr], Expr: "Opslag i ref.PatientToBorger (MIN(dw_ek_Borger) pr. cpr, dw_is_deleted = 0); -1 = ukendt. Ukendte CPR oprettes som stub-patienter i Aidbox (fhir_patient_haiba) og resolver ved næste kørsel." }
+    dw_ek_Organisation_opholdsadresse: { Type: FK, DataType: INT, Source: [haiba.cases_infektion.HAI_Opholdsadresse], Expr: "Opslag i dim.Organisation.kode; -1 = UNKNOWN" }
+    dw_ek_Organisation_kontaktansvar:  { Type: FK, DataType: INT, Source: [haiba.cases_infektion.HAI_Kontaktansvar], Expr: "Opslag i dim.Organisation.kode; -1 = UNKNOWN" }
+    dw_ek_Dato_hai:                    { Type: FK, DataType: INT, Source: [haiba.cases_infektion.HAI_date], Expr: "dim.Dato smart key YYYYMMDD via dato_key(); sentinels -1/-2/99999998/99999999." }
+    encounter_id_kontaktansvar:        { DataType: NVARCHAR(255), FK-Target: fhir.Encounter, FK-Key: encounter_id, FK-Required: false, Expr: "Stemples af haiba_kontakt-assettet efter rebuilden: FHIR-kontakt matchet via fhir.Organization.identifier_value_sor mod HAI_Kontaktansvar og encounter-perioden mod HAI_date. Match-kvaliteten bor på _Egenskaber." }
+    encounter_id_opholdsadresse:       { DataType: NVARCHAR(255), FK-Target: fhir.Encounter, FK-Key: encounter_id, FK-Required: false, Expr: "Stemples af haiba_kontakt-assettet: FHIR-kontakt matchet via fhir.Location.identifier_value_sor (lokationsruten) mod HAI_Opholdsadresse." }
+    location_id_opholdsadresse:        { DataType: NVARCHAR(255), FK-Target: fhir.Location, FK-Key: location_id, FK-Required: false, Expr: "Lokationen bag opholdsadresse-matchet — stemples sammen med encounter_id_opholdsadresse." }
+    leverance_dato:                    { DataType: DATE, Expr: "Afledt af leverancefilens navn (HAIBA_<HAI_type>_cases_RegS_<YYYY-MM-DD>.csv), ført med fra arc" }
+    dw_is_deleted:                     { DataType: BIT, Expr: "Ført med fra arc: 1 når casen er trukket tilbage af SDS. Konsumenter læser vw_dm.HAIBA_CasesInfektion, der filtrerer dw_is_deleted = 0." }
+    dw_timestamp_insert:               { Type: Audit, DataType: DATETIME2(0), Expr: "SYSDATETIME() ved rebuild (TRUNCATE + INSERT — seneste rebuild-tidspunkt, ikke først-set)" }
+    dw_timestamp_update:               { Type: Audit, DataType: DATETIME2(0), Expr: "SYSDATETIME() ved rebuild" }
+
+  Notes:
+    - "Transaktionsdimension: dw_ek_HAIBA_CasesInfektion er delt nøgle med dm.HAIBA_CasesInfektionEgenskaber (begge fra map.HAIBA_CasesInfektion via clean_code)."
+    - "Kilden er SDS' ugentlige CSV-leverancer (fuldt snapshot pr. leverance): filer HAIBA_<HAI_type>_cases_RegS_<dato>.csv i HAIBAcpr/ — én fil pr. HAI-type, samme kolonnesæt; deklareret som den logiske kilde 'haiba.cases_infektion'."
+    - "Relations-nøglerne (encounter_id_*, location_id_*) bor på FAKTA så joinet ud til fhir-kontakten er direkte; matchets kvalitet (match_kvalitet_*, match_dage_*) bor på _Egenskaber."

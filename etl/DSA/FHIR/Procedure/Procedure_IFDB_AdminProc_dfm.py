@@ -98,6 +98,7 @@ from utils.fhir.identifier_systems import (
     SYSTEM_SOR,
 )
 from utils.fhir.is_deleted_extension import build_is_deleted_extension
+from utils.fhir.resource_flags import FLAG_LPR3_IGNORED, build_flag_meta
 
 PROCEDURE_REFERENCE_CONFIGS = [
     ReferenceFieldConfig(
@@ -137,6 +138,10 @@ def _str_or_none(value: Any) -> str | None:
         return None
     s = str(value).strip()
     return s if s else None
+
+
+def _adm_suppl_sort_key(row: dict[str, Any]) -> int:
+    return int(row.get("IDX") or 0)
 
 
 # ---------------------------------------------------------------------------
@@ -214,7 +219,7 @@ def _fetch_adm_procedure_suppl_codes(
         where_column="PARENT_OBJECT_ID",
         mssql=mssql,
         key_fn=lambda row: _normalize_oracle_id(row["PARENT_OBJECT_ID"]),
-        sort_key=lambda row: int(row.get("IDX", 0)),
+        sort_key=_adm_suppl_sort_key,
     )
     context.log.info(
         f"[SUPPL_CODES] Fetched {sum(len(v) for v in result.values())} "
@@ -402,7 +407,11 @@ def _transform_adm_procedure_to_fhir(
             )
 
         # --- resource ---
+        # Driftsflag som meta.tag: kun dermed kan der soeges paa flaget via
+        # FHIR-serveren og filtreres paa det som kolonne i de flade tabeller.
+        flag_koder = [FLAG_LPR3_IGNORED] if _is_true_flag(row_dict.get("LPR3_IGNORED")) else []
         proc = Procedure(
+            meta=build_flag_meta(flag_koder),
             identifier=(
                 [
                     Identifier(

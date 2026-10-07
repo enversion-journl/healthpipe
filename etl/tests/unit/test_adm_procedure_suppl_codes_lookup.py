@@ -11,6 +11,7 @@ from unittest.mock import MagicMock
 import dagster as dg
 import pytest
 from DSA.FHIR.Procedure.Procedure_IFDB_AdminProc_dfm import (
+    _adm_suppl_sort_key,
     _transform_adm_procedure_to_fhir,
 )
 
@@ -137,3 +138,10 @@ class TestAdmProcedureSupplCodes:
         }
         procedures = _transform_adm_procedure_to_fhir(rows, ctx, suppl_codes)
         assert len(procedures[0].code.coding) == 1
+
+
+def test_adm_suppl_sort_key_treats_missing_and_none_as_zero():
+    assert _adm_suppl_sort_key({}) == 0
+    assert _adm_suppl_sort_key({"IDX": None}) == 0
+    assert _adm_suppl_sort_key({"IDX": 3}) == 3
+    assert _adm_suppl_sort_key({"IDX": "2"}) == 2

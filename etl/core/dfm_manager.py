@@ -55,6 +55,7 @@ SCHEMA_TO_TARGET_TYPE: dict[str, str] = {
     "stg": "staging",
     "dim": "dimension",
     "fct": "fact",
+    "dm": "datamart",
     "map": "mapping",
     "bridge": "bridge",
     "fhir_stg": "fhir_staging",
@@ -64,10 +65,11 @@ SCHEMA_TO_TARGET_TYPE: dict[str, str] = {
     "conceptmap": "conceptmap",
     "ref": "reference",
     "dfm": "dfm",
+    "sec": "security",
 }
 
 CHECKPOINT_OWNER_SCHEMAS: frozenset[str] = frozenset(
-    {"arc", "bridge", "dim", "fct", "fhir", "fhir_server", "dfm", "ref"}
+    {"arc", "bridge", "conceptmap", "dim", "fct", "fhir", "fhir_server", "dfm", "ref"}
 )
 
 

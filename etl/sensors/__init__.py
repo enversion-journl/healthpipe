@@ -16,23 +16,28 @@ Sensors:
 - nightly_failure_sensor: Reports failed scheduled/sensor-triggered runs as
   Azure DevOps work items for the 07:00 triage agent (monitors all runs
   in the code location, so it needs no postfixed job references)
+- haiba_publish_sensor: Publishes the HAIBA dm layer to DSO after the nightly
+  Borger chain has minted dw_ek_Borger for stub patients, gated on the
+  archive's delivery watermark (built via a factory in definitions.py)
 """
 
 from sensors.dfm_base_job_sensor import (
     build_dfm_base_job_failure_sensor,
     build_dfm_base_job_success_sensor,
 )
+from sensors.haiba_publish_sensor import build_haiba_publish_sensor
 from sensors.nightly_failure_sensor import build_nightly_failure_sensor
 
 nightly_failure_report_sensor = build_nightly_failure_sensor()
 
-# Statically-defined sensors (the DFM sensors are built dynamically in
-# definitions.py once jobs are postfixed).
+# Statically-defined sensors (the DFM and HAIBA sensors are built dynamically
+# in definitions.py once jobs are postfixed).
 all_sensors = [nightly_failure_report_sensor]
 
 __all__ = [
     "build_dfm_base_job_success_sensor",
     "build_dfm_base_job_failure_sensor",
+    "build_haiba_publish_sensor",
     "build_nightly_failure_sensor",
     "nightly_failure_report_sensor",
     "all_sensors",

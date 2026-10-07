@@ -751,6 +751,35 @@ def staging_infra_dfm(
 
 
 # ============================================================================
+# DB SPACE (snapshot tables for the daily space monitor)
+# ============================================================================
+
+
+@dg.asset(
+    name="staging_infra_db_space",
+    group_name="staging_infrastructure",
+    compute_kind="mssql",
+    deps=["staging_infra_schemas", "staging_migrations"],
+    tags={"layer": "staging", "type": "infrastructure", "object": "table"},
+    description="Create meta.DbSpaceSnapshot + meta.DbSpaceTopObject for the daily space monitor",
+)
+def staging_infra_db_space(
+    context: dg.AssetExecutionContext,
+    mssql_target_staging: MSSQLResource,
+) -> dg.MaterializeResult:
+    """Create meta.DbSpaceSnapshot + meta.DbSpaceTopObject on staging."""
+
+    execute_sql_file(mssql_target_staging, "tables/meta/05_db_space_snapshot.sql", context)
+
+    context.log.info("Space-snapshot tables deployed on staging")
+    return dg.MaterializeResult(
+        metadata={
+            "tables": "meta.DbSpaceSnapshot, meta.DbSpaceTopObject",
+        }
+    )
+
+
+# ============================================================================
 # IFDB ARCHIVE
 # ============================================================================
 
@@ -832,9 +861,11 @@ def staging_infra_dqa(
     deps=["staging_infra_schemas", "staging_migrations"],
     compute_kind="mssql",
     description=(
-        "Create the HAIBA archive tables (arc.haiba_agg_*, arc.haiba_cases_* and "
-        "the arc.haiba_agg_revision log). The ext.haiba_* landing tables are "
-        "created by the extract assets themselves, as for SOR."
+        "Create the HAIBA tables: arc.haiba_* (archive incl. the "
+        "arc.haiba_agg_revision log), map.HAIBA_* (key minting), the dm.HAIBA_* "
+        "facts with their *_Egenskaber transaction dimensions, and "
+        "meta.HAIBALeverance. The ext.haiba_* landing tables are created by "
+        "the extract assets themselves, as for SOR."
     ),
 )
 def staging_infra_haiba(

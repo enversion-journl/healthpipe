@@ -160,7 +160,10 @@ def post_missing_patients(
         resources=new_patients, resource_type="Patient"
     )
     if failed:
-        context.log.error(f"{failed} Patient(s) failed to upsert: {failed_ids[:5]}")
+        # failed_ids carries driver error text of unbounded provenance;
+        # the only data in these resources IS the person identifier,
+        # so only the count may reach the log.
+        context.log.error(f"{failed} Patient(s) failed to upsert")
     return posted, failed, skipped
 
 

@@ -96,6 +96,14 @@ class TestVareudleveringPipelineGraph:
             "arc_ils_lev",
         }
 
+    def test_stg_dim_reads_pre_stg_and_lookups(self):
+        assert _parents("erp/stg_dim_Vareudlevering_ils") == {
+            "erp/pre_stg_Vareudlevering_ils",
+            "arc_ils_projekt",
+            "arc_ils_lgrvare",
+            "arc_ils_varetype2",
+        }
+
 
 @pytest.mark.unit
 class TestKmdUnspscPipelineGraph:

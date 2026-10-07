@@ -28,7 +28,7 @@ from DSA.SQL.dm.haiba_kontakt import (
 pytestmark = pytest.mark.unit
 
 DDL_DIR = Path(__file__).resolve().parents[2] / "infrastructure" / "ddl"
-DM_DDL = DDL_DIR / "tables" / "haiba" / "01_dm.sql"
+DM_DDL = DDL_DIR / "tables" / "haiba" / "02_dm.sql"
 MIGRATION = DDL_DIR / "migrations" / "20260820_dm_haiba_kontakt_relation.sql"
 
 ROLLER = [(t, r) for t in KONTAKT_TABELLER for r in t.roller]
@@ -49,10 +49,37 @@ def _ddl_columns(table: str) -> set[str]:
 
 @pytest.mark.parametrize(("tabel", "rolle"), ROLLER, ids=ROLLE_IDS)
 def test_every_role_column_exists_in_the_base_ddl(tabel, rolle):
-    """A column named only in the UPDATE fails at runtime, not at import."""
-    declared = _ddl_columns(tabel.dm_table)
-    missing = sorted(set(rolle.columns) - declared)
-    assert not missing, f"missing from dm DDL: {missing}"
+    """A column named only in the UPDATE fails at runtime, not at import.
+    The relation keys live on the fact (direct join out to the contact);
+    the match quality lives on egenskaber."""
+    fact_declared = _ddl_columns(tabel.dm_table)
+    egen_declared = _ddl_columns(tabel.egenskaber_table)
+    missing = sorted(set(rolle.fact_columns) - fact_declared)
+    assert not missing, f"missing from fact DDL: {missing}"
+    missing = sorted(set(rolle.egenskaber_columns) - egen_declared)
+    assert not missing, f"missing from egenskaber DDL: {missing}"
+    # And never the other way around — a key on egenskaber or a quality on
+    # the fact would silently split the relation across the wrong tables.
+    assert not set(rolle.fact_columns) & egen_declared
+    assert not set(rolle.egenskaber_columns) & fact_declared
+
+
+@pytest.mark.parametrize(("tabel", "rolle"), ROLLER, ids=ROLLE_IDS)
+def test_update_splits_keys_to_fact_and_quality_to_egenskaber(tabel, rolle):
+    """The relation keys land on the fact and the quality on egenskaber —
+    two UPDATEs fed by the same #match, so they cannot diverge."""
+    sql = build_match_sql(tabel, rolle)
+    assert f"UPDATE f SET\n    f.[{rolle.encounter_column}] = m.[encounter_id]" in sql
+    if rolle.location_column:
+        assert f"f.[{rolle.location_column}] = m.[location_id]" in sql
+    assert "UPDATE eg SET" in sql
+    assert f"eg.[{rolle.kvalitet_column}]" in sql and f"eg.[{rolle.dage_column}]" in sql
+    assert f"FROM [dm].[{tabel.egenskaber_table}] AS eg" in sql
+    # The candidate search must read the raw SOR/date from egenskaber and the
+    # citizen key from the fact — never a CPR, which no longer exists in dm.
+    assert f"eg.[{rolle.sor_column}]" in sql
+    assert f"eg.[{rolle.date_column}]" in sql
+    assert "cprnr" not in sql
 
 
 @pytest.mark.parametrize(("tabel", "rolle"), ROLLER, ids=ROLLE_IDS)

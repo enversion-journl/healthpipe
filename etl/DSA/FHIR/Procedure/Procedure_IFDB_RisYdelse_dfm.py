@@ -68,16 +68,20 @@ from DSA.FHIR.utils.ifdb.patient_cpr_fallback import build_patient_cpr_fallback
 from DSA.FHIR.utils.ifdb.posting_config import (
     TAG_CHUNK_SIZE,
     TAG_MAX_WORKERS,
+    retire_ceiling_from_context,
 )
 from DSA.FHIR.utils.ifdb.ris_ydelse_xml import (
     extract_ris_services_from_xml,
 )
-from DSA.FHIR.utils.ifdb.ris_ydelse_xml import str_or_none as _str_or_none
+from DSA.FHIR.utils.ifdb.ris_ydelse_xml import (
+    str_or_none as _str_or_none,
+)
 from DSA.FHIR.utils.ifdb.transforms import is_true_flag as _is_true_flag
 from DSA.FHIR.utils.ifdb.transforms import (
     normalize_oracle_id,
     parse_clob_datetime_safe,
 )
+from DSA.FHIR.utils.ifdb.xml_child_reconcile import FAMILY_RIS_PROCEDURE, reconcile_ris_xml_children
 from DSA.FHIR.utils.reference_resolver import (
     NestedReferenceFieldConfig,
     ReferenceFieldConfig,
@@ -106,6 +110,7 @@ from utils.fhir.identifier_systems import (
     SYSTEM_SOR,
 )
 from utils.fhir.is_deleted_extension import build_is_deleted_extension
+from utils.fhir.resource_flags import FLAG_LPR3_IGNORED, build_flag_meta
 
 SYSTEM_RIS_CATEGORY = "http://example.org/fhir/CodeSystem/procedure-category"
 
@@ -297,13 +302,16 @@ def _transform_ris_ydelse_to_fhir(
         xml_raw = row_dict.get("XML")
         state = _str_or_none(row_dict.get("STATE"))
 
-        # Only include finalized/modified reports. Known non-final states
-        # (BOOKED, ORDERED, ...) are skipped silently even in strict mode —
-        # they are part of normal source traffic. Strict mode only fires on
-        # genuinely unknown STATE values so new source shapes surface loudly.
-        if state and state.upper() not in ALLOWED_RIS_STATES:
-            upper = state.upper()
-            if upper not in KNOWN_NON_FINAL_RIS_STATES and strict_source_validation:
+        # Only include finalized/modified reports. NULL/blank STATE is not in
+        # the kravspec IN-list and is skipped like known non-final states.
+        # Strict mode only fires on genuinely unknown STATE values.
+        if not state or state.upper() not in ALLOWED_RIS_STATES:
+            upper = state.upper() if state else "(blank)"
+            if (
+                upper != "(blank)"
+                and upper not in KNOWN_NON_FINAL_RIS_STATES
+                and strict_source_validation
+            ):
                 raise ValueError(f"RIS_YDELSE row {objekt_id} has unsupported STATE={state!r}")
             skipped_states[upper] = skipped_states.get(upper, 0) + 1
             continue
@@ -342,7 +350,7 @@ def _transform_ris_ydelse_to_fhir(
 
             procedure_code = CodeableConcept(
                 coding=code_codings,
-                text=str(primary_code),
+                text=primary_code_value,
             )
 
             category = CodeableConcept(
@@ -400,7 +408,11 @@ def _transform_ris_ydelse_to_fhir(
             extensions.extend(_build_ris_source_meta_extensions(row_dict, group))
             extensions.extend(_build_ris_location_meta_extensions(row_dict))
 
-            identifier_value = f"{objekt_id}:{group['element_nummer']}" if objekt_id else None
+            identifier_value = (
+                FAMILY_RIS_PROCEDURE.child_value(objekt_id, group["element_nummer"])
+                if objekt_id
+                else None
+            )
 
             performer_list = []
             udfoert_sorcode = _str_or_none(row_dict.get("UDFOERT_ADMENHED_SORCODE"))
@@ -420,7 +432,11 @@ def _transform_ris_ydelse_to_fhir(
                     )
                 )
 
+            # Driftsflag som meta.tag: kun dermed kan der soeges paa flaget via
+            # FHIR-serveren og filtreres paa det som kolonne i de flade tabeller.
+            flag_koder = [FLAG_LPR3_IGNORED] if _is_true_flag(row_dict.get("LPR3_IGNORED")) else []
             proc = Procedure(
+                meta=build_flag_meta(flag_koder),
                 identifier=(
                     [Identifier(system=SYSTEM_IFDB_RIS_YDELSE, value=identifier_value)]
                     if identifier_value
@@ -619,6 +635,10 @@ def fhir_server_procedure_ris_ydelse_dfm(
     # instead of posting silently wrong resources.
     strict_source_validation = config.mode != "full_load"
 
+    # Værn mod masse-pensionering i reconcile; hæves pr. kørsel via run-tags
+    # ved en varslet masseoprydning.
+    retire_ceiling = retire_ceiling_from_context(context)
+
     try:
         # include_deleted=True so deleted RIS-ydelser are tomb-stoned (isDeleted
         # extension updated) rather than left active.
@@ -669,6 +689,17 @@ def fhir_server_procedure_ris_ydelse_dfm(
                             reference_fallback_fn=patient_cpr_fallback,
                         )
                         total_posted += len(procedures)
+
+                    # Uden for procedures-guarden med vilje: en ydelse, der er
+                    # forsvundet fra XML'en, giver netop INGEN procedure, og det
+                    # er praecis den, der skal pensioneres.
+                    reconcile_ris_xml_children(
+                        fhir_database=fhir_database,
+                        rows=batch,
+                        procedures=procedures,
+                        logger=context.log,
+                        retire_ceiling=retire_ceiling,
+                    )
             finally:
                 cursor.close()
 

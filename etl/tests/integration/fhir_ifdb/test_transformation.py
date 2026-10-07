@@ -100,10 +100,8 @@ class TestPatientTransformation:
 
     def test_patient_general_practitioner_mapping(self, sample_patient_rows, mock_dagster_context):
         """Test that general practitioner is correctly mapped from doctor fields."""
-        from DSA.FHIR.utils.ifdb.transforms import (
-            SYSTEM_DANISH_GP_NUMBER,
-            transform_fhir_patient_ifdb,
-        )
+        from DSA.FHIR.utils.ifdb.transforms import transform_fhir_patient_ifdb
+        from utils.fhir.identifier_systems import SYSTEM_YDERNUMMER
 
         patients = transform_fhir_patient_ifdb(
             context=mock_dagster_context,
@@ -119,7 +117,7 @@ class TestPatientTransformation:
         gp_ref = patient.generalPractitioner[0]
         assert gp_ref.type == "Practitioner"
         assert gp_ref.identifier is not None
-        assert gp_ref.identifier.system == SYSTEM_DANISH_GP_NUMBER
+        assert gp_ref.identifier.system == SYSTEM_YDERNUMMER
         assert gp_ref.identifier.value == "123456"
         assert gp_ref.display == "Dr. Hans Petersen"
 

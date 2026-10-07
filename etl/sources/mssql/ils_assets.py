@@ -78,6 +78,18 @@ ils_varetype_source = dg.AssetSpec(
     description="The dbo.varetype table in ILS MSSQL database.",
 )
 
+ils_varetype2_source = dg.AssetSpec(
+    key="ils_varetype2_source",
+    group_name="ils_source",
+    description="The dbo.varetype2 table in ILS MSSQL database.",
+)
+
+ils_projekt_source = dg.AssetSpec(
+    key="ils_projekt_source",
+    group_name="ils_source",
+    description="The dbo.projekt table in ILS MSSQL database.",
+)
+
 ils_lev_source = dg.AssetSpec(
     key="ils_lev_source",
     group_name="ils_source",

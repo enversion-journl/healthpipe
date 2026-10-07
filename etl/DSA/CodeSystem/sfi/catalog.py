@@ -28,6 +28,7 @@ from DSA.FHIR.utils.ifdb.sfi_contract import (
     infer_sfi_datatype,
 )
 from DSA.FHIR.utils.ifdb.xml_aktivitetsresultat import AktivitetsresultatRow
+from utils.fhir.identifier_systems import SYSTEM_IFDB_SFI
 
 if TYPE_CHECKING:
     from DSA.FHIR.utils.ifdb.sfi_extraction import SfiDatapoint
@@ -295,6 +296,21 @@ def summarize_sfi_conflicts(properties: list[dict], *, sample_limit: int = 5) ->
     }
 
 
+def add_sfi_catalog_element(sink: dict[str, list[SfiElement]], elem: SfiElement) -> None:
+    """Læg et katalogelement i sinken — kun hvis det ikke allerede står der.
+
+    Sinken lever hele partitionen igennem og merges først efter sidste chunk.
+    Kataloget bygges mængdebaseret (versioner, datatyper, enheder, displays),
+    så forekomster ud over den første tilfører intet — men uden dedupe vokser
+    sinken med antallet af datapunkter, og på en historisk partition på
+    millioner af rækker koster det barneprocessen livet. Ægte varianter
+    (forskellig enhed, display, version) bevares, så konflikter stadig ses.
+    """
+    varianter = sink.setdefault(elem.code, [])
+    if elem not in varianter:
+        varianter.append(elem)
+
+
 def sfi_datapoint_to_element(dp: SfiDatapoint, model_name: str | None = None) -> SfiElement:
     """Convert a FHIR-pipeline SfiDatapoint to a catalog SfiElement."""
     parent_code = ""
@@ -384,7 +400,7 @@ def merge_sfi_catalog_from_datapoints(
 
 
 _SFI_CODESYSTEM_ID = "ifdb-sfi"
-_SFI_CODESYSTEM_URL = "urn:dk:ifdb:sfi"
+_SFI_CODESYSTEM_URL = SYSTEM_IFDB_SFI
 
 
 def build_fhir_codesystem_resource(

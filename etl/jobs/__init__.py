@@ -23,10 +23,10 @@ from jobs.codesystem_jobs import (
 )
 
 # DRG job (SDS DRG-grouped LPR -> ext -> arc)
-from jobs.drg_jobs import drg_ingest_job
+from jobs.drg_jobs import drg_ingest_job, drg_publish_job
 
 # HAIBA job (weekly SDS deliveries -> ext -> arc)
-from jobs.haiba_jobs import haiba_job
+from jobs.haiba_jobs import haiba_ingest_job, haiba_publish_job
 
 # FHIR IFDB jobs
 # Data quality jobs
@@ -80,11 +80,13 @@ from jobs.ifdb_dfm_jobs import (
 from jobs.ils_jobs import ils_archive_job
 
 # Infrastructure jobs
+from jobs.db_space_jobs import db_space_daily_job
 from jobs.infrastructure_jobs import (
     dfm_infrastructure_job,
     dso_infrastructure_job,
     full_infrastructure_job,
     linked_server_job,
+    migrate_dso_sync_watermarks_to_dfm_job,
     staging_infrastructure_job,
 )
 
@@ -123,7 +125,9 @@ all_jobs = [
     # FHIR CodeSystem Job (clinical SKS/SOR terminology -> DSO + FHIR)
     fhir_codesystem_job,
     drg_ingest_job,
-    haiba_job,
+    drg_publish_job,
+    haiba_ingest_job,
+    haiba_publish_job,
     # DWH Lager Jobs
     lager_dim_job,
     # ERP Daily DFM Job (lagerbeholdning + KMD archive + dim.UNSPSC)
@@ -152,7 +156,9 @@ all_jobs = [
     dso_infrastructure_job,
     full_infrastructure_job,
     dfm_infrastructure_job,
+    migrate_dso_sync_watermarks_to_dfm_job,
     linked_server_job,
+    db_space_daily_job,
     # Data Quality
     data_quality_job,
     # Security Daily Job
@@ -195,7 +201,9 @@ __all__ = [
     # FHIR CodeSystem job
     "fhir_codesystem_job",
     "drg_ingest_job",
-    "haiba_job",
+    "drg_publish_job",
+    "haiba_ingest_job",
+    "haiba_publish_job",
     # Lager jobs
     "lager_dim_job",
     # ERP Daily DFM job
@@ -218,7 +226,9 @@ __all__ = [
     "dso_infrastructure_job",
     "full_infrastructure_job",
     "dfm_infrastructure_job",
+    "migrate_dso_sync_watermarks_to_dfm_job",
     "linked_server_job",
+    "db_space_daily_job",
     # Data Quality jobs
     "data_quality_job",
     # IFDB DFM jobs

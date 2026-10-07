@@ -78,6 +78,9 @@ DIAGNOSE_REFERENCE_CONFIGS = [
 
 BATCH_SIZE = 10_000
 
+_CONDITION_CLINICAL_STATUS_SYSTEM = "http://terminology.hl7.org/CodeSystem/condition-clinical"
+_CONDITION_VERIFICATION_STATUS_SYSTEM = "http://terminology.hl7.org/CodeSystem/condition-ver-status"
+
 
 def _fetch_diagnose_tillaegskoder(
     diagnose_ids: list[str],
@@ -135,7 +138,7 @@ def _transform_diagnose_to_fhir(
             CodeableConcept(
                 coding=[
                     Coding(
-                        system="http://terminology.hl7.org/CodeSystem/condition-clinical",
+                        system=_CONDITION_CLINICAL_STATUS_SYSTEM,
                         code=clinical_status_code,
                     )
                 ]
@@ -152,7 +155,7 @@ def _transform_diagnose_to_fhir(
         verification_status = CodeableConcept(
             coding=[
                 Coding(
-                    system="http://terminology.hl7.org/CodeSystem/condition-ver-status",
+                    system=_CONDITION_VERIFICATION_STATUS_SYSTEM,
                     code="entered-in-error" if is_deleted else "confirmed",
                 )
             ]

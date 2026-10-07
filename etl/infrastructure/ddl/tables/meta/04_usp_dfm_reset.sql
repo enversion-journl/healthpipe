@@ -29,6 +29,7 @@ BEGIN
         WHEN 'stg'         THEN 'staging'
         WHEN 'dim'         THEN 'dimension'
         WHEN 'fct'         THEN 'fact'
+        WHEN 'dm'          THEN 'datamart'
         WHEN 'map'         THEN 'mapping'
         WHEN 'bridge'      THEN 'bridge'
         WHEN 'fhir_stg'    THEN 'fhir_staging'
@@ -37,6 +38,7 @@ BEGIN
         WHEN 'codesystem'  THEN 'codesystem'
         WHEN 'conceptmap'  THEN 'conceptmap'
         WHEN 'ref'         THEN 'reference'
+        WHEN 'sec'         THEN 'security'
         ELSE @schema_name
     END;
 

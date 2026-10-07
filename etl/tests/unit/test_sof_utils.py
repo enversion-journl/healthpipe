@@ -1217,26 +1217,26 @@ class TestChildGrainReconcileTransaction:
         assert not any("dw_is_deleted" in sql for sql in mssql_cursor.executed)
         assert mssql_conn.rollbacks == 1
 
-    def test_delta_zero_rows_with_parent_ids_refuses_mark_deleted(self):
+    def test_delta_zero_rows_with_parent_ids_marks_only_changed_parents_deleted(self):
         pg_cursor = _PatientAddressPgCursor(parent_ids=["p-1", "p-2"], chunks=[])
         mssql_cursor = self._zero_row_mssql()
         mssql_conn = _RecordingMssqlConn(mssql_cursor)
 
-        with pytest.raises(dg.Failure, match="extract returned 0 rows"):
-            extract_and_merge_sof_view(
-                fhir_database=_FakePgResource(pg_cursor),
-                mssql_target=_RecordingMssqlResource(mssql_conn),
-                view_name="patient_address_view",
-                resource_table="patient",
-                id_column="patient_id",
-                table_name="Patient_Address",
-                primary_keys=["patient_id", "address_period_start"],
-                partition_start="2026-01-01",
-                normalized_datetime_columns=["address_period_start"],
-            )
+        extract_and_merge_sof_view(
+            fhir_database=_FakePgResource(pg_cursor),
+            mssql_target=_RecordingMssqlResource(mssql_conn),
+            view_name="patient_address_view",
+            resource_table="patient",
+            id_column="patient_id",
+            table_name="Patient_Address",
+            primary_keys=["patient_id", "address_period_start"],
+            partition_start="2026-01-01",
+            normalized_datetime_columns=["address_period_start"],
+        )
 
-        assert not any("dw_is_deleted" in sql for sql in mssql_cursor.executed)
-        assert mssql_conn.rollbacks == 1
+        assert any("#ReconcileParents" in sql for sql in mssql_cursor.executed)
+        assert any("dw_is_deleted" in sql for sql in mssql_cursor.executed)
+        assert mssql_conn.commits >= 1
 
 
 @pytest.mark.unit

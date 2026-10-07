@@ -74,6 +74,30 @@ DQA_AFTER_ETL_SENSOR_SPECS: list[dict] = [
         "default_status": dg.DefaultSensorStatus.STOPPED,
     },
     {
+        "name": "dqa_drg_after_publish",
+        # drg_publish_job rebuilds the DRG DSA layer AND runs the DRG DSO sync.
+        # The DRG DQA subjects (dwh_drgkontakt + the two group bridges) live in
+        # the DWH track, so this just triggers the shared DWH DQA jobs after the
+        # DRG publish settles. STOPPED until the sentinel caps are validated
+        # against a real run (and the first psyk delivery); see dwh_subjects.
+        "monitored": ["drg_publish_job"],
+        "daily_job": "dqa_dwh_daily_job",
+        "weekly_jobs": ["dqa_dwh_weekly_job"],
+        "default_status": dg.DefaultSensorStatus.STOPPED,
+    },
+    {
+        "name": "dqa_haiba_after_publish",
+        # dm.HAIBA_* only changes when the publish job ran (delivery-driven,
+        # sensor-requested), so every HAIBA check runs at DAILY cadence and
+        # this fires per publish — a weekly tier would just re-check unchanged
+        # tables. No weekly_jobs: publishes are not guaranteed to land on a
+        # Saturday, so the DSO<->DSA reconciliation (dqa_dso_haiba_job) runs
+        # on its own Saturday cron instead (see schedules.py).
+        "monitored": ["haiba_publish_job"],
+        "daily_job": "dqa_dwh_haiba_daily_job",
+        "weekly_jobs": [],
+    },
+    {
         "name": "dqa_arc_ifdb_after_archive",
         # The arc.* IFDB tables are settled exactly when the DFM base job succeeds.
         # Triggering here (Saturday only) instead of a cron removes the race where

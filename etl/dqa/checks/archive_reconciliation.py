@@ -91,7 +91,7 @@ from __future__ import annotations
 import time
 import uuid
 
-from dqa.checks.helpers import get_conn, split_table
+from dqa.checks.helpers import COLLATE_DB_DEFAULT, get_conn, split_table
 from dqa.model import CheckOutcome
 from dqa.registry import register_check
 from DSA.FHIR.utils.ifdb.transforms import normalize_oracle_id
@@ -102,6 +102,18 @@ _BATCH = 10_000
 _BULK_TIMEOUT = 600  # seconds per bulkcopy call
 
 _DIALECTS = ("oracle", "mssql")
+
+
+def _stage_ddl(stage: str, kcols: list[str]) -> str:
+    """``CREATE TABLE`` for ``##dqa_recon``. Collation is pinned at DDL.
+
+    DATABASE_DEFAULT is correct because this runs on ``mssql_target_staging``
+    (same DB as ``arc.*`` and ``dqa.RemediationQueue``). Pinning the key
+    columns -- not the join / MERGE predicate -- keeps ``IX_dqa_recon``
+    sargable. ``within_bound`` is INT; COLLATE is illegal on non-character types.
+    """
+    keys = ", ".join(f"[{kc}] NVARCHAR(255){COLLATE_DB_DEFAULT} NULL" for kc in kcols)
+    return f"CREATE TABLE {stage} ({keys}, [within_bound] INT NULL)"
 
 
 def _read_flow_start(cur, schema_name: str, table_name: str) -> str | None:
@@ -220,10 +232,7 @@ def archive_reconciliation(context, subject, spec, resources) -> CheckOutcome:
         osql += f" GROUP BY {', '.join(key_cols)}"
 
         cols = kcols + ["within_bound"]
-        cur.execute(
-            f"CREATE TABLE {stage} ("
-            f"{', '.join(f'[{kc}] NVARCHAR(255) NULL' for kc in kcols)}, [within_bound] INT NULL)"
-        )
+        cur.execute(_stage_ddl(stage, kcols))
         # Release the schema lock before bulkcopy()'s own connection reads the
         # staging metadata, else that connection blocks indefinitely.
         conn.commit()

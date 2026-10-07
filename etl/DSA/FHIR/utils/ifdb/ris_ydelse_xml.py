@@ -34,6 +34,18 @@ def _xml_local_name(tag: Any) -> str:
     return tag
 
 
+def ris_xml_is_malformed(xml_raw: Any) -> bool:
+    """True when XML is present but not well-formed. Empty XML is not malformed."""
+    xml_str = str_or_none(xml_raw)
+    if not xml_str:
+        return False
+    try:
+        ET.fromstring(xml_str)
+    except ET.ParseError:
+        return True
+    return False
+
+
 def extract_ris_services_from_xml(
     xml_raw: Any,
     *,
@@ -84,7 +96,7 @@ def extract_ris_services_from_xml(
         tillaegskoder: list[str] = []
         for child in list(node):
             name = _xml_local_name(child.tag).lower()
-            value = str_or_none(child.text)
+            value = _clean_xml_value(child.text)
             if not value:
                 continue
             if name == "kode" and not primary_code:
@@ -112,7 +124,7 @@ def extract_ris_services_from_xml(
     top_tillaeg: list[str] = []
     for node in root.iter():
         name = _xml_local_name(node.tag).lower()
-        value = str_or_none(node.text)
+        value = _clean_xml_value(node.text)
         if not value:
             continue
         parent = parent_map.get(node)

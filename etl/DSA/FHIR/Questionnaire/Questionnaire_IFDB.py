@@ -52,9 +52,10 @@ from DSA.FHIR.utils.ifdb.xml_aktivitetsresultat import (
     AktivitetsresultatRow,
     parse_aktivitetsresultat_xml,
 )
+from utils.fhir.identifier_systems import SYSTEM_IFDB_QUESTIONNAIRE_MODEL
 
 QUESTIONNAIRE_CANONICAL_PREFIX = "urn:dk:ifdb:questionnaire"
-QUESTIONNAIRE_IDENTIFIER_SYSTEM = "urn:source:ifdb:questionnaire_model"
+QUESTIONNAIRE_IDENTIFIER_SYSTEM = SYSTEM_IFDB_QUESTIONNAIRE_MODEL
 
 
 _SAFE_TOKEN_RE = re.compile(r"[^A-Za-z0-9._-]+")

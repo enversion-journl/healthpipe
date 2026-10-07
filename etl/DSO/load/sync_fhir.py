@@ -199,6 +199,14 @@ _DFM_DSO_SYNC_SPECS: list[tuple[str, str, str]] = [
         "ServiceRequest_tillaegskode",
     ),
     ("fhir_appointment", "appointment", "Appointment"),
+    # Both producers (epikrise, udskrivningsrapport) are on the DFM path, so the
+    # SOF assets have no partitioned counterpart to race with.
+    ("fhir_documentreference", "documentreference", "DocumentReference"),
+    (
+        "fhir_documentreference_recipient",
+        "documentreference_recipient",
+        "DocumentReference_Recipient",
+    ),
 ]
 
 

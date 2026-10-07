@@ -63,6 +63,9 @@ class Cadence(Enum):
 
 class Track(Enum):
     FHIR = "fhir"
+    # The DWH datamart, incl. HAIBA's delivery-level arc.haiba_* checks: those
+    # live on DWH (not ARCHIVE) because they belong to the HAIBA datamart's own
+    # quality surface, not to an Oracle-reconciled IFDB archive.
     DWH = "dwh"
     ARCHIVE = "arc"  # IFDB archive tables (arc.*) reconciled against the Oracle source
 

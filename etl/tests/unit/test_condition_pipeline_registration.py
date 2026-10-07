@@ -20,6 +20,8 @@ Pure asset-graph + config validation (no live Aidbox/MSSQL). Mirrors
 ``test_documentreference_pipeline_registration.py``.
 """
 
+import json
+
 import pytest
 from dagster import AssetKey
 from definitions import defs
@@ -28,6 +30,7 @@ from DSA.FHIR.Condition.Condition_IFDB_PasDiagnose_dfm import (
     fhir_server_condition_pas_diagnose_dfm,
 )
 from DSA.FHIR.SqlOnFhir.Condition_dfm import sof_condition_dfm
+from DSA.FHIR.utils.sql_on_fhir.sof_utils import VIEW_DEFINITIONS_DIR
 
 
 @pytest.mark.unit
@@ -68,6 +71,24 @@ class TestConditionPipelineRegistration:
             AssetKey.from_user_string("fhir_server_service_request_dfm"),
             AssetKey.from_user_string("fhir_server_aktivitetsresultat_dfm"),
         }
+
+    def test_condition_view_includes_required_columns_for_fhir_condition_table(self):
+        path = VIEW_DEFINITIONS_DIR / "condition_view.json"
+        with open(path) as f:
+            view_def = json.load(f)
+
+        columns = [c["name"] for block in view_def["select"] for c in block.get("column", [])]
+        expected = {
+            "condition_id",
+            "patient_id",
+            "encounter_id",
+            "episode_of_care_id",
+            "source_identifier_value",
+            "lpr3_ignored",
+            "dw_is_deleted",
+        }
+        missing = expected - set(columns)
+        assert not missing, f"condition_view is missing required columns: {missing}"
 
     def test_legacy_condition_assets_are_gone(self):
         graph = defs.resolve_asset_graph()

@@ -596,15 +596,6 @@ class TestSfiObservationBuilder:
             }
         ]
 
-    def test_routing_decision_upsert_is_idempotent_merge(self) -> None:
-        from DSA.FHIR.utils.ifdb.routing_audit import _ROUTING_DECISION_MERGE_SQL
-
-        sql = _ROUTING_DECISION_MERGE_SQL
-        assert "MERGE [meta].[IFDBAktivitetsresultatRoutingDecision] AS tgt" in sql
-        assert "ON tgt.[ifdb_aktivitet_id] = src.[ifdb_aktivitet_id]" in sql
-        assert "WHEN MATCHED THEN" in sql
-        assert "WHEN NOT MATCHED BY TARGET THEN" in sql
-
     def test_routing_summary_collapses_fallback_logs(self, sfi_module, caplog) -> None:
         decisions = [
             {

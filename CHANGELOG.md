@@ -7,6 +7,41 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-10-07
+
+### Added
+
+- New source system: SDS DRG (somatic and psychiatric DRG deliveries).
+- New source system: HAIBA.
+- DRG contact fact `fct.DRGKontakt` from SDS DRG, with `dim.DRGKontaktEgenskaber` and
+  `dim.DRGKontaktKlassifikation`.
+- DRG diagnoses `dim.DRGDiagnose` from SDS DRG, with the group bridge
+  `bridge.DRGDiagnoseGruppe`.
+- DRG procedures `dim.DRGProcedure` from SDS DRG, with the group bridge
+  `bridge.DRGProcedureGruppe`.
+- HAIBA infection aggregates `dm.HAIBA_AggInfektion` and orthopaedic infection
+  aggregates `dm.HAIBA_AggOrtopaedi`, each with its `Egenskaber` table.
+- HAIBA infection cases `dm.HAIBA_CasesInfektion` and surgical site infection cases
+  `dm.HAIBA_CasesSSI`, each with its `Egenskaber` table.
+- FHIR DocumentReference resource from IFDB (discharge summaries and discharge
+  reports), with `fhir.DocumentReference_Recipient`. The DSO sync now loads both tables.
+- Data quality checks for the HAIBA tables, with new freshness and row-parity checks.
+- Daily disk-space monitoring for the DSA and DSO databases.
+
+### Changed
+
+- **Breaking:** `dim.Organisation` renames the column `parent_kode` to `kode_parent`.
+  The new column `fhir_Organization_id` holds the FHIR Organization id.
+- `dim.Vareudlevering` gets more data from ILS: project name, storage location,
+  dispatch number and stock item type.
+- `fhir.Condition` also loads diagnoses from IFDB activity results. New columns:
+  `episode_of_care_id` and `lpr3_ignored`.
+- `fhir.Procedure` and `fhir.Procedure_tillaegskode` also load procedures and
+  supplementary codes from IFDB activity results. `fhir.Procedure` gets sub-operations,
+  knife-time columns and `lpr3_ignored`.
+- `fhir.Observation` contains only curated SFI measurements. Decimal values are in
+  `value_quantity`.
+
 ## [1.0.1] - 2026-10-05
 
 ### Added
@@ -37,6 +72,7 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - First public release.
 
-[Unreleased]: https://github.com/enversion-journl/healthpipe/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/enversion-journl/healthpipe/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/enversion-journl/healthpipe/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/enversion-journl/healthpipe/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/enversion-journl/healthpipe/releases/tag/v1.0.0

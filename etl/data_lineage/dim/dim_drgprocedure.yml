@@ -1,0 +1,30 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: dimension
+  TableName: dim.DRGProcedure
+  Domain: [DRG]
+  Description: >
+    Kode-dimension for procedurer: ét medlem pr. (procedure_kode,
+    sideangivelse, handlingsspec, kontrast, tillaegskoder), uafhængigt af
+    kontakt. Ingen tidspunkter og ingen producerende enhed (de er
+    per-registrering og lever på bridgen). Append-only; koden kobles til
+    SKS-codesystemet (SDSSKS).
+  Grain: "Ét medlem pr. distinkt (procedure_kode, sideangivelse, handlingsspec, kontrast, tillaegskoder)."
+  SCD: type1
+
+  SourceSystems:
+    - sds_drg: [DRG.PROCEDURE, DRG.PROCEDURE_TILLAEG, DRGPSYK.Psyk_procedure, DRGPSYK.Psyk_procedure_tillaeg]
+
+  Columns:
+    dw_ek_DRGProcedure: { Type: PK, DataType: INT }
+    clean_code_DRGProcedure: { DataType: NVARCHAR(100), Expr: "DRGPROC_{sha256 over den længde-præfiksede kodekombination}" }
+    procedure_kode: { DataType: NVARCHAR(20), Source: [sds_drg.DRG.PROCEDURE.PROCEDURE, sds_drg.DRGPSYK.Psyk_procedure.PROCEDUREKODE] }
+    sideangivelse: { DataType: NVARCHAR(20), Source: [sds_drg.DRG.PROCEDURE.SIDEANGIVELSE, sds_drg.DRGPSYK.Psyk_procedure.SIDEANGIVELSE] }
+    handlingsspec: { DataType: NVARCHAR(100), Source: [sds_drg.DRG.PROCEDURE.HANDLINGSSPEC, sds_drg.DRGPSYK.Psyk_procedure.HANDLINGSSPEC] }
+    kontrast: { DataType: NVARCHAR(100), Source: [sds_drg.DRG.PROCEDURE.KONTRAST, sds_drg.DRGPSYK.Psyk_procedure.KONTRAST] }
+    tillaegskoder: { DataType: NVARCHAR(MAX), Source: [sds_drg.DRG.PROCEDURE_TILLAEG.TILLAEGSKODE_PROCEDURE, sds_drg.DRGPSYK.Psyk_procedure_tillaeg.TILLAEGSKODE_PROCEDURE], Description: "Sorteret, delimiteret sæt af tillægskoder pr. procedure." }

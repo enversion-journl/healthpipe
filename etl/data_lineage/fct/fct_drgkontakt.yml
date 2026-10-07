@@ -1,0 +1,74 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fact
+  TableName: fct.DRGKontakt
+  Domain: [DRG]
+  Description: >
+    DRG-grupperet LPR-aktivitet med beregnede takster fra SDS — én samlet
+    fact for somatik (DRG) og psykiatri (DRGPSYK). Forløbsmålene ligger på
+    den bærende kontakt (somatik: tungeste; psyk: forløbets første kontakt),
+    så et forløb tælles præcis én gang.
+  Grain: >
+    Én række pr. (leverancetype, takstsystem, kontakt) — samme kontakt
+    vurderes under flere takstsystemer og er én række pr. vurdering.
+
+  SourceSystems:
+    - sds_drg: [DRG.DRGKONTAKT, DRG.DRGSGHFORLOB, DRGPSYK.Psyk_kontakt, DRGPSYK.Psyk_forloeb]
+
+  Columns:
+    dw_ek_DRGKontakt: { Type: PK, DataType: INT, FK-Target: dim.DRGKontaktEgenskaber }
+    clean_code_DRGKontakt: { DataType: NVARCHAR(255), Expr: "DRGKONTAKT_{leverancetype}_{takstsystem}_{KONTAKT_VAERDI}" }
+    leverancetype: { DataType: NVARCHAR(10), Expr: "'DRG' | 'DRGPSYK' — degenereret skivenøgle (grain + kontroltotal)" }
+    takstsystem: { DataType: NVARCHAR(3), Source: [sds_drg.DRG.DRGKONTAKT.takstsystem], Description: "Degenereret skivenøgle — udledt af leverancens filnavn." }
+    aktivitetsaar: { DataType: SMALLINT, Source: [sds_drg.DRG.DRGKONTAKT.AKTIVITETSAAR], Description: "Kategorisk årsskive (leverancens arkiv-enhed), ikke en kalenderhændelse — derfor SMALLINT og ikke en dw_ek_Dato-rolle." }
+
+    dw_ek_Borger: { Type: FK, DataType: INT, FK-Target: dim.Borger, Source: [sds_drg.DRG.DRGKONTAKT.CPR, sds_drg.DRGPSYK.Psyk_kontakt.CPRnummer], Description: "CPR opløst i staging (tidligere_cpr-fallback); -1 ukendt, -2 strukturelt tom." }
+    dw_ek_DRGKontaktKlassifikation: { Type: FK, DataType: INT, FK-Target: dim.DRGKontaktKlassifikation, Description: "Den primære analysedimension — hashet clean_code over den fulde attributkombination, materialiseret i staging." }
+    dw_ek_DRGDiagnoseGruppe: { Type: FK, DataType: INT, FK-Target: bridge.DRGDiagnoseGruppe, Description: "Gruppenøgle for kontaktens distinkte diagnosesæt; foldes ud til koder via bridge.DRGDiagnoseGruppe. -1 = tomt sæt (ingen diagnoser)." }
+    dw_ek_DRGProcedureGruppe: { Type: FK, DataType: INT, FK-Target: bridge.DRGProcedureGruppe, Description: "Gruppenøgle for kontaktens distinkte sæt af (procedure, producerende enhed); foldes ud via bridge.DRGProcedureGruppe. -1 = tomt sæt." }
+    dw_ek_Organisation_sygehus: { Type: FK, DataType: INT, FK-Target: dim.Organisation, Source: [sds_drg.DRG.DRGKONTAKT.SYGEHUS, sds_drg.DRGPSYK.Psyk_kontakt.SYGEHUS] }
+    dw_ek_Organisation_kontaktansvar: { Type: FK, DataType: INT, FK-Target: dim.Organisation, Source: [sds_drg.DRG.DRGKONTAKT.DRG_KONTAKT_ENHED, sds_drg.DRGPSYK.Psyk_kontakt.KONTAKT_ENHED] }
+    dw_ek_Organisation_forloebselement: { Type: FK, DataType: INT, FK-Target: dim.Organisation, Source: [sds_drg.DRG.DRGKONTAKT.DRG_FORLOBSELEMENT_ENHED] }
+    dw_ek_Organisation_henvisende: { Type: FK, DataType: INT, FK-Target: dim.Organisation, Source: [sds_drg.DRG.DRGKONTAKT.HENVISENDEINSTANS] }
+    dw_ek_Dato_ind: { Type: FK, DataType: INT, FK-Target: dim.Dato, Source: [sds_drg.DRG.DRGKONTAKT.INDTIDSPUNKT_DRGKONTAKT, sds_drg.DRGPSYK.Psyk_kontakt.INDTIDSPUNKT_KONTAKT] }
+    dato_tid_ind: { DataType: DATETIME2, Source: [sds_drg.DRG.DRGKONTAKT.INDTIDSPUNKT_DRGKONTAKT, sds_drg.DRGPSYK.Psyk_kontakt.INDTIDSPUNKT_KONTAKT] }
+    dw_ek_Dato_ud: { Type: FK, DataType: INT, FK-Target: dim.Dato, Source: [sds_drg.DRG.DRGKONTAKT.UDTIDSPUNKT_DRGKONTAKT, sds_drg.DRGPSYK.Psyk_kontakt.UDTIDSPUNKT_KONTAKT] }
+    dato_tid_ud: { DataType: DATETIME2, Source: [sds_drg.DRG.DRGKONTAKT.UDTIDSPUNKT_DRGKONTAKT, sds_drg.DRGPSYK.Psyk_kontakt.UDTIDSPUNKT_KONTAKT] }
+    dw_ek_Dato_henvisning: { Type: FK, DataType: INT, FK-Target: dim.Dato, Source: [sds_drg.DRG.DRGKONTAKT.HENVISNINGSTIDSPUNKT] }
+
+    pris_drg: { Type: Measure, DataType: DECIMAL(19,4), Source: [sds_drg.DRG.DRGKONTAKT.PRIS_DRG] }
+    langliggerpris: { Type: Measure, DataType: DECIMAL(19,4), Source: [sds_drg.DRG.DRGKONTAKT.LANGLIGGERPRIS] }
+    totalpris_drg: { Type: Measure, DataType: DECIMAL(19,4), Source: [sds_drg.DRG.DRGKONTAKT.TOTALPRIS_DRG] }
+    langliggerdage: { Type: Measure, DataType: INT, Source: [sds_drg.DRG.DRGKONTAKT.LANGLIGGERDAGE] }
+    liggedage: { Type: Measure, DataType: INT, Source: [sds_drg.DRG.DRGKONTAKT.LIGGEDAGE] }
+    kontaktdage: { Type: Measure, DataType: INT, Source: [sds_drg.DRG.DRGKONTAKT.KONTAKTDAGE] }
+    varighed_time: { Type: Measure, DataType: DECIMAL(19,4), Source: [sds_drg.DRG.DRGKONTAKT.VARIGHED_TIME] }
+
+    forloeb_totalpris: { Type: Measure, DataType: DECIMAL(19,4), Source: [sds_drg.DRG.DRGSGHFORLOB.TOTALPRIS_DRGSGHF], Description: "Kun på den bærende kontakt (tungeste)." }
+    forloeb_pris_drg: { Type: Measure, DataType: DECIMAL(19,4), Source: [sds_drg.DRG.DRGSGHFORLOB.PRIS_DRG_DRGSGHF] }
+    forloeb_langliggerpris: { Type: Measure, DataType: DECIMAL(19,4), Source: [sds_drg.DRG.DRGSGHFORLOB.LANGLIGGERPRIS_DRGSGHF] }
+    forloeb_loensumafgift_pris: { Type: Measure, DataType: DECIMAL(19,4), Source: [sds_drg.DRG.DRGSGHFORLOB.LONSUMAFGIFT_PRIS_DRGSGHF] }
+    forloeb_loensumafgift_langliggerpris: { Type: Measure, DataType: DECIMAL(19,4), Source: [sds_drg.DRG.DRGSGHFORLOB.LONSUMAFGIFT_LANGLIGGERPRIS] }
+    forloeb_antal_kontakter: { Type: Measure, DataType: INT, Source: [sds_drg.DRG.DRGSGHFORLOB.ANTAL_I_FORLOB] }
+    forloeb_mrk_naerhed_1: { DataType: NVARCHAR(6), Source: [sds_drg.DRG.DRGSGHFORLOB.MRK_NAERHED_1] }
+    forloeb_mrk_naerhed_2: { DataType: NVARCHAR(6), Source: [sds_drg.DRG.DRGSGHFORLOB.MRK_NAERHED_2] }
+    forloeb_mrk_naerhed_4: { DataType: NVARCHAR(6), Source: [sds_drg.DRG.DRGSGHFORLOB.MRK_NAERHED_4] }
+    forloeb_mrk_kirurgi: { DataType: NVARCHAR(6), Source: [sds_drg.DRG.DRGSGHFORLOB.MRK_Kirurgi] }
+    forloeb_pris_psykiatriforloeb: { Type: Measure, DataType: DECIMAL(19,4), Source: [sds_drg.DRGPSYK.Psyk_forloeb.PRIS_PsykiatriForloeb], Description: "Kun på den bærende kontakt (forløbets første)." }
+    forloeb_dtd_justeret_takst: { Type: Measure, DataType: DECIMAL(19,4), Source: [sds_drg.DRGPSYK.Psyk_forloeb.DtdJusteretTakst] }
+    forloeb_loensumafgift_pris_psyk: { Type: Measure, DataType: DECIMAL(19,4), Source: [sds_drg.DRGPSYK.Psyk_forloeb.LONSUMAFGIFT_PRIS_Forloeb] }
+    forloeb_liggedage: { Type: Measure, DataType: DECIMAL(19,4), Source: [sds_drg.DRGPSYK.Psyk_forloeb.LIGGEDAGE_Forloeb] }
+    forloeb_antal_kontakter_psyk: { Type: Measure, DataType: INT, Source: [sds_drg.DRGPSYK.Psyk_forloeb.ANTAL_I_FORLOEB] }
+
+    tungeste_drgkontakt: { DataType: NVARCHAR(6), Source: [sds_drg.DRG.DRGKONTAKT.TUNGESTE_DRGKONTAKT], Description: "Degenereret bærer-flag." }
+    udfaldsgivende_kontakt: { DataType: NVARCHAR(6), Source: [sds_drg.DRG.DRGKONTAKT.UDFALDSGIVENDE_KONTAKT], Description: "Degenereret flag — afviger fra tungeste på ~10 % af kontakterne." }
+    dw_haendelsestidspunkt: { DataType: DATETIME2, Source: [sds_drg.DRG.DRGKONTAKT.INDTIDSPUNKT_DRGKONTAKT, sds_drg.DRGPSYK.Psyk_kontakt.INDTIDSPUNKT_KONTAKT] }
+    dw_is_deleted: { DataType: BIT, Expr: "Arkivets soft-delete båret igennem — en tilbagetrukket kontakt retireres, aldrig slettes" }
+  Notes:
+    - "Transaktionsdimension: dw_ek_DRGKontakt er en delt nøgle med dim.DRGKontaktEgenskaber (begge sourced fra map.DRGKontakt via clean_code_DRGKontakt)."
+    - "Kontroltotal i fact-asset'et: levende rækker og SUM(totalpris_drg) == arkivet pr. (leverancetype, takstsystem, aktivitetsaar) — afvigelse fejler kørslen."

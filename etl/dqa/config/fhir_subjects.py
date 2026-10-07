@@ -98,6 +98,75 @@ def _reconcile_vs_archive(
     )
 
 
+def _sks_procedure_prefix_sql(column: str = "AKTIVITETTYPE_KODE") -> str:
+    """SQL-praedikat for "denne kilderaekke bliver en Procedure".
+
+    Genereres af de repo-styrede koderegler (samme fil som pipelinens
+    klassifikation laeser), saa daekningens afgraensning foelger reglerne
+    automatisk, naar de aendres."""
+    from DSA.FHIR.utils.code_normalization import load_ifdb_procedure_code_rules
+
+    rules = load_ifdb_procedure_code_rules()
+
+    def _lit(value: str) -> str:
+        if "'" in value or ";" in value:
+            raise ValueError(f"Koderegel-vaerdi uegnet som SQL-literal: {value!r}")
+        return value
+
+    parts = [f"[{column}] LIKE '{_lit(pfx)}%'" for pfx in rules.get("prefixes", [])]
+    parts += [f"[{column}] = '{_lit(code)}'" for code in rules.get("exact", [])]
+    positive = " OR ".join(parts) if parts else "1 = 0"
+    negative = ""
+    if rules.get("exclude_prefixes"):
+        negative = (
+            " AND NOT ("
+            + " OR ".join(f"[{column}] LIKE '{_lit(pfx)}%'" for pfx in rules["exclude_prefixes"])
+            + ")"
+        )
+    return f"({positive}){negative}"
+
+
+def _procedure_slice_coverage(
+    *,
+    slice_name: str,
+    source_table: str,
+    source_key: str,
+    source_scope: str,
+    system: str,
+) -> CheckSpecification:
+    """Daekning for en af proceduretabellens tre kildeskiver: hver levende
+    kilderaekke i arkivet skal findes som raekke i den flade tabel.
+
+    ENVEJS med vilje: arkivtabellerne paa delte miljoeer holder et vindue, ikke
+    fuld historik, saa "ekstra i maal" ville stoeje. Noeglen er source_key +
+    source_system (samme raekkefoelge i view og tabel), og boern (deloperationer
+    og RIS-underydelser) rammes aldrig: deres noegle er sammensat og matcher
+    ikke kildens."""
+    return CheckSpecification(
+        "custom_sql",
+        Severity.WARN,
+        Cadence.WEEKLY,
+        {
+            "sql": (
+                f"SELECT COUNT(*) FROM {source_table} a "
+                f"WHERE {source_scope} "
+                f"AND NOT EXISTS (SELECT 1 FROM [fhir].[Procedure] p "
+                f"WHERE p.[source_identifier_value] = CAST(a.[{source_key}] AS NVARCHAR(255)) "
+                f"AND p.[source_system] = '{system}')"
+            ),
+            "checked_sql": f"SELECT COUNT(*) FROM {source_table} a WHERE {source_scope}",
+            "examples_sql": (
+                f"SELECT TOP 20 CAST(a.[{source_key}] AS NVARCHAR(255)) FROM {source_table} a "
+                f"WHERE {source_scope} "
+                f"AND NOT EXISTS (SELECT 1 FROM [fhir].[Procedure] p "
+                f"WHERE p.[source_identifier_value] = CAST(a.[{source_key}] AS NVARCHAR(255)) "
+                f"AND p.[source_system] = '{system}')"
+            ),
+        },
+        name_suffix=f"daekning_{slice_name}",
+    )
+
+
 def _reconcile_vs_fhir_server(
     resource_table: str,
     *,
@@ -399,9 +468,128 @@ FHIR_SUBJECTS: list[DqaSubject] = [
                 {"grain": "procedure_id"},
                 name_suffix="resource_id",
             ),
+            # Byggelaget garanterer, at varigheden aldrig er negativ (et
+            # negativt spaend udelades). Findes en, er det en pipelinefejl.
+            CheckSpecification(
+                "custom_sql",
+                Severity.ERROR,
+                Cadence.DAILY,
+                {
+                    "sql": "SELECT COUNT(*) FROM [fhir].[Procedure] WHERE [knivtid_minutter] < 0",
+                    "checked_sql": "SELECT COUNT(*) FROM [fhir].[Procedure] WHERE [knivtid_minutter] IS NOT NULL",
+                },
+                name_suffix="knivtid_negativ",
+            ),
+            # Datakvalitetssignal fra kilden, ikke en pipelinefejl: maalt til
+            # 53 af ~300.000 med knivtid. Overvaages saa en stigning opdages.
+            CheckSpecification(
+                "custom_sql",
+                Severity.WARN,
+                Cadence.DAILY,
+                {
+                    "sql": (
+                        "SELECT COUNT(*) FROM [fhir].[Procedure] "
+                        "WHERE [knivtid_start] IS NOT NULL AND [knivtid_slut] IS NULL"
+                    ),
+                    "checked_sql": "SELECT COUNT(*) FROM [fhir].[Procedure] WHERE [knivtid_start] IS NOT NULL",
+                },
+                name_suffix="knivtid_start_uden_slut",
+            ),
         ],
         extra_weekly=[
             _reconcile_vs_fhir_server("procedure", deleted_column=None, severity=Severity.WARN),
+            # --- Raekkeafstemning pr. kilde (daekning: alt i arkivet skal ---
+            # --- findes i den flade tabel). Bevidst ENVEJS: arkivet paa   ---
+            # --- delte miljoeer er et vindue, ikke fuld historik, saa den ---
+            # --- modsatte retning ville drukne i falske "ekstra" raekker. ---
+            # WARN indtil genkoerslen har befolket de nye noeglekolonner;
+            # herefter boer de haeves til ERROR.
+            _procedure_slice_coverage(
+                slice_name="sfi",
+                source_table="arc.ifdb_aktivitetsresultat",
+                source_key="OBJEKT_ID",
+                # Afgraenses via SKS-kodereglerne -- samme repo-styrede kilde
+                # som selve klassifikationen, saa check og pipeline aldrig kan
+                # divergere. Revisionstabellen bruges bevidst IKKE: den er
+                # besluttet fjernet (25 GB, informationsfri default-rute).
+                source_scope=("[SLETTET] <> '1' AND (" + _sks_procedure_prefix_sql() + ")"),
+                system="urn:source:ifdb:aktivitetsresultat_procedure",
+            ),
+            _procedure_slice_coverage(
+                slice_name="adm",
+                source_table="arc.ifdb_administrative_procedure",
+                source_key="OBJECT_ID",
+                source_scope="[DELETED] <> '1'",
+                system="urn:source:ifdb:administrative_procedure",
+            ),
+            _procedure_slice_coverage(
+                slice_name="ris",
+                source_table="arc.ifdb_ris_ydelse",
+                source_key="OBJEKT_ID",
+                # Kun endelige svar bygges; oevrige STATE-vaerdier springes
+                # bevidst over af udtraekket.
+                source_scope=(
+                    "[SLETTET] <> '1' AND [STATE] IN ('FINAL_REPORT', 'MODIFIED_REPORT')"
+                ),
+                system="urn:source:ifdb:ris_ydelse",
+            ),
+            # Kanttilfaelde: hovedkode-kolonnen tom, men aktive tillaegskoder
+            # findes -- signaturen paa en raekke bygget foer valgt-markeringen.
+            # Maalt til 76 % af bestanden foer genkoerslen; skal vaere nul efter.
+            CheckSpecification(
+                "custom_sql",
+                Severity.WARN,
+                Cadence.WEEKLY,
+                {
+                    "sql": (
+                        "SELECT COUNT(*) FROM [fhir].[Procedure] p "
+                        "WHERE p.[code] IS NULL AND EXISTS ("
+                        "SELECT 1 FROM [fhir].[Procedure_tillaegskode] t "
+                        "WHERE t.[procedure_id] = p.[procedure_id] AND t.[dw_is_deleted] = 0)"
+                    ),
+                    "checked_sql": "SELECT COUNT(*) FROM [fhir].[Procedure]",
+                },
+                name_suffix="hovedkode_i_tillaegskoder",
+            ),
+            # Kanttilfaelde: kladde i kilden men gennemfoert i den flade tabel.
+            # Skal vaere nul efter genkoerslen (kladder faar status in-progress).
+            CheckSpecification(
+                "custom_sql",
+                Severity.WARN,
+                Cadence.WEEKLY,
+                {
+                    "sql": (
+                        "SELECT COUNT(*) FROM arc.ifdb_aktivitetsresultat a "
+                        "JOIN [fhir].[Procedure] p ON p.[source_identifier_value] = CAST(a.[OBJEKT_ID] AS NVARCHAR(255)) "
+                        "AND p.[source_system] = 'urn:source:ifdb:aktivitetsresultat_procedure' "
+                        "WHERE a.[KLADDE] = '1' AND p.[status] = 'completed'"
+                    ),
+                    "checked_sql": (
+                        "SELECT COUNT(*) FROM arc.ifdb_aktivitetsresultat WHERE [KLADDE] = '1'"
+                    ),
+                },
+                name_suffix="kladde_som_gennemfoert",
+            ),
+            # Slet-propagering: slettet i kilden, men stadig aktiv i den flade
+            # tabel. Proceduretabellen har ingen sletteflag-kolonne, saa status
+            # er markoeren.
+            CheckSpecification(
+                "custom_sql",
+                Severity.WARN,
+                Cadence.WEEKLY,
+                {
+                    "sql": (
+                        "SELECT COUNT(*) FROM arc.ifdb_aktivitetsresultat a "
+                        "JOIN [fhir].[Procedure] p ON p.[source_identifier_value] = CAST(a.[OBJEKT_ID] AS NVARCHAR(255)) "
+                        "AND p.[source_system] = 'urn:source:ifdb:aktivitetsresultat_procedure' "
+                        "WHERE a.[SLETTET] = '1' AND p.[status] <> 'entered-in-error'"
+                    ),
+                    "checked_sql": (
+                        "SELECT COUNT(*) FROM arc.ifdb_aktivitetsresultat WHERE [SLETTET] = '1'"
+                    ),
+                },
+                name_suffix="slet_propagering",
+            ),
         ],
     ),
     # DFM-backed (henvisning + RIS streams; RehabilitationPlan

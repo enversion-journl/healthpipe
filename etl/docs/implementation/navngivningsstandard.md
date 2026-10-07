@@ -122,10 +122,16 @@ DPA_Sikkerhedsdomæne    -- fx 'DPA_Patientrettigheder'
 ├── Query
 ├── dbo   -- skema til alle views
 ├── dim   -- skema til dimensionstabeller
+├── dm    -- skema til datamart-tabeller (dm-pattern: fakta + Egenskaber-transaktionsdimension)
 ├── fct   -- skema til facttabeller
 ├── ref
 ├── stg   -- skema til alle stagingtabeller
 ```
+
+Bemærk: `dm`-skemaet bærer dm-pattern (fx HAIBA) — slanke facts parret med
+`Egenskaber`-transaktionsdimensioner, der deler faktaets `dw_ek`. `Egenskaber`
+er i flertal (som de eksisterende `dim.*Egenskaber`), en vedtaget undtagelse
+fra "dimensioner i ental".
 
 Nye databaser må kun oprettes efter aftale med teamet Datamarter og rapporter i Dokumentation og ledelsesinformation.
 

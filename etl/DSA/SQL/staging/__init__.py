@@ -13,6 +13,7 @@ Owns all pre_stg, stg_dim, stg_fct, and organisation staging assets.
 
 from .pre_stg_AfdelingLagerbeholdning_ils import pre_stg_AfdelingLagerbeholdning_ils
 from .pre_stg_Budget_sydax import pre_stg_Budget_sydax
+from .pre_stg_DRGKontakt import pre_stg_DRGKontakt
 from .pre_stg_Fakturalinje_mysupply import pre_stg_Fakturalinje_mysupply
 from .pre_stg_Finanskladdelinje_sydax import pre_stg_Finanskladdelinje_sydax
 from .pre_stg_Lagerbeholdning_ils import pre_stg_Lagerbeholdning_ils
@@ -22,12 +23,17 @@ from .pre_stg_Leverandoervare_ILSVare_delta_entiteter import (
 from .pre_stg_Postering_sydax import pre_stg_Postering_sydax
 from .pre_stg_Vareaftaler_ils import pre_stg_Vareaftaler_ils
 from .pre_stg_Vareudlevering_ils import pre_stg_Vareudlevering_ils
+from .stg_bridge_DRGKontaktDiagnose import stg_bridge_DRGKontaktDiagnose
+from .stg_bridge_DRGKontaktProcedure import stg_bridge_DRGKontaktProcedure
 from .stg_bridge_Leverandoervare_ILSVare import stg_bridge_Leverandoervare_ILSVare
+from .stg_DRGDiagnoseGruppe import stg_DRGDiagnoseGruppe
+from .stg_DRGProcedureGruppe import stg_DRGProcedureGruppe
 from .stg_dim_AfdelingLagerbeholdningEgenskaber_ils import (
     stg_dim_AfdelingLagerbeholdningEgenskaber_ils,
 )
 from .stg_dim_Aftale_ils import stg_dim_Aftale_ils
 from .stg_dim_BudgetEgenskaber_sydax import stg_dim_BudgetEgenskaber_sydax
+from .stg_dim_DRGKontaktEgenskaber import stg_dim_DRGKontaktEgenskaber
 from .stg_dim_EAN import stg_dim_EAN
 from .stg_dim_Faktura_mysupply import stg_dim_Faktura_mysupply
 from .stg_dim_Fakturalinje_mysupply import stg_dim_Fakturalinje_mysupply
@@ -46,6 +52,7 @@ from .stg_dim_Vareudlevering_ils import stg_dim_Vareudlevering_ils
 from .stg_fct_AfdelingLagerbeholdning_ils import stg_fct_AfdelingLagerbeholdning_ils
 from .stg_fct_AftaleVarePris_ils import stg_fct_AftaleVarePris_ils
 from .stg_fct_Budget_sydax import stg_fct_Budget_sydax
+from .stg_fct_DRGKontakt import stg_fct_DRGKontakt
 from .stg_fct_Faktura_mysupply import stg_fct_Faktura_mysupply
 from .stg_fct_Fakturalinje_mysupply import stg_fct_Fakturalinje_mysupply
 from .stg_fct_Finanskladdelinje_sydax import stg_fct_Finanskladdelinje_sydax
@@ -65,6 +72,13 @@ staging_assets = [
     pre_stg_Vareaftaler_ils,
     pre_stg_Leverandoervare_ILSVare_delta_entiteter,
     pre_stg_Vareudlevering_ils,
+    pre_stg_DRGKontakt,
+    stg_fct_DRGKontakt,
+    stg_dim_DRGKontaktEgenskaber,
+    stg_bridge_DRGKontaktDiagnose,
+    stg_bridge_DRGKontaktProcedure,
+    stg_DRGDiagnoseGruppe,
+    stg_DRGProcedureGruppe,
     pre_stg_Lagerbeholdning_ils,
     pre_stg_AfdelingLagerbeholdning_ils,
     stg_bridge_Leverandoervare_ILSVare,
@@ -119,6 +133,10 @@ __all__ = [
     "pre_stg_AfdelingLagerbeholdning_ils",
     "pre_stg_Vareaftaler_ils",
     "stg_bridge_Leverandoervare_ILSVare",
+    "stg_bridge_DRGKontaktDiagnose",
+    "stg_bridge_DRGKontaktProcedure",
+    "stg_DRGDiagnoseGruppe",
+    "stg_DRGProcedureGruppe",
     "stg_dim_Aftale_ils",
     "stg_dim_EAN",
     "stg_dim_Faktura_mysupply",

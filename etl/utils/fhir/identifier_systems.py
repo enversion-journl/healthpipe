@@ -165,9 +165,6 @@ SYSTEM_SKS_D = "urn:oid:1.2.208.176.2.4.12"
 SYSTEM_PAKKETYPEMODEL = "http://sundhedsdatastyrelsen.dk/fhir/CodeSystem/pakketypemodel"
 SYSTEM_PAKKETYPE = "http://sundhedsdatastyrelsen.dk/fhir/CodeSystem/pakketype"
 
-# SOR entity type classification (EntityTypeName from SOR registry)
-SYSTEM_SOR_ENTITY_TYPE = "http://sundhedsdatastyrelsen.dk/fhir/CodeSystem/sor-entity-type"
-
 # =============================================================================
 # US-FHIR-07: local IFDB code systems for DocumentReference CodeableConcepts/tags
 # (no official SKS/MedCom mapping available — local source code systems)

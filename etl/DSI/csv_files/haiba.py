@@ -42,6 +42,36 @@ otherwise soft-delete anything missing from ext (see haiba_archive.py):
    the archive. Files are therefore walked newest-first and the first one
    carrying an actual data row wins.
 
+The invariants are ENFORCED here, at the extract, by failing the asset — not
+by scoping the archive's delete detection per HAI type. Rationale: the extract
+is the only layer that can tell the two absence cases apart. A type whose
+candidate files are ALL unusable (header-only) is a delivery defect and fails
+the run (``allow_missing_hai_types`` is the per-run operator override while
+SDS fixes it). A type with NO file left on the share is a genuine retirement:
+it produces no candidates, no note, and is deliberately allowed to flow so the
+archive soft-deletes it — that is a real deletion, not a defect. Scoping the
+archive MERGE per type instead would let a half-written ext pass silently and
+would not know about the share at all.
+
+Two more guards protect the archive MERGE itself:
+
+3. Row drift: a type whose file carries dramatically fewer data rows than its
+   active archive history (an interrupted transfer — the file parses fine but
+   is short) fails the run before the archive can soft-delete the difference.
+   Rows are counted per the row's OWN type value, the same vocabulary arc is
+   grouped by, because the filename and the column disagree on the agg CDI
+   types (file 'CDI_COHA', column 'COHA'). ``min_row_fraction`` overrides per
+   run. Because ext is written and committed before this runs, a failed guard
+   drops the ext table so a later archive-only re-run has nothing to merge.
+4. Column width: every value is checked against the arc column widths
+   (``arc_widths``, parity-tested against 00_archive.sql). An over-wide value
+   would otherwise abort the whole archive MERGE with error 8152, which names
+   neither column nor row. A non-key over-wide value skips its row and is
+   counted per (column, HAI type) — never logged by value; CPR may be among
+   them. A rejection on a MERGE-key column instead fails the run: a whole
+   case/aggregate is lost, not an over-long free-text field, and the archive
+   would soft-delete it.
+
 Encoding is Windows-1252 per SDS' own readme (0_laesmig_2021-11-16.txt), not
 ISO-8859-1 — the difference lives in 0x80-0x9F, where cp1252 has typographic
 characters and latin-1 has control characters, so misreading it corrupts text
@@ -52,10 +82,11 @@ import csv
 import os
 import re
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 
 import dagster as dg
+from core.dfm_manager import DfmManager
 from core.resources import MSSQLResource
 from pydantic import Field
 
@@ -136,6 +167,73 @@ _AGG_DIMENSIONS = (
 # 9999, so the key holds without widening it to the unit-name columns.
 _AGG_KEY = ("HAI", "HAIBA_dato", "Rolle_ansvar", "RegionKode", "SORIdentifier")
 
+# NVARCHAR widths from tables/haiba/00_archive.sql — parity-tested against the
+# DDL file, so a width change lands in both places or fails the suite.
+_AGG_WIDTHS = {
+    "HAI": 50,
+    "HAIBA_dato": 30,
+    "Rolle_ansvar": 50,
+    "RegionKode": 10,
+    "SORIdentifier": 30,
+    "ejerforhold": 50,
+    "region": 255,
+    "Sundhedsinstitution": 255,
+    "Matrikel": 255,
+    "OverliggendeEnhed": 255,
+    "AfdelingAfsnit": 255,
+}
+
+_CASES_INFEKTION_WIDTHS = {
+    "HAI_type": 50,
+    "cprnr": 10,
+    "HAI_date": 30,
+    "HAI_Opholdsadresse": 30,
+    "HAI_Kontaktansvar": 30,
+    "extid": 500,
+    "larlabnr": 500,
+    "HAI_RegionKode": 10,
+    "HAI_Region": 255,
+    "HAI_ejerforhold": 50,
+    "HAI_Matrikel": 255,
+    "HAI_Sundhedsinstitution": 255,
+    "HAI_OverliggendeEnhed": 255,
+    "HAI_AfdelingAfsnit": 255,
+}
+
+_CASES_SSI_WIDTHS = {
+    "HAI_type": 50,
+    "cprnr": 10,
+    "operation_date": 30,
+    "banr": 500,
+    "larlabnr": 500,
+    "extid": 500,
+    "Index_diagnosis": 50,
+    "Index_operation": 100,
+    "Index_acute": 10,
+    "Index_side": 20,
+    "HAI_producent": 30,
+    "HAI_kontaktansvarlig": 30,
+    "HAI_date": 30,
+    "reo_diagnosis": 50,
+    "reoperation": 255,
+    "reo_date": 30,
+    "reo_acute": 10,
+    "reo_side": 20,
+    "reo_producent": 30,
+    "reo_kontaktansvarlig": 30,
+    "HAI_kamme_positive_biopsies": 10,
+    "HAI_kamme_total_biopsies": 10,
+    "SSI_acute_365": 10,
+    "SSI_acute_90": 10,
+    "HAI_RegionKode": 10,
+    "HAI_Region": 255,
+    "HAI_ejerforhold": 50,
+    "HAI_Matrikel": 255,
+    "HAI_Sundhedsinstitution": 255,
+    "HAI_OverliggendeEnhed": 255,
+    "HAI_AfdelingAfsnit": 255,
+}
+
 _CASES_DIMENSIONS = (
     "HAI_type",
     "cprnr",
@@ -209,6 +307,23 @@ class HaibaSchema:
     # until the PK blew up. SORIdentifier is empty on 0.5% of agg rows (the
     # RegionKode 8888/9999 aggregates), so this is not hypothetical.
     key_columns: tuple[str, ...] = ()
+    # NVARCHAR widths of the arc table, column for column (findings columns are
+    # uniform 500 and resolved by arc_width). ext is created as NVARCHAR(500)
+    # across the board, so a value that fits ext but not arc would abort the
+    # whole archive MERGE with error 8152 — the extract rejects such rows up
+    # front instead (counted per column and HAI type, never logged by value).
+    # A parity test asserts this map matches tables/haiba/00_archive.sql.
+    arc_widths: dict[str, int] = field(default_factory=dict)
+
+    @property
+    def type_column(self) -> str:
+        """The column carrying the HAI type — 'HAI' on agg, 'HAI_type' on cases."""
+        return "HAI" if self.kind == "agg" else "HAI_type"
+
+    def arc_width(self, column: str) -> int | None:
+        if column.startswith("findings"):
+            return 500
+        return self.arc_widths.get(column)
 
     @property
     def ext_table(self) -> str:
@@ -226,6 +341,7 @@ AGG_INFEKTION = HaibaSchema(
     columns=_AGG_DIMENSIONS + ("antal", "risikodoegn"),
     findings_count=0,
     key_columns=_AGG_KEY,
+    arc_widths={**_AGG_WIDTHS, "antal": 50, "risikodoegn": 50},
 )
 
 AGG_ORTOPAEDI = HaibaSchema(
@@ -234,6 +350,7 @@ AGG_ORTOPAEDI = HaibaSchema(
     columns=_AGG_DIMENSIONS + ("antal90", "antal365", "operationer"),
     findings_count=0,
     key_columns=_AGG_KEY,
+    arc_widths={**_AGG_WIDTHS, "antal90": 50, "antal365": 50, "operationer": 50},
 )
 
 CASES_INFEKTION = HaibaSchema(
@@ -245,6 +362,7 @@ CASES_INFEKTION = HaibaSchema(
     # deliberately left out: they hold space-separated lists of lab ids with no
     # upper bound, which do not belong in a clustered key.
     key_columns=("HAI_type", "cprnr", "HAI_date"),
+    arc_widths=_CASES_INFEKTION_WIDTHS,
 )
 
 CASES_SSI = HaibaSchema(
@@ -260,6 +378,7 @@ CASES_SSI = HaibaSchema(
     # profiling suggested). (HAI_type, cprnr, operation_date) is unique on
     # its own in both SSI files.
     key_columns=("HAI_type", "cprnr", "operation_date"),
+    arc_widths=_CASES_SSI_WIDTHS,
 )
 
 SCHEMAS = (AGG_INFEKTION, AGG_ORTOPAEDI, CASES_INFEKTION, CASES_SSI)
@@ -293,6 +412,27 @@ class HaibaExtractConfig(dg.Config):
             '"2025-12-27", the last delivery that still carried 2020. Leave unset '
             "for normal operation; a pin left in place would make the archive "
             "treat an old delivery as current."
+        ),
+    )
+    allow_missing_hai_types: list[str] = Field(
+        default_factory=list,
+        description=(
+            "HAI types allowed to have ONLY unusable (header-only) files in THIS "
+            "run without failing the asset. A deliberate operator override while "
+            "SDS fixes a broken delivery — the type's archive history will be "
+            "soft-deleted, exactly what the guard normally prevents. A type SDS "
+            "has genuinely retired needs no entry here: it has no files at all "
+            "and passes the guard by itself."
+        ),
+    )
+    min_row_fraction: float | None = Field(
+        default=None,
+        description=(
+            "Per-run override of the row-drift guard (default "
+            "DRIFT_MIN_ROW_FRACTION). A type whose file carries fewer data rows "
+            "than this fraction of its active archive rows fails the run — an "
+            "interrupted transfer parses fine but is short. Set 0.0 to accept a "
+            "known legitimate shrink (e.g. the January window roll) for one run."
         ),
     )
 
@@ -412,15 +552,18 @@ def select_newest(
     kind: str,
     context: dg.AssetExecutionContext | None = None,
     on_or_before: date | None = None,
-) -> tuple[dict[str, HaibaFile], list[str]]:
+) -> tuple[dict[str, HaibaFile], list[str], list[str]]:
     """Newest usable file per HAI type, walking each type newest-first.
 
     ``on_or_before`` pins the search to deliveries up to a date, so an
     operator can reload a window SDS has since dropped. Each type still
     picks its own newest usable file within that bound.
 
-    Returns the selection plus notes about every type where an older file had
-    to be used, so the fallback is visible in asset metadata instead of silent.
+    Returns three things: the selection; human-readable notes about every type
+    where an older file had to be used (visible in asset metadata instead of
+    silent); and the structured list of HAI types with NO usable file at all.
+    Invariant 1's block reads that third value directly rather than re-parsing
+    a log string — the guard is destructive, so it must not hinge on wording.
     """
     by_type: dict[str, list[HaibaFile]] = {}
     for file in files:
@@ -429,6 +572,7 @@ def select_newest(
 
     selected: dict[str, HaibaFile] = {}
     notes: list[str] = []
+    unusable: list[str] = []
     for hai_type, candidates in sorted(by_type.items()):
         candidates.sort(key=lambda f: f.delivery_date, reverse=True)
         skipped: list[str] = []
@@ -438,6 +582,7 @@ def select_newest(
                 break
             skipped.append(candidate.filename)
         else:
+            unusable.append(hai_type)
             note = f"{hai_type}: no usable file among {len(candidates)} deliveries"
             notes.append(note)
             if context:
@@ -451,7 +596,7 @@ def select_newest(
             notes.append(note)
             if context:
                 context.log.warning(note)
-    return selected, notes
+    return selected, notes, unusable
 
 
 def iter_rows(file: HaibaFile, schema: HaibaSchema) -> Iterator[dict[str, str | None]]:
@@ -547,6 +692,173 @@ def _write_to_ext_table(
         cursor.close()
 
 
+# A type whose file shrank below this fraction of its active archive rows fails
+# the run (interrupted transfer). 0.5 deliberately tolerates the ~1/5 January
+# window roll; override per run with HaibaExtractConfig.min_row_fraction.
+DRIFT_MIN_ROW_FRACTION = 0.5
+
+
+def unusable_types_for_schema(
+    files: list[HaibaFile], unusable: list[str], schema: HaibaSchema
+) -> list[str]:
+    """HAI types whose candidates are ALL unusable and belong to this schema.
+
+    ``unusable`` is select_newest's third return value — the types with no
+    usable file — so no log string is parsed. select_newest runs per kind, and
+    both agg schemas share kind='agg', so a type may belong to the sibling
+    table; the newest candidate's header decides ownership, and a header that
+    cannot be schema-detected counts as belonging so the failure surfaces on at
+    least one asset instead of on neither.
+
+    ``files`` must be the SAME cutoff-filtered set select_newest saw. Passing
+    the unfiltered set would let a file NEWER than the pin decide ownership
+    between the two agg schemas, disagreeing with the selection it is meant to
+    explain.
+    """
+    mine: list[str] = []
+    for hai_type in unusable:
+        candidates = [f for f in files if f.kind == schema.kind and f.hai_type == hai_type]
+        if not candidates:
+            continue
+        newest = max(candidates, key=lambda f: f.delivery_date)
+        try:
+            detected = detect_schema(schema.kind, _read_header(newest.path))
+        except (OSError, ValueError, UnicodeDecodeError, csv.Error):
+            # A corrupt header (bad encoding, malformed CSV) must fail on the
+            # delivery, not crash the ownership check with an unrelated error.
+            detected = None
+        if detected is schema or detected is None:
+            mine.append(hai_type)
+    return mine
+
+
+def enforce_row_drift(written: dict[str, int], arc_active: dict[str, int], fraction: float) -> None:
+    """Fail when a DELIVERED type shrank below ``fraction`` of its archive rows.
+
+    Guards invariant 1's remaining gap: a file that parses but was cut short
+    (interrupted transfer) — or a width-rejection storm — would otherwise
+    soft-delete the difference out of the archive behind a green run. Types
+    absent from ``written`` are deliberately NOT checked: no file on the share
+    is a genuine retirement and must keep flowing (see the module docstring).
+    """
+    short = {
+        hai_type: (n, arc_active[hai_type])
+        for hai_type, n in written.items()
+        if arc_active.get(hai_type, 0) > 0 and n < fraction * arc_active[hai_type]
+    }
+    if short:
+        detail = ", ".join(
+            f"{t}={n} rows vs {a} active archive rows" for t, (n, a) in sorted(short.items())
+        )
+        raise ValueError(
+            f"Row drift below {fraction:.2f} of the archive for: {detail}. Loading "
+            f"this would soft-delete the difference. If the shrink is legitimate "
+            f"(e.g. the January window roll cut deeper than usual), rerun with "
+            f"min_row_fraction set lower for this run."
+        )
+
+
+def _rows_within_arc_widths(
+    schema: HaibaSchema,
+    hai_type: str,
+    rows: Iterator[dict[str, str | None]],
+    rejections: dict[tuple[str, str], int],
+) -> Iterator[dict[str, str | None]]:
+    """Drop rows carrying a value wider than its arc column, counting per column.
+
+    ext is NVARCHAR(500) across the board while arc declares real widths — one
+    over-wide value (an 11-digit "CPR", a runaway SOR string) would abort the
+    whole archive MERGE with error 8152, which names neither column nor row.
+    GDPR: only (column, HAI type) counts leave this function; never values.
+    """
+    for row in rows:
+        wide = [
+            column
+            for column, value in row.items()
+            if isinstance(value, str)
+            and (width := schema.arc_width(column)) is not None
+            and len(value) > width
+        ]
+        if wide:
+            for column in wide:
+                rejections[(column, hai_type)] = rejections.get((column, hai_type), 0) + 1
+            continue
+        yield row
+
+
+def _arc_active_counts(conn, schema: HaibaSchema) -> dict[str, int]:
+    """Active archive rows per HAI type; {} when arc does not exist yet (first run)."""
+    cursor = conn.cursor()
+    try:
+        cursor.execute(f"SELECT OBJECT_ID(N'[arc].[{schema.ext_table}]', N'U')")
+        if cursor.fetchone()[0] is None:
+            return {}
+        cursor.execute(
+            f"SELECT [{schema.type_column}], COUNT(*) FROM [arc].[{schema.ext_table}] "
+            f"WHERE [dw_is_deleted] = 0 GROUP BY [{schema.type_column}]"
+        )
+        return {str(hai_type): int(n) for hai_type, n in cursor.fetchall()}
+    finally:
+        cursor.close()
+
+
+def _drop_ext_table(conn, schema: HaibaSchema) -> None:
+    """Remove a half-written ext snapshot so nothing downstream can merge it."""
+    cursor = conn.cursor()
+    try:
+        cursor.execute(f"DROP TABLE IF EXISTS [ext].[{schema.ext_table}]")
+        conn.commit()
+    finally:
+        cursor.close()
+
+
+def _enforce_ext_is_loadable(
+    schema: HaibaSchema,
+    rows_per_type: dict[str, int],
+    arc_active: dict[str, int],
+    rejections: dict[tuple[str, str], int],
+    empty_after_width: list[str],
+    fraction: float,
+    context: dg.AssetExecutionContext,
+) -> None:
+    """The post-write guards, gathered so the caller can drop ext on any failure.
+
+    Each of these means the archive would soft-delete rows a delivery defect
+    removed from ext — the exact failure ``detect_deletes`` makes expensive.
+    """
+    # A width rejection on a MERGE-key column drops a whole case/aggregate, not
+    # an over-long free-text field — the row is gone from ext and the archive
+    # soft-deletes its history. Fail. A non-key over-wide value stays a counted
+    # warning (the value is truncated context, not an identity).
+    key_hits = sorted(
+        f"[{col}]/{t}={n}" for (col, t), n in rejections.items() if col in schema.key_columns
+    )
+    if key_hits:
+        raise ValueError(
+            f"Width rejection hit a merge-key column in ext.{schema.ext_table}: "
+            f"{', '.join(key_hits)}. A whole row is dropped, so the archive would "
+            f"soft-delete it — fix the source value, do not load."
+        )
+    if empty_after_width:
+        raise ValueError(
+            f"Selected file(s) contributed 0 rows to ext.{schema.ext_table} after "
+            f"width filtering: {', '.join(empty_after_width)}. Every data row was "
+            f"rejected, which reads as a retirement and would soft-delete the type."
+        )
+    # Vocabulary drift is visible, not fatal: a delivered type absent from a
+    # non-empty archive is a genuinely new type or a filename/column mismatch,
+    # and either way enforce_row_drift below is blind to it.
+    if arc_active:
+        for delivered in sorted(rows_per_type):
+            if delivered not in arc_active:
+                context.log.warning(
+                    f"{schema.ext_table}: delivered type {delivered!r} is not among "
+                    f"the archive's active types {sorted(arc_active)} — a new type or "
+                    f"a vocabulary mismatch; the row-drift guard cannot check it."
+                )
+    enforce_row_drift(rows_per_type, arc_active, fraction)
+
+
 def _extract_schema(
     context: dg.AssetExecutionContext,
     mssql: MSSQLResource,
@@ -565,7 +877,28 @@ def _extract_schema(
             f"everything newer."
         )
 
-    selected, notes = select_newest(discover_files(root), schema.kind, context, cutoff)
+    all_files = discover_files(root)
+    selected, notes, unusable = select_newest(all_files, schema.kind, context, cutoff)
+    # Ownership must be decided on the SAME window select_newest saw, so a file
+    # newer than the pin cannot claim a type between the two agg schemas.
+    cutoff_files = [f for f in all_files if cutoff is None or f.delivery_date <= cutoff]
+
+    # Invariant 1: a type that HAS deliveries but no usable file must fail the
+    # run — proceeding would soft-delete its entire archive history. A type
+    # with no files at all is a genuine retirement and passes by design.
+    blocked = [
+        hai_type
+        for hai_type in unusable_types_for_schema(cutoff_files, unusable, schema)
+        if hai_type not in config.allow_missing_hai_types
+    ]
+    if blocked:
+        raise ValueError(
+            f"HAI type(s) {blocked} have deliveries on the share but no usable "
+            f"file (all header-only). Loading without them would soft-delete "
+            f"their archive history. Fix the delivery, pin an older one with "
+            f"delivery_on_or_before, or override deliberately with "
+            f"allow_missing_hai_types."
+        )
 
     files: dict[str, HaibaFile] = {}
     for hai_type, file in selected.items():
@@ -576,14 +909,59 @@ def _extract_schema(
     if not files:
         raise ValueError(f"No {schema.kind} files matching ext.{schema.ext_table} under {root}")
 
+    rows_per_type: dict[str, int] = {}
+    rejections: dict[tuple[str, str], int] = {}
+    empty_after_width: list[str] = []
+
     def _all_rows() -> Iterator[dict[str, str | None]]:
         for hai_type in sorted(files):
             file = files[hai_type]
             context.log.info(f"Reading {file.filename} ({hai_type})")
-            yield from iter_rows(file, schema)
+            survived = 0
+            for row in _rows_within_arc_widths(
+                schema, hai_type, iter_rows(file, schema), rejections
+            ):
+                # Count under the row's OWN type value, not the filename's: the
+                # two diverge on the agg CDI types (file 'CDI_COHA', column
+                # 'COHA'), and enforce_row_drift compares against arc, which is
+                # grouped by the column. Keying by filename left the two largest
+                # agg types unguarded. type_column is a merge key, never None.
+                key = row[schema.type_column] or hai_type
+                rows_per_type[key] = rows_per_type.get(key, 0) + 1
+                survived += 1
+                yield row
+            if survived == 0:
+                # has_data_row guaranteed >=1 raw data row, so 0 survivors means
+                # every row was width-rejected — the type would vanish from ext
+                # and read as a retirement, soft-deleting its archive history.
+                empty_after_width.append(f"{hai_type} ({file.filename})")
+
+    fraction = (
+        config.min_row_fraction if config.min_row_fraction is not None else DRIFT_MIN_ROW_FRACTION
+    )
 
     with mssql.get_connection() as conn:
         row_count = _write_to_ext_table(conn, schema, _all_rows(), context)
+        arc_active = _arc_active_counts(conn, schema)
+
+        for (column, hai_type), n in sorted(rejections.items()):
+            context.log.warning(
+                f"{schema.ext_table}/{hai_type}: rejected {n} row(s) whose [{column}] "
+                f"exceeds the arc width {schema.arc_width(column)} — counted only, "
+                f"values are never logged."
+            )
+
+        try:
+            _enforce_ext_is_loadable(
+                schema, rows_per_type, arc_active, rejections, empty_after_width, fraction, context
+            )
+        except Exception:
+            # ext is already written and committed. A failed guard otherwise
+            # leaves a truncated snapshot behind, and a manual re-run of only
+            # the archive asset (routine during debugging) would MERGE it and
+            # soft-delete the shortfall. Drop it so there is nothing to merge.
+            _drop_ext_table(conn, schema)
+            raise
 
     deliveries = {t: f.delivery_date.isoformat() for t, f in sorted(files.items())}
     return dg.MaterializeResult(
@@ -591,6 +969,12 @@ def _extract_schema(
             "row_count": dg.MetadataValue.int(row_count),
             "hai_types": dg.MetadataValue.int(len(files)),
             "deliveries": dg.MetadataValue.json(deliveries),
+            "rows_per_type": dg.MetadataValue.json(rows_per_type),
+            "rejected_for_width": dg.MetadataValue.json(
+                {f"{column}/{hai_type}": n for (column, hai_type), n in sorted(rejections.items())}
+            ),
+            "arc_active_rows": dg.MetadataValue.json(arc_active),
+            "drift_min_fraction": dg.MetadataValue.float(fraction),
             "source_files": dg.MetadataValue.json(sorted(f.filename for f in files.values())),
             "fallbacks": dg.MetadataValue.json(notes),
             "target_table": dg.MetadataValue.text(f"ext.{schema.ext_table}"),
@@ -617,7 +1001,27 @@ def _build_asset(schema: HaibaSchema):
         mssql_target_staging: MSSQLResource,
         config: HaibaExtractConfig,
     ) -> dg.MaterializeResult:
-        return _extract_schema(context, mssql_target_staging, schema, config)
+        # Log-only DFM run: ext owns no checkpoint, so the run borrows the
+        # downstream arc owner's (set by execute_archive_merge). The mode is
+        # deliberately locked to full_load — every SDS delivery is a complete
+        # snapshot, and the archive merges with detect_deletes +
+        # upstream_is_full_load, so a partial ext would soft-delete whole HAI
+        # types. The delivery watermark itself lives in meta.HAIBALeverance.
+        dfm = DfmManager(mssql_target_staging, context)
+        run_ctx = dfm.start_dfm_run(
+            "ext",
+            schema.ext_table,
+            checkpoint_from=("arc", schema.ext_table),
+            dagster_run_id=context.run_id,
+            mode="full_load",
+        )
+        try:
+            result = _extract_schema(context, mssql_target_staging, schema, config)
+        except Exception as exc:
+            dfm.fail_dfm_run(run_ctx.log_id, error_message=str(exc))
+            raise
+        dfm.complete_dfm_run(run_ctx.log_id, rows_affected=result.metadata["row_count"].value)
+        return result
 
     return _asset
 
@@ -640,6 +1044,9 @@ __all__ = [
     "CASES_INFEKTION",
     "CASES_SSI",
     "DELIVERY_COLUMN",
+    "DRIFT_MIN_ROW_FRACTION",
+    "enforce_row_drift",
+    "unusable_types_for_schema",
     "SCHEMAS",
     "haiba_dir",
     "haiba_encoding",

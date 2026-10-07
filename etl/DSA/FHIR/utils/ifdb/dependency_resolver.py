@@ -1000,7 +1000,7 @@ def ensure_encounter_dependencies(
 
     Encounter creation reuses the Encounter asset's own dependency-resolution
     logic, so Patient and EpisodeOfCare prerequisites are handled consistently
-    with Magnus' existing implementation.
+    with the Encounter asset's existing implementation.
 
     Args:
         encounter_ids: Set of IFDB encounter OBJECT_ID values that must exist

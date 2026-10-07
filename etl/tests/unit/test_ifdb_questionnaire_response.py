@@ -78,6 +78,27 @@ def test_qr_status_maps_kladde_and_slettet():
     assert deleted["status"] == "entered-in-error"
 
 
+def test_qr_baerer_sletmarkeringen_som_udvidelse():
+    # De flade tabellers sletteflag-kolonner laeser udvidelsen urn:fhir:isDeleted.
+    # Skemasvar var den eneste af de fire ressourcetyper, der ikke skrev den, saa
+    # en kolonne paa skemasvar-tabellen ville staa tom for evigt.
+    xml = _read_fixture("case_03_qr_simpel_aktuelt.xml")
+
+    def _flag(qr: dict) -> int | None:
+        for ext in qr.get("extension", []):
+            if ext.get("url") == "urn:fhir:isDeleted":
+                return ext.get("valueInteger")
+        return None
+
+    assert _flag(build_questionnaire_response_from_xml(_row_for(xml))) == 0
+    slettet = build_questionnaire_response_from_xml(_row_for(xml, SLETTET=1))
+    assert _flag(slettet) == 1
+    # Flag og status maa aldrig modsige hinanden.
+    assert slettet["status"] == "entered-in-error"
+    # En kladde er ikke slettet.
+    assert _flag(build_questionnaire_response_from_xml(_row_for(xml, KLADDE=1))) == 0
+
+
 def test_qr_missing_model_version_raises():
     xml = _read_fixture("case_03_qr_simpel_aktuelt.xml")
     row = _row_for(xml, MODELLERINGSVERSION=None)

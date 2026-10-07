@@ -83,15 +83,16 @@ lagerbeholdning_extract_assets = create_dfm_extraction_assets(
 # schemes are distinct.
 #
 # Two patterns:
-#   A) Full load (12): vareart, varegrp, varetype, moms, lev, sgh, lgr, rekv,
-#      rekvgrp, lafth, lafthsgh, zz_oper — small reference tables, truncate-and-load each run.
+#   A) Full load (14): vareart, varegrp, varetype, varetype2, projekt, moms, lev,
+#      sgh, lgr, rekv, rekvgrp, lafth, lafthsgh, zz_oper — small reference tables,
+#      truncate-and-load each run.
 #   B) Delta on [sysdato] (7): laftdpris, laftdstam, laftd, udlev, lgrvare,
 #      pmdm, indkfak — sysdato is the canonical "row touched at" column for
 #      ILS (evidenced by the existing arc.ils_vare precedent using MAX([sysdato])).
 #   C) Manual full load (1): rekvUndtagne via select_from_expr from ils_pro2_log
 #      (override with ILS_REKVUNDTAGNE_FQN for local seed).
 #
-# All 20 archive into arc.ils_<t>. Already-archived ILS tables
+# All 22 archive into arc.ils_<t>. Already-archived ILS tables
 # (lgrbeh, afdlgrbeh, unspsc, vare) are NOT in this list — see
 # ils_unspsc_extract_assets and lagerbeholdning_extract_assets above.
 
@@ -99,6 +100,8 @@ _ILS_FULL_LOAD_TABLES = (
     "vareart",
     "varegrp",
     "varetype",
+    "varetype2",
+    "projekt",
     "moms",
     "lev",
     "sgh",

@@ -5,10 +5,13 @@
 # root for the full AGPL-3.0 license text.
 
 """
-DSO Sync State Manager
+DSO Sync State Manager (legacy)
 
-Manages watermark state for delta sync operations. Tracks the last successful
-sync timestamp per table in [meta].[SyncWatermarks] on the DSO database.
+DEPRECATED for DSO table sync (dim/fct/fhir/…): use DfmManager with scope='dso'
+on staging — see DSO.load.sync_dfm and dfm_design.md §8.
+
+Still used by refresh_sfi_datapoint.py until the SFI follow-up US migrates SFI
+incremental refresh off SyncWatermarks.
 
 The watermark table DDL (see infrastructure/ddl/tables/meta/01_sync_watermarks.sql):
     CREATE TABLE [meta].[SyncWatermarks] (

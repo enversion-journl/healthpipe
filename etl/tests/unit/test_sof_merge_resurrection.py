@@ -65,6 +65,18 @@ def test_patient_view_does_not_opt_into_child_grain_reconcile():
     assert SOF_RESOURCE_CONFIGS["patient_view"].get("child_grain_reconcile") is not True
 
 
+def test_child_grain_reconcile_always_resurrects():
+    missing = [
+        name
+        for name, cfg in SOF_RESOURCE_CONFIGS.items()
+        if cfg.get("child_grain_reconcile") and cfg.get("resurrect_soft_deleted") is not True
+    ]
+    assert missing == [], (
+        "child_grain_reconcile without resurrect_soft_deleted leaves restored "
+        f"codes invisible: {missing}"
+    )
+
+
 def test_organization_view_opts_into_resource_grain_reconcile():
     """fhir.Organization gets dw_is_deleted from a full-extract reconcile, not the resource."""
     cfg = SOF_RESOURCE_CONFIGS["organization_view"]

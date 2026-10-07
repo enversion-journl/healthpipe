@@ -1,0 +1,61 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: dimension
+  TableName: dim.DRGKontaktEgenskaber
+  Domain: [DRG]
+  Description: >
+    Transaktionsdimension for DRG-kontakter: dw_ek_DRGKontakt er en delt
+    nøgle med fct.DRGKontakt via map.DRGKontakt. Bærer alt deskriptivt —
+    inkl. lav-frekvens- og fritekst-attributter — så facten er fri for
+    tekstkolonner. Leverancens egne demografifelter er autoritative for
+    afregningen; dim.Borger's adressehistorik er bevidst ikke en erstatning.
+  Grain: "Én række pr. (leverancetype, takstsystem, kontakt) — samme grain som facten."
+  SCD: type1
+
+  SourceSystems:
+    - sds_drg: [DRG.DRGKONTAKT, DRG.DRGSGHFORLOB, DRGPSYK.Psyk_kontakt, DRGPSYK.Psyk_forloeb]
+
+  Columns:
+    dw_ek_DRGKontakt: { Type: PK, DataType: INT }
+    clean_code_DRGKontakt: { DataType: NVARCHAR(255), Expr: "DRGKONTAKT_{leverancetype}_{takstsystem}_{KONTAKT_VAERDI}" }
+    leverancetype: { DataType: NVARCHAR(10), Expr: "'DRG' | 'DRGPSYK'" }
+    takstsystem: { DataType: NVARCHAR(3), Source: [sds_drg.DRG.DRGKONTAKT.takstsystem] }
+    aktivitetsaar: { DataType: NVARCHAR(6), Source: [sds_drg.DRG.DRGKONTAKT.AKTIVITETSAAR] }
+    forloeb_noegle: { DataType: NVARCHAR(36), Source: [sds_drg.DRG.DRGSGHFORLOB.DRGKONTAKT_ID_IND, sds_drg.DRGPSYK.Psyk_forloeb.DW_EK_Kontakt_foerste], Description: "Ind-/første-kontaktens KONTAKT_VAERDI — forløbsidentiteten opløst i arkivet." }
+    tungeste_drgkontakt: { DataType: NVARCHAR(6), Source: [sds_drg.DRG.DRGKONTAKT.TUNGESTE_DRGKONTAKT] }
+    udfaldsgivende_kontakt: { DataType: NVARCHAR(6), Source: [sds_drg.DRG.DRGKONTAKT.UDFALDSGIVENDE_KONTAKT] }
+    kontakt_afsluttet: { DataType: NVARCHAR(6), Source: [sds_drg.DRGPSYK.Psyk_kontakt.KONTAKT_AFSLUTTET] }
+    drg_kode: { DataType: NVARCHAR(10), Source: [sds_drg.DRG.DRGKONTAKT.DRG] }
+    drg_grouper: { DataType: NVARCHAR(10), Source: [sds_drg.DRG.DRGKONTAKT.DRG_GROUPER] }
+    mdc: { DataType: NVARCHAR(10), Source: [sds_drg.DRG.DRGKONTAKT.MDC] }
+    regel: { DataType: NVARCHAR(10), Source: [sds_drg.DRG.DRGKONTAKT.REGEL] }
+    rtc: { DataType: NVARCHAR(10), Source: [sds_drg.DRG.DRGKONTAKT.RTC] }
+    d90ua05: { DataType: NVARCHAR(10), Source: [sds_drg.DRG.DRGKONTAKT.D90UA05] }
+    trimpunkt: { DataType: NVARCHAR(10), Source: [sds_drg.DRG.DRGKONTAKT.TRIMPUNKT] }
+    kontakttype: { DataType: NVARCHAR(100), Source: [sds_drg.DRG.DRGKONTAKT.KONTAKTTYPE, sds_drg.DRGPSYK.Psyk_kontakt.KONTAKTTYPE] }
+    drgkontakttype: { DataType: NVARCHAR(100), Source: [sds_drg.DRG.DRGKONTAKT.DRGKONTAKTTYPE] }
+    prioritet: { DataType: NVARCHAR(100), Source: [sds_drg.DRG.DRGKONTAKT.PRIORITET, sds_drg.DRGPSYK.Psyk_kontakt.PRIORITET] }
+    kontaktaarsag: { DataType: NVARCHAR(100), Source: [sds_drg.DRG.DRGKONTAKT.KONTAKTAARSAG] }
+    afslutningsmaade: { DataType: NVARCHAR(100), Source: [sds_drg.DRG.DRGKONTAKT.AFSLUTNINGSMAADE] }
+    henvisningsmaade: { DataType: NVARCHAR(100), Source: [sds_drg.DRG.DRGKONTAKT.HENVISNINGSMAADE] }
+    henvisningsaarsag: { DataType: NVARCHAR(100), Source: [sds_drg.DRG.DRGKONTAKT.HENVISNINGSAARSAG] }
+    speciale: { DataType: NVARCHAR(480), Source: [sds_drg.DRG.DRGKONTAKT.SPECIALE, sds_drg.DRGPSYK.Psyk_kontakt.SPECIALE] }
+    sygehusnavn: { DataType: NVARCHAR(510), Source: [sds_drg.DRG.DRGKONTAKT.SYGEHUSNAVN, sds_drg.DRGPSYK.Psyk_kontakt.SYGEHUSNAVN] }
+    sygehustype: { DataType: NVARCHAR(10), Source: [sds_drg.DRG.DRGKONTAKT.SYGEHUSTYPE, sds_drg.DRGPSYK.Psyk_kontakt.SYGEHUSTYPE] }
+    sygehus_region: { DataType: NVARCHAR(20), Source: [sds_drg.DRG.DRGKONTAKT.SYGEHUS_REGION, sds_drg.DRGPSYK.Psyk_kontakt.SYGEHUS_REGION] }
+    kontaktansvar_enhedsnavn: { DataType: NVARCHAR(510), Source: [sds_drg.DRG.DRGKONTAKT.DRG_KONTAKT_ENHEDSNAVN, sds_drg.DRGPSYK.Psyk_kontakt.KONTAKT_ENHEDSNAVN] }
+    betalingsaftale: { DataType: NVARCHAR(100), Source: [sds_drg.DRG.DRGKONTAKT.BETALINGSAFTALE] }
+    betaler: { DataType: NVARCHAR(100), Source: [sds_drg.DRG.DRGKONTAKT.BETALER] }
+    specialiseringsniveau: { DataType: NVARCHAR(100), Source: [sds_drg.DRG.DRGKONTAKT.SPECIALISERINGSNIVEAU] }
+    bo_kom: { DataType: NVARCHAR(20), Source: [sds_drg.DRG.DRGKONTAKT.BO_KOM, sds_drg.DRGPSYK.Psyk_kontakt.BO_KOM] }
+    bo_region: { DataType: NVARCHAR(20), Source: [sds_drg.DRG.DRGKONTAKT.BO_REGION, sds_drg.DRGPSYK.Psyk_kontakt.BO_REGION] }
+    bo_kom_kilde: { DataType: NVARCHAR(10), Source: [sds_drg.DRG.DRGKONTAKT.BO_KOM_SOURCE, sds_drg.DRGPSYK.Psyk_kontakt.BO_KOM_SOURCE] }
+    betaler_kom: { DataType: NVARCHAR(20), Source: [sds_drg.DRG.DRGKONTAKT.BETALER_KOM] }
+    betaler_region: { DataType: NVARCHAR(20), Source: [sds_drg.DRG.DRGKONTAKT.BETALER_REGION] }
+    alder_aar: { DataType: NVARCHAR(11), Source: [sds_drg.DRG.DRGKONTAKT.ALDER_AAR, sds_drg.DRGPSYK.Psyk_kontakt.ALDER_AAR_IND] }
+    koen: { DataType: NVARCHAR(1), Source: [sds_drg.DRG.DRGKONTAKT.KOEN, sds_drg.DRGPSYK.Psyk_kontakt.KOEN] }

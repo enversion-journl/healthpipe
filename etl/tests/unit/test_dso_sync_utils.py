@@ -45,6 +45,38 @@ from DSO.load.sync_utils import (
 pytestmark = pytest.mark.unit
 
 
+@contextmanager
+def _patch_dfm_session(*, checkpoint: str | None = None):
+    """Mock DsoSyncDfmSession for sync_table_via_linked_server unit tests."""
+    from core.dfm_manager import DfmRunContext
+
+    class _FakeDfmSession:
+        def __init__(self, _staging, _context):
+            self.dfm = MagicMock()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def start_run(self, _config, _dfm_mode):
+            return DfmRunContext(log_id=1, checkpoint=checkpoint)
+
+        def fail_run(self, *_args, **_kwargs):
+            pass
+
+    with (
+        unittest.mock.patch("DSO.load.sync_dfm.DsoSyncDfmSession", _FakeDfmSession),
+        unittest.mock.patch(
+            "DSO.load.sync_utils.get_table_columns",
+            return_value=["id", "dw_timestamp_insert", "dw_timestamp_update"],
+        ),
+        unittest.mock.patch("DSO.load.sync_dfm.finalize_dfm_run"),
+    ):
+        yield
+
+
 class TestSyncTableConfig:
     """Test SyncTableConfig dataclass."""
 
@@ -361,7 +393,7 @@ class TestBuildDeltaMergeStatement:
             "dw_timestamp_insert",
             "dw_timestamp_update",
         ]
-        ts = datetime(2026, 2, 11, 12, 0, 0)
+        ts = "2026-02-11 12:00:00"
 
         sql = build_delta_merge_statement(config, columns, ts, staging_db="TestDB")
 
@@ -374,7 +406,7 @@ class TestBuildDeltaMergeStatement:
         # Verify subquery with COALESCE WHERE filter
         assert "SELECT * FROM [STAGING_LINK].[TestDB].[dim].[Kreditor]" in sql
         assert "COALESCE([dw_timestamp_update], [dw_timestamp_insert])" in sql
-        assert ">= '2026-02-11 12:00:00'" in sql
+        assert "> '2026-02-11 12:00:00'" in sql
 
         # Verify UPDATE SET excludes PK and insert-only columns
         update_set_part = sql.split("UPDATE SET")[1].split("WHEN NOT MATCHED")[0]
@@ -400,9 +432,9 @@ class TestBuildDeltaMergeStatement:
             "dw_timestamp_insert",
             "dw_timestamp_update",
         ]
-        ts = datetime(2026, 1, 15, 8, 30, 0)
-
-        sql = build_delta_merge_statement(config, columns, ts, staging_db="TestDB")
+        sql = build_delta_merge_statement(
+            config, columns, "2026-01-15 08:30:00", staging_db="TestDB"
+        )
 
         # Verify composite key ON clause
         assert "tgt.[PK1] = src.[PK1]" in sql
@@ -412,7 +444,7 @@ class TestBuildDeltaMergeStatement:
 
         # Verify watermark filter
         assert "COALESCE([dw_timestamp_update], [dw_timestamp_insert])" in sql
-        assert ">= '2026-01-15 08:30:00'" in sql
+        assert "> '2026-01-15 08:30:00'" in sql
 
     def test_delta_merge_falls_back_to_full_when_no_timestamp(self):
         """Test that last_sync_timestamp=None produces identical SQL as build_merge_statement."""
@@ -453,7 +485,7 @@ class TestBuildDeltaMergeStatement:
             "dw_timestamp_insert",
             "dw_timestamp_update",
         ]
-        ts = datetime(2026, 2, 1, 0, 0, 0)
+        ts = "2026-02-01 00:00:00"
 
         sql = build_delta_merge_statement(config, columns, ts, staging_db="TestDB")
 
@@ -478,7 +510,7 @@ class TestBuildDeltaMergeStatement:
             "dw_timestamp_insert",
             "dw_timestamp_update",
         ]
-        ts = datetime(2026, 2, 10, 14, 0, 0)
+        ts = "2026-02-10 14:00:00"
 
         sql = build_delta_merge_statement(config, columns, ts, staging_db="TestDB")
 
@@ -498,13 +530,11 @@ class TestBuildDeltaMergeStatement:
         )
         columns = ["ID", "name", "dw_timestamp_insert", "dw_timestamp_update"]
 
-        # Use a timestamp with non-zero seconds to verify formatting
-        ts = datetime(2026, 3, 15, 23, 59, 45)
+        sql = build_delta_merge_statement(
+            config, columns, "2026-03-15 23:59:45", staging_db="TestDB"
+        )
 
-        sql = build_delta_merge_statement(config, columns, ts, staging_db="TestDB")
-
-        # Verify exact format: YYYY-MM-DD HH:MM:SS
-        assert ">= '2026-03-15 23:59:45'" in sql
+        assert "> '2026-03-15 23:59:45'" in sql
 
     def test_delta_merge_no_delete_clause(self):
         """Delta MERGE must NOT contain NOT MATCHED BY SOURCE (no hard-delete)."""
@@ -521,7 +551,7 @@ class TestBuildDeltaMergeStatement:
             "dw_timestamp_insert",
             "dw_timestamp_update",
         ]
-        ts = datetime(2026, 2, 11, 12, 0, 0)
+        ts = "2026-02-11 12:00:00"
 
         sql = build_delta_merge_statement(config, columns, ts, staging_db="TestDB")
 
@@ -543,7 +573,7 @@ class TestBuildDeltaMergeStatement:
             "dw_timestamp_insert",
             "dw_timestamp_update",
         ]
-        ts = datetime(2026, 2, 11, 12, 0, 0)
+        ts = "2026-02-11 12:00:00"
 
         sql = build_delta_merge_statement(config, columns, ts, staging_db="TestDB")
 
@@ -553,8 +583,8 @@ class TestBuildDeltaMergeStatement:
         insert_part = sql.split("WHEN NOT MATCHED BY TARGET THEN")[1]
         assert "[dw_timestamp_insert]" in insert_part
 
-    def test_delta_merge_uses_inclusive_boundary(self):
-        """Boundary must be >= so no rows are lost; double processing is idempotent (MERGE on PK)."""
+    def test_delta_merge_uses_exclusive_boundary(self):
+        """Boundary is exclusive > (DFM Strategy B with MAX source checkpoint)."""
         config = SyncTableConfig(
             schema="dim",
             table="Kreditor",
@@ -568,11 +598,12 @@ class TestBuildDeltaMergeStatement:
             "dw_timestamp_insert",
             "dw_timestamp_update",
         ]
-        ts = datetime(2026, 2, 11, 12, 0, 0)
-        sql = build_delta_merge_statement(config, columns, ts, staging_db="TestDB")
+        sql = build_delta_merge_statement(
+            config, columns, "2026-02-11 12:00:00", staging_db="TestDB"
+        )
 
-        assert ">= '2026-02-11 12:00:00'" in sql
-        assert "> '2026-02-11 12:00:00'" not in sql.replace(">=", "")
+        assert "> '2026-02-11 12:00:00'" in sql
+        assert ">= '2026-02-11 12:00:00'" not in sql
 
     def test_delta_merge_null_watermark_coalesce(self):
         """COALESCE(watermark, dw_timestamp_insert) ensures rows with NULL dw_timestamp_update are included."""
@@ -593,7 +624,7 @@ class TestBuildDeltaMergeStatement:
         sql = build_delta_merge_statement(config, columns, ts, staging_db="TestDB")
 
         assert "COALESCE([dw_timestamp_update], [dw_timestamp_insert])" in sql
-        assert ">=" in sql
+        assert "> '2026-02-11 12:00:00'" in sql
 
     def test_delta_merge_idempotent_no_duplicate_keys(self):
         """MERGE uses ON (PK) and WHEN MATCHED/WHEN NOT MATCHED BY TARGET only — reprocessing same row updates, does not insert duplicate."""
@@ -937,22 +968,7 @@ class TestPythonFallbackWatermark:
         staging_resource = _DummyResource([schema_conn, data_conn])
         dso_resource = _DummyResource([dso_conn])
 
-        update_calls = []
-        last_ts = datetime(2026, 2, 10, 9, 0, 0)
-
-        class _FakeStateManager:
-            def __init__(self, *_args, **_kwargs):
-                pass
-
-            def get_last_sync_timestamp(self, _schema, _table):
-                return last_ts
-
-            def update_sync_state(
-                self, schema, table, rows_affected=0, duration_ms=None, status="success"
-            ):
-                update_calls.append((schema, table, rows_affected, duration_ms, status))
-
-        monkeypatch.setattr("DSO.load.sync_state.SyncStateManager", _FakeStateManager)
+        last_checkpoint = "2026-02-10 09:00:00"
 
         context = MagicMock()
         context.log = MagicMock()
@@ -965,14 +981,21 @@ class TestPythonFallbackWatermark:
             watermark_column="dw_timestamp_update",
         )
 
-        result = sync_utils._sync_via_python(context, staging_resource, dso_resource, config)
+        result = sync_utils._sync_via_python(
+            context,
+            staging_resource,
+            dso_resource,
+            config,
+            last_sync_checkpoint=last_checkpoint,
+        )
 
         assert result["mode"] == "python_watermark_delta"
 
-        # Ensure source query used a watermark predicate with parameterized timestamp
+        # Ensure source query used a watermark predicate with parameterized checkpoint
         select_sql, select_params = data_cursor.execute_calls[0]
         assert "COALESCE([dw_timestamp_update], [dw_timestamp_insert])" in select_sql
-        assert select_params == (last_ts,)
+        assert " > " in select_sql
+        assert select_params == (last_checkpoint,)
 
         # Temp-table strategy: executemany inserts into #temp, then execute runs MERGE
         assert dso_cursor.executemany_calls, "Expected executemany INSERT INTO #temp call"
@@ -991,15 +1014,8 @@ class TestPythonFallbackWatermark:
             "TRUNCATE TABLE [fct].[Fakturalinje]" in sql for sql, _ in dso_cursor.execute_calls
         )
 
-        # Ensure watermark state was persisted after success
-        assert len(update_calls) == 1
-        assert update_calls[0][0] == "fct"
-        assert update_calls[0][1] == "Fakturalinje"
-        assert update_calls[0][2] == 1
-        assert update_calls[0][4] == "success"
-
-    def test_python_fallback_first_run_uses_full_sync_and_updates_state(self, monkeypatch):
-        """First watermark run in Python fallback should use full truncate+insert and save watermark."""
+    def test_python_fallback_first_run_uses_full_sync(self, monkeypatch):
+        """First watermark run in Python fallback should use full truncate+insert."""
         schema_cursor = _DummyCursor(
             fetchall_queue=[
                 [
@@ -1033,22 +1049,6 @@ class TestPythonFallbackWatermark:
         staging_resource = _DummyResource([schema_conn, data_conn])
         dso_resource = _DummyResource([dso_conn])
 
-        update_calls = []
-
-        class _FakeStateManager:
-            def __init__(self, *_args, **_kwargs):
-                pass
-
-            def get_last_sync_timestamp(self, _schema, _table):
-                return None
-
-            def update_sync_state(
-                self, schema, table, rows_affected=0, duration_ms=None, status="success"
-            ):
-                update_calls.append((schema, table, rows_affected, duration_ms, status))
-
-        monkeypatch.setattr("DSO.load.sync_state.SyncStateManager", _FakeStateManager)
-
         context = MagicMock()
         context.log = MagicMock()
 
@@ -1060,7 +1060,13 @@ class TestPythonFallbackWatermark:
             watermark_column="dw_timestamp_update",
         )
 
-        result = sync_utils._sync_via_python(context, staging_resource, dso_resource, config)
+        result = sync_utils._sync_via_python(
+            context,
+            staging_resource,
+            dso_resource,
+            config,
+            last_sync_checkpoint=None,
+        )
 
         assert result["mode"] == "python_watermark_full"
         assert any("TRUNCATE TABLE [dim].[Kreditor]" in sql for sql, _ in dso_cursor.execute_calls)
@@ -1068,12 +1074,6 @@ class TestPythonFallbackWatermark:
         insert_sql, inserted_rows = dso_cursor.executemany_calls[0]
         assert "INSERT INTO [dim].[Kreditor]" in insert_sql
         assert len(inserted_rows) == 1
-
-        assert len(update_calls) == 1
-        assert update_calls[0][0] == "dim"
-        assert update_calls[0][1] == "Kreditor"
-        assert update_calls[0][2] == 1
-        assert update_calls[0][4] == "success"
 
 
 class TestPythonFallbackTruncateInsert:
@@ -1272,7 +1272,7 @@ class TestMismatchRecovery:
     """Tests for auto-recovery when watermark delta sync produces a row count mismatch."""
 
     def test_recovery_triggers_full_merge_on_mismatch(self):
-        """When watermark_delta sync has staging != dso count, recovery runs a full MERGE."""
+        """When watermark_delta has rows and dso_count < staging_count, recover via full MERGE."""
         ctx = _create_mock_context()
         dso_resource, _conn, _cursor = _create_mock_dso_resource()
         staging_resource, _, _ = _create_mock_dso_resource()
@@ -1308,47 +1308,43 @@ class TestMismatchRecovery:
             "rows_per_second": 6000.0,
         }
 
-        with (
-            unittest.mock.patch.object(sync_utils, "is_same_database_mode", return_value=False),
-            unittest.mock.patch.object(sync_utils, "can_connect_to_staging", return_value=True),
-            unittest.mock.patch.object(sync_utils, "validate_table_schemas_match"),
-            unittest.mock.patch.object(sync_utils, "validate_linked_server"),
-            unittest.mock.patch.object(
-                sync_utils, "_sync_via_linked_server", side_effect=[delta_result, recovery_result]
-            ) as mock_sync,
-            unittest.mock.patch.object(
-                sync_utils,
-                "compare_row_counts",
-                side_effect=[
-                    {"staging_count": 30000, "dso_count": 29000, "match": False},  # pre-recovery
-                    {
-                        "staging_count": 30000,
-                        "dso_count": 30000,
-                        "match": True,
-                    },  # post-recovery verification
-                ],
-            ),
-            unittest.mock.patch("DSO.load.sync_state.SyncStateManager") as MockStateMgr,
-        ):
-            result = sync_utils.sync_table_via_linked_server(
-                ctx,
-                dso_resource,
-                config,
-                mssql_source_staging=staging_resource,
-            )
+        with _patch_dfm_session():
+            with (
+                unittest.mock.patch.object(sync_utils, "is_same_database_mode", return_value=False),
+                unittest.mock.patch.object(sync_utils, "can_connect_to_staging", return_value=True),
+                unittest.mock.patch.object(sync_utils, "validate_table_schemas_match"),
+                unittest.mock.patch.object(sync_utils, "validate_linked_server"),
+                unittest.mock.patch.object(
+                    sync_utils,
+                    "_sync_via_linked_server",
+                    side_effect=[delta_result, recovery_result],
+                ) as mock_sync,
+                unittest.mock.patch.object(
+                    sync_utils,
+                    "compare_row_counts",
+                    side_effect=[
+                        {"staging_count": 30000, "dso_count": 29000, "match": False},
+                        {"staging_count": 30000, "dso_count": 30000, "match": True},
+                    ],
+                ),
+                unittest.mock.patch("DSO.load.sync_dfm.finalize_dfm_run") as mock_finalize,
+            ):
+                result = sync_utils.sync_table_via_linked_server(
+                    ctx,
+                    dso_resource,
+                    config,
+                    mssql_source_staging=staging_resource,
+                )
 
         # Recovery should have been triggered and succeeded
         assert result["recovery_full_merge"] is True
         assert result.get("recovery_failed") is not True
         assert result["pre_recovery_staging_count"] == 30000
         assert result["pre_recovery_dso_count"] == 29000
-        # _sync_via_linked_server called twice: first delta, then full merge recovery
         assert mock_sync.call_count == 2
-        # Second call should use mode="merge"
-        recovery_call_config = mock_sync.call_args_list[1][0][2]  # 3rd positional arg = config
+        recovery_call_config = mock_sync.call_args_list[1][0][2]
         assert recovery_call_config.mode == "merge"
-        # Watermark should be advanced after recovery
-        MockStateMgr.return_value.update_sync_state.assert_called_once()
+        assert mock_finalize.call_count >= 1
 
     def test_no_recovery_when_counts_match(self):
         """When watermark_delta sync has matching counts, no recovery is triggered."""
@@ -1375,26 +1371,27 @@ class TestMismatchRecovery:
             "rows_per_second": 250.0,
         }
 
-        with (
-            unittest.mock.patch.object(sync_utils, "is_same_database_mode", return_value=False),
-            unittest.mock.patch.object(sync_utils, "can_connect_to_staging", return_value=True),
-            unittest.mock.patch.object(sync_utils, "validate_table_schemas_match"),
-            unittest.mock.patch.object(sync_utils, "validate_linked_server"),
-            unittest.mock.patch.object(
-                sync_utils, "_sync_via_linked_server", return_value=delta_result
-            ) as mock_sync,
-            unittest.mock.patch.object(
-                sync_utils,
-                "compare_row_counts",
-                return_value={"staging_count": 1000, "dso_count": 1000, "match": True},
-            ),
-        ):
-            result = sync_utils.sync_table_via_linked_server(
-                ctx,
-                dso_resource,
-                config,
-                mssql_source_staging=staging_resource,
-            )
+        with _patch_dfm_session():
+            with (
+                unittest.mock.patch.object(sync_utils, "is_same_database_mode", return_value=False),
+                unittest.mock.patch.object(sync_utils, "can_connect_to_staging", return_value=True),
+                unittest.mock.patch.object(sync_utils, "validate_table_schemas_match"),
+                unittest.mock.patch.object(sync_utils, "validate_linked_server"),
+                unittest.mock.patch.object(
+                    sync_utils, "_sync_via_linked_server", return_value=delta_result
+                ) as mock_sync,
+                unittest.mock.patch.object(
+                    sync_utils,
+                    "compare_row_counts",
+                    return_value={"staging_count": 1000, "dso_count": 1000, "match": True},
+                ),
+            ):
+                result = sync_utils.sync_table_via_linked_server(
+                    ctx,
+                    dso_resource,
+                    config,
+                    mssql_source_staging=staging_resource,
+                )
 
         # No recovery
         assert result.get("recovery_full_merge") is None
@@ -1403,6 +1400,244 @@ class TestMismatchRecovery:
         # Result should be the original delta result (unchanged)
         assert result["rows_affected"] == 50
         assert result["mode"] == "watermark_delta"
+
+    def test_mismatch_compare_uses_staging_view_not_base_table(self):
+        """View-sourced configs (conceptmap) must compare the view, not the base table."""
+        ctx = _create_mock_context()
+        dso_resource, _conn, _cursor = _create_mock_dso_resource()
+        staging_resource, _, _ = _create_mock_dso_resource()
+
+        config = SyncTableConfig(
+            schema="conceptmap",
+            table="EANToSOR",
+            source_table="vw_ean_to_sor",
+            primary_key=["dw_ek_EAN"],
+            mode="watermark",
+            watermark_column="dw_timestamp_update",
+        )
+        assert config.staging_table == "vw_ean_to_sor"
+
+        delta_result = {
+            "rows_affected": 10,
+            "mode": "watermark_delta",
+            "sync_engine": "linked_server",
+            "table": "[conceptmap].[EANToSOR]",
+            "columns_synced": 5,
+            "duration_ms": 100,
+            "sync_duration_seconds": 0.1,
+            "rows_per_second": 100.0,
+        }
+
+        with _patch_dfm_session():
+            with (
+                unittest.mock.patch.object(sync_utils, "is_same_database_mode", return_value=False),
+                unittest.mock.patch.object(sync_utils, "can_connect_to_staging", return_value=True),
+                unittest.mock.patch.object(sync_utils, "validate_table_schemas_match"),
+                unittest.mock.patch.object(sync_utils, "validate_linked_server"),
+                unittest.mock.patch.object(
+                    sync_utils, "_sync_via_linked_server", return_value=delta_result
+                ) as mock_sync,
+                unittest.mock.patch.object(
+                    sync_utils,
+                    "compare_row_counts",
+                    return_value={"staging_count": 100, "dso_count": 100, "match": True},
+                ) as mock_compare,
+            ):
+                sync_utils.sync_table_via_linked_server(
+                    ctx,
+                    dso_resource,
+                    config,
+                    mssql_source_staging=staging_resource,
+                )
+
+        mock_compare.assert_called_once()
+        kwargs = mock_compare.call_args.kwargs
+        assert kwargs["staging_schema"] == "conceptmap"
+        assert kwargs["staging_table"] == "vw_ean_to_sor"
+        assert mock_sync.call_count == 1
+
+    def test_zero_row_delta_still_compares_and_skips_surplus_recovery(self):
+        """Zero-row delta still compares; DSO surplus skips recovery (no thrash)."""
+        ctx = _create_mock_context()
+        dso_resource, _conn, _cursor = _create_mock_dso_resource()
+        staging_resource, _, _ = _create_mock_dso_resource()
+
+        config = SyncTableConfig(
+            schema="dim",
+            table="Kreditor",
+            primary_key="dw_ek_Kreditor",
+            mode="watermark",
+            watermark_column="dw_timestamp_update",
+        )
+
+        delta_result = {
+            "rows_affected": 0,
+            "mode": "watermark_delta",
+            "sync_engine": "linked_server",
+            "table": "[dim].[Kreditor]",
+            "columns_synced": 5,
+            "duration_ms": 50,
+            "sync_duration_seconds": 0.05,
+            "rows_per_second": 0.0,
+        }
+
+        with _patch_dfm_session():
+            with (
+                unittest.mock.patch.object(sync_utils, "is_same_database_mode", return_value=False),
+                unittest.mock.patch.object(sync_utils, "can_connect_to_staging", return_value=True),
+                unittest.mock.patch.object(sync_utils, "validate_table_schemas_match"),
+                unittest.mock.patch.object(sync_utils, "validate_linked_server"),
+                unittest.mock.patch.object(
+                    sync_utils, "_sync_via_linked_server", return_value=delta_result
+                ) as mock_sync,
+                unittest.mock.patch.object(
+                    sync_utils,
+                    "compare_row_counts",
+                    return_value={
+                        "staging_count": 54567,
+                        "dso_count": 620822,
+                        "match": False,
+                    },
+                ) as mock_compare,
+            ):
+                result = sync_utils.sync_table_via_linked_server(
+                    ctx,
+                    dso_resource,
+                    config,
+                    mssql_source_staging=staging_resource,
+                )
+
+        mock_compare.assert_called_once()
+        assert mock_sync.call_count == 1
+        assert result.get("recovery_full_merge") is None
+        assert result["mode"] == "watermark_delta"
+        assert result["rows_affected"] == 0
+        warning_text = " ".join(str(c) for c in ctx.log.warning.call_args_list)
+        assert "DSO >= staging" in warning_text
+
+    def test_zero_row_delta_recovers_when_dso_short(self):
+        """Zero-row delta with dso_count < staging_count still triggers full MERGE."""
+        ctx = _create_mock_context()
+        dso_resource, _conn, _cursor = _create_mock_dso_resource()
+        staging_resource, _, _ = _create_mock_dso_resource()
+
+        config = SyncTableConfig(
+            schema="fct",
+            table="Fakturalinje",
+            primary_key="dw_ek_Fakturalinje",
+            mode="watermark",
+            watermark_column="dw_timestamp_update",
+        )
+
+        delta_result = {
+            "rows_affected": 0,
+            "mode": "watermark_delta",
+            "sync_engine": "linked_server",
+            "table": "[fct].[Fakturalinje]",
+            "columns_synced": 10,
+            "duration_ms": 50,
+            "sync_duration_seconds": 0.05,
+            "rows_per_second": 0.0,
+        }
+        recovery_result = {
+            "rows_affected": 1000,
+            "mode": "merge",
+            "sync_engine": "linked_server",
+            "table": "[fct].[Fakturalinje]",
+            "columns_synced": 10,
+            "duration_ms": 5000,
+            "sync_duration_seconds": 5.0,
+            "rows_per_second": 200.0,
+        }
+
+        with _patch_dfm_session():
+            with (
+                unittest.mock.patch.object(sync_utils, "is_same_database_mode", return_value=False),
+                unittest.mock.patch.object(sync_utils, "can_connect_to_staging", return_value=True),
+                unittest.mock.patch.object(sync_utils, "validate_table_schemas_match"),
+                unittest.mock.patch.object(sync_utils, "validate_linked_server"),
+                unittest.mock.patch.object(
+                    sync_utils,
+                    "_sync_via_linked_server",
+                    side_effect=[delta_result, recovery_result],
+                ) as mock_sync,
+                unittest.mock.patch.object(
+                    sync_utils,
+                    "compare_row_counts",
+                    side_effect=[
+                        {"staging_count": 1000, "dso_count": 900, "match": False},
+                        {"staging_count": 1000, "dso_count": 1000, "match": True},
+                    ],
+                ),
+                unittest.mock.patch("DSO.load.sync_dfm.finalize_dfm_run"),
+            ):
+                result = sync_utils.sync_table_via_linked_server(
+                    ctx,
+                    dso_resource,
+                    config,
+                    mssql_source_staging=staging_resource,
+                )
+
+        assert result["recovery_full_merge"] is True
+        assert mock_sync.call_count == 2
+
+    def test_no_recovery_when_dso_count_gte_staging(self):
+        """DSO extras (orphans) are not recoverable via MERGE — skip full re-sync."""
+        ctx = _create_mock_context()
+        dso_resource, _conn, _cursor = _create_mock_dso_resource()
+        staging_resource, _, _ = _create_mock_dso_resource()
+
+        config = SyncTableConfig(
+            schema="dim",
+            table="Kreditor",
+            primary_key="dw_ek_Kreditor",
+            mode="watermark",
+            watermark_column="dw_timestamp_update",
+        )
+
+        delta_result = {
+            "rows_affected": 50,
+            "mode": "watermark_delta",
+            "sync_engine": "linked_server",
+            "table": "[dim].[Kreditor]",
+            "columns_synced": 5,
+            "duration_ms": 200,
+            "sync_duration_seconds": 0.2,
+            "rows_per_second": 250.0,
+        }
+
+        with _patch_dfm_session():
+            with (
+                unittest.mock.patch.object(sync_utils, "is_same_database_mode", return_value=False),
+                unittest.mock.patch.object(sync_utils, "can_connect_to_staging", return_value=True),
+                unittest.mock.patch.object(sync_utils, "validate_table_schemas_match"),
+                unittest.mock.patch.object(sync_utils, "validate_linked_server"),
+                unittest.mock.patch.object(
+                    sync_utils, "_sync_via_linked_server", return_value=delta_result
+                ) as mock_sync,
+                unittest.mock.patch.object(
+                    sync_utils,
+                    "compare_row_counts",
+                    return_value={
+                        "staging_count": 54567,
+                        "dso_count": 620822,
+                        "match": False,
+                    },
+                ),
+            ):
+                result = sync_utils.sync_table_via_linked_server(
+                    ctx,
+                    dso_resource,
+                    config,
+                    mssql_source_staging=staging_resource,
+                )
+
+        assert mock_sync.call_count == 1
+        assert result.get("recovery_full_merge") is None
+        assert result["mode"] == "watermark_delta"
+        ctx.log.warning.assert_called()
+        warning_text = " ".join(str(c) for c in ctx.log.warning.call_args_list)
+        assert "DSO >= staging" in warning_text
 
     def test_no_recovery_for_non_watermark_mode(self):
         """Recovery only applies to watermark mode tables."""
@@ -1428,22 +1663,23 @@ class TestMismatchRecovery:
             "rows_per_second": 1666.7,
         }
 
-        with (
-            unittest.mock.patch.object(sync_utils, "is_same_database_mode", return_value=False),
-            unittest.mock.patch.object(sync_utils, "can_connect_to_staging", return_value=True),
-            unittest.mock.patch.object(sync_utils, "validate_table_schemas_match"),
-            unittest.mock.patch.object(sync_utils, "validate_linked_server"),
-            unittest.mock.patch.object(
-                sync_utils, "_sync_via_linked_server", return_value=truncate_result
-            ) as mock_sync,
-            unittest.mock.patch.object(sync_utils, "compare_row_counts") as mock_compare,
-        ):
-            sync_utils.sync_table_via_linked_server(
-                ctx,
-                dso_resource,
-                config,
-                mssql_source_staging=staging_resource,
-            )
+        with _patch_dfm_session():
+            with (
+                unittest.mock.patch.object(sync_utils, "is_same_database_mode", return_value=False),
+                unittest.mock.patch.object(sync_utils, "can_connect_to_staging", return_value=True),
+                unittest.mock.patch.object(sync_utils, "validate_table_schemas_match"),
+                unittest.mock.patch.object(sync_utils, "validate_linked_server"),
+                unittest.mock.patch.object(
+                    sync_utils, "_sync_via_linked_server", return_value=truncate_result
+                ) as mock_sync,
+                unittest.mock.patch.object(sync_utils, "compare_row_counts") as mock_compare,
+            ):
+                sync_utils.sync_table_via_linked_server(
+                    ctx,
+                    dso_resource,
+                    config,
+                    mssql_source_staging=staging_resource,
+                )
 
         # compare_row_counts should NOT be called for non-watermark modes
         mock_compare.assert_not_called()
@@ -1474,23 +1710,24 @@ class TestMismatchRecovery:
             "rows_per_second": 200.0,
         }
 
-        with (
-            unittest.mock.patch.object(sync_utils, "is_same_database_mode", return_value=False),
-            unittest.mock.patch.object(sync_utils, "can_connect_to_staging", return_value=True),
-            unittest.mock.patch.object(sync_utils, "validate_table_schemas_match"),
-            unittest.mock.patch.object(sync_utils, "validate_linked_server"),
-            unittest.mock.patch.object(
-                sync_utils, "_sync_via_linked_server", return_value=delta_result
-            ) as mock_sync,
-            unittest.mock.patch.object(sync_utils, "compare_row_counts") as mock_compare,
-        ):
-            sync_utils.sync_table_via_linked_server(
-                ctx,
-                dso_resource,
-                config,
-                mssql_source_staging=staging_resource,
-                auto_recover_mismatch=False,
-            )
+        with _patch_dfm_session():
+            with (
+                unittest.mock.patch.object(sync_utils, "is_same_database_mode", return_value=False),
+                unittest.mock.patch.object(sync_utils, "can_connect_to_staging", return_value=True),
+                unittest.mock.patch.object(sync_utils, "validate_table_schemas_match"),
+                unittest.mock.patch.object(sync_utils, "validate_linked_server"),
+                unittest.mock.patch.object(
+                    sync_utils, "_sync_via_linked_server", return_value=delta_result
+                ) as mock_sync,
+                unittest.mock.patch.object(sync_utils, "compare_row_counts") as mock_compare,
+            ):
+                sync_utils.sync_table_via_linked_server(
+                    ctx,
+                    dso_resource,
+                    config,
+                    mssql_source_staging=staging_resource,
+                    auto_recover_mismatch=False,
+                )
 
         # compare_row_counts should NOT be called when recovery is disabled
         mock_compare.assert_not_called()
@@ -1534,48 +1771,43 @@ class TestMismatchRecovery:
         # call 1: initial sync path succeeds; call 2: recovery re-validation fails
         validate_calls = [None, RuntimeError("linked server not accessible")]
 
-        with (
-            unittest.mock.patch.object(sync_utils, "is_same_database_mode", return_value=False),
-            unittest.mock.patch.object(sync_utils, "can_connect_to_staging", return_value=True),
-            unittest.mock.patch.object(sync_utils, "validate_table_schemas_match"),
-            unittest.mock.patch.object(
-                sync_utils, "validate_linked_server", side_effect=validate_calls
-            ),
-            unittest.mock.patch.object(
-                sync_utils, "_sync_via_linked_server", return_value=delta_result
-            ),
-            unittest.mock.patch.object(
-                sync_utils, "_sync_via_python", return_value=python_recovery_result
-            ) as mock_python,
-            unittest.mock.patch.object(
-                sync_utils,
-                "compare_row_counts",
-                side_effect=[
-                    {"staging_count": 20000, "dso_count": 19000, "match": False},  # pre-recovery
-                    {
-                        "staging_count": 20000,
-                        "dso_count": 20000,
-                        "match": True,
-                    },  # post-recovery verification
-                ],
-            ),
-            unittest.mock.patch("DSO.load.sync_state.SyncStateManager") as MockStateMgr,
-        ):
-            result = sync_utils.sync_table_via_linked_server(
-                ctx,
-                dso_resource,
-                config,
-                mssql_source_staging=staging_resource,
-            )
+        with _patch_dfm_session():
+            with (
+                unittest.mock.patch.object(sync_utils, "is_same_database_mode", return_value=False),
+                unittest.mock.patch.object(sync_utils, "can_connect_to_staging", return_value=True),
+                unittest.mock.patch.object(sync_utils, "validate_table_schemas_match"),
+                unittest.mock.patch.object(
+                    sync_utils, "validate_linked_server", side_effect=validate_calls
+                ),
+                unittest.mock.patch.object(
+                    sync_utils, "_sync_via_linked_server", return_value=delta_result
+                ),
+                unittest.mock.patch.object(
+                    sync_utils, "_sync_via_python", return_value=python_recovery_result
+                ) as mock_python,
+                unittest.mock.patch.object(
+                    sync_utils,
+                    "compare_row_counts",
+                    side_effect=[
+                        {"staging_count": 20000, "dso_count": 19000, "match": False},
+                        {"staging_count": 20000, "dso_count": 20000, "match": True},
+                    ],
+                ),
+                unittest.mock.patch("DSO.load.sync_dfm.finalize_dfm_run") as mock_finalize,
+            ):
+                result = sync_utils.sync_table_via_linked_server(
+                    ctx,
+                    dso_resource,
+                    config,
+                    mssql_source_staging=staging_resource,
+                )
 
         assert result["recovery_full_merge"] is True
         assert result.get("recovery_failed") is not True
-        # Python fallback was used for recovery
         mock_python.assert_called_once()
-        recovery_call_config = mock_python.call_args[0][3]  # 4th positional arg = config
+        recovery_call_config = mock_python.call_args[0][3]
         assert recovery_call_config.mode == "merge"
-        # Watermark should still be advanced after Python fallback recovery
-        MockStateMgr.return_value.update_sync_state.assert_called_once()
+        assert mock_finalize.call_count >= 1
 
     def test_recovery_failed_sets_flag_without_retry(self):
         """When recovery MERGE runs but counts still mismatch, flag failure — no retry."""
@@ -1612,34 +1844,32 @@ class TestMismatchRecovery:
             "rows_per_second": 6000.0,
         }
 
-        with (
-            unittest.mock.patch.object(sync_utils, "is_same_database_mode", return_value=False),
-            unittest.mock.patch.object(sync_utils, "can_connect_to_staging", return_value=True),
-            unittest.mock.patch.object(sync_utils, "validate_table_schemas_match"),
-            unittest.mock.patch.object(sync_utils, "validate_linked_server"),
-            unittest.mock.patch.object(
-                sync_utils, "_sync_via_linked_server", side_effect=[delta_result, recovery_result]
-            ) as mock_sync,
-            unittest.mock.patch.object(
-                sync_utils,
-                "compare_row_counts",
-                side_effect=[
-                    {"staging_count": 30000, "dso_count": 29000, "match": False},  # pre-recovery
-                    {
-                        "staging_count": 30000,
-                        "dso_count": 29500,
-                        "match": False,
-                    },  # post-recovery still mismatched
-                ],
-            ),
-            unittest.mock.patch("DSO.load.sync_state.SyncStateManager"),
-        ):
-            result = sync_utils.sync_table_via_linked_server(
-                ctx,
-                dso_resource,
-                config,
-                mssql_source_staging=staging_resource,
-            )
+        with _patch_dfm_session():
+            with (
+                unittest.mock.patch.object(sync_utils, "is_same_database_mode", return_value=False),
+                unittest.mock.patch.object(sync_utils, "can_connect_to_staging", return_value=True),
+                unittest.mock.patch.object(sync_utils, "validate_table_schemas_match"),
+                unittest.mock.patch.object(sync_utils, "validate_linked_server"),
+                unittest.mock.patch.object(
+                    sync_utils,
+                    "_sync_via_linked_server",
+                    side_effect=[delta_result, recovery_result],
+                ) as mock_sync,
+                unittest.mock.patch.object(
+                    sync_utils,
+                    "compare_row_counts",
+                    side_effect=[
+                        {"staging_count": 30000, "dso_count": 29000, "match": False},
+                        {"staging_count": 30000, "dso_count": 29500, "match": False},
+                    ],
+                ),
+            ):
+                result = sync_utils.sync_table_via_linked_server(
+                    ctx,
+                    dso_resource,
+                    config,
+                    mssql_source_staging=staging_resource,
+                )
 
         # Recovery ran but failed — flag is set
         assert result["recovery_full_merge"] is True
@@ -1695,29 +1925,30 @@ class TestDispatcherFallbackOnConnectivityError:
             "rows_per_second": 500.0,
         }
 
-        with (
-            unittest.mock.patch.object(sync_utils, "is_same_database_mode", return_value=False),
-            unittest.mock.patch.object(sync_utils, "can_connect_to_staging", return_value=True),
-            unittest.mock.patch.object(sync_utils, "validate_table_schemas_match"),
-            unittest.mock.patch.object(sync_utils, "validate_linked_server"),
-            unittest.mock.patch.object(
-                sync_utils,
-                "_sync_via_linked_server",
-                side_effect=_FakeProgrammingError(
-                    "TCP Provider: No connection could be made because the target "
-                    "machine actively refused it"
+        with _patch_dfm_session():
+            with (
+                unittest.mock.patch.object(sync_utils, "is_same_database_mode", return_value=False),
+                unittest.mock.patch.object(sync_utils, "can_connect_to_staging", return_value=True),
+                unittest.mock.patch.object(sync_utils, "validate_table_schemas_match"),
+                unittest.mock.patch.object(sync_utils, "validate_linked_server"),
+                unittest.mock.patch.object(
+                    sync_utils,
+                    "_sync_via_linked_server",
+                    side_effect=_FakeProgrammingError(
+                        "TCP Provider: No connection could be made because the target "
+                        "machine actively refused it"
+                    ),
                 ),
-            ),
-            unittest.mock.patch.object(
-                sync_utils, "_sync_via_python", return_value=python_result
-            ) as mock_python,
-        ):
-            result = sync_utils.sync_table_via_linked_server(
-                ctx,
-                dso_resource,
-                config,
-                mssql_source_staging=staging_resource,
-            )
+                unittest.mock.patch.object(
+                    sync_utils, "_sync_via_python", return_value=python_result
+                ) as mock_python,
+            ):
+                result = sync_utils.sync_table_via_linked_server(
+                    ctx,
+                    dso_resource,
+                    config,
+                    mssql_source_staging=staging_resource,
+                )
 
         mock_python.assert_called_once()
         assert result["sync_engine"] == "python_fallback"
@@ -1736,25 +1967,26 @@ class TestDispatcherFallbackOnConnectivityError:
             mode="merge",
         )
 
-        with (
-            unittest.mock.patch.object(sync_utils, "is_same_database_mode", return_value=False),
-            unittest.mock.patch.object(sync_utils, "can_connect_to_staging", return_value=True),
-            unittest.mock.patch.object(sync_utils, "validate_table_schemas_match"),
-            unittest.mock.patch.object(sync_utils, "validate_linked_server"),
-            unittest.mock.patch.object(
-                sync_utils,
-                "_sync_via_linked_server",
-                side_effect=_FakeProgrammingError("Invalid column name 'Foo'"),
-            ),
-            unittest.mock.patch.object(sync_utils, "_sync_via_python") as mock_python,
-            pytest.raises(_FakeProgrammingError),
-        ):
-            sync_utils.sync_table_via_linked_server(
-                ctx,
-                dso_resource,
-                config,
-                mssql_source_staging=staging_resource,
-            )
+        with _patch_dfm_session():
+            with (
+                unittest.mock.patch.object(sync_utils, "is_same_database_mode", return_value=False),
+                unittest.mock.patch.object(sync_utils, "can_connect_to_staging", return_value=True),
+                unittest.mock.patch.object(sync_utils, "validate_table_schemas_match"),
+                unittest.mock.patch.object(sync_utils, "validate_linked_server"),
+                unittest.mock.patch.object(
+                    sync_utils,
+                    "_sync_via_linked_server",
+                    side_effect=_FakeProgrammingError("Invalid column name 'Foo'"),
+                ),
+                unittest.mock.patch.object(sync_utils, "_sync_via_python") as mock_python,
+                pytest.raises(_FakeProgrammingError),
+            ):
+                sync_utils.sync_table_via_linked_server(
+                    ctx,
+                    dso_resource,
+                    config,
+                    mssql_source_staging=staging_resource,
+                )
 
         mock_python.assert_not_called()
 
@@ -1913,7 +2145,7 @@ class TestBatchedPaginationSafety:
             context=context,
             mssql_target_dso=resource,
             config=config,
-            last_sync_timestamp=None,
+            last_sync_checkpoint=None,
             columns=[
                 "BrugerAD",
                 "dw_ek_Organisation",
@@ -2026,7 +2258,7 @@ class TestBatchedSyncConnectionHardening:
             context=context,
             mssql_target_dso=resource,
             config=self._config(),
-            last_sync_timestamp=None,
+            last_sync_checkpoint=None,
             columns=self._columns(),
             string_pk_cols=set(),
         )
@@ -2070,7 +2302,7 @@ class TestBatchedSyncConnectionHardening:
             context=context,
             mssql_target_dso=resource,
             config=self._config(),
-            last_sync_timestamp=None,
+            last_sync_checkpoint=None,
             columns=self._columns(),
             string_pk_cols=set(),
         )
@@ -2103,7 +2335,7 @@ class TestBatchedSyncConnectionHardening:
             context=context,
             mssql_target_dso=resource,
             config=self._config(),
-            last_sync_timestamp=None,
+            last_sync_checkpoint=None,
             columns=self._columns(),
             string_pk_cols=set(),
         )
@@ -2144,7 +2376,7 @@ class TestBatchedSyncConnectionHardening:
                 context=context,
                 mssql_target_dso=resource,
                 config=self._config(),
-                last_sync_timestamp=None,
+                last_sync_checkpoint=None,
                 columns=self._columns(),
                 string_pk_cols=set(),
             )
@@ -2180,7 +2412,7 @@ class TestBatchedSyncConnectionHardening:
             context=context,
             mssql_target_dso=resource,
             config=self._config(),
-            last_sync_timestamp=None,
+            last_sync_checkpoint=None,
             columns=self._columns(),
             string_pk_cols=set(),
         )
@@ -2232,7 +2464,7 @@ class TestCompositeSyncConnectionHardening:
             context=context,
             mssql_target_dso=resource,
             config=self._config(),
-            last_sync_timestamp=None,
+            last_sync_checkpoint=None,
             columns=self._columns(),
             string_pk_cols=set(),
         )
@@ -2265,7 +2497,7 @@ class TestCompositeSyncConnectionHardening:
             context=context,
             mssql_target_dso=resource,
             config=self._config(),
-            last_sync_timestamp=None,
+            last_sync_checkpoint=None,
             columns=self._columns(),
             string_pk_cols=set(),
         )
@@ -2340,3 +2572,116 @@ class TestChunkInputSizesDecimalScale:
             [Decimal("1.5"), Decimal("2.25"), Decimal("3.000000000001"), None]
         )
         assert scale == 12
+
+
+class TestBatchedSyncIndexDisable:
+    """The nonclustered index disable/rebuild must fire ONLY for a bulk load
+    (empty target / truncate_insert), never for an incremental MERGE into a
+    populated target — rebuilding every index over the whole table to absorb a
+    small delta would cost far more than per-row upkeep."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_collation_cache(self, monkeypatch):
+        monkeypatch.setattr(sync_utils, "_collation_mismatch_cache", False)
+
+    @staticmethod
+    def _config():
+        # Wide-fact stand-in: single PK, watermark, index-disable opted in.
+        return SyncTableConfig(
+            schema="fct",
+            table="DRGKontakt",
+            primary_key="dw_ek_DRGKontakt",
+            mode="watermark",
+            watermark_column="dw_timestamp_update",
+            disable_target_indexes_during_sync=True,
+        )
+
+    @staticmethod
+    def _columns():
+        return [
+            "dw_ek_DRGKontakt",
+            "totalpris_drg",
+            "dw_timestamp_insert",
+            "dw_timestamp_update",
+        ]
+
+    class _IndexAwareCursor(_DummyCursor):
+        """Routes the Phase-0 count, one non-empty Phase-1 batch, the Phase-2
+        emptiness probe, index-name discovery, and the DISABLE/REBUILD DDL so a
+        test can assert exactly which indexes were touched."""
+
+        def __init__(self, target_populated, index_names):
+            super().__init__()
+            self._batch_rowcounts = [5, 0]  # one non-empty batch, then stop
+            self._next_pks = [(1000,)]
+            self._fetch = []
+            self._target_populated = target_populated
+            self._index_names = list(index_names)
+            self.disabled = []
+            self.rebuilt = []
+            self.index_lookup_calls = 0
+            self.tablock_insert = False
+            self.did_merge = False
+
+        def execute(self, sql, params=None):
+            self.execute_calls.append((sql, params))
+            if "COUNT(*)" in sql:
+                self._fetch.append((5,))
+            elif "INSERT INTO #_sync_staging" in sql:
+                self.rowcount = self._batch_rowcounts.pop(0)
+            elif "MAX(" in sql:  # keyset advance (_max_pk_sql)
+                self._fetch.append(self._next_pks.pop(0))
+            elif "EXISTS" in sql:  # Phase-2 emptiness probe
+                self._fetch.append((1,) if self._target_populated else (0,))
+            elif "sys.indexes" in sql:  # _get_non_pk_nonclustered_index_names
+                self.index_lookup_calls += 1
+                self.fetchall_queue.append([(n,) for n in self._index_names])
+            elif "DISABLE" in sql:
+                self.disabled.append(sql)
+            elif "REBUILD" in sql:
+                self.rebuilt.append(sql)
+            elif "MERGE " in sql:
+                self.did_merge = True
+                self.rowcount = 3
+            elif "INSERT INTO [" in sql:  # Phase-2 bulk insert into the target
+                self.tablock_insert = "WITH (TABLOCK)" in sql
+                self.rowcount = 5
+
+        def fetchone(self):
+            return self._fetch.pop(0) if self._fetch else (0,)
+
+    def _run(self, target_populated, index_names):
+        cursor = self._IndexAwareCursor(target_populated, index_names)
+        conn = _MssqlPythonDummyConnection(cursor)
+        resource = _RawConnResource([conn])
+        context = MagicMock()
+        context.log = MagicMock()
+        result = sync_utils._sync_via_linked_server_batched(
+            context=context,
+            mssql_target_dso=resource,
+            config=self._config(),
+            last_sync_checkpoint=None,
+            columns=self._columns(),
+            string_pk_cols=set(),
+        )
+        return cursor, result
+
+    def test_empty_target_disables_and_rebuilds_every_nonclustered_index(self):
+        cursor, result = self._run(target_populated=False, index_names=["IX_a", "IX_b", "IX_c"])
+        assert cursor.index_lookup_calls == 1
+        assert len(cursor.disabled) == 3
+        assert len(cursor.rebuilt) == 3
+        # bulk-inserted (not merged) into the empty target, with TABLOCK
+        assert cursor.tablock_insert is True
+        assert cursor.did_merge is False
+        assert result["rows_affected"] == 5
+
+    def test_populated_target_merge_never_touches_indexes(self):
+        cursor, result = self._run(target_populated=True, index_names=["IX_a", "IX_b", "IX_c"])
+        # Never even look up the index names on the incremental MERGE path.
+        assert cursor.index_lookup_calls == 0
+        assert cursor.disabled == []
+        assert cursor.rebuilt == []
+        assert cursor.did_merge is True
+        assert cursor.tablock_insert is False
+        assert result["rows_affected"] == 3

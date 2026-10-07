@@ -142,6 +142,9 @@ def _enqueue(
         cur.execute(marker_delete)
 
         # Upsert: insert new keys; reopen a previously 'resolved' key that recurs.
+        # When ``source`` reads ##dqa_recon, s.business_key inherits that temp's
+        # column collation; pinning it at DDL keeps this MERGE aligned with
+        # dqa.RemediationQueue.business_key (Danish staging).
         cur.execute(
             f"""
             MERGE [dqa].[RemediationQueue] WITH (HOLDLOCK) AS t

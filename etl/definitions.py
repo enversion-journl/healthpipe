@@ -174,9 +174,22 @@ from DSO.load import (
     all_sfi_datapoint_refresh_assets,
     dso_sync_fhir_organization,
 )
+from infrastructure.assets.db_space import all_db_space_checks
 
 # DPA security AD pipeline (extract from AD -> populate staging; feeds dso_sync_security)
 from infrastructure.assets.security_ad_assets import all_security_ad_assets
+
+# Operatørudløst nulstilling af SFI/procedure/diagnose-sporet før genkørsel
+from infrastructure.assets.sfi_genkoersel_nulstilling import (
+    sfi_genkoersel_nulstilling,
+    sfi_genkoersel_nulstilling_job,
+)
+
+# MIDLERTIDIG: verifikation af genkørslens indlæste data mod grenens kontrakter
+from infrastructure.assets.sfi_genkoersel_verifikation import (
+    sfi_genkoersel_verifikation,
+    sfi_genkoersel_verifikation_job,
+)
 
 # =============================================================================
 # CENTRALIZED JOBS AND SCHEDULES
@@ -187,6 +200,7 @@ from sensors import (
     all_sensors,
     build_dfm_base_job_failure_sensor,
     build_dfm_base_job_success_sensor,
+    build_haiba_publish_sensor,
 )
 
 # Source assets (unchanged - still in sources/)
@@ -205,10 +219,12 @@ from sources.mssql.ils_assets import (
     ils_laftdstam_source,
     ils_lafth_source,
     ils_lev_source,
+    ils_projekt_source,
     ils_udlev_source,
     ils_vare_source,
     ils_vareart_source,
     ils_varegrp_source,
+    ils_varetype2_source,
     ils_varetype_source,
 )
 from sources.mssql.sydax_assets import (
@@ -292,6 +308,8 @@ all_assets = [
     ils_vareart_source,
     ils_varegrp_source,
     ils_varetype_source,
+    ils_varetype2_source,
+    ils_projekt_source,
     ils_lev_source,
     ils_lafth_source,
     ils_laftd_source,
@@ -322,6 +340,10 @@ all_assets = [
     dqa_fhir_server_cleanup,
     # DQA remediation: operator-triggered soft-delete of fully-deleted patients (arc -> fhir)
     dqa_patient_delete_propagation,
+    # Operatørudløst nulstilling af SFI/procedure/diagnose-sporet før genkørsel
+    sfi_genkoersel_nulstilling,
+    # MIDLERTIDIG: verifikation af genkørslens indlæste data
+    sfi_genkoersel_verifikation,
 ]
 
 # Define resources
@@ -383,6 +405,8 @@ postfixed_jobs = postfix_jobs(
         dqa_arc_ifdb_vanished_cleanup_job,
         dqa_fhir_server_cleanup_job,
         dqa_patient_delete_propagation_job,
+        sfi_genkoersel_nulstilling_job,
+        sfi_genkoersel_verifikation_job,
     ],
     key_replacements,
 )
@@ -407,6 +431,7 @@ postfixed_checks = postfix_asset_checks(
         dq_archive_completeness_vareudlevering,
         *dqa_asset_checks,
         *dso_asset_checks,
+        *all_db_space_checks,
     ],
     key_replacements,
 )
@@ -427,6 +452,16 @@ dfm_sensor = build_dfm_base_job_success_sensor(
 dfm_failure_sensor = build_dfm_base_job_failure_sensor(
     base_job=_dfm_base_job,
     daily_job=_dfm_daily_job,
+)
+
+# HAIBA publish sensor: the dm rebuild must run AFTER the SOF+Borger chain, so
+# stub patients created by haiba_ingest_job at 05:00 have a dw_ek_Borger by the
+# time the cases are published. Gated on the archive's delivery watermark, so a
+# night without a new SDS delivery does not republish 6.7M rows to DSO.
+_haiba_publish_job = _postfixed_job_by_name[_pfx("haiba_publish_job")]
+haiba_publish_sensor = build_haiba_publish_sensor(
+    sof_dso_job=_dfm_sof_dso_job,
+    publish_job=_haiba_publish_job,
 )
 
 # DQA post-ETL sensors: run a track's DQA job after the ETL that feeds it
@@ -468,7 +503,13 @@ for _spec in DQA_AFTER_ETL_SENSOR_SPECS:
             )
         )
 
-postfixed_sensors = [*all_sensors, dfm_sensor, dfm_failure_sensor, *dqa_after_etl_sensors]
+postfixed_sensors = [
+    *all_sensors,
+    dfm_sensor,
+    dfm_failure_sensor,
+    haiba_publish_sensor,
+    *dqa_after_etl_sensors,
+]
 
 defs = dg.Definitions(
     assets=postfixed_assets,

@@ -98,6 +98,8 @@ from utils.fhir.is_deleted_extension import build_is_deleted_extension
 SYSTEM_HENVISNING_TYPE = "urn:source:ifdb:henvisning:type"
 SYSTEM_RIS_SERVICE_CATEGORY = "http://example.org/fhir/CodeSystem/service-request-category"
 
+_CONDITION_VERIFICATION_STATUS_SYSTEM = "http://terminology.hl7.org/CodeSystem/condition-ver-status"
+
 SERVICE_REQUEST_REFERENCE_CONFIGS = [
     ReferenceFieldConfig(
         field_name="subject",
@@ -332,7 +334,7 @@ def _build_ris_referral_condition(
         verificationStatus=CodeableConcept(
             coding=[
                 Coding(
-                    system="http://terminology.hl7.org/CodeSystem/condition-ver-status",
+                    system=_CONDITION_VERIFICATION_STATUS_SYSTEM,
                     code="unconfirmed",
                 )
             ]

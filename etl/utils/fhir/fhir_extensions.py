@@ -32,6 +32,11 @@ EXTENSION_IFDB_HEALTHISSUE_CODE = "urn:source:ifdb:healthissue_code"
 EXTENSION_EPISODE_OF_CARE = "http://example.org/fhir/StructureDefinition/episodeOfCare"
 EXTENSION_ENCOUNTER = "http://example.org/fhir/StructureDefinition/encounter"
 
+# Extension URLs for Location
+EXTENSION_LOCATION_VALIDITY_PERIOD = (
+    "http://example.org/fhir/StructureDefinition/locationValidityPeriod"
+)
+
 # Extension URLs for source metadata
 EXTENSION_SOURCE_CREATED_AT = "http://example.org/fhir/StructureDefinition/sourceCreatedAt"
 EXTENSION_SOURCE_MODIFIED_AT = "http://example.org/fhir/StructureDefinition/sourceModifiedAt"

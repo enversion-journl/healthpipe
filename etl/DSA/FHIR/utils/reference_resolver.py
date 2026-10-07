@@ -176,12 +176,14 @@ class NestedReferenceFieldConfig:
         )
 
         # EpisodeOfCare extension reference
+        from utils.fhir.fhir_extensions import EXTENSION_PREVIOUS_EPISODE_OF_CARE
+
         NestedReferenceFieldConfig(
             field_path="extension.valueReference",
             identifier_system_to_type={
                 "urn:source:ifdb:episode_of_care_id": "EpisodeOfCare",
             },
-            extension_url="http://example.org/fhir/StructureDefinition/previousEpisodeOfCare",
+            extension_url=EXTENSION_PREVIOUS_EPISODE_OF_CARE,
             is_required=False,
             description="Previous episode of care reference",
         )

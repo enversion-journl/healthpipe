@@ -237,7 +237,7 @@ def test_change_detection_defaults_to_every_non_key_column():
     assert "leverance_dato" in _change_guard(default)
 
 
-META_DDL_PATH = DDL_PATH.with_name("02_meta.sql")
+META_DDL_PATH = DDL_PATH.with_name("03_meta.sql")
 
 
 def test_register_columns_match_the_control_table_ddl():
@@ -251,13 +251,14 @@ def test_register_columns_match_the_control_table_ddl():
 
 
 def test_register_upsert_keys_match_the_primary_key():
-    """The MERGE's ON clause and the PK must be the same pair, or a re-run of one
-    delivery either duplicates its row or violates the key."""
+    """The MERGE's ON clause and the PK must be the same triple, or a re-run of
+    one delivery of a type either duplicates its row or violates the key."""
     ddl = META_DDL_PATH.read_text(encoding="utf-8")
     upsert = build_leverance_sql()
 
-    assert "PRIMARY KEY CLUSTERED ([kildetabel], [leverance_dato])" in ddl
+    assert "PRIMARY KEY CLUSTERED ([kildetabel], [hai_type], [leverance_dato])" in ddl
     assert "tgt.[kildetabel] = src.[kildetabel]" in upsert
+    assert "tgt.[hai_type] = src.[hai_type]" in upsert
     assert "tgt.[leverance_dato] = src.[leverance_dato]" in upsert
 
 

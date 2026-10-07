@@ -120,13 +120,13 @@ def dso_infra_db_settings(
     compute_kind="mssql",
     deps=["dso_infra_schemas", "dso_migrations"],
     tags={"layer": "dso", "type": "infrastructure", "object": "table"},
-    description="Create metadata tables on DSO (sync watermarks for delta sync)",
+    description="Create metadata tables on DSO (sync watermarks, DFM state, space snapshots)",
 )
 def dso_infra_meta(
     context: dg.AssetExecutionContext,
     mssql_target_dso: MSSQLResource,
 ) -> dg.MaterializeResult:
-    """Create meta schema tables: meta.SyncWatermarks"""
+    """Run every ddl/tables/meta file on DSO (watermarks, DFM, space snapshots)."""
 
     results = execute_sql_files_from_directory(mssql_target_dso, "tables/meta", context)
 
@@ -134,7 +134,7 @@ def dso_infra_meta(
     return dg.MaterializeResult(
         metadata={
             "files_executed": list(results.keys()),
-            "tables": "meta.SyncWatermarks",
+            "batches_executed": sum(results.values()),
         }
     )
 
@@ -303,6 +303,159 @@ def dso_infra_erp(
         metadata={
             "files_executed": list(results.keys()),
             "tables": "map.Kontoplan, map.Kreditor, map.Leverandoervare, map.Aftale, map.AftaleVarePris, map.Faktura, map.Fakturalinje, map.Postering, map.Lager, map.Vareudlevering, map.Rekvirent, map.ean, map.LagerbeholdningEgenskaber, map.AfdelingLagerbeholdningEgenskaber, map.Okosted, dim.Kontoplan, dim.Kreditor, dim.Leverandoervare, dim.Aftale, dim.Faktura, dim.Fakturalinje, dim.Postering, dim.Lager, dim.Vareudlevering, dim.Rekvirent, dim.ean, dim.LagerbeholdningEgenskaber, dim.AfdelingLagerbeholdningEgenskaber, dim.Okosted, fct.Faktura, fct.Fakturalinje, fct.Postering, fct.Vareudlevering, fct.Lagerbeholdning, fct.AfdelingLagerbeholdning, fct.AftaleVarePris",
+        }
+    )
+
+
+# ============================================================================
+# HAIBA (kun dm-laget — map/arc/ext/meta er staging-interne)
+# ============================================================================
+
+
+@dg.asset(
+    name="dso_infra_haiba",
+    group_name="dso_infrastructure",
+    compute_kind="mssql",
+    deps=["dso_infra_schemas", "dso_migrations"],
+    tags={"layer": "dso", "type": "infrastructure", "domain": "haiba"},
+    description=(
+        "Create the HAIBA dm tables on DSO (facts + egenskaber). Deliberately "
+        "only tables/haiba/02_dm.sql: map.HAIBA_* mints keys on staging and its "
+        "case clean_codes carry CPR, and arc/ext/meta are pipeline internals — "
+        "none of them may exist on DSO."
+    ),
+)
+def dso_infra_haiba(
+    context: dg.AssetExecutionContext,
+    mssql_target_dso: MSSQLResource,
+) -> dg.MaterializeResult:
+    """Create the eight dm.HAIBA_* tables on DSO."""
+
+    execute_sql_file(mssql_target_dso, "tables/haiba/02_dm.sql", context)
+
+    context.log.info("✅ HAIBA dm tables created on DSO")
+    return dg.MaterializeResult(
+        metadata={
+            "files_executed": ["tables/haiba/02_dm.sql"],
+            "tables": (
+                "dm.HAIBA_AggInfektion(+_Egenskaber), "
+                "dm.HAIBA_AggOrtopaedi(+_Egenskaber), "
+                "dm.HAIBA_CasesInfektion(+_Egenskaber), "
+                "dm.HAIBA_CasesSSI(+_Egenskaber)"
+            ),
+        }
+    )
+
+
+@dg.asset(
+    name="dso_infra_views_haiba",
+    group_name="dso_infrastructure",
+    compute_kind="mssql",
+    deps=["dso_infra_haiba"],
+    tags={"layer": "dso", "type": "infrastructure", "domain": "haiba", "object": "view"},
+    description=(
+        "Create the HAIBA consumer views on DSO (vw_dm.HAIBA_*). The dm "
+        "tables publish the retraction audit trail, and SDS soft-deletes "
+        "roughly a fifth of the archive every January — the views filter "
+        "dw_is_deleted = 0 so the safe read is the default one."
+    ),
+)
+def dso_infra_views_haiba(
+    context: dg.AssetExecutionContext,
+    mssql_target_dso: MSSQLResource,
+) -> dg.MaterializeResult:
+    """Create vw_dm.HAIBA_* views on DSO."""
+
+    results = execute_sql_files_from_directory(mssql_target_dso, "views/haiba", context)
+
+    context.log.info("✅ HAIBA views created on DSO")
+    return dg.MaterializeResult(
+        metadata={
+            "files_executed": list(results.keys()),
+            "views": (
+                "vw_dm.HAIBA_AggInfektion(+_Egenskaber), "
+                "vw_dm.HAIBA_AggOrtopaedi(+_Egenskaber), "
+                "vw_dm.HAIBA_CasesInfektion(+_Egenskaber), "
+                "vw_dm.HAIBA_CasesSSI(+_Egenskaber)"
+            ),
+        }
+    )
+
+
+# ============================================================================
+# DRG (kun dim/fct/bridge — map/arc/meta/seeds er staging-interne)
+# ============================================================================
+
+
+@dg.asset(
+    name="dso_infra_drg",
+    group_name="dso_infrastructure",
+    compute_kind="mssql",
+    deps=["dso_infra_schemas", "dso_migrations"],
+    tags={"layer": "dso", "type": "infrastructure", "domain": "drg"},
+    description=(
+        "Create the DRG dim/fct/bridge tables on DSO. Deliberately only "
+        "03_dims/04_facts/06_bridges: map.DRG* mints IDENTITY keys on staging "
+        "and 05_seeds also seeds map (absent on DSO), while arc/meta are "
+        "pipeline internals — none of them may exist on DSO. The -1 sentinels "
+        "arrive with the sync (dims) or inline in 06_bridges (bridges)."
+    ),
+)
+def dso_infra_drg(
+    context: dg.AssetExecutionContext,
+    mssql_target_dso: MSSQLResource,
+) -> dg.MaterializeResult:
+    """Create the DRG dim/fct/bridge tables on DSO."""
+
+    files = ["tables/drg/03_dims.sql", "tables/drg/04_facts.sql", "tables/drg/06_bridges.sql"]
+    for f in files:
+        execute_sql_file(mssql_target_dso, f, context)
+
+    context.log.info("✅ DRG dim/fct/bridge tables created on DSO")
+    return dg.MaterializeResult(
+        metadata={
+            "files_executed": files,
+            "tables": (
+                "dim.DRGKontaktEgenskaber, dim.DRGKontaktKlassifikation, "
+                "dim.DRGDiagnose, dim.DRGProcedure, fct.DRGKontakt, "
+                "bridge.DRGDiagnoseGruppe, bridge.DRGProcedureGruppe"
+            ),
+        }
+    )
+
+
+@dg.asset(
+    name="dso_infra_views_drg",
+    group_name="dso_infrastructure",
+    compute_kind="mssql",
+    deps=["dso_infra_drg"],
+    tags={"layer": "dso", "type": "infrastructure", "domain": "drg", "object": "view"},
+    description="Create the CPR-free DRG presentation views on DSO (vw_dim.*, vw_bridge.*)",
+)
+def dso_infra_views_drg(
+    context: dg.AssetExecutionContext,
+    mssql_target_dso: MSSQLResource,
+) -> dg.MaterializeResult:
+    """Create the CPR-free DRG presentation views on DSO.
+
+    Only the pass-through views over the CPR-free code dims and group bridges
+    live here (views/drg). The DPA-secured views for the person-referable
+    fct.DRGKontakt and the demografi-carrying dim.DRGKontaktEgenskaber are
+    owned by the separate security-views repo, so this asset references only
+    dso_infra_drg (the dim/fct/bridge tables) — no security infra."""
+
+    results = execute_sql_files_from_directory(mssql_target_dso, "views/drg", context)
+
+    context.log.info("✅ DRG presentation views created on DSO")
+    return dg.MaterializeResult(
+        metadata={
+            "files_executed": list(results.keys()),
+            "views": (
+                "vw_dim.DRGKontaktKlassifikation, vw_dim.DRGDiagnose, vw_dim.DRGProcedure, "
+                "vw_bridge.DRGDiagnoseGruppe, vw_bridge.DRGProcedureGruppe "
+                "(DPA-secured vw_fct.DRGKontakt / vw_dim.DRGKontaktEgenskaber "
+                "are owned by the separate security-views repo)"
+            ),
         }
     )
 
