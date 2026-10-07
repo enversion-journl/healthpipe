@@ -11,8 +11,8 @@ status: active
 name: "LagerToSor"
 title: "Lager to SOR"
 description: "Maps ILS lager codes to SOR organisation codes"
-sourceScopeUri: "https://regionsyd.dk/ils/lager"
+sourceScopeUri: "https://example.org/ils/lager"
 targetScopeUri: "https://sundhedsdatastyrelsen.dk/sor"
 group:
-  - source: "https://regionsyd.dk/ils/lager"
+  - source: "https://example.org/ils/lager"
     target: "https://sundhedsdatastyrelsen.dk/sor"

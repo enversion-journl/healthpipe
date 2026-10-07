@@ -6,9 +6,9 @@
 
 """ILS DFM archive configs and factory-generated assets.
 
-20 UPSERT archives from ext.ils_* into arc.ils_* (source-prefixed naming).
+22 UPSERT archives from ext.ils_* into arc.ils_* (source-prefixed naming).
 
-A config-driven factory generates the 19 Progress Pro2 archives, mirroring the
+A config-driven factory generates the 21 Progress Pro2 archives, mirroring the
 convention on the extract side (DSI/mssql/extract/ils_extract_configs.py), plus
 one manual-list archive (ils_rekvundtagne) keyed on (sgh, rnr).
 
@@ -19,8 +19,9 @@ explicitly at the bottom of this module.
 
 Two patterns (same membership as _ILS_FULL_LOAD_TABLES / _ILS_SYSDATO_TABLES
 in extract_configs.py):
-  A) Full load (12): vareart, varegrp, varetype, moms, lev, sgh, lgr, rekv,
-     rekvgrp, lafth, lafthsgh, zz_oper — upstream DFM extract truncates and reloads each run.
+  A) Full load (14): vareart, varegrp, varetype, varetype2, projekt, moms, lev,
+     sgh, lgr, rekv, rekvgrp, lafth, lafthsgh, zz_oper — upstream DFM extract
+     truncates and reloads each run.
   B) Delta on [sysdato] (7): laftdpris, laftdstam, laftd, udlev, lgrvare,
      pmdm, indkfak — checkpoint is MAX(sysdato) from the arc table.
   C) Manual full load (1): rekvundtagne — grain (sgh, rnr), no prrowid.
@@ -72,6 +73,37 @@ _NON_KEY_COLUMNS: dict[str, tuple[str, ...]] = {
         "sw_synk",
         "aktiv",
         "sysklk",
+        "sysdato",
+        "bruger",
+        "seqnr",
+        "Pro2SrcPDB",
+        "pro2created",
+        "pro2modified",
+    ),
+    "varetype2": (
+        "varetype2",
+        "navn",
+        "sw_synk",
+        "aktiv",
+        "sysklk",
+        "sysdato",
+        "seqnr",
+        "bruger",
+        "Pro2SrcPDB",
+        "pro2created",
+        "pro2modified",
+    ),
+    "projekt": (
+        "sgh",
+        "projnr",
+        "navn",
+        "ktosted",
+        "projgr",
+        "sw_niveau",
+        "startdato",
+        "slutdato",
+        "rekvirent",
+        "aktiv",
         "sysdato",
         "bruger",
         "seqnr",
@@ -991,6 +1023,8 @@ _FULL_LOAD_TABLES = (
     "vareart",
     "varegrp",
     "varetype",
+    "varetype2",
+    "projekt",
     "moms",
     "lev",
     "sgh",

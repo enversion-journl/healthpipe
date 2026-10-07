@@ -4,7 +4,7 @@
 -- This file is part of Healthpipe. See the LICENSE file in the project
 -- root for the full AGPL-3.0 license text.
 
--- Idempotent: add dim.Rekvirent.er_undtaget (AB#29116 PR-C).
+-- Idempotent: add dim.Rekvirent.er_undtaget.
 -- Convenience BIT flag from ref.RekvirentUndtagelse via (sgh, rnr). Default 0.
 
 IF OBJECT_ID(N'[dim].[Rekvirent]', 'U') IS NOT NULL

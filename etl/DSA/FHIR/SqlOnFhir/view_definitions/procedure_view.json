@@ -6,24 +6,102 @@
   "select": [
     {
       "column": [
-        {"name": "procedure_id", "path": "id"},
-        {"name": "patient_id", "path": "subject.id"},
-        {"name": "encounter_id", "path": "encounter.id.first()"},
-        {"name": "episode_of_care_id", "path": "extension.where(url='http://regionsyddanmark.dk/fhir/StructureDefinition/episodeOfCare').valueReference.id.first()"},
-        {"name": "status", "path": "status"},
-        {"name": "category_code", "path": "category.coding.code.first()"},
-        {"name": "category_display", "path": "category.coding.display.first()"},
-        {"name": "code", "path": "code.coding.where(userSelected = true).code.first()"},
-        {"name": "code_system", "path": "code.coding.where(userSelected = true).system.first()"},
-        {"name": "code_display", "path": "code.coding.where(userSelected = true).display.first()"},
-        {"name": "performed_datetime", "path": "performedDateTime"},
-        {"name": "performed_period_start", "path": "performedPeriod.start"},
-        {"name": "performed_period_end", "path": "performedPeriod.end"},
-        {"name": "body_site_code", "path": "bodySite.coding.code.first()"},
-        {"name": "body_site_display", "path": "bodySite.first().text"},
-        {"name": "source_system", "path": "identifier.system.first()"},
-        {"name": "ifdb_aktivitet_id", "path": "identifier.where(system='urn:source:ifdb:aktivitetsresultat_procedure').value.first()"},
-        {"name": "dw_is_deleted", "path": "extension('urn:fhir:isDeleted').valueInteger.first()"}
+        {
+          "name": "procedure_id",
+          "path": "id"
+        },
+        {
+          "name": "patient_id",
+          "path": "subject.id"
+        },
+        {
+          "name": "encounter_id",
+          "path": "encounter.id.first()"
+        },
+        {
+          "name": "episode_of_care_id",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/episodeOfCare').valueReference.id.first()"
+        },
+        {
+          "name": "status",
+          "path": "status"
+        },
+        {
+          "name": "category_code",
+          "path": "category.coding.code.first()"
+        },
+        {
+          "name": "category_display",
+          "path": "category.coding.display.first()"
+        },
+        {
+          "name": "code",
+          "path": "code.coding.where(userSelected = true).code.first()"
+        },
+        {
+          "name": "code_system",
+          "path": "code.coding.where(userSelected = true).system.first()"
+        },
+        {
+          "name": "code_display",
+          "path": "code.coding.where(userSelected = true).display.first()"
+        },
+        {
+          "name": "performed_datetime",
+          "path": "performedDateTime"
+        },
+        {
+          "name": "performed_period_start",
+          "path": "performedPeriod.start"
+        },
+        {
+          "name": "performed_period_end",
+          "path": "performedPeriod.end"
+        },
+        {
+          "name": "body_site_code",
+          "path": "bodySite.coding.code.first()"
+        },
+        {
+          "name": "body_site_display",
+          "path": "bodySite.first().text"
+        },
+        {
+          "name": "source_system",
+          "path": "identifier.system.first()"
+        },
+        {
+          "name": "source_identifier_value",
+          "path": "identifier.value.first()"
+        },
+        {
+          "name": "ifdb_aktivitet_id",
+          "path": "identifier.where(system='urn:source:ifdb:aktivitetsresultat_procedure').value.first()"
+        },
+        {
+          "name": "knivtid_start",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/aktivitetsresultatProcedureSourceMeta').extension.where(url='knivtidStart').valueDateTime.first()"
+        },
+        {
+          "name": "knivtid_slut",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/aktivitetsresultatProcedureSourceMeta').extension.where(url='knivtidSlut').valueDateTime.first()"
+        },
+        {
+          "name": "knivtid_minutter",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/aktivitetsresultatProcedureSourceMeta').extension.where(url='knivtidMinutter').valueInteger.first()"
+        },
+        {
+          "name": "part_of_id",
+          "path": "partOf.id.first()"
+        },
+        {
+          "name": "lpr3_ignored",
+          "path": "meta.tag.where(system = 'http://example.org/fhir/CodeSystem/resource-flag' and code = 'lpr3-ignored').exists()"
+        },
+        {
+          "name": "dw_is_deleted",
+          "path": "extension('urn:fhir:isDeleted').valueInteger.first()"
+        }
       ]
     }
   ]

@@ -9,7 +9,6 @@
 # ETL Pipeline Testing Guide
 
 This directory contains the testing framework for Dagster ETL pipelines.
-For folder-specific conventions, see `.cursor/rules/05-testing.mdc`.
 
 ## Table of Contents
 

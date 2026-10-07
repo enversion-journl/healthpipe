@@ -8,7 +8,7 @@
 
 # etl/scripts
 
-## license_headers.py — SPDX license headers (US 27067)
+## license_headers.py — SPDX license headers
 
 Verifies / inserts AGPL SPDX headers per file type for the Healthpipe public tree.
 

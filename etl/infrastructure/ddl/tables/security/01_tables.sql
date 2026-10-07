@@ -8,7 +8,7 @@
 -- Security Tables
 -- RBOrganisation (AD-fed). sec.RolleDomaene lives in 04_dpa_tables.sql.
 --
--- sec.RBOrganisation is loaded via SWAP (load_sydbi_ad_to_mssql.py): _New is
+-- sec.RBOrganisation is loaded via SWAP (load_healthpipe_ad_to_mssql.py): _New is
 -- filled and rotated metadata-only (TRUNCATE _Old; live SWITCH TO _Old;
 -- _New SWITCH TO live). The three tables MUST be structurally identical —
 -- SWITCH requires it. No dw_is_deleted: the content is fully overwritten.
@@ -66,7 +66,7 @@ END
 GO
 
 -- Old/new metrics per load — input for a later manual acceptance gate.
--- Written by load_sydbi_ad_to_mssql.py, also when the size guard blocks.
+-- Written by load_healthpipe_ad_to_mssql.py, also when the size guard blocks.
 IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[sec].[RBOrganisationLoadLog]') AND type = 'U')
 BEGIN
     CREATE TABLE [sec].[RBOrganisationLoadLog] (

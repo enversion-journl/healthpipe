@@ -16,7 +16,7 @@ to what the extraction wrote into the NVARCHAR archive column: NUMBER ids lose
 the ``.0`` artifact, and a DATE key (e.g. Location's PERIOD_START) stringifies to
 the exact ``YYYY-MM-DD HH:MM:SS`` form the archive stores.
 
-Composite merge keys (AB#29344): pass a sequence of columns and the staged table
+Composite merge keys: pass a sequence of columns and the staged table
 gets ``k0..k{n-1}``; a single column keeps the historical ``k`` name, so existing
 single-key SQL is unchanged. Rows where ANY key part is NULL are skipped -- the
 arc primary key is NOT NULL, so they cannot correspond to an archived row.
@@ -30,10 +30,22 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 
+from dqa.checks.helpers import COLLATE_DB_DEFAULT
 from DSA.FHIR.utils.ifdb.transforms import normalize_oracle_id
 
 _BATCH = 10_000
 _BULK_TIMEOUT = 600
+
+
+def _stage_ddl(stage: str, stage_cols: Sequence[str]) -> str:
+    """``CREATE TABLE`` for ``##dqa_ifdb_keys``. Collation is pinned at DDL.
+
+    DATABASE_DEFAULT is correct because this runs on ``mssql_target_staging``
+    (same DB as ``arc.*``). Pinning the columns -- not the join predicate --
+    keeps ``IX_dqa_ifdb_keys`` sargable.
+    """
+    cols = ", ".join(f"[{c}] NVARCHAR(255){COLLATE_DB_DEFAULT} NOT NULL" for c in stage_cols)
+    return f"CREATE TABLE {stage} ({cols})"
 
 
 def stage_ifdb_keys(
@@ -55,8 +67,7 @@ def stage_ifdb_keys(
     stage_cols = ["k"] if len(cols) == 1 else [f"k{i}" for i in range(len(cols))]
 
     stage = f"##dqa_ifdb_keys_{uuid.uuid4().hex}"
-    col_ddl = ", ".join(f"{c} NVARCHAR(255) NOT NULL" for c in stage_cols)
-    cur.execute(f"CREATE TABLE {stage} ({col_ddl})")
+    cur.execute(_stage_ddl(stage, stage_cols))
     # Release the schema lock before bulkcopy()'s own connection reads the
     # staging metadata, else that connection blocks indefinitely.
     conn.commit()

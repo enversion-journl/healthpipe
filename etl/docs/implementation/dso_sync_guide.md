@@ -168,19 +168,24 @@ If the table needs a view, add the `CREATE OR ALTER VIEW` DDL to the appropriate
 When `mode="watermark"`, the sync follows this flow on each run:
 
 ```
-1. SyncStateManager.get_last_sync_timestamp(schema, table)
+1. DfmManager.start_dfm_run(..., scope='dso') on staging
        │
-       ├── Returns None (first run)
-       │     └── build_merge_statement()          → full MERGE
+       ├── sample max_now = MAX(COALESCE(wm, insert)) on staging  (BEFORE MERGE)
        │
-       └── Returns datetime
-             └── build_delta_merge_statement()    → delta MERGE
-                   WHERE COALESCE([watermark_col], [dw_timestamp_insert]) >= last_ts
+       ├── checkpoint None (first run)
+       │     └── MERGE with COALESCE(...) <= max_now (or unbounded if empty)
+       │
+       └── checkpoint NVARCHAR from meta.DFMState
+             └── delta MERGE / OPENQUERY batches
+                   WHERE COALESCE([wm], [insert]) > checkpoint
+                     AND COALESCE([wm], [insert]) <= max_now
 
 2. Execute MERGE on DSO via linked server
 
-3. SyncStateManager.update_sync_state(schema, table, rows, duration_ms)
-       └── MERGE into [meta].[SyncWatermarks] with SYSDATETIME()
+3. On success with rows > 0:
+       set_checkpoint(max_now)   -- pre-sampled; never re-query MAX after MERGE
+       complete_dfm_run(..., checkpoint_after=max_now)
+   On success with 0 rows: complete_dfm_run only (checkpoint unchanged)
 ```
 
 The delta MERGE SQL adds a subquery with a WHERE filter:
@@ -189,18 +194,22 @@ The delta MERGE SQL adds a subquery with a WHERE filter:
 MERGE [dim].[ExampleTable] AS tgt
 USING (
     SELECT * FROM [STAGING_LINK].[DW].[dim].[ExampleTable]
-    WHERE COALESCE([watermark_column], [dw_timestamp_insert]) >= '2026-02-15 08:00:00'
+    WHERE COALESCE([watermark_column], [dw_timestamp_insert]) > '2026-02-15 08:00:00'
+      AND COALESCE([watermark_column], [dw_timestamp_insert]) <= '2026-02-15 09:00:00'
 ) AS src
 ON tgt.[DW_EK_ExampleTable] = src.[DW_EK_ExampleTable]
 WHEN MATCHED THEN UPDATE SET ...
 WHEN NOT MATCHED BY TARGET THEN INSERT ...;
 ```
 
-The `COALESCE` ensures that rows where the watermark column is NULL are still captured via `dw_timestamp_insert` as a fallback.
+The `COALESCE` ensures that rows where the watermark column is NULL are still captured via `dw_timestamp_insert` as a fallback. The inclusive upper bound is the pre-MERGE `max_now` so mid-sync inserts cannot advance the checkpoint past unread rows.
 
-### 3.2 SyncStateManager and State Tracking
+### 3.2 DfmManager and State Tracking
 
-State is persisted in `[meta].[SyncWatermarks]` on the DSO database:
+DSO table sync state lives in `[meta].[DFMState]` on **staging** with `scope='dso'`.
+Run history is in `[meta].[DFMRunLog]`. See `dfm_design.md` §8 and `DSO/load/sync_dfm.py`.
+
+Legacy `[meta].[SyncWatermarks]` on DSO remains for **SFI datapoint refresh** only (`refresh_sfi_datapoint.py`). DDL (deprecated for table sync):
 
 ```sql
 CREATE TABLE [meta].[SyncWatermarks] (
@@ -222,34 +231,48 @@ The timestamp is always set server-side with `CAST(SYSDATETIME() AS datetime2(0)
 
 ### 3.3 Watermark Rules (Source of Truth)
 
-Authoritative rules for delta sync data correctness and control. Implementation: `build_delta_merge_statement`, `SyncStateManager`, `[meta].[SyncWatermarks]`.
+Authoritative rules for delta sync data correctness and control. Implementation:
+`build_delta_merge_statement`, `DfmManager` (`scope='dso'`), `[meta].[DFMState]`.
 
-**Filter predicate:** `COALESCE([watermark_column], [dw_timestamp_insert]) >= last_sync_timestamp`
+**Filter predicate:** `COALESCE([watermark_column], [dw_timestamp_insert]) > checkpoint_value`
 
 - **watermark_column:** Specified per table in `SyncTableConfig.watermark_column` (commonly `dw_timestamp_update`).
-- **last_sync_timestamp:** From `[meta].[SyncWatermarks]` for that table (DSO server time, see below).
-- **COALESCE:** Rows with NULL `dw_timestamp_update` are still included when `dw_timestamp_insert >= last_sync_timestamp`.
+- **checkpoint_value:** From `[meta].[DFMState]` with `scope='dso'` (NVARCHAR, CONVERT style 121).
+- **COALESCE:** Rows with NULL `dw_timestamp_update` are still included when insert timestamp exceeds the checkpoint.
 
-**Boundary: inclusive `>=`**
+**Boundary: exclusive `>` (DFM Strategy B)**
 
-We use **inclusive** `>=`, not `>`.
+Checkpoint is `MAX(COALESCE(watermark, insert))` from the staging source after a
+successful sync. The next run uses exclusive `>` so boundary rows are not
+re-MERGE'd every day (DSO MERGE stamps `dw_timestamp_update = SYSDATETIME()`).
 
 | Choice | Effect | Our decision |
 |--------|--------|--------------|
-| **>= (inclusive)** | Rows with timestamp equal to `last_sync_timestamp` are included. No rows lost at boundary. Re-running reprocesses boundary rows; MERGE is idempotent (same PK → UPDATE), so no duplicate rows. | **Used.** |
-| **> (exclusive) + safety lag** | Avoids reprocessing the exact boundary second but requires defined lag and more complex semantics. | Not used. |
+| **> (exclusive)** | Rows with timestamp equal to checkpoint were consumed last run; skip them. Aligns with staging DFM delta semantics. | **Used.** |
+| **>= (inclusive)** | With MAX checkpoint, re-processes entire last timestamp second every run. | Not used. |
 
-**Guarantees:** (1) No lost rows at boundary. (2) No duplicates from double processing (MERGE on PK).
+**Checkpoint source:** Before the MERGE, sample staging
+`MAX(COALESCE(watermark_col, dw_timestamp_insert))` as `max_now`. On success with
+rows > 0, `set_checkpoint(max_now)` — not a post-MERGE `MAX` and not DSO
+`SYSDATETIME()`. Every source read is bounded by
+`> checkpoint AND <= max_now`.
 
-**NULL in `dw_timestamp_update`:** Rows are included when `COALESCE(dw_timestamp_update, dw_timestamp_insert) >= last_sync_timestamp`, i.e. new inserts not yet updated are captured.
+**Zero-row guard:** Do not advance checkpoint when `rows_affected == 0`.
 
-**Concurrent inserts during sync window:** Rows inserted after `last_sync_timestamp` and before the next watermark are included in the next delta. Inclusive `>=` ensures no row is permanently missed; reprocessing is idempotent.
+**Row-count mismatch recovery (watermark delta only):** After every
+`watermark_delta` (including zero-row), compare `COUNT(*)` staging vs DSO.
+Full-MERGE recovery runs **only when `dso_count < staging_count`** (missing rows
+on DSO). When `dso_count >= staging_count` (DSO-only residue / orphans), log a
+warning and skip recovery — MERGE does not delete those. Disable with
+`auto_recover_mismatch=False`.
 
-**Where the boundary comes from / clock skew:** `last_sync_timestamp` is read from `[meta].[SyncWatermarks]` per `(schema_name, table_name)`. It is set **only after a successful sync** using **DSO server time** (`SYSDATETIME()` in `SyncStateManager.update_sync_state()`). No client or Dagster worker clock is used, so clock skew does not affect which rows are selected.
+**Legacy:** `[meta].[SyncWatermarks]` on DSO remains for SFI datapoint refresh only.
 
-**`[meta].[SyncWatermarks]` columns:** `schema_name`, `table_name` (PK, one row per table); `last_sync_timestamp` (lower bound for next delta, DSO `SYSDATETIME()`); `last_sync_rows`, `last_sync_duration_ms`, `last_sync_status` (observability); `updated_at` (traceability). Updated only on success. Query `SELECT * FROM [meta].[SyncWatermarks] ORDER BY updated_at DESC` for last sync per table.
-
-**Implementation checklist:** (1) `build_delta_merge_statement` WHERE must use `COALESCE(..., ...) >= '<timestamp>'`. (2) `SyncStateManager.update_sync_state` must set `last_sync_timestamp` and `updated_at` via DSO `SYSDATETIME()`. (3) First run: no row in `SyncWatermarks` → `get_last_sync_timestamp` returns `None` → full MERGE; after success, one row inserted with current DSO time.
+**Implementation checklist:** (1) `build_delta_merge_statement` / OPENQUERY WHERE
+must use `COALESCE(...) > checkpoint AND COALESCE(...) <= max_now`. (2)
+`set_checkpoint` uses the pre-MERGE `max_now`, never a post-MERGE MAX. (3) First
+run: no DFM row → pin `max_now` and bound the source (or unbounded full MERGE if
+empty); after success, checkpoint = `max_now`.
 
 ### 3.4 When to Use Which Mode
 

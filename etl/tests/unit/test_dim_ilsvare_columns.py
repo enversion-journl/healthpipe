@@ -4,7 +4,7 @@
 # This file is part of Healthpipe. See the LICENSE file in the project
 # root for the full AGPL-3.0 license text.
 
-"""Unit tests for dim_ILSVare new columns + swap rename (task 28149)."""
+"""Unit tests for dim_ILSVare new columns + swap rename."""
 
 import sys
 

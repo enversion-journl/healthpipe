@@ -6,7 +6,7 @@
 
 -- ============================================================================
 -- ERP bridge tables (bridge.*)
--- bridge.LeverandoervareILSVare: fuld mange-til-mange Leverandoervare <-> ILSVare (TASK 28148).
+-- bridge.LeverandoervareILSVare: fuld mange-til-mange Leverandoervare <-> ILSVare.
 -- Delta-vedligeholdt med soft-delete: dw_is_deleted = 1 naar parret er udgaaet
 -- af kilderne (saettes kun scoped til delta-entiteter, se bridge_LeverandoervareILSVare).
 -- Idempotent: safe to re-run.

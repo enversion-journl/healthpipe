@@ -11,8 +11,8 @@ status: active
 name: "RekvirentToSor"
 title: "Rekvirent to SOR"
 description: "Maps ILS rekvirent codes to SOR organisation codes"
-sourceScopeUri: "https://regionsyd.dk/ils/rekvirent"
+sourceScopeUri: "https://example.org/ils/rekvirent"
 targetScopeUri: "https://sundhedsdatastyrelsen.dk/sor"
 group:
-  - source: "https://regionsyd.dk/ils/rekvirent"
+  - source: "https://example.org/ils/rekvirent"
     target: "https://sundhedsdatastyrelsen.dk/sor"

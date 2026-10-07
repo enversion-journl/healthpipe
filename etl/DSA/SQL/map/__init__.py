@@ -16,6 +16,12 @@ from .map_Aftale import map_Aftale
 from .map_AftaleVarePris import map_AftaleVarePris
 from .map_Budget import map_Budget
 from .map_BudgetEgenskaber import map_BudgetEgenskaber
+from .map_DRGDiagnose import map_DRGDiagnose
+from .map_DRGDiagnoseGruppe import map_DRGDiagnoseGruppe
+from .map_DRGKontakt import map_DRGKontakt
+from .map_DRGKontaktKlassifikation import map_DRGKontaktKlassifikation
+from .map_DRGProcedure import map_DRGProcedure
+from .map_DRGProcedureGruppe import map_DRGProcedureGruppe
 from .map_EAN import map_EAN
 from .map_Faktura import map_Faktura
 from .map_Fakturalinje import map_Fakturalinje
@@ -36,6 +42,12 @@ from .map_UNSPSC import map_UNSPSC
 from .map_Vareudlevering import map_Vareudlevering
 
 all_assets = [
+    map_DRGProcedure,
+    map_DRGProcedureGruppe,
+    map_DRGDiagnose,
+    map_DRGDiagnoseGruppe,
+    map_DRGKontaktKlassifikation,
+    map_DRGKontakt,
     map_Aftale,
     map_AftaleVarePris,
     map_Budget,
@@ -63,6 +75,12 @@ all_assets = [
 ]
 
 __all__ = [
+    "map_DRGProcedure",
+    "map_DRGProcedureGruppe",
+    "map_DRGDiagnose",
+    "map_DRGDiagnoseGruppe",
+    "map_DRGKontaktKlassifikation",
+    "map_DRGKontakt",
     "all_assets",
     "map_Aftale",
     "map_AftaleVarePris",

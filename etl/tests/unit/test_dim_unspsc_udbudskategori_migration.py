@@ -15,9 +15,7 @@ pytestmark = pytest.mark.unit
 REPO = Path(__file__).resolve().parents[2]  # etl/
 DIMS = REPO / "infrastructure" / "ddl" / "tables" / "erp" / "02_dims.sql"
 MAPS = REPO / "infrastructure" / "ddl" / "tables" / "erp" / "01_maps.sql"
-MIG = (
-    REPO / "infrastructure" / "ddl" / "migrations" / "20260629_28710_dim_unspsc_udbudskategori.sql"
-)
+MIG = REPO / "infrastructure" / "ddl" / "migrations" / "20260629_01_dim_unspsc_udbudskategori.sql"
 
 # Udbud descriptive columns — same name across DDL and the historical migration.
 UDBUD_DESC_COLS = [

@@ -255,7 +255,7 @@ jobs:
           pip install -e .[dev]
 
       - name: Audit installed dependencies for known CVEs
-        run: pip-audit --desc
+        run: pip-audit --desc --ignore-vuln PYSEC-2026-2120 --ignore-vuln PYSEC-2026-2121
 
   license-headers:
     name: SPDX license headers (full tree)

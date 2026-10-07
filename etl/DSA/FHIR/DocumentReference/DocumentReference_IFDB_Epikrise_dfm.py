@@ -527,7 +527,7 @@ def fhir_server_documentreference_epikrise_dfm(
         mode=config.mode,
     )
 
-    # Patient-id → CPR fallback for subject resolution (work item 28596): resolves
+    # Patient-id → CPR fallback for subject resolution: resolves
     # soft-deleted/CPR-duplicate PATIENT_IDs to the active patient under the same
     # CPR. Built once and reused for every batch (mirrors Encounter/EoC/CarePlan).
     patient_cpr_fallback = build_patient_cpr_fallback(mssql_target_staging, fhir_database)

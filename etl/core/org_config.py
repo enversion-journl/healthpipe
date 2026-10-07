@@ -25,7 +25,7 @@ import os
 # ---------------------------------------------------------------------------
 # Data directory (local file persistence for downloads, caches, etc.)
 # ---------------------------------------------------------------------------
-DATA_DIR = os.getenv("DATA_DIR", "/workspaces/sydbi_basismodel/data")
+DATA_DIR = os.getenv("DATA_DIR", "/workspaces/healthpipe/data")
 
 # ---------------------------------------------------------------------------
 # FHIR CodeSystem publisher

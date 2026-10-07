@@ -10,7 +10,7 @@
         {"name": "identifier_system", "path": "identifier.system.first()"},
         {"name": "identifier_value", "path": "identifier.value.first()"},
         {"name": "patient_id", "path": "subject.id"},
-        {"name": "episode_of_care_id", "path": "extension.where(url='http://regionsyddanmark.dk/fhir/StructureDefinition/episodeOfCare').valueReference.id.first()"},
+        {"name": "episode_of_care_id", "path": "extension.where(url='http://example.org/fhir/StructureDefinition/episodeOfCare').valueReference.id.first()"},
         {"name": "encounter_id", "path": "encounter.id.first()"},
         {"name": "status", "path": "status"},
         {"name": "intent", "path": "intent"},
@@ -26,7 +26,7 @@
         {"name": "occurrence_end", "path": "occurrencePeriod.end"},
         {"name": "requester_id", "path": "requester.id"},
         {"name": "performer_id", "path": "performer.id.first()"},
-        {"name": "source_table", "path": "extension('http://regionsyddanmark.dk/fhir/StructureDefinition/sourceTable').valueString.first()"},
+        {"name": "source_table", "path": "extension('http://example.org/fhir/StructureDefinition/sourceTable').valueString.first()"},
         {"name": "dw_is_deleted", "path": "extension.where(url='urn:fhir:isDeleted').valueInteger"}
       ]
     }

@@ -8,7 +8,8 @@
 Dimension table asset for Organisation (SOR only).
 
 Populates dim.Organisation with Type 1 SCD, sourced from fhir.Organization
-(attributes) + ref.Organisation (the INT surrogate dw_ek_Organisation).
+(attributes) + ref.Organisation (the INT surrogate dw_ek_Organisation and the
+fhir.Organization resource id behind it, carried as fhir_Organization_id).
 
 dw_ek_Organisation comes from ref.Organisation; the self-referencing parent
 (dw_ek_Organisation_parent) is resolved by joining fhir.Organization.part_of_id
@@ -224,10 +225,11 @@ def dim_Organisation(
                 USING (
                     SELECT
                         r.dw_ek_Organisation,
+                        r.organization_id                           AS fhir_Organization_id,
                         r.sor_code                                  AS kode,
                         r.dw_is_deleted,
                         COALESCE(rp.dw_ek_Organisation, -1)         AS dw_ek_Organisation_parent,
-                        rp.sor_code                                 AS parent_kode,
+                        rp.sor_code                                 AS kode_parent,
                         f.name                                      AS navn,
                         CASE WHEN LOWER(f.active) = 'true' THEN 1 ELSE 0 END AS aktiv
                     FROM [ref].[Organisation] r
@@ -242,7 +244,9 @@ def dim_Organisation(
                     OR target.dw_is_deleted <> source.dw_is_deleted
                     OR ISNULL(target.dw_ek_Organisation_parent, -1)
                         <> ISNULL(source.dw_ek_Organisation_parent, -1)
-                    OR ISNULL(target.parent_kode, '') <> ISNULL(source.parent_kode, '')
+                    OR ISNULL(target.kode_parent, '') <> ISNULL(source.kode_parent, '')
+                    OR ISNULL(target.fhir_Organization_id, N'')
+                        <> ISNULL(source.fhir_Organization_id, N'')
                     OR ISNULL(target.navn, N'') <> ISNULL(source.navn, N'')
                     OR ISNULL(target.aktiv, 0) <> ISNULL(source.aktiv, 0)
                 ) THEN
@@ -250,18 +254,19 @@ def dim_Organisation(
                         kode = source.kode,
                         dw_is_deleted = source.dw_is_deleted,
                         dw_ek_Organisation_parent = source.dw_ek_Organisation_parent,
-                        parent_kode = source.parent_kode,
+                        kode_parent = source.kode_parent,
+                        fhir_Organization_id = source.fhir_Organization_id,
                         navn = source.navn,
                         aktiv = source.aktiv,
                         dw_timestamp_update = GETDATE()
                 WHEN NOT MATCHED THEN
                     INSERT (dw_ek_Organisation, kode, dw_is_deleted,
-                            dw_ek_Organisation_parent, parent_kode,
-                            navn, aktiv,
+                            dw_ek_Organisation_parent, kode_parent,
+                            fhir_Organization_id, navn, aktiv,
                             dw_timestamp_insert, dw_timestamp_update)
                     VALUES (source.dw_ek_Organisation, source.kode, source.dw_is_deleted,
-                            source.dw_ek_Organisation_parent, source.parent_kode,
-                            source.navn, source.aktiv,
+                            source.dw_ek_Organisation_parent, source.kode_parent,
+                            source.fhir_Organization_id, source.navn, source.aktiv,
                             GETDATE(), GETDATE())
                 OUTPUT $action;
             """

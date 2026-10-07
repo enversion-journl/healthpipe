@@ -4,7 +4,7 @@
 # This file is part of Healthpipe. See the LICENSE file in the project
 # root for the full AGPL-3.0 license text.
 
-"""Datasaet-specifikationer for DRG-grupperet LPR fra SDS (AB#29514).
+"""Datasaet-specifikationer for DRG-grupperet LPR fra SDS.
 
 EN kilde til sandhed for extract (DSI/csv_files/drg.py), arkiv
 (DSI/csv_files/drg_archive.py) og arc-DDL
@@ -73,7 +73,7 @@ class DrgDataset:
         return tuple(a.name for a in self.arc_added) + kept
 
 
-MIN_VALUE_WIDTH = 500  # HAIBA-lektie AB#29407: ext og arc SKAL have samme bredde
+MIN_VALUE_WIDTH = 500  # HAIBA-lektie [internal ticket]: ext og arc SKAL have samme bredde
 
 DATASETS: tuple[DrgDataset, ...] = (
     DrgDataset(

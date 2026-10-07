@@ -210,8 +210,7 @@ extractors drop and recreate them from the source schema on every run.)
   `infrastructure/ddl/tables/erp/00_archive.sql`. Nothing else to do.
 - **Source is its own domain**: create `infrastructure/ddl/tables/{source}/00_archive.sql`
   and add a `staging_infra_{source}` asset that executes the folder. Follow the
-  four-file registration chain in
-  [`07-infrastructure-pipeline.mdc`](../../../.cursor/rules/07-infrastructure-pipeline.mdc):
+  four-file registration chain:
 
   1. `infrastructure/assets/staging_infrastructure.py` — add the asset
   2. `infrastructure/assets/__init__.py` — import and export it
@@ -649,7 +648,7 @@ Or materialize the group from the Dagster UI. Then check five things:
 
 ### 8. Tests
 
-Per [`05-testing.mdc`](../../../.cursor/rules/05-testing.mdc), a new table is a
+A new table is a
 config-entry change and does **not** warrant a unit test — asserting that a config
 value equals a retyped copy of itself catches no bug. The verification in step 7 and
 the DQA reconciliation are what cover it.

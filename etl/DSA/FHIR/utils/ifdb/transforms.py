@@ -36,6 +36,7 @@ from utils.fhir.fhir_extensions import (
 from utils.fhir.identifier_systems import (
     SYSTEM_CPR,
     SYSTEM_IFDB_PATIENT_ID,
+    SYSTEM_YDERNUMMER,
 )
 from utils.fhir.is_deleted_extension import build_is_deleted_extension
 
@@ -95,9 +96,6 @@ def source_deleted_to_int(value: Any) -> int:
         return 1 if value.strip().lower() in {"1", "true", "t", "yes", "y"} else 0
     return 0
 
-
-# Identifier system for Danish general practitioner (ydernummer)
-SYSTEM_DANISH_GP_NUMBER = "urn:oid:1.2.208.176.1.4"  # Danish GP registration number
 
 # Column name mapping from YAML aliases to Oracle column names
 # This handles the mismatch between DSI extraction (UPPERCASE Oracle) and DSA transformation (lowercase aliases)
@@ -386,7 +384,7 @@ def transform_fhir_patient_ifdb(
             return Reference(
                 type="Practitioner",
                 identifier=Identifier(
-                    system=SYSTEM_DANISH_GP_NUMBER,
+                    system=SYSTEM_YDERNUMMER,
                     value=str(doctor_number),
                 ),
                 display=doctor_name if doctor_name else None,

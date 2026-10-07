@@ -5,7 +5,7 @@
   "status": "active",
   "where": [
     {
-      "path": "category.coding.where(system='http://regionsyddanmark.dk/fhir/CodeSystem/patient-rights-type' and code='alle_markoerer').exists()"
+      "path": "category.coding.where(system='http://example.org/fhir/CodeSystem/patient-rights-type' and code='alle_markoerer').exists()"
     }
   ],
   "select": [
@@ -19,8 +19,8 @@
     {
       "forEach": "activity",
       "column": [
-        {"name": "ifdb_eventmarker_id", "path": "extension.where(url='http://regionsyddanmark.dk/fhir/StructureDefinition/activity-source-identifier').valueIdentifier.value"},
-        {"name": "episode_of_care_id", "path": "extension.where(url='http://regionsyddanmark.dk/fhir/StructureDefinition/activity-episode-of-care').valueReference.id"},
+        {"name": "ifdb_eventmarker_id", "path": "extension.where(url='http://example.org/fhir/StructureDefinition/activity-source-identifier').valueIdentifier.value"},
+        {"name": "episode_of_care_id", "path": "extension.where(url='http://example.org/fhir/StructureDefinition/activity-episode-of-care').valueReference.id"},
         {"name": "markoerkode", "path": "outcomeCodeableConcept[0].coding[0].code"},
         {"name": "markoer_display", "path": "outcomeCodeableConcept[0].coding[0].display"},
         {"name": "organization_id", "path": "detail.performer.getReferenceKey(Organization)"},

@@ -6,21 +6,74 @@
   "select": [
     {
       "column": [
-        {"name": "condition_id", "path": "id"},
-        {"name": "patient_id", "path": "subject.id"},
-        {"name": "encounter_id", "path": "encounter.id.first()"},
-        {"name": "clinical_status", "path": "clinicalStatus.coding.code.first()"},
-        {"name": "verification_status", "path": "verificationStatus.coding.code.first()"},
-        {"name": "recorded_date", "path": "recordedDate"},
-        {"name": "code", "path": "code.coding.where(userSelected = true).code.first()"},
-        {"name": "code_system", "path": "code.coding.where(userSelected = true).system.first()"},
-        {"name": "code_display", "path": "code.coding.where(userSelected = true).display.first()"},
-        {"name": "diagnosetype", "path": "extension('http://regionsyddanmark.dk/fhir/StructureDefinition/diagnosetype').valueString.first()"},
-        {"name": "category_code", "path": "category.coding.code.first()"},
-        {"name": "source_system", "path": "identifier.system.first()"},
-        {"name": "source_identifier_value", "path": "identifier.value.first()"},
-        {"name": "modtidspunkt", "path": "extension('http://regionsyddanmark.dk/fhir/StructureDefinition/modtidspunkt').valueDateTime.first()"},
-        {"name": "dw_is_deleted", "path": "extension('urn:fhir:isDeleted').valueInteger.first()"}
+        {
+          "name": "condition_id",
+          "path": "id"
+        },
+        {
+          "name": "patient_id",
+          "path": "subject.id"
+        },
+        {
+          "name": "encounter_id",
+          "path": "encounter.id.first()"
+        },
+        {
+          "name": "episode_of_care_id",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/episodeOfCare').valueReference.id.first()"
+        },
+        {
+          "name": "clinical_status",
+          "path": "clinicalStatus.coding.code.first()"
+        },
+        {
+          "name": "verification_status",
+          "path": "verificationStatus.coding.code.first()"
+        },
+        {
+          "name": "recorded_date",
+          "path": "recordedDate"
+        },
+        {
+          "name": "code",
+          "path": "code.coding.where(userSelected = true).code.first()"
+        },
+        {
+          "name": "code_system",
+          "path": "code.coding.where(userSelected = true).system.first()"
+        },
+        {
+          "name": "code_display",
+          "path": "code.coding.where(userSelected = true).display.first()"
+        },
+        {
+          "name": "diagnosetype",
+          "path": "extension('http://example.org/fhir/StructureDefinition/diagnosetype').valueString.first()"
+        },
+        {
+          "name": "category_code",
+          "path": "category.coding.code.first()"
+        },
+        {
+          "name": "source_system",
+          "path": "identifier.system.first()"
+        },
+        {
+          "name": "source_identifier_value",
+          "path": "identifier.value.first()"
+        },
+        {
+          "name": "lpr3_ignored",
+          "path": "meta.tag.where(system = 'http://example.org/fhir/CodeSystem/resource-flag' and code = 'lpr3-ignored').exists()"
+        },
+        {
+          "name": "modtidspunkt",
+          "path": "extension('http://example.org/fhir/StructureDefinition/modtidspunkt').valueDateTime.first()"
+        },
+        {
+          "name": "dw_is_deleted",
+          "path": "extension('urn:fhir:isDeleted').valueInteger.first()"
+        }
       ]
     }
   ]

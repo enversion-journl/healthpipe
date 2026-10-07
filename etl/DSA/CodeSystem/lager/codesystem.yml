@@ -5,7 +5,7 @@
 # root for the full AGPL-3.0 license text.
 
 resourceType: CodeSystem
-url: "https://regionsyd.dk/ils/lager"
+url: "https://example.org/ils/lager"
 name: "ILSLager"
 description: "Lager (warehouse) hierarki fra ILS systemet. Hierarki: Region -> Sygehus -> Lager."
 status: active

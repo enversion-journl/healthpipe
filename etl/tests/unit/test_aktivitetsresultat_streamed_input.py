@@ -90,6 +90,7 @@ def test_aktivitetsresultat_pipeline_consumes_streamed_batches(monkeypatch) -> N
         lambda *_args, **_kwargs: SimpleNamespace(
             lookups_by_resource_type=lambda: {},
             miss_counts={"Patient": 0, "Encounter": 0, "EpisodeOfCare": 0},
+            release_chunk_scoped_ids=lambda: 0,
         ),
     )
     monkeypatch.setattr(mod, "_fetch_aktivitetsudfoerelse_data_arc", lambda *args, **kwargs: {})
@@ -138,3 +139,77 @@ def test_aktivitetsresultat_pipeline_consumes_streamed_batches(monkeypatch) -> N
     ]
     assert result.metadata["posted_count"].value == 3
     assert result.metadata["chunk_count"].value == 2
+
+
+@pytest.mark.unit
+def test_udf_og_speciale_opslag_er_chunk_lokale(monkeypatch) -> None:
+    """Opslagene må ikke akkumulere på tværs af chunks — hver chunk starter fra tomme dicts."""
+    rows = _StreamingRows(
+        [
+            {"OBJEKT_ID": "1", "UDFOERELSE_ID": "U1"},
+            {"OBJEKT_ID": "2", "UDFOERELSE_ID": "U2"},
+            {"OBJEKT_ID": "3", "UDFOERELSE_ID": "U3"},
+        ]
+    )
+    fhir_database = _FakeFhirDatabase()
+    udf_lookup_pr_chunk: list[set[str]] = []
+    speciale_lookup_pr_chunk: list[set[str]] = []
+    hentede_udf_ids: list[list[str]] = []
+
+    monkeypatch.setattr(mod, "_AKTIVITETSRESULTAT_CHUNK_SIZE", 1)
+    monkeypatch.setattr(mod, "_sfi_mode_enabled", lambda: False)
+    monkeypatch.setattr(mod, "_ensure_reference_dependencies", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        mod,
+        "_pre_resolve_references",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            lookups_by_resource_type=lambda: {},
+            miss_counts={"Patient": 0, "Encounter": 0, "EpisodeOfCare": 0},
+            release_chunk_scoped_ids=lambda: 0,
+        ),
+    )
+
+    def _fake_udf_fetch(udf_ids, *_args, **_kwargs):
+        hentede_udf_ids.append(list(udf_ids))
+        return {udf_id: {"OBJEKT_ID": udf_id} for udf_id in udf_ids}
+
+    monkeypatch.setattr(mod, "_fetch_aktivitetsudfoerelse_data_arc", _fake_udf_fetch)
+    monkeypatch.setattr(
+        mod,
+        "_fetch_aktivitetsudfoerelse_speciale_data_arc",
+        lambda udf_ids, *_args, **_kwargs: {udf_id: [{"SPECIALE_KODE": "X"}] for udf_id in udf_ids},
+    )
+
+    def _fake_transform(chunk, *_args, udf_lookup=None, speciale_lookup=None, **_kwargs):
+        udf_lookup_pr_chunk.append(set(udf_lookup or {}))
+        speciale_lookup_pr_chunk.append(set(speciale_lookup or {}))
+        return [(f"obs-{row['OBJEKT_ID']}", {}) for row in chunk], [], []
+
+    monkeypatch.setattr(mod, "_transform_aktivitetsresultat_to_fhir_dicts", _fake_transform)
+
+    import DSA.FHIR.utils.ifdb.fhir_posting as posting_mod
+
+    monkeypatch.setattr(
+        posting_mod,
+        "post_resource_dicts_direct",
+        lambda **kwargs: dg.MaterializeResult(
+            metadata={
+                "posted_count": dg.MetadataValue.int(len(kwargs["resource_dicts"])),
+                "failed_count": dg.MetadataValue.int(0),
+            }
+        ),
+    )
+
+    mod._run_aktivitetsresultat_pipeline_chunked(
+        extracted_data=rows,
+        context=_fake_context(),
+        ifdb_oracle=SimpleNamespace(),
+        fhir_database=fhir_database,
+        mssql_target_staging=SimpleNamespace(),
+    )
+
+    # Hver chunk ser kun sine egne udførelser — ikke de foregående chunks'.
+    assert udf_lookup_pr_chunk == [{"U1"}, {"U2"}, {"U3"}]
+    assert speciale_lookup_pr_chunk == [{"U1"}, {"U2"}, {"U3"}]
+    # Alle udførelser hentes stadig (ingen falsk cache-hit, intet spring over).
+    assert hentede_udf_ids == [["U1"], ["U2"], ["U3"]]

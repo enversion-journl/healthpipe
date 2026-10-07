@@ -46,7 +46,7 @@ _ITEST_CODESYSTEM = {
     "status": "active",
     "content": "complete",
     "hierarchyMeaning": "is-a",
-    "publisher": "Region Syddanmark",
+    "publisher": "Example Region",
     "property": [
         {"code": "classification", "type": "string", "description": "SKS classification category"}
     ],

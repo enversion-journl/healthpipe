@@ -38,10 +38,6 @@ checkpoint to that value — gap-free and independent of the daily-churning
 
 Tables with a nullable ERP-stable merge key keep a ``select_from_expr`` that
 filters the NULLs; the factory appends the delta filter via AND.
-
-Full rationale + the diagnostic results live in the design spec
-``docs/superpowers/specs/2026-06-25-sydax-dfm-delta-strategy-design.md`` (note:
-that path is gitignored, so this docstring is the in-repo source of truth).
 """
 
 import dagster as dg

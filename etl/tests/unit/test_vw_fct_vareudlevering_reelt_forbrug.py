@@ -4,7 +4,7 @@
 # This file is part of Healthpipe. See the LICENSE file in the project
 # root for the full AGPL-3.0 license text.
 
-"""Contract tests for vw_fct.Vareudlevering_ReeltForbrug (AB#29117 PR-D)."""
+"""Contract tests for vw_fct.Vareudlevering_ReeltForbrug."""
 
 import re
 from pathlib import Path

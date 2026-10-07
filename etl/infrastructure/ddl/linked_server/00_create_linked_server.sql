@@ -31,14 +31,14 @@
 --
 -- USAGE (Part B on DSO):
 --   sqlcmd -S <DSO_HOST> -d <DSO_DB> -v STAGING_HOST="staging-server,port"
---          -v STAGING_DB="sydbi_staging" -v STAGING_USER="dagster_dso_qa"
+--          -v STAGING_DB="healthpipe_staging" -v STAGING_USER="dagster_dso_qa"
 --          -v STAGING_PASSWORD="***" -i 00_create_linked_server.sql
 --
 -- =============================================================================
 -- SQLCMD variables (use in VS Code with SQLCMD mode On, or pass via sqlcmd -v)
 -- =============================================================================
 -- :setvar STAGING_HOST "staging-server,24571"
--- :setvar STAGING_DB "sydbi_staging"
+-- :setvar STAGING_DB "healthpipe_staging"
 -- :setvar STAGING_USER "dagster_dso_qa"
 -- :setvar STAGING_PASSWORD "***"
 
@@ -51,7 +51,7 @@
 -- Replace <Same_as_STAGING_PASSWORD> below with the same value as STAGING_PASSWORD.
 -- =============================================================================
 /*
-USE [$(STAGING_DB)];  -- e.g. sydbi_staging or DW
+USE [$(STAGING_DB)];  -- e.g. healthpipe_staging or DW
 GO
 
 -- 1) Create server login if it does not exist
@@ -262,7 +262,7 @@ WHEN NOT MATCHED BY TARGET THEN INSERT ...;
 --   EXEC sp_testlinkedserver @servername = N'STAGING_LINK';
 --
 -- Test 4-part SELECT (replace DB/schema/table as needed):
---   SELECT COUNT(*) FROM [STAGING_LINK].[sydbi_staging].[dim].[Fakturalinje];
+--   SELECT COUNT(*) FROM [STAGING_LINK].[healthpipe_staging].[dim].[Fakturalinje];
 
 PRINT '=============================================================================';
 PRINT 'Linked server setup complete: ' + @LinkedServerName;

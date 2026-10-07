@@ -84,8 +84,7 @@ guides list what to verify for each kind of asset.
 
 ### 7. Test
 
-See [Testing](#testing) below, and read the test-value policy in
-[`05-testing.mdc`](../../../.cursor/rules/05-testing.mdc) *before* writing a test.
+See [Testing](#testing) below.
 Config-entry, DDL-only and registration changes do not warrant unit tests.
 
 ## Common commands
@@ -178,10 +177,10 @@ Because those are *top-level* modules, `etl/` has to be the source root on
 root, where the `[tool.dagster] module_name = "definitions"` block lives:
 
 ```bash
-cd /workspaces/sydbi_basismodel && echo "$PYTHONPATH"
+cd /workspaces/healthpipe && echo "$PYTHONPATH"
 ```
 
-It must print `/workspaces/sydbi_basismodel/etl`. If it is empty or names another
+It must print `/workspaces/healthpipe/etl`. If it is empty or names another
 path, the CLI fails with `ModuleNotFoundError: No module named 'definitions'`. The
 devcontainer supplies the value from `.devcontainer/docker-compose.yml`, where
 `environment:` overrides anything `env_file: ../.env` sets — so a stale `PYTHONPATH`

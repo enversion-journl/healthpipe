@@ -4,7 +4,7 @@
 # This file is part of Healthpipe. See the LICENSE file in the project
 # root for the full AGPL-3.0 license text.
 
-"""E2E-integrationstest for DRG-ingestion (US AB#29514) mod devcontainer-MSSQL.
+"""E2E-integrationstest for DRG-ingestion mod devcontainer-MSSQL.
 
 Koerer hele kaeden med syntetiske tar.bz2-leverancer:
 

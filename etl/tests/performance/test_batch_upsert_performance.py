@@ -20,7 +20,7 @@ Prerequisites:
 
 Usage:
     # Run the benchmark
-    cd /workspaces/sydbi_basismodel/etl
+    cd /workspaces/healthpipe/etl
     USE_REAL_DB_FOR_TESTS=true python tests/performance/test_batch_upsert_performance.py
 
     # Or via pytest
@@ -48,7 +48,7 @@ def _required_env(name: str) -> str:
 
 
 # Add project root to path
-project_root = "/workspaces/sydbi_basismodel/etl"
+project_root = "/workspaces/healthpipe/etl"
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 

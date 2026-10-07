@@ -24,6 +24,7 @@ def test_normalize_sks_coding_code_strips_source_prefix():
     assert cn.normalize_sks_coding_code("SKS.a.oprKFCA20") == "KFCA20"
     assert cn.normalize_sks_coding_code("SKS.a.diaDA01") == "DA01"
     assert cn.normalize_sks_coding_code("SKS.a.diaI10") == "I10"
+    assert cn.normalize_sks_coding_code("SKS_Vaerdier.a.tilTUL1") == "TUL1"
     assert cn.normalize_sks_coding_code("KABC10") == "KABC10"
     assert cn.normalize_sks_coding_code(None) is None
 
@@ -84,6 +85,56 @@ def test_extract_xml_clinical_diagnosis_code():
             element_navn="Diagnosekode",
             element_kode="D",
             element_vaerdi="Fødselslæsion",
+        )
+        is None
+    )
+
+
+def test_extract_xml_diagnosis_reads_original_kode():
+    """Feltformen som IFDB faktisk leverer: koden ligger i originalkoden.
+
+    Et struktureret Diagnosekode-element baerer SKS-koden i
+    ``element_original_kode``, sidste ciffer i ``element_kode`` og den danske
+    diagnosetekst i ``element_vaerdi``. Laeses kun de to sidste, findes ingen
+    kode -- og hele XML-diagnose-kilden bliver tom.
+    """
+    assert (
+        cn.extract_xml_clinical_diagnosis_code(
+            element_navn="Diagnosekode",
+            element_kode="9",
+            element_vaerdi="Brystkræft UNS",
+            element_original_kode="SKS.a.diaDC509",
+        )
+        == "DC509"
+    )
+    # Originalkoden vinder over de svagere felter, uanset raekkefoelge.
+    assert (
+        cn.extract_xml_clinical_diagnosis_code(
+            element_navn="Diagnosekode",
+            element_kode="7",
+            element_vaerdi="Godartet tumor i anden del af centralnervesystemet",
+            element_original_kode="SKS.a.diaDD337",
+        )
+        == "DD337"
+    )
+    # En kode fra en ANDEN SKS-familie maa ikke blive en diagnose, ogsaa naar
+    # dens form tilfaeldigvis ligner ICD-10 (bogstav + ciffer).
+    assert (
+        cn.extract_xml_clinical_diagnosis_code(
+            element_navn="Diagnosekode",
+            element_kode="2",
+            element_vaerdi="En operation",
+            element_original_kode="SKS.a.oprD1234",
+        )
+        is None
+    )
+    # Uden originalkode er adfaerden uaendret.
+    assert (
+        cn.extract_xml_clinical_diagnosis_code(
+            element_navn="Diagnosekode",
+            element_kode="9",
+            element_vaerdi="Brystkræft UNS",
+            element_original_kode=None,
         )
         is None
     )

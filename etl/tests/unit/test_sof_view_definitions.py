@@ -166,7 +166,7 @@ class TestIsDeletedExtensionProjected:
     """
 
     _CANONICAL_URL = "urn:fhir:isDeleted"
-    _STALE_URL = "regionsyddanmark.dk/fhir/StructureDefinition/isDeleted"
+    _STALE_URL = "example.org/fhir/StructureDefinition/isDeleted"
 
     def _load(self, name: str) -> dict:
         with open(VIEW_DEFINITIONS_DIR / f"{name}.json") as f:

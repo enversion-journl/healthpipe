@@ -84,7 +84,7 @@ Each codesystem and conceptmap directory contains a `.yml` file with FHIR resour
 **CodeSystem** (`DSA/CodeSystem/{name}/codesystem.yml`):
 ```yaml
 resourceType: CodeSystem
-url: "https://regionsyd.dk/ils/rekvirent"
+url: "https://example.org/ils/rekvirent"
 name: "ILSRekvirent"
 description: "Rekvirentorganisation fra ILS"
 status: active
@@ -100,10 +100,10 @@ id: "rekvirent-to-sor"
 url: "http://example.dk/fhir/ConceptMap/rekvirent-to-sor"
 status: active
 name: "RekvirentToSOR"
-sourceScopeUri: "https://regionsyd.dk/ils/rekvirent"
+sourceScopeUri: "https://example.org/ils/rekvirent"
 targetScopeUri: "https://sundhedsdatastyrelsen.dk/sor"
 group:
-  - source: "https://regionsyd.dk/ils/rekvirent"
+  - source: "https://example.org/ils/rekvirent"
     target: "https://sundhedsdatastyrelsen.dk/sor"
 ```
 

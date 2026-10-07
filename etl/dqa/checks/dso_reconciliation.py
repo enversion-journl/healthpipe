@@ -37,7 +37,7 @@ params:
 
 from __future__ import annotations
 
-from dqa.checks.helpers import get_conn, split_table
+from dqa.checks.helpers import COLLATE_DB_DEFAULT, get_conn, split_table
 from dqa.model import CheckOutcome
 from dqa.registry import register_check
 from DSO.load.sync_utils import STRING_DATA_TYPES
@@ -54,7 +54,7 @@ _DELETE_CANDIDATES = ("dw_is_deleted",)
 # type check against STRING_DATA_TYPES (shared with the DSO-sync's MERGE handling,
 # which solves the same mismatch the same way).
 _CHAR_TYPES = STRING_DATA_TYPES
-_COLLATE = " COLLATE DATABASE_DEFAULT"
+_COLLATE = COLLATE_DB_DEFAULT
 
 # Fetching example keys re-runs the full missing/extra/mismatch diff a SECOND time
 # over the STAGING_LINK linked server (correlated NOT EXISTS). On very large tables

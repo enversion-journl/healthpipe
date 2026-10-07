@@ -35,7 +35,7 @@ __all__ = [
     "cs_sor",
     "KNOWN_PROPERTY_KEYS",
     "SOR_ROOT",
-    "ACTIVE_RSD_PROPERTY_KEY",
+    "ACTIVE_OWN_PROPERTY_KEY",
 ]
 
 KNOWN_PROPERTY_KEYS = [
@@ -54,16 +54,16 @@ KNOWN_PROPERTY_KEYS = [
     "city",
     "openingDate",
     "closingDate",
-    "activeRsdOrganization",
+    "activeOwnOrganization",
 ]
 
 SKIP_COLUMNS = {"code", "display", "parent_code", "dw_timestamp_insert", "dw_timestamp_update"}
 
-# Region Syddanmark's rod-enhed i SOR — samme konvention som conceptmap-modulerne
+# Example Region's rod-enhed i SOR — samme konvention som conceptmap-modulerne
 # (ean_to_sor._SOR_ROOT, rekvirent_to_sor/lager_to_sor/okosted_to_sor sor_root).
 SOR_ROOT = "6101000016001"
 
-ACTIVE_RSD_PROPERTY_KEY = "activeRsdOrganization"
+ACTIVE_OWN_PROPERTY_KEY = "activeOwnOrganization"
 
 
 def build_sor_codesystem(
@@ -102,9 +102,9 @@ def _append_active_rsd_property(
     hierarchy: list[dict],
     now: datetime | None = None,
 ) -> None:
-    """Append an ``activeRsdOrganization`` Boolean property to every concept.
+    """Append an ``activeOwnOrganization`` Boolean property to every concept.
 
-    True when the entity is part of Region Syddanmark's egen, aktuelle
+    True when the entity is part of Example Region's egen, aktuelle
     organisation: den er åben (ingen closingDate), er trådt i kraft
     (openingDate <= nu) og kan nås fra rod-enheden ``SOR_ROOT`` gennem en
     kæde af ligeledes åbne enheder. Praksissektoren, kommuner og andre
@@ -136,7 +136,7 @@ def _append_active_rsd_property(
         properties.append(
             {
                 "CODE": concept["CODE"],
-                "KEY": ACTIVE_RSD_PROPERTY_KEY,
+                "KEY": ACTIVE_OWN_PROPERTY_KEY,
                 "VALUE": "true" if concept["CODE"] in reachable else "false",
                 "TYPE": "Boolean",
             }
@@ -304,7 +304,7 @@ def build_sor_codesystem_streaming(
                     yield {"CODE": code, "KEY": prop_key, "VALUE": value, "TYPE": prop_type}
             yield {
                 "CODE": code,
-                "KEY": ACTIVE_RSD_PROPERTY_KEY,
+                "KEY": ACTIVE_OWN_PROPERTY_KEY,
                 "VALUE": "true" if code in reachable else "false",
                 "TYPE": "Boolean",
             }

@@ -4,7 +4,9 @@
 # This file is part of Healthpipe. See the LICENSE file in the project
 # root for the full AGPL-3.0 license text.
 
-"""Tests for HAIBA's Patient stubs and the dw_ek_Borger lookup (AB#27833)."""
+"""Tests for HAIBA's Patient stubs and the dw_ek_Borger lookup."""
+
+from unittest.mock import MagicMock
 
 import dagster as dg
 import pytest
@@ -98,6 +100,36 @@ def test_a_rerun_posts_nothing_once_aidbox_holds_every_cpr():
 
     assert fake.posted == []
     assert (posted, failed, skipped) == (0, 0, 2)
+
+
+def test_a_failed_upsert_logs_only_the_count():
+    """failed_ids carries driver error text of unbounded provenance, and the
+    only data in these resources IS the CPR — a failure may put nothing but
+    the count in the log."""
+    cpr = "0101011234"
+
+    class _FailingFhirDatabase(_FakeFhirDatabase):
+        def batch_upsert_resources(self, resources, resource_type, **kwargs):
+            # Worst case: a failed_ids element that leaked the raw driver text.
+            leaked = [
+                f"{i}: duplicate key DETAIL: Key (...)=({r.identifier[0].value}) already exists"
+                for i, r in enumerate(resources)
+            ]
+            return 0, len(resources), leaked
+
+    fake = _FailingFhirDatabase(known={})
+    context = MagicMock()
+
+    posted, failed, skipped = post_missing_patients(context, fake, [cpr])
+
+    assert (posted, failed, skipped) == (0, 1, 0)
+    logged = " | ".join(
+        " ".join(str(arg) for arg in logged_call.args)
+        for method in ("debug", "info", "warning", "error", "exception", "critical")
+        for logged_call in getattr(context.log, method).call_args_list
+    )
+    assert cpr not in logged
+    assert "1 Patient(s) failed to upsert" in logged
 
 
 def test_tier_query_treats_a_former_cpr_as_known():

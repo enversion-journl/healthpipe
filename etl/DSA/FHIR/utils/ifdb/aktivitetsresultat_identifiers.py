@@ -19,13 +19,13 @@ def _build_aktivitets_id(value: Any) -> int:
         return 0
 
 
-_SFI_ID_SEP = "#sfi#"
-
-
 def _sfi_identifier_value(objekt_id_norm: str, element_nummer: int) -> str:
     """Build the per-element identifier value for an SFI Observation.
 
-    Format: ``<OBJEKT_ID>#sfi#<element_nummer>``. Deterministic from
-    (AKTIVITETSRESULTAT.OBJEKT_ID, parser-assigned element_nummer).
+    Deterministic from (AKTIVITETSRESULTAT.OBJEKT_ID, parser-assigned
+    element_nummer). Formatet ejes af FAMILY_SFI_OBS (child_value) — denne
+    funktion er kun et bekvemt kaldested.
     """
-    return f"{objekt_id_norm}{_SFI_ID_SEP}{element_nummer}"
+    from DSA.FHIR.utils.ifdb.xml_child_reconcile import FAMILY_SFI_OBS
+
+    return FAMILY_SFI_OBS.child_value(objekt_id_norm, element_nummer)

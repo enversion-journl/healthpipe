@@ -14,7 +14,7 @@ into persistent table: conceptmap.ean_to_sor.
 Matching strategy:
 1. Extract known mappings from SOR properties where KEY='eanCode'
 2. Apply any manual overrides from the DSI ext_os2mo_ean_to_sor extract
-3. Fuzzy match remaining ean codes against SOR concepts under the Region Syddanmark
+3. Fuzzy match remaining ean codes against SOR concepts under the Example Region
    hierarchy root (scoped subtree), using a keyword index to avoid scanning every pair.
 """
 
@@ -233,7 +233,7 @@ def build_ean_to_sor_mappings(
             )
         )
 
-    # Fuzzy matching for remaining ean codes — scoped to Region Syddanmark subtree
+    # Fuzzy matching for remaining ean codes — scoped to Example Region subtree
     ean_kw_cache: dict[str, set[str]] = {c: _extract_kw_ean(d) for c, d in ean_to_match}
     for ean_code, ean_display in ean_to_match:
         src_kw = ean_kw_cache[ean_code]

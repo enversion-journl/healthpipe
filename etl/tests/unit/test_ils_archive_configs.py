@@ -13,10 +13,12 @@ import pytest
 pytestmark = pytest.mark.unit
 
 EXPECTED_TABLES = {
-    # Pattern A — full load (12)
+    # Pattern A — full load (14)
     "ils_vareart",
     "ils_varegrp",
     "ils_varetype",
+    "ils_varetype2",
+    "ils_projekt",
     "ils_moms",
     "ils_lev",
     "ils_sgh",
@@ -42,6 +44,8 @@ PATTERN_A_TABLES = {
     "ils_vareart",
     "ils_varegrp",
     "ils_varetype",
+    "ils_varetype2",
+    "ils_projekt",
     "ils_moms",
     "ils_lev",
     "ils_sgh",
@@ -81,7 +85,7 @@ def ils_dfm_archive_assets():
     return ils_dfm_archive_assets
 
 
-def test_extract_configs_cover_20_tables(ils_dfm_extract_configs):
+def test_extract_configs_cover_22_tables(ils_dfm_extract_configs):
     targets = {c.target_table for c in ils_dfm_extract_configs}
     assert targets == EXPECTED_TABLES
 
@@ -127,8 +131,8 @@ def test_extract_source_schema_is_dbo(ils_dfm_extract_configs):
         assert c.source_schema == "dbo", c.target_table
 
 
-def test_archive_assets_are_20(ils_dfm_archive_assets):
-    assert len(ils_dfm_archive_assets) == 20
+def test_archive_assets_are_22(ils_dfm_archive_assets):
+    assert len(ils_dfm_archive_assets) == 22
 
 
 def test_archive_assets_all_in_ils_archive_group(ils_dfm_archive_assets):

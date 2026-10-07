@@ -7,12 +7,12 @@
 -- =============================================================================
 -- Migration: Add diagnosetype, modtidspunkt and dw_is_deleted to fhir.Condition
 --
--- US 26726: diagnosetype (diagnosetype-kvalifikator fra
+-- diagnosetype (diagnosetype-kvalifikator fra
 -- IFDB.PAS_DIAGNOSE.DIAGNOSETYPE; A=aktions-, B=bi-,
 -- V=henvisnings-/visitationsdiagnose) was carried on the FHIR resource but
 -- never projected to the flat table, so it was invisible to SQL consumers.
 -- It is now emitted as the first-class extension
--- http://regionsyddanmark.dk/fhir/StructureDefinition/diagnosetype.
+-- http://example.org/fhir/StructureDefinition/diagnosetype.
 -- modtidspunkt and dw_is_deleted follow the pattern already used on
 -- fhir.Patient.
 --

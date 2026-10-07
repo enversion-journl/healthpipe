@@ -44,13 +44,16 @@ def dato_key(dt_sql: str) -> str:
     """
     ts = f"TRY_CONVERT(DATETIME2, {dt_sql})"
     key = f"CAST(CONVERT(CHAR(8), {ts}, 112) AS INT)"
-    # Present-but-empty string (typed NULL stays UNKNOWN).
+    # Present-but-empty string (typed NULL stays UNKNOWN). Must be tested
+    # BEFORE the ts branches: TRY_CONVERT(DATETIME2, '') "succeeds" as
+    # 1900-01-01, so a blank string never reaches a ts-IS-NULL branch and
+    # would otherwise land on BEFORE via the range clamp.
     blank = (
         f"({dt_sql} IS NOT NULL AND "
         f"NULLIF(LTRIM(RTRIM(CONVERT(NVARCHAR(50), {dt_sql}))), N'') IS NULL)"
     )
     return (
-        f"CASE WHEN {ts} IS NULL AND {blank} THEN {DATO_BLANK_KEY} "
+        f"CASE WHEN {blank} THEN {DATO_BLANK_KEY} "
         f"WHEN {ts} IS NULL THEN {DATO_UNKNOWN_KEY} "
         f"WHEN {key} < {DATO_MIN_KEY} THEN {DATO_BEFORE_KEY} "
         f"WHEN {key} > {DATO_MAX_KEY} THEN {DATO_AFTER_KEY} "

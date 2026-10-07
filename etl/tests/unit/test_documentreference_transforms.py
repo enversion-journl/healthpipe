@@ -342,7 +342,7 @@ class TestEpikrisePosting:
 
     Unlike Condition (which resolves missing patients/encounters up front),
     DocumentReference threads a patient-id -> CPR ``reference_fallback_fn`` through
-    ``prepare_resources_for_upsert`` (work item 28596) and resolves relatesTo
+    ``prepare_resources_for_upsert`` and resolves relatesTo
     self-references in a second pass.
     """
 

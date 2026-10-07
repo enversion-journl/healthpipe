@@ -9,32 +9,39 @@ dso_lineage:
   TableName: fhir.Procedure
   Domain: [FHIR]
   Description: "FHIR Procedure ressource — kliniske og administrative procedurer"
-  Grain: "Én række pr. procedure fra administrative procedurer eller RIS-ydelser"
+  Grain: "Én række pr. Procedure-ressource fra AKTIVITETSRESULTAT (hoved + deloperation), ADMINISTRATIVE_PROCEDURE eller RIS_YDELSE"
   FhirResource: Procedure
 
   SourceSystems:
+    - ifdb_aktivitetsresultat: [IFDB.AKTIVITETSRESULTAT]
     - ifdb_administrative_procedure: [IFDB.ADMINISTRATIVE_PROCEDURE]
     - ifdb_ris_ydelse: [IFDB.RIS_YDELSE]
     - ifdb_adm_procedure_suppl_codes: [IFDB.ADM_PROCEDURE_SUPPL_CODES]
 
   Columns:
-    procedure_id:           { Type: PK, DataType: NVARCHAR(255), FhirPath: "id", Description: "FHIR resource id (Aidbox UUID) — resolver-/servertildelt ved posting ud fra OBJECT_ID. Findes ikke i kilden; forretningsnøglen bæres i Procedure.identifier (source_system)." }
-    patient_id:             { DataType: NVARCHAR(255), FhirPath: "subject.id", FK-Target: fhir.Patient, FK-Key: patient_id, FK-Required: true, Description: "FHIR-tildelt Patient-reference (Aidbox UUID) — resolver-tildelt ved posting ud fra IFDB.ADMINISTRATIVE_PROCEDURE.patient_id_ifdb / IFDB.RIS_YDELSE.patient_id_ifdb; ikke direkte projiceret fra kilden." }
-    encounter_id:           { DataType: NVARCHAR(255), FhirPath: "encounter.id", FK-Target: fhir.Encounter, FK-Key: encounter_id, FK-Required: false, Description: "FHIR-tildelt Encounter-reference (Aidbox UUID) — resolver-tildelt ved posting ud fra IFDB.ADMINISTRATIVE_PROCEDURE.ENCOUNTER_ID / IFDB.RIS_YDELSE.ENCOUNTER_ID; ikke direkte projiceret fra kilden." }
-    episode_of_care_id:     { DataType: NVARCHAR(255), FhirPath: "extension.where(url='http://regionsyddanmark.dk/fhir/StructureDefinition/episodeOfCare').valueReference.id", FK-Target: fhir.EpisodeOfCare, FK-Key: episode_of_care_id, FK-Required: false, Description: "FHIR-tildelt EpisodeOfCare-reference (Aidbox UUID) — resolver-tildelt ved posting ud fra IFDB.ADMINISTRATIVE_PROCEDURE.EPISODE_OF_CARE_ID / IFDB.RIS_YDELSE.EPISODE_OF_CARE_ID; ikke direkte projiceret fra kilden." }
+    procedure_id:           { Type: PK, DataType: NVARCHAR(255), FhirPath: "id", Description: "FHIR resource id (Aidbox UUID) — resolver-/servertildelt ved posting. Forretningsnøglen bæres i Procedure.identifier (source_system)." }
+    patient_id:             { DataType: NVARCHAR(255), FhirPath: "subject.id", FK-Target: fhir.Patient, FK-Key: patient_id, FK-Required: true, Description: "FHIR-tildelt Patient-reference (Aidbox UUID) — resolver-tildelt ved posting ud fra IFDB PATIENT_ID; ikke direkte projiceret fra kilden." }
+    encounter_id:           { DataType: NVARCHAR(255), FhirPath: "encounter.id", FK-Target: fhir.Encounter, FK-Key: encounter_id, FK-Required: false, Description: "FHIR-tildelt Encounter-reference (Aidbox UUID) — resolver-tildelt ved posting ud fra IFDB ENCOUNTER_ID; ikke direkte projiceret fra kilden." }
+    episode_of_care_id:     { DataType: NVARCHAR(255), FhirPath: "extension.where(url='http://example.org/fhir/StructureDefinition/episodeOfCare').valueReference.id", FK-Target: fhir.EpisodeOfCare, FK-Key: episode_of_care_id, FK-Required: false, Description: "FHIR-tildelt EpisodeOfCare-reference (Aidbox UUID) — resolver-tildelt ved posting ud fra IFDB EPISODE_OF_CARE_ID; ikke direkte projiceret fra kilden." }
     status:                 { DataType: NVARCHAR(50), FhirPath: "status" }
-    category_code:          { DataType: NVARCHAR(255), FhirPath: "category.coding.code", Source: [ifdb_ris_ydelse.IFDB.RIS_YDELSE.TYPE] }
-    category_display:       { DataType: NVARCHAR(500), FhirPath: "category.coding.display", Source: [ifdb_ris_ydelse.IFDB.RIS_YDELSE.STATE] }
-    code:                   { DataType: NVARCHAR(255), FhirPath: "code.coding.where(userSelected = true).code.first()", Source: [ifdb_administrative_procedure.IFDB.ADMINISTRATIVE_PROCEDURE.PROCEDURE_CODE, ifdb_ris_ydelse.IFDB.RIS_YDELSE.TYPE] }
+    category_code:          { DataType: NVARCHAR(255), FhirPath: "category.coding.code", Expr: "Fast værdi 'radiology' på RIS-procedurer; tom for SFI og administrative procedurer. Ikke afledt af en kildekolonne.", Description: "Kategori — sættes fast for RIS-kilden og kan bruges som markør for radiologi-procedurer." }
+    category_display:       { DataType: NVARCHAR(500), FhirPath: "category.coding.display", Expr: "Fast visningstekst hørende til den faste RIS-kategori. Ikke afledt af en kildekolonne.", Description: "Visningstekst for kategorien." }
+    code:                   { DataType: NVARCHAR(255), FhirPath: "code.coding.where(userSelected = true).code.first()", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.AKTIVITETTYPE_KODE, ifdb_administrative_procedure.IFDB.ADMINISTRATIVE_PROCEDURE.PROCEDURE_CODE, ifdb_ris_ydelse.IFDB.RIS_YDELSE.XML] }
     code_system:            { DataType: NVARCHAR(500), FhirPath: "code.coding.where(userSelected = true).system.first()" }
-    code_display:           { DataType: NVARCHAR(500), FhirPath: "code.coding.where(userSelected = true).display.first()", Source: [ifdb_administrative_procedure.IFDB.ADMINISTRATIVE_PROCEDURE.PROCEDURE_TEXT, ifdb_ris_ydelse.IFDB.RIS_YDELSE.STATE] }
-    performed_datetime:     { DataType: NVARCHAR(50), FhirPath: "performedDateTime", Source: [ifdb_administrative_procedure.IFDB.ADMINISTRATIVE_PROCEDURE.PERIOD_START, ifdb_ris_ydelse.IFDB.RIS_YDELSE.UDFOERT_TIDSPUNKT] }
+    code_display:           { DataType: NVARCHAR(500), FhirPath: "code.coding.where(userSelected = true).display.first()", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.AKTIVITETTYPE_KODETEKST, ifdb_administrative_procedure.IFDB.ADMINISTRATIVE_PROCEDURE.PROCEDURE_TEXT, ifdb_ris_ydelse.IFDB.RIS_YDELSE.XML] }
+    performed_datetime:     { DataType: NVARCHAR(50), FhirPath: "performedDateTime", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.PERIOD_START, ifdb_administrative_procedure.IFDB.ADMINISTRATIVE_PROCEDURE.PERIOD_START, ifdb_ris_ydelse.IFDB.RIS_YDELSE.UDFOERT_TIDSPUNKT] }
     performed_period_start: { DataType: NVARCHAR(50), FhirPath: "performedPeriod.start" }
     performed_period_end:   { DataType: NVARCHAR(50), FhirPath: "performedPeriod.end" }
     body_site_code:         { DataType: NVARCHAR(255), FhirPath: "bodySite.coding.code" }
     body_site_display:      { DataType: NVARCHAR(500), FhirPath: "bodySite.first().text" }
     source_system:          { DataType: NVARCHAR(100), FhirPath: "identifier.system" }
-    ifdb_aktivitet_id:      { DataType: NVARCHAR(255), FhirPath: "identifier.where(system='urn:source:ifdb:aktivitetsresultat_procedure').value.first()", Source: [ifdb_administrative_procedure.IFDB.ADMINISTRATIVE_PROCEDURE.OBJECT_ID, ifdb_ris_ydelse.IFDB.RIS_YDELSE.OBJEKT_ID], FK-None: true }
+    source_identifier_value: { DataType: NVARCHAR(255), FhirPath: "identifier.value.first()", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.OBJEKT_ID, ifdb_administrative_procedure.IFDB.ADMINISTRATIVE_PROCEDURE.OBJECT_ID, ifdb_ris_ydelse.IFDB.RIS_YDELSE.OBJEKT_ID], FK-None: true, Expr: "Forretningsnøglen fra den kilde, source_system peger på. Samme rækkefølge som source_system, så de to altid hører sammen.", Description: "Kildens nøgle, uanset hvilken af de tre procedurekilder rækken kommer fra." }
+    ifdb_aktivitet_id:      { DataType: NVARCHAR(255), FhirPath: "identifier.where(system='urn:source:ifdb:aktivitetsresultat_procedure').value.first()", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.OBJEKT_ID], FK-None: true, Description: "Kun AKTIVITETSRESULTAT-identifier (hoved = OBJEKT_ID, delop = {OBJEKT_ID}-delop-{n}). AdminProc/RIS bruger andre identifier-systemer og lander NULL her." }
+    part_of_id:             { DataType: NVARCHAR(255), FhirPath: "partOf.id.first()", FK-Target: fhir.Procedure, FK-Key: procedure_id, FK-Required: false, Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.OBJEKT_ID], Description: "Peger fra en deloperation til hovedoperationen. NULL på hovedoperationer." }
+    knivtid_start:          { DataType: DATETIME2, FhirPath: "extension.where(url='http://example.org/fhir/StructureDefinition/aktivitetsresultatProcedureSourceMeta').extension.where(url='knivtidStart').valueDateTime.first()", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML], Description: "Tidspunkt hvor der reelt blev opereret fra. Ikke det samme som performed_period, der er kilderaekkens administrative aktivitetsperiode." }
+    knivtid_slut:           { DataType: DATETIME2, FhirPath: "extension.where(url='http://example.org/fhir/StructureDefinition/aktivitetsresultatProcedureSourceMeta').extension.where(url='knivtidSlut').valueDateTime.first()", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML], Description: "Tidspunkt hvor operationen sluttede. Normaliseres til dansk tid ved load." }
+    knivtid_minutter:       { DataType: INT, FhirPath: "extension.where(url='http://example.org/fhir/StructureDefinition/aktivitetsresultatProcedureSourceMeta').extension.where(url='knivtidMinutter').valueInteger.first()", Expr: "Beregnet i byggelaget som knivtid_slut minus knivtid_start i hele minutter. NULL når et af tidspunkterne mangler eller ikke kan læses.", Description: "Knivtidens varighed i minutter." }
+    lpr3_ignored:           { DataType: BIT, FhirPath: "meta.tag.where(system = 'http://example.org/fhir/CodeSystem/resource-flag' and code = 'lpr3-ignored').exists()", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.LPR3_IGNORED, ifdb_administrative_procedure.IFDB.ADMINISTRATIVE_PROCEDURE.LPR3_IGNORED, ifdb_ris_ydelse.IFDB.RIS_YDELSE.LPR3_IGNORED], Expr: "Mærket sættes kun når kildens flag er sandt, så loadet skriver 0 eller 1 og aldrig NULL. Rækker fra før kolonnen fandtes står NULL, indtil genkørslen har skrevet dem om — derefter strammes DDL til NOT NULL.", Description: "Registreringen skal ikke indberettes til Landspatientregisteret." }
     dw_is_deleted:          { DataType: INT, FhirPath: "extension('urn:fhir:isDeleted').valueInteger.first()", Source: [ifdb_administrative_procedure.IFDB.ADMINISTRATIVE_PROCEDURE.DELETED, ifdb_ris_ydelse.IFDB.RIS_YDELSE.SLETTET], Description: "Slettet-flag (1 = slettet) fra kildens deletion-markør. NOT NULL DEFAULT 0; manglende extension coalesces til 0 i loadet." }
     last_updated:           { DataType: DATETIME2, FhirPath: "r.ts" }
     created_at:             { DataType: DATETIME2, FhirPath: "r.cts" }
@@ -43,3 +50,4 @@ dso_lineage:
   # den flade fhir.Procedure DWH-tabel (SoF-viewet udelader dem). Bevaret her som
   # lineage-dokumentation; ignoreres af lineage↔DDL-verifieren og star-schema-generatoren.
   NonProjectedFhirFields:
+    performer:                 { DataType: NVARCHAR(MAX), FhirPath: "performer", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }

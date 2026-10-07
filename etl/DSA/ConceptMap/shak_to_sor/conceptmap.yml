@@ -6,7 +6,7 @@
 
 resourceType: ConceptMap
 id: "shak-to-sor"
-url: "https://regionsyd.dk/fhir/ConceptMap/shak-to-sor"
+url: "https://example.org/fhir/ConceptMap/shak-to-sor"
 status: active
 name: "SHAKToSor"
 title: "SHAK to SOR"

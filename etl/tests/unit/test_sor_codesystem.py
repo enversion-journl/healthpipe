@@ -4,16 +4,16 @@
 # This file is part of Healthpipe. See the LICENSE file in the project
 # root for the full AGPL-3.0 license text.
 
-"""Unit tests for the SOR CodeSystem builder — activeRsdOrganization property.
+"""Unit tests for the SOR CodeSystem builder — activeOwnOrganization property.
 
-The property marks entities that belong to Region Syddanmark's own current
+The property marks entities that belong to Example Region's own current
 organisation: open (no closingDate), taken effect (openingDate <= now) and
 reachable from SOR_ROOT through a chain of open entities.
 """
 
 import pytest
 from DSA.CodeSystem.sor.sor import (
-    ACTIVE_RSD_PROPERTY_KEY,
+    ACTIVE_OWN_PROPERTY_KEY,
     KNOWN_PROPERTY_KEYS,
     SOR_ROOT,
     build_sor_codesystem,
@@ -35,13 +35,13 @@ def _wide_row(code, parent="", opening="2020-01-01 00:00:00", closing="", name=N
 
 
 def _flags(properties):
-    return {p["CODE"]: p["VALUE"] for p in properties if p["KEY"] == ACTIVE_RSD_PROPERTY_KEY}
+    return {p["CODE"]: p["VALUE"] for p in properties if p["KEY"] == ACTIVE_OWN_PROPERTY_KEY}
 
 
-class TestActiveRsdProperty:
+class TestActiveOwnProperty:
     def test_open_entities_under_root_are_true(self):
         rows = [
-            _wide_row(SOR_ROOT, name="Region Syddanmark"),
+            _wide_row(SOR_ROOT, name="Example Region"),
             _wide_row("H1", parent=SOR_ROOT),
             _wide_row("a1", parent="H1"),
         ]
@@ -103,14 +103,14 @@ class TestActiveRsdProperty:
             _wide_row("X1"),
         ]
         concepts, properties, _ = build_sor_codesystem(rows)
-        flag_props = [p for p in properties if p["KEY"] == ACTIVE_RSD_PROPERTY_KEY]
+        flag_props = [p for p in properties if p["KEY"] == ACTIVE_OWN_PROPERTY_KEY]
         assert len(flag_props) == len(concepts)
         assert all(p["TYPE"] == "Boolean" for p in flag_props)
         assert all(p["VALUE"] in ("true", "false") for p in flag_props)
 
     def test_normalised_format_also_gets_the_property(self):
         rows = [
-            {"CODE": SOR_ROOT, "KEY": "display", "VALUE": "Region Syddanmark", "TYPE": "String"},
+            {"CODE": SOR_ROOT, "KEY": "display", "VALUE": "Example Region", "TYPE": "String"},
             {"CODE": "H1", "KEY": "display", "VALUE": "Sygehus", "TYPE": "String"},
             {"CODE": "H1", "KEY": "parentCode", "VALUE": SOR_ROOT, "TYPE": "String"},
         ]
@@ -119,7 +119,7 @@ class TestActiveRsdProperty:
         assert flags == {SOR_ROOT: "true", "H1": "true"}
 
     def test_key_registered_in_known_property_keys(self):
-        assert ACTIVE_RSD_PROPERTY_KEY in KNOWN_PROPERTY_KEYS
+        assert ACTIVE_OWN_PROPERTY_KEY in KNOWN_PROPERTY_KEYS
 
 
 class TestStreamingBuildEquivalence:
@@ -129,7 +129,7 @@ class TestStreamingBuildEquivalence:
 
     def test_streaming_matches_list_build(self):
         rows = [
-            _wide_row(SOR_ROOT, name="Region Syddanmark"),
+            _wide_row(SOR_ROOT, name="Example Region"),
             _wide_row("H1", parent=SOR_ROOT),
             _wide_row("a1", parent="H1", closing="2023-06-30 00:00:00"),
             _wide_row("FUT1", parent=SOR_ROOT, opening="2999-01-01 00:00:00"),

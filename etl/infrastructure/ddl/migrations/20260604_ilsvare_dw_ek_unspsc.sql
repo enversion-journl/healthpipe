@@ -4,7 +4,7 @@
 -- This file is part of Healthpipe. See the LICENSE file in the project
 -- root for the full AGPL-3.0 license text.
 
--- Migration: dim.IlsVare DW_EK_UNSPSC FK to dim.UNSPSC (task 27788)
+-- Migration: dim.IlsVare DW_EK_UNSPSC FK to dim.UNSPSC
 --
 -- Upgrade path for existing databases. Fresh installs get the column from 02_dims.sql.
 -- Backfill uses deprecated text columns UNSPSC / UNSPSC_Intern (unspc / unspsc2 sources).

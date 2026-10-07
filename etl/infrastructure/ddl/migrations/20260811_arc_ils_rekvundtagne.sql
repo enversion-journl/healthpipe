@@ -4,7 +4,7 @@
 -- This file is part of Healthpipe. See the LICENSE file in the project
 -- root for the full AGPL-3.0 license text.
 
--- Idempotent: create arc.ils_rekvundtagne (AB#29114 PR-A).
+-- Idempotent: create arc.ils_rekvundtagne.
 -- Source: ils_pro2_log.dbo.rekvUndtagne. Grain: (sgh, rnr).
 
 IF NOT EXISTS (

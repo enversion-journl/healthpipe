@@ -1007,6 +1007,65 @@ def test_pre_resolve_chunk_sfi_observation_ids_uses_cached_lookup_and_targets_mi
     ]
 
 
+def test_pre_resolve_chunk_delop_procedure_ids_uses_cached_lookup_and_targets_missing_only():
+    class FakeFhirDatabase:
+        def __init__(self):
+            self.calls: list[tuple[str, str, tuple[str, ...]]] = []
+
+        def resolve_identifier_values(self, *, resource_type, identifier_system, values, **_kwargs):
+            self.calls.append((resource_type, identifier_system, tuple(values)))
+            return {value: f"proc-{value}" for value in values}
+
+    fhir_database = FakeFhirDatabase()
+    logger = MagicMock()
+    resolved = ResolvedRefLookup(
+        patient={},
+        encounter={},
+        episode={},
+        observation={},
+        procedure={
+            (SYSTEM_IFDB_AKTIVITETSRESULTAT_PROCEDURE, "100-delop-1"): "proc-cached",
+        },
+    )
+
+    akt_orchestrator._pre_resolve_chunk_delop_procedure_ids(
+        fhir_database=fhir_database,
+        resolved=resolved,
+        chunk_delop_identifiers=["100-delop-1", "100-delop-2", "100-delop-3", "100-delop-1"],
+        logger=logger,
+    )
+
+    assert resolved.lookups_by_resource_type()["Procedure"] == {
+        (SYSTEM_IFDB_AKTIVITETSRESULTAT_PROCEDURE, "100-delop-1"): "proc-cached",
+        (SYSTEM_IFDB_AKTIVITETSRESULTAT_PROCEDURE, "100-delop-2"): "proc-100-delop-2",
+        (SYSTEM_IFDB_AKTIVITETSRESULTAT_PROCEDURE, "100-delop-3"): "proc-100-delop-3",
+    }
+    assert fhir_database.calls == [
+        (
+            "Procedure",
+            SYSTEM_IFDB_AKTIVITETSRESULTAT_PROCEDURE,
+            ("100-delop-2", "100-delop-3"),
+        )
+    ]
+    assert resolved.procedure_id("100-delop-1") == "proc-cached"
+    assert resolved.procedure_id("100-delop-2") == "proc-100-delop-2"
+
+
+def test_procedure_id_mints_once_per_identifier_on_cache_miss():
+    resolved = ResolvedRefLookup(
+        patient={},
+        encounter={},
+        episode={},
+        observation={},
+        procedure={},
+    )
+    first = resolved.procedure_id("100-delop-1")
+    second = resolved.procedure_id("100-delop-1")
+    other = resolved.procedure_id("100-delop-2")
+    assert first == second
+    assert first != other
+
+
 def test_dedupe_resource_dicts_by_business_identifier():
     logger = MagicMock()
     resources = [
@@ -1047,12 +1106,13 @@ def test_dedupe_resource_dicts_by_business_identifier():
             },
         ),
     ]
-    deduped = akt_orchestrator._dedupe_resource_dicts_by_business_id(
+    deduped, duplicates = akt_orchestrator._dedupe_resource_dicts_by_business_id(
         resources,
         logger=logger,
         resource_type="Observation",
     )
     assert len(deduped) == 2
+    assert duplicates == 1  # tælleren er politikkens synlige del
     assert deduped[0][0] == "rid-1"
     assert deduped[1][0] == "rid-3"
     logger.info.assert_called_once()

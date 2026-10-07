@@ -74,7 +74,7 @@ etl/
 │       └── sync_dim.py / sync_fct.py / sync_fhir.py
 ├── dqa/                        # Data Quality Assurance framework
 ├── data_quality/               # Standalone FHIR grain + deleted-resource checks (separate from dqa/)
-├── data_lineage/               # YAML lineage per table (dim/, fct/, fhir/) + tools
+├── data_lineage/               # YAML lineage per table (bridge/, dim/, dm/, fct/, fhir/) + tools
 ├── infrastructure/             # DDL setup assets (schemas, tables, views), security, seed data
 ├── migrations/                 # Tracked SQL migrations + migration runner asset
 ├── jobs/                       # Job definitions per domain
@@ -110,8 +110,7 @@ Views are not in this tree: DSO presentation views are SQL DDL under
   (`DSI/connectors/`) from source-specific configuration (`DSI/mssql/`, `DSI/oracle/`).
   One parameterized factory per connector type.
 - **Centralized infrastructure.** All DDL setup assets live in `infrastructure/`,
-  never inside `DSA/`. See
-  [`07-infrastructure-pipeline.mdc`](../../../.cursor/rules/07-infrastructure-pipeline.mdc).
+  never inside `DSA/`.
 
 ## Where a change goes
 
@@ -125,9 +124,9 @@ Views are not in this tree: DSO presentation views are SQL DDL under
 | CodeSystem / ConceptMap | `DSA/CodeSystem/`, `DSA/ConceptMap/` | [CodeSystem & ConceptMap guide](codesystem_conceptmap_guide.md) |
 | DSO sync of a table | `DSO/load/sync_dim.py` / `sync_fct.py` / `sync_fhir.py` | [DSO sync guide](dso_sync_guide.md) |
 | DSO view | `infrastructure/ddl/views/{domain}/` | [SQL ETL guide](sql_etl_guide.md#view-layer-responsibilities) |
-| Table DDL | `infrastructure/ddl/tables/{domain}/` | [`07-infrastructure-pipeline.mdc`](../../../.cursor/rules/07-infrastructure-pipeline.mdc) |
+| Table DDL | `infrastructure/ddl/tables/{domain}/` | [DSI ETL guide](dsi_etl_guide.md) |
 | Data quality check | `dqa/config/` | [DQA README](../architecture/dqa/README.md) |
-| Lineage documentation | `data_lineage/{dim,fct,fhir}/` | [Data lineage guide](data_lineage_guide.md) |
+| Lineage documentation | `data_lineage/{bridge,dim,dm,fct,fhir}/` | [Data lineage guide](data_lineage_guide.md) |
 
 ## Dagster terminology, as used here
 
@@ -257,9 +256,6 @@ from DSI.oracle import all_extraction_assets as ifdb_extract_assets
   `DSO.*`, `utils.*`. Never relative imports, never the old `etl_pipelines.*` path.
 - **Naming** follows [navngivningsstandard.md](navngivningsstandard.md) — tables in
   PascalCase, everything else snake_case, `dw_*` prefixes for warehouse columns.
-- **The rules in [`.cursor/rules/`](../../../.cursor/rules/)** are binding for both
-  human and agent-written code; they load automatically by file glob in Cursor and via
-  [CLAUDE.md](../../../CLAUDE.md) in Claude Code.
 
 ## Related documentation
 

@@ -87,27 +87,27 @@ select
   exists (
     select 1
     from jsonb_array_elements(coalesce(o.resource->'extension','[]'::jsonb)) e
-    where e->>'url' = 'http://regionsyddanmark.dk/fhir/StructureDefinition/aktivitetsresultatRootMeta'
+    where e->>'url' = 'http://example.org/fhir/StructureDefinition/aktivitetsresultatRootMeta'
   ) as has_root_meta,
   exists (
     select 1
     from jsonb_array_elements(coalesce(o.resource->'extension','[]'::jsonb)) e
-    where e->>'url' like 'http://regionsyddanmark.dk/fhir/StructureDefinition/aktivitetsresultatKontekst%'
+    where e->>'url' like 'http://example.org/fhir/StructureDefinition/aktivitetsresultatKontekst%'
   ) as has_kontekst_meta,
   exists (
     select 1
     from jsonb_array_elements(coalesce(o.resource->'extension','[]'::jsonb)) e
-    where e->>'url' = 'http://regionsyddanmark.dk/fhir/StructureDefinition/aktivitetsresultatSourceMeta'
+    where e->>'url' = 'http://example.org/fhir/StructureDefinition/aktivitetsresultatSourceMeta'
   ) as has_source_meta,
   exists (
     select 1
     from jsonb_array_elements(coalesce(o.resource->'extension','[]'::jsonb)) e
-    where e->>'url' = 'http://regionsyddanmark.dk/fhir/StructureDefinition/aktivitetsudfoerelseMetadata'
+    where e->>'url' = 'http://example.org/fhir/StructureDefinition/aktivitetsudfoerelseMetadata'
   ) as has_udf_meta,
   exists (
     select 1
     from jsonb_array_elements(coalesce(o.resource->'extension','[]'::jsonb)) e
-    where e->>'url' = 'http://regionsyddanmark.dk/fhir/StructureDefinition/aktivitettypeKodeHierarki'
+    where e->>'url' = 'http://example.org/fhir/StructureDefinition/aktivitettypeKodeHierarki'
   ) as has_hierarchy_meta
 from observation o;
 
@@ -220,27 +220,27 @@ select
   exists (
     select 1
     from jsonb_array_elements(coalesce(p.resource->'extension','[]'::jsonb)) e
-    where e->>'url' = 'http://regionsyddanmark.dk/fhir/StructureDefinition/episodeOfCare'
+    where e->>'url' = 'http://example.org/fhir/StructureDefinition/episodeOfCare'
   ) as has_episode_extension,
   exists (
     select 1
     from jsonb_array_elements(coalesce(p.resource->'extension','[]'::jsonb)) e
-    where e->>'url' = 'http://regionsyddanmark.dk/fhir/StructureDefinition/procedureSourceMeta'
+    where e->>'url' = 'http://example.org/fhir/StructureDefinition/procedureSourceMeta'
   ) as has_proc_source_meta,
   exists (
     select 1
     from jsonb_array_elements(coalesce(p.resource->'extension','[]'::jsonb)) e
-    where e->>'url' = 'http://regionsyddanmark.dk/fhir/StructureDefinition/procedureLocationMeta'
+    where e->>'url' = 'http://example.org/fhir/StructureDefinition/procedureLocationMeta'
   ) as has_proc_location_meta,
   exists (
     select 1
     from jsonb_array_elements(coalesce(p.resource->'extension','[]'::jsonb)) e
-    where e->>'url' = 'http://regionsyddanmark.dk/fhir/StructureDefinition/sourceCreatedAt'
+    where e->>'url' = 'http://example.org/fhir/StructureDefinition/sourceCreatedAt'
   ) as has_source_created_at,
   exists (
     select 1
     from jsonb_array_elements(coalesce(p.resource->'extension','[]'::jsonb)) e
-    where e->>'url' = 'http://regionsyddanmark.dk/fhir/StructureDefinition/sourceModifiedAt'
+    where e->>'url' = 'http://example.org/fhir/StructureDefinition/sourceModifiedAt'
   ) as has_source_modified_at,
   jsonb_exists(p.resource, 'performer') as has_performer,
   exists (

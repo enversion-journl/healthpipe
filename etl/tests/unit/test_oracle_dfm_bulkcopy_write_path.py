@@ -6,7 +6,7 @@
 
 """Unit tests for the Oracle-DFM ext write path (bulkcopy + arraysize).
 
-AB#29470: `_execute_dfm_oracle_extract` writes to ext.* via mssql-python's
+`_execute_dfm_oracle_extract` writes to ext.* via mssql-python's
 bulk-copy protocol; the legacy executemany loop is reachable only via the
 ext_insert_method=executemany run tag. Covers:
 

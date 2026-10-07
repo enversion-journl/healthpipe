@@ -68,10 +68,14 @@ def pre_stg_Vareudlevering_ils(
 
     dfm = DfmManager(mssql_target_staging, context)
 
+    # Delta filter from downstream checkpoints (MIN of dim/fct owners).
+    # full_load mode rebuilds everything; first run (no checkpoints) too.
     dim_cp = dfm.get_checkpoint("dim", "Vareudlevering")
     fct_cp = dfm.get_checkpoint("fct", "Vareudlevering")
     checkpoints = [cp for cp in [dim_cp, fct_cp] if cp is not None]
     min_checkpoint = min(checkpoints) if checkpoints else None
+    if config.mode == "full_load":
+        min_checkpoint = None  # full rebuild ignores checkpoint
 
     run_ctx = dfm.start_dfm_run(
         "pre_stg",
@@ -85,7 +89,7 @@ def pre_stg_Vareudlevering_ils(
         context.log.info(f"Checkpoint filter: dw_timestamp_update > {min_checkpoint}")
     else:
         archive_filter = ""
-        context.log.info("No checkpoint found — loading all rows from archive")
+        context.log.info("No checkpoint filter — full reconstruction from archive")
 
     row_count = 0
     source_total = 0
@@ -175,6 +179,8 @@ def pre_stg_Vareudlevering_ils(
                         ordlinie,
                         kto,
                         udlevenh,
+                        lgrlok,
+                        udtraknr3,
                         clean_code_Vareudlevering,
                         clean_code_Lager,
                         clean_code_Rekvirent,
@@ -229,6 +235,8 @@ def pre_stg_Vareudlevering_ils(
                             ordlinie,
                             kto,
                             udlevenh,
+                            lgrlok,
+                            udtraknr3,
                             -- CleanCodes generated inline from raw archive columns
                             CASE WHEN prrowid IS NOT NULL
                                 THEN 'UDLEV_' + UPPER(LTRIM(RTRIM(REPLACE(CAST(prrowid AS NVARCHAR(100)), ' ', ''))))

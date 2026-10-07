@@ -38,6 +38,12 @@ _DSO_WEEKLY_CRONS: dict[str, str] = {
     "security": "0 9 * * 6",  # Sat 09:00
     "codesystem": "30 9 * * 6",  # Sat 09:30
     "conceptmap": "0 10 * * 6",  # Sat 10:00
+    # HAIBA publishes are delivery-driven (haiba_publish_sensor), so unlike the
+    # other tracks its reconciliation cannot ride a "monitored job ran on a
+    # Saturday" gate — a cron is the only trigger that is guaranteed to fire.
+    # Between publishes the DSO copy cannot drift on its own, so weekly is enough.
+    "haiba": "30 10 * * 6",  # Sat 10:30
+    "drg": "0 11 * * 6",  # Sat 11:00 (10:30 taken by haiba; keep the 30-min stagger)
 }
 
 _ALWAYS_STOPPED_DOMAINS: frozenset[str] = frozenset({"erp"})

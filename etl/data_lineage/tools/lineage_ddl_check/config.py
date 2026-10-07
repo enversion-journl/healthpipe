@@ -18,7 +18,7 @@ DDL_TABLES_DIR = _ETL_ROOT / "infrastructure" / "ddl" / "tables"
 LINEAGE_DIR = _ETL_ROOT / "data_lineage"
 
 # Only these schemas are verified.
-TARGET_SCHEMAS: tuple[str, ...] = ("dim", "fct", "fhir", "bridge")
+TARGET_SCHEMAS: tuple[str, ...] = ("dim", "fct", "fhir", "bridge", "dm")
 
 # --- Allowlists -------------------------------------------------------------
 # Audit/system columns that the DDL carries on every table but lineage

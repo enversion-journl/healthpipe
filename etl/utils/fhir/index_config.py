@@ -109,6 +109,51 @@ for _rt, _sys in IDENTIFIER_UNIQUE_INDEX_SPECS:
             "contains characters unsafe for SQL-literal interpolation"
         )
 
+# =============================================================================
+# Praefiks-indekser til oprydning af XML-boern
+# =============================================================================
+# Boern af en XML-forael der baerer identifier-vaerdien "{foraelder}{infix}{n}".
+# Oprydningen skal finde alle levende boern for en given foraelder, altsaa et
+# praefiks-opslag. Det UNIKKE indeks ovenfor bruger standard-opklassen og kan
+# derfor kun slaa op paa hele vaerdien; et praefiks-interval kraever
+# text_pattern_ops, som sammenligner byte for byte og dermed goer intervallet
+# [praefiks, praefiks-med-sidste-tegn-plus-en) eksakt uanset databasens collation.
+#
+# Uden dette indeks maa opslaget scanne hele familiens bestand for hver portion
+# af foraeldre. Maalt paa produktionslignende data: ti minutter for 29 boern.
+#
+# DDL:
+#
+#   CREATE INDEX idx_<table>_<system>_prefix
+#       ON <table> (extract_identifier_value(resource, '<system>') text_pattern_ops)
+#       WHERE resource->'identifier' @> '[{"system":"<system>"}]'::jsonb
+#         AND extract_identifier_value(resource, '<system>') IS NOT NULL
+IDENTIFIER_PREFIX_INDEX_SPECS: list[tuple[str, str]] = [
+    ("Procedure", SYSTEM_IFDB_AKTIVITETSRESULTAT_PROCEDURE),
+    ("Procedure", SYSTEM_IFDB_RIS_YDELSE),
+    ("Observation", SYSTEM_IFDB_AKTIVITETSRESULTAT_SFI),
+    ("Condition", SYSTEM_IFDB_AKTIVITETSRESULTAT_XML_CONDITION),
+]
+
+# Hvert praefiks-par skal ogsaa have det unikke indeks: den partielle
+# WHERE-klausul er den samme, og opslaget forudsaetter begge.
+_UNIQUE_PAIRS = set(IDENTIFIER_UNIQUE_INDEX_SPECS)
+for _rt, _sys in IDENTIFIER_PREFIX_INDEX_SPECS:
+    if not _SAFE_IDENTIFIER_SYSTEM_RE.match(_sys):
+        raise ValueError(
+            f"Identifier system {_sys!r} in IDENTIFIER_PREFIX_INDEX_SPECS "
+            "contains characters unsafe for SQL-literal interpolation"
+        )
+    if (_rt, _sys) not in _UNIQUE_PAIRS:
+        raise ValueError(
+            f"({_rt}, {_sys}) is in IDENTIFIER_PREFIX_INDEX_SPECS but not in "
+            "IDENTIFIER_UNIQUE_INDEX_SPECS — the prefix index reuses the same "
+            "partial predicate and would never be created"
+        )
+
+IDENTIFIER_PREFIX_INDEX_SET: frozenset[tuple[str, str]] = frozenset(IDENTIFIER_PREFIX_INDEX_SPECS)
+
+
 # Membership test set used by the identifier-lookup resolver.
 IDENTIFIER_UNIQUE_INDEX_SET: frozenset[tuple[str, str]] = frozenset(IDENTIFIER_UNIQUE_INDEX_SPECS)
 

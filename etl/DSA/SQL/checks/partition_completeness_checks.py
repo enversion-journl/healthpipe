@@ -284,7 +284,7 @@ def dq_partition_completeness_postering(
 
 # ---------------------------------------------------------------------------
 # fct.Vareudlevering — Source: arc.ils_udlev (archive), key: udldto (business
-# delivery date). Migrated off partitions (US 28691): validates the DFM/archive
+# delivery date). Migrated off partitions: validates the DFM/archive
 # path arc -> DSA -> DSO instead of the live ILS source.
 # ---------------------------------------------------------------------------
 

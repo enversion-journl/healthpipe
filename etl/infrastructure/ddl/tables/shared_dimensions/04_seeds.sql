@@ -308,7 +308,7 @@ FROM ( VALUES
 ) T (Aar, [Palmesøndag], [Skærtorsdag], Langfredag, [Påskedag], Paaskedag2, [Store Bededag], [Kristi Himmelfartsdag], Pinsedag, Pinsedag2);
 
 -- Update moveable holidays via UNPIVOT join
--- Note: Palmesoendag is NOT a public holiday at Region Syddanmark
+-- Note: Palmesoendag is NOT a public holiday at Example Region
 UPDATE dim.[Dato]
 SET [er_helligdag] = 1,
     [helligdag] = h.Hellig

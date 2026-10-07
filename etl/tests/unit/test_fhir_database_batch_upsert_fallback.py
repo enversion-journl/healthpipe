@@ -12,6 +12,8 @@ Focus:
 - conn.rollback() resets the aborted PostgreSQL transaction before retries and fallback.
 - Fallback to per-resource inserts only for configured database errors.
 - Surface non-database errors immediately (no silent fallback, no retry).
+- Driver/serializer error text never reaches failed_ids or logs — it can
+  embed resource content (for Patient the CPR in a unique-violation DETAIL).
 """
 
 from contextlib import contextmanager
@@ -226,10 +228,11 @@ class TestBatchUpsertResourcesFallback:
 
         patient = _sample_patient_with_identifier()
         # 1st execute = SELECT max(txid); 2nd = fallback insert collision;
-        # 3rd = conservative re-resolve by identifier.
+        # 3rd = conservative re-resolve by identifier; 4th = re-upsert.
         cursor.execute.side_effect = [
             None,
             FakeUniqueViolation("duplicate key value violates unique constraint"),
+            None,
             None,
         ]
         cursor.fetchall.return_value = [("existing-pat",)]
@@ -254,11 +257,13 @@ class TestBatchUpsertResourcesFallback:
         assert failures == 0
         assert failed_ids == []
         assert patient.id == "existing-pat"
-        # Safe-listed system is inlined as a SQL literal (indexed path); only
-        # the value is bound.
-        recovery_call = cursor.execute.call_args_list[-1]
-        assert "'urn:source:ifdb:patient_id'" in recovery_call.args[0]
-        assert recovery_call.args[1] == ("PAT-1",)
+        lookup_call = cursor.execute.call_args_list[-2]
+        assert "'urn:source:ifdb:patient_id'" in lookup_call.args[0]
+        assert lookup_call.args[1] == ("PAT-1",)
+        retry_call = cursor.execute.call_args_list[-1]
+        assert "ON CONFLICT (id) DO UPDATE" in retry_call.args[0]
+        assert retry_call.args[1][0] == "existing-pat"
+        assert '"existing-pat"' in retry_call.args[1][2]
         connection.commit.assert_called_once()
 
     def test_unique_identifier_collision_lookup_error_counts_as_failure(self) -> None:
@@ -489,10 +494,11 @@ class TestBatchUpsertResourceDictsFallback:
             )
         ]
         # 1st execute = SELECT max(txid); 2nd = fallback insert collision;
-        # 3rd = conservative re-resolve by identifier.
+        # 3rd = conservative re-resolve by identifier; 4th = re-upsert.
         cursor.execute.side_effect = [
             None,
             FakeUniqueViolation("duplicate key value violates unique constraint"),
+            None,
             None,
         ]
         cursor.fetchall.return_value = [("existing-obs",)]
@@ -517,9 +523,13 @@ class TestBatchUpsertResourceDictsFallback:
         assert failures == 0
         assert failed_ids == []
         assert rows[0][1]["id"] == "existing-obs"
-        recovery_call = cursor.execute.call_args_list[-1]
-        assert "'urn:source:ifdb:observation_id'" in recovery_call.args[0]
-        assert recovery_call.args[1] == ("OBS-1",)
+        lookup_call = cursor.execute.call_args_list[-2]
+        assert "'urn:source:ifdb:observation_id'" in lookup_call.args[0]
+        assert lookup_call.args[1] == ("OBS-1",)
+        retry_call = cursor.execute.call_args_list[-1]
+        assert "ON CONFLICT (id) DO UPDATE" in retry_call.args[0]
+        assert retry_call.args[1][0] == "existing-obs"
+        assert '"existing-obs"' in retry_call.args[1][2]
         connection.commit.assert_called_once()
 
     def test_backoff_delays_match_configured_values(self) -> None:
@@ -545,3 +555,218 @@ class TestBatchUpsertResourceDictsFallback:
             )
 
         assert mock_sleep.call_args_list == [call(0.5), call(1.0)]
+
+
+_CPR = "0101011234"
+_UNIQUE_VIOLATION_TEXT = (
+    'duplicate key value violates unique constraint "patient_urn_dk_cpr_uniq"\n'
+    f"DETAIL:  Key (extract_identifier_value(resource, 'urn:dk:cpr'))=({_CPR}) "
+    "already exists."
+)
+
+
+def _all_logged_text(logger: MagicMock) -> str:
+    """Every positional arg and kwarg passed to any log method, as one string."""
+    parts: list[str] = []
+    for method in ("debug", "info", "warning", "error", "exception", "critical"):
+        for logged in getattr(logger, method).call_args_list:
+            parts.extend(str(arg) for arg in logged.args)
+            parts.extend(f"{key}={value}" for key, value in logged.kwargs.items())
+    return " | ".join(parts)
+
+
+class TestFailureReportingCarriesNoErrorText:
+    """GDPR: driver/serializer error text is of unbounded provenance and can
+    embed resource content — for Patient resources the CPR, e.g. in a
+    unique-violation DETAIL. failed_ids and logs may carry only the exception
+    class and SQLSTATE, never the message, and never exc_info (the rendered
+    traceback ends with the message)."""
+
+    def test_resource_path_unique_violation_detail_never_reaches_failed_ids_or_logs(self) -> None:
+        resource = _build_resource()
+        connection, cursor = _build_connection_and_cursor()
+
+        class FakeBatchUniqueViolation(RuntimeError):
+            sqlstate = "23505"
+
+        class FakeUniqueViolation(Exception):
+            sqlstate = "23505"
+            diag = None
+
+        patient = Patient(
+            id="incoming-pat",
+            identifier=[{"system": "urn:dk:cpr", "value": _CPR}],
+        )
+        # Batch-level AND per-row error text both carry the CPR-bearing DETAIL.
+        cursor.executemany.side_effect = FakeBatchUniqueViolation(_UNIQUE_VIOLATION_TEXT)
+        # 1st execute = SELECT max(txid); 2nd = fallback insert collision;
+        # 3rd = re-resolve lookup that finds nothing -> real failure.
+        cursor.execute.side_effect = [
+            None,
+            FakeUniqueViolation(_UNIQUE_VIOLATION_TEXT),
+            None,
+        ]
+        cursor.fetchall.return_value = []
+
+        logger = MagicMock()
+        with (
+            patch("core.resources.BATCH_UPSERT_FALLBACK_ERROR", RuntimeError),
+            patch.object(
+                FHIRDatabaseResource,
+                "get_connection",
+                return_value=_connection_ctx(connection),
+            ),
+            patch("core.resources.dg.get_dagster_logger", return_value=logger),
+            patch("core.fhir.direct_upsert.time.sleep"),
+        ):
+            successes, failures, failed_ids = resource.batch_upsert_resources(
+                resources=[patient],
+                resource_type="Patient",
+                batch_size=500,
+            )
+
+        assert (successes, failures) == (0, 1)
+        assert failed_ids == ["incoming-pat: FakeUniqueViolation [sqlstate=23505]"]
+        assert _CPR not in _all_logged_text(logger)
+
+    def test_dict_path_unique_violation_detail_never_reaches_failed_ids_or_logs(self) -> None:
+        resource = _build_resource()
+        connection, cursor = _build_connection_and_cursor()
+
+        class FakeBatchUniqueViolation(RuntimeError):
+            sqlstate = "23505"
+
+        class FakeUniqueViolation(Exception):
+            sqlstate = "23505"
+            diag = None
+
+        rows = [
+            (
+                "pat-dict",
+                {
+                    "resourceType": "Patient",
+                    "id": "pat-dict",
+                    "identifier": [{"system": "urn:dk:cpr", "value": _CPR}],
+                },
+            )
+        ]
+        cursor.executemany.side_effect = FakeBatchUniqueViolation(_UNIQUE_VIOLATION_TEXT)
+        cursor.execute.side_effect = [
+            None,
+            FakeUniqueViolation(_UNIQUE_VIOLATION_TEXT),
+            None,
+        ]
+        cursor.fetchall.return_value = []
+
+        logger = MagicMock()
+        with (
+            patch("core.resources.BATCH_UPSERT_FALLBACK_ERROR", RuntimeError),
+            patch.object(
+                FHIRDatabaseResource,
+                "get_connection",
+                return_value=_connection_ctx(connection),
+            ),
+            patch("core.resources.dg.get_dagster_logger", return_value=logger),
+            patch("core.fhir.direct_upsert.time.sleep"),
+        ):
+            successes, failures, failed_ids = resource.batch_upsert_resource_dicts(
+                resource_dicts=rows,
+                resource_type="Patient",
+                batch_size=500,
+            )
+
+        assert (successes, failures) == (0, 1)
+        assert failed_ids == ["pat-dict: FakeUniqueViolation [sqlstate=23505]"]
+        assert _CPR not in _all_logged_text(logger)
+
+    def test_serialization_failure_carries_only_exception_class(self) -> None:
+        resource = _build_resource()
+
+        class ExplodingResource:
+            id = "boom-1"
+
+            def json(self, **kwargs):
+                raise ValueError(f"invalid identifier value {_CPR}")
+
+        logger = MagicMock()
+        with patch("core.resources.dg.get_dagster_logger", return_value=logger):
+            successes, failures, failed_ids = resource.batch_upsert_resources(
+                resources=[ExplodingResource()],
+                resource_type="Patient",
+            )
+
+        assert (successes, failures) == (0, 1)
+        assert failed_ids == ["boom-1: ValueError"]
+        assert _CPR not in _all_logged_text(logger)
+        # exc_info renders the traceback, which ends with the raw message.
+        assert all(c.kwargs.get("exc_info") is not True for c in logger.warning.call_args_list)
+
+    def test_non_person_serialization_failure_keeps_full_message_and_traceback(self) -> None:
+        """Plan (a) scoping: non-person types (here Observation) carry no CPR,
+        so their full error message and traceback are kept for debugging —
+        unlike Patient, which is reduced to the exception class. The distinction
+        is made by resource_type in _error_label / the exc_info call sites."""
+        resource = _build_resource()
+        detail = "invalid coding system https://example.org/x"
+
+        class ExplodingResource:
+            id = "obs-boom"
+
+            def json(self, **kwargs):
+                raise ValueError(detail)
+
+        logger = MagicMock()
+        with patch("core.resources.dg.get_dagster_logger", return_value=logger):
+            successes, failures, failed_ids = resource.batch_upsert_resources(
+                resources=[ExplodingResource()],
+                resource_type="Observation",
+            )
+
+        assert (successes, failures) == (0, 1)
+        # full driver/serializer message kept for a non-person type
+        assert failed_ids == [f"obs-boom: {detail}"]
+        assert detail in _all_logged_text(logger)
+        # ... and the traceback is preserved for debugging
+        assert any(c.kwargs.get("exc_info") is True for c in logger.warning.call_args_list)
+
+    def test_dict_prepare_failure_carries_only_exception_class(self) -> None:
+        resource = _build_resource()
+
+        logger = MagicMock()
+        with (
+            patch("core.resources.dg.get_dagster_logger", return_value=logger),
+            patch(
+                "core.fhir.direct_upsert._transform_references_for_aidbox",
+                side_effect=ValueError(f"bad reference for {_CPR}"),
+            ),
+        ):
+            successes, failures, failed_ids = resource.batch_upsert_resource_dicts(
+                resource_dicts=[("pat-prep", {"resourceType": "Patient", "id": "pat-prep"})],
+                resource_type="Patient",
+            )
+
+        assert (successes, failures) == (0, 1)
+        assert failed_ids == ["pat-prep: ValueError"]
+        assert _CPR not in _all_logged_text(logger)
+        assert all(c.kwargs.get("exc_info") is not True for c in logger.warning.call_args_list)
+
+    def test_identifier_collision_warning_carries_system_and_count_not_value(self) -> None:
+        from core.fhir.direct_upsert import _resolve_existing_id_for_identifier_collision
+
+        connection, cursor = _build_connection_and_cursor()
+        cursor.fetchall.return_value = [("row-a",), ("row-b",)]
+
+        logger = MagicMock()
+        with patch("core.resources.dg.get_dagster_logger", return_value=logger):
+            resolved = _resolve_existing_id_for_identifier_collision(
+                conn=connection,
+                cur=cursor,
+                table_name="patient",
+                resource_json={"identifier": [{"system": "urn:dk:cpr", "value": _CPR}]},
+            )
+
+        assert resolved is None
+        logged = _all_logged_text(logger)
+        assert "matched 2 rows" in logged
+        assert "urn:dk:cpr" in logged
+        assert _CPR not in logged

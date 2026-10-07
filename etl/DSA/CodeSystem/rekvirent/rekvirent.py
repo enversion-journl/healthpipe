@@ -65,7 +65,7 @@ def build_rekvirent_hierarchy(
     }
 
     root_code = "REGION_SYD"
-    concepts.append({"CODE": root_code, "DISPLAY": "Region Syddanmark"})
+    concepts.append({"CODE": root_code, "DISPLAY": "Example Region"})
     properties.append({"CODE": root_code, "KEY": "entityType", "VALUE": "region", "TYPE": "String"})
 
     sgh_codes: dict[str, str] = {}
@@ -81,7 +81,7 @@ def build_rekvirent_hierarchy(
         )
         properties.append({"CODE": sgh_code, "KEY": "sgh", "VALUE": sgh, "TYPE": "String"})
 
-        if sgh not in ("1000", "9999") and "Region Syddanmark" not in navn:
+        if sgh not in ("1000", "9999") and "Example Region" not in navn:
             hierarchy.append({"CODE": sgh_code, "PARENT_CODE": root_code})
 
     rgrp_codes: dict[tuple[str, str], str] = {}

@@ -488,9 +488,16 @@ class SyncTableConfig:
     # Column used as watermark for delta sync, e.g. 'dw_timestamp_update' or 'dw_timestamp_insert'.
     # Required when mode='watermark', ignored otherwise.
     watermark_column: str | None = None
-    # When True, disable nonclustered (non-PK) indexes on target before MERGE and rebuild after.
-    # Use only for very large fact tables where index maintenance during MERGE dominates; adds risk
-    # (rebuild must run in finally). Source (staging) indexes are never disabled.
+    # When True, disable the target's nonclustered (non-PK) indexes for a BULK
+    # LOAD only — a truncate_insert refresh or the empty-target first load — and
+    # rebuild them afterwards, so the load maintains just the clustered PK and
+    # the nonclustered indexes are rebuilt once (sorted) instead of taking a
+    # random write per row per index. An incremental MERGE into a populated
+    # target leaves the indexes intact: rebuilding every index over the whole
+    # table to absorb a small changed delta would cost far more than per-row
+    # upkeep. Use only for very large/wide fact tables where index maintenance
+    # during the initial load dominates; adds risk (rebuild must run in
+    # finally). Source (staging) indexes are never disabled.
     disable_target_indexes_during_sync: bool = False
     # Rows per chunk when using the Python fallback path (_sync_via_python).
     # Controls fetchmany() size and executemany() batch size to keep memory constant.
@@ -1117,37 +1124,78 @@ def build_merge_statement(
     return merge_sql
 
 
+def _escape_ts_literal(value: str, *, openquery: bool = False) -> str:
+    """Escape a timestamp literal for SQL or OPENQUERY (4-quote) embedding."""
+    if openquery:
+        return value.replace("'", "''''")
+    return value.replace("'", "''")
+
+
+def build_watermark_coalesce_predicate(
+    watermark_col: str,
+    insert_fallback: str,
+    *,
+    lower_exclusive: str | None = None,
+    upper_inclusive: str | None = None,
+    openquery: bool = False,
+) -> str:
+    """Build ``COALESCE([wm],[ins]) > lower AND COALESCE([wm],[ins]) <= upper``.
+
+    Lower bound uses exclusive ``>`` (DFM Strategy B). Upper bound is inclusive
+    ``<=`` and must be the pre-MERGE MAX sample so mid-sync inserts cannot lift
+    the checkpoint past unread rows.
+    """
+    expr = f"COALESCE([{watermark_col}], [{insert_fallback}])"
+    parts: list[str] = []
+    if lower_exclusive is not None:
+        lit = _escape_ts_literal(str(lower_exclusive), openquery=openquery)
+        if openquery:
+            parts.append(f"{expr} > ''{lit}''")
+        else:
+            parts.append(f"{expr} > '{lit}'")
+    if upper_inclusive is not None:
+        lit = _escape_ts_literal(str(upper_inclusive), openquery=openquery)
+        if openquery:
+            parts.append(f"{expr} <= ''{lit}''")
+        else:
+            parts.append(f"{expr} <= '{lit}'")
+    return " AND ".join(parts)
+
+
 def build_delta_merge_statement(
     config: SyncTableConfig,
     columns: list[str],
-    last_sync_timestamp: datetime | None = None,
+    last_sync_checkpoint: str | None = None,
     linked_server: str = LINKED_SERVER_NAME,
     staging_db: str = STAGING_DATABASE,
     string_pk_cols: set[str] | None = None,
+    checkpoint_upper_bound: str | None = None,
 ) -> str:
     """
     Build a delta MERGE SQL statement with watermark-based WHERE filter.
 
     Generates a MERGE that only processes rows changed since the last sync,
     using COALESCE on the watermark column with dw_timestamp_insert as fallback.
-    This ensures rows are captured even if the primary watermark column is NULL.
+    Uses exclusive ``>`` on the lower checkpoint and inclusive ``<=`` on the
+    pre-MERGE upper bound (pinned window).
 
-    When last_sync_timestamp is None, falls back to build_merge_statement()
-    for a full sync (used on first run when no previous watermark exists).
+    When last_sync_checkpoint is None and checkpoint_upper_bound is None, falls
+    back to build_merge_statement() for an unbounded full sync.
 
     Args:
         config: Sync configuration (must have watermark_column set for delta)
         columns: List of column names to sync
-        last_sync_timestamp: Timestamp of last successful sync, or None for full sync
+        last_sync_checkpoint: NVARCHAR checkpoint from DFMState (CONVERT 121), or None
         linked_server: Name of the linked server
         staging_db: Name of the staging database
         string_pk_cols: PK columns with string data types (auto-detected at runtime).
+        checkpoint_upper_bound: Pre-MERGE MAX(COALESCE(...)) sample; pins the window.
 
     Returns:
         MERGE SQL statement string with delta WHERE filter
     """
-    # Fall back to full merge when no timestamp is provided
-    if last_sync_timestamp is None:
+    # Fall back to full merge when no window bounds are provided
+    if last_sync_checkpoint is None and checkpoint_upper_bound is None:
         return build_merge_statement(config, columns, linked_server, staging_db, string_pk_cols)
 
     # Normalize primary key to list
@@ -1173,11 +1221,17 @@ def build_delta_merge_statement(
     )
     target_table = f"[{config.schema}].[{config.table}]"
 
-    # Build watermark WHERE filter using COALESCE for NULL safety
     watermark_col = config.watermark_column or update_ts_col or "dw_timestamp_update"
     insert_fallback = insert_ts_col or "dw_timestamp_insert"
-    timestamp_str = last_sync_timestamp.strftime("%Y-%m-%d %H:%M:%S")
-    where_clause = f"COALESCE([{watermark_col}], [{insert_fallback}]) >= '{timestamp_str}'"
+    lower = last_sync_checkpoint
+    if isinstance(lower, datetime):
+        lower = lower.strftime("%Y-%m-%d %H:%M:%S")
+    where_clause = build_watermark_coalesce_predicate(
+        watermark_col,
+        insert_fallback,
+        lower_exclusive=lower,
+        upper_inclusive=checkpoint_upper_bound,
+    )
 
     # Build ON clause for MERGE matching
     on_clause = _build_on_clause(pk_cols, config, string_pk_cols)
@@ -1267,6 +1321,106 @@ def build_truncate_insert_statement(
     return truncate_sql, insert_sql
 
 
+def _attempt_sync_with_fallbacks(
+    context: dg.AssetExecutionContext,
+    mssql_target_dso: MSSQLResource,
+    config: SyncTableConfig,
+    mssql_source_staging: MSSQLResource | None,
+    staging_reachable: bool,
+    *,
+    last_sync_checkpoint: str | None,
+    checkpoint_upper_bound: str | None = None,
+) -> dict:
+    """Run linked-server sync with Python fallback; no DFM state updates."""
+    full_table = f"[{config.schema}].[{config.table}]"
+    try:
+        validate_linked_server(context, mssql_target_dso)
+        return _sync_via_linked_server(
+            context,
+            mssql_target_dso,
+            config,
+            mssql_source_staging,
+            validate_schemas=False,
+            last_sync_checkpoint=last_sync_checkpoint,
+            checkpoint_upper_bound=checkpoint_upper_bound,
+        )
+    except Exception as e:
+        if _is_integrity_error(e):
+            context.log.warning(
+                f"⚠️ INTEGRITY_CONFLICT_RECOVERY: {full_table} — MERGE hit a unique "
+                f"constraint violation: {str(e)[:300]}. "
+                f"Falling back to TRUNCATE+INSERT for a clean full refresh."
+            )
+            recovery_config = dc_replace(config, mode="truncate_insert")
+            try:
+                result = _sync_via_linked_server(
+                    context,
+                    mssql_target_dso,
+                    recovery_config,
+                    mssql_source_staging=mssql_source_staging,
+                    validate_schemas=False,
+                    last_sync_checkpoint=None,
+                    checkpoint_upper_bound=None,
+                )
+            except RuntimeError:
+                if mssql_source_staging is not None and staging_reachable:
+                    result = _sync_via_python(
+                        context,
+                        mssql_source_staging,
+                        mssql_target_dso,
+                        recovery_config,
+                        last_sync_checkpoint=None,
+                        checkpoint_upper_bound=None,
+                    )
+                else:
+                    raise
+            result["recovery_truncate_insert"] = True
+            result["recovery_reason"] = "integrity_constraint_violation"
+            context.log.info(
+                f"✅ INTEGRITY_CONFLICT_RECOVERY COMPLETE: {full_table} — "
+                f"synced {result['rows_affected']} rows via TRUNCATE+INSERT"
+            )
+            return result
+
+        if isinstance(e, RuntimeError) or _is_retryable_connectivity_error(e):
+            err_msg = str(e)
+            if "does not exist" in err_msg:
+                fallback_reason = FALLBACK_REASON_LINKED_SERVER_NOT_AVAILABLE
+            elif "not accessible" in err_msg:
+                fallback_reason = FALLBACK_REASON_LINKED_SERVER_VALIDATION_FAILED
+            else:
+                fallback_reason = FALLBACK_REASON_CONNECTIVITY
+
+            allow_fallback = os.environ.get(
+                DSO_SYNC_ALLOW_PYTHON_FALLBACK_ENV, "true"
+            ).lower() not in ("false", "0")
+            if not allow_fallback:
+                context.log.error(
+                    f"Linked server unavailable (fallback disabled): reason={fallback_reason}, "
+                    f"error={err_msg}. "
+                    f"Set {DSO_SYNC_ALLOW_PYTHON_FALLBACK_ENV}=true to allow Python fallback."
+                )
+                raise
+
+            if mssql_source_staging is not None and staging_reachable:
+                context.log.error(
+                    f"DSO_SYNC_FALLBACK_ACTIVE: using Python fallback for {full_table}; "
+                    f"reason={fallback_reason}, linked_server_error={err_msg[:200]}"
+                )
+                context.log.info("Using Python-based data transfer as fallback...")
+                return _sync_via_python(
+                    context,
+                    mssql_source_staging,
+                    mssql_target_dso,
+                    config,
+                    fallback_reason=fallback_reason,
+                    last_sync_checkpoint=last_sync_checkpoint,
+                    checkpoint_upper_bound=checkpoint_upper_bound,
+                )
+            raise
+        raise
+
+
 def sync_table_via_linked_server(
     context: dg.AssetExecutionContext,
     mssql_target_dso: MSSQLResource,
@@ -1274,6 +1428,7 @@ def sync_table_via_linked_server(
     mssql_source_staging: MSSQLResource | None = None,
     validate_schemas: bool = True,
     auto_recover_mismatch: bool = True,
+    run_mode_config=None,
 ) -> dict:
     """
     Sync a table from staging to DSO using the linked server or Python fallback.
@@ -1296,8 +1451,13 @@ def sync_table_via_linked_server(
         mssql_target_dso: DSO database resource
         config: Sync configuration
         mssql_source_staging: Optional staging resource for Python-based fallback
-        auto_recover_mismatch: If True (default), compare row counts after watermark
-            delta syncs and re-run as full MERGE if a mismatch is detected.
+        auto_recover_mismatch: If True (default), after a watermark_delta sync
+            compare COUNT(*) and re-run as full MERGE only when DSO has fewer
+            rows than staging (missing rows). When DSO count >= staging
+            (orphans / DSO-only residue), log a warning and skip recovery —
+            MERGE does not delete DSO-only rows. Comparison still runs on
+            zero-row deltas so a shortfall is not a silent green success.
+        run_mode_config: Optional RunModeConfig (delta / full_load) for DFM run logging.
 
     Returns:
         Dictionary with sync statistics:
@@ -1396,190 +1556,197 @@ def sync_table_via_linked_server(
             staging_table=config.staging_table,
         )
 
-    # Try linked server mode first
-    try:
-        validate_linked_server(context, mssql_target_dso)
-        result = _sync_via_linked_server(
-            context, mssql_target_dso, config, mssql_source_staging, validate_schemas=False
-        )
-    except Exception as e:
-        if _is_integrity_error(e):
-            context.log.warning(
-                f"⚠️ INTEGRITY_CONFLICT_RECOVERY: {full_table} — MERGE hit a unique "
-                f"constraint violation: {str(e)[:300]}. "
-                f"Falling back to TRUNCATE+INSERT for a clean full refresh."
-            )
-            recovery_config = dc_replace(config, mode="truncate_insert")
+    from DSO.load.sync_dfm import (
+        DsoSyncDfmSession,
+        finalize_dfm_run,
+        query_source_checkpoint,
+        resolve_dfm_mode,
+    )
+
+    dfm_mode = resolve_dfm_mode(config, run_mode_config)
+    columns = get_table_columns(mssql_target_dso, config.schema, config.table)
+    if not columns:
+        raise RuntimeError(f"Table {full_table} not found in DSO database or has no columns")
+
+    with DsoSyncDfmSession(mssql_source_staging, context) as dfm_session:
+        run_ctx = dfm_session.start_run(config, dfm_mode)
+        checkpoint = None if dfm_mode == "full_load" else run_ctx.checkpoint
+        # Pin the watermark window *before* any MERGE/OPENQUERY so mid-sync
+        # inserts cannot lift set_checkpoint past unread rows.
+        checkpoint_upper_bound: str | None = None
+        if config.mode == "watermark" and mssql_source_staging is not None:
+            checkpoint_upper_bound = query_source_checkpoint(mssql_source_staging, config, columns)
+            if checkpoint_upper_bound is not None:
+                context.log.info(
+                    f"Pinned watermark upper bound max_now={checkpoint_upper_bound} "
+                    f"for {full_table}"
+                )
+        try:
             try:
-                result = _sync_via_linked_server(
+                result = _attempt_sync_with_fallbacks(
                     context,
-                    mssql_target_dso,
-                    recovery_config,
-                    mssql_source_staging=mssql_source_staging,
-                    validate_schemas=False,
-                )
-            except RuntimeError:
-                if mssql_source_staging is not None and staging_reachable:
-                    result = _sync_via_python(
-                        context,
-                        mssql_source_staging,
-                        mssql_target_dso,
-                        recovery_config,
-                    )
-                else:
-                    raise
-
-            if config.mode == "watermark":
-                from DSO.load.sync_state import SyncStateManager
-
-                state_mgr = SyncStateManager(mssql_target_dso, context)
-                state_mgr.update_sync_state(
-                    config.schema,
-                    config.table,
-                    rows_affected=result["rows_affected"],
-                    duration_ms=result.get("duration_ms", 0),
-                    status="recovery_truncate_insert",
-                )
-
-            result["recovery_truncate_insert"] = True
-            result["recovery_reason"] = "integrity_constraint_violation"
-            context.log.info(
-                f"✅ INTEGRITY_CONFLICT_RECOVERY COMPLETE: {full_table} — "
-                f"synced {result['rows_affected']} rows via TRUNCATE+INSERT"
-            )
-        elif isinstance(e, RuntimeError) or _is_retryable_connectivity_error(e):
-            # The retry-exhausted linked-server path re-raises its original
-            # exception unchanged, which for mssql_python is ProgrammingError
-            # (not RuntimeError) — match it the same way the retry classifier does
-            # so a connectivity fault still falls back instead of failing hard.
-            err_msg = str(e)
-            if "does not exist" in err_msg:
-                fallback_reason = FALLBACK_REASON_LINKED_SERVER_NOT_AVAILABLE
-            elif "not accessible" in err_msg:
-                fallback_reason = FALLBACK_REASON_LINKED_SERVER_VALIDATION_FAILED
-            else:
-                fallback_reason = FALLBACK_REASON_CONNECTIVITY
-
-            allow_fallback = os.environ.get(
-                DSO_SYNC_ALLOW_PYTHON_FALLBACK_ENV, "true"
-            ).lower() not in ("false", "0")
-            if not allow_fallback:
-                context.log.error(
-                    f"Linked server unavailable (fallback disabled): reason={fallback_reason}, "
-                    f"error={err_msg}. "
-                    f"Set {DSO_SYNC_ALLOW_PYTHON_FALLBACK_ENV}=true to allow Python fallback."
-                )
-                raise
-
-            if mssql_source_staging is not None and staging_reachable:
-                context.log.error(
-                    f"DSO_SYNC_FALLBACK_ACTIVE: using Python fallback for {full_table}; "
-                    f"reason={fallback_reason}, linked_server_error={err_msg[:200]}"
-                )
-                context.log.info("Using Python-based data transfer as fallback...")
-                result = _sync_via_python(
-                    context,
-                    mssql_source_staging,
                     mssql_target_dso,
                     config,
-                    fallback_reason=fallback_reason,
+                    mssql_source_staging,
+                    staging_reachable,
+                    last_sync_checkpoint=checkpoint,
+                    checkpoint_upper_bound=checkpoint_upper_bound,
                 )
-            else:
+            except Exception as exc:
+                dfm_session.fail_run(run_ctx.log_id, str(exc))
                 raise
-        else:
-            raise
 
-    # --- Mismatch recovery for watermark delta syncs ---
-    if (
-        auto_recover_mismatch
-        and config.mode == "watermark"
-        and result.get("mode") == "watermark_delta"
-    ):
-        from DSO.load.sync_state import SyncStateManager
+            if result.get("recovery_truncate_insert"):
+                dfm_session.fail_run(
+                    run_ctx.log_id,
+                    f"integrity_constraint_violation: {result.get('recovery_reason', '')}",
+                )
+                recovery_ctx = dfm_session.start_run(config, "full_load")
+                try:
+                    finalize_dfm_run(
+                        dfm_session.dfm,
+                        recovery_ctx,
+                        config,
+                        columns,
+                        mssql_source_staging,
+                        rows_affected=result.get("rows_affected", 0),
+                        dfm_mode="full_load",
+                        checkpoint_upper_bound=checkpoint_upper_bound,
+                    )
+                except Exception as exc:
+                    dfm_session.fail_run(recovery_ctx.log_id, str(exc))
+                    raise
+                return result
 
-        counts = compare_row_counts(
-            context,
-            mssql_target_dso,
-            config.schema,
-            config.table,
-            mssql_source_staging=mssql_source_staging,
-        )
-        if not counts["match"]:
-            context.log.warning(
-                f"⚠️ ROW_COUNT_MISMATCH_RECOVERY: {full_table} "
-                f"staging={counts['staging_count']}, dso={counts['dso_count']}. "
-                f"Re-running as full MERGE to recover."
-            )
-            recovery_config = dc_replace(config, mode="merge")
-
-            # Re-run through the same engine path
-            try:
-                validate_linked_server(context, mssql_target_dso)
-                result = _sync_via_linked_server(
+            if (
+                auto_recover_mismatch
+                and config.mode == "watermark"
+                and result.get("mode") == "watermark_delta"
+            ):
+                counts = compare_row_counts(
                     context,
                     mssql_target_dso,
-                    recovery_config,
+                    config.schema,
+                    config.table,
                     mssql_source_staging=mssql_source_staging,
-                    validate_schemas=False,
+                    staging_schema=config.staging_schema,
+                    staging_table=config.staging_table,
                 )
-            except RuntimeError:
-                if mssql_source_staging is not None and staging_reachable:
-                    result = _sync_via_python(
-                        context,
-                        mssql_source_staging,
-                        mssql_target_dso,
-                        recovery_config,
+                staging_count = counts["staging_count"]
+                dso_count = counts["dso_count"]
+                if dso_count < staging_count:
+                    mismatch_msg = f"ROW_COUNT_MISMATCH: staging={staging_count}, dso={dso_count}"
+                    context.log.warning(
+                        f"⚠️ ROW_COUNT_MISMATCH_RECOVERY: {full_table} "
+                        f"staging={staging_count}, dso={dso_count}. "
+                        f"Re-running as full MERGE to recover missing DSO rows."
                     )
-                else:
-                    raise
+                    dfm_session.fail_run(run_ctx.log_id, mismatch_msg)
+                    recovery_config = dc_replace(config, mode="merge")
+                    recovery_ctx = dfm_session.start_run(config, "full_load")
+                    try:
+                        try:
+                            validate_linked_server(context, mssql_target_dso)
+                            result = _sync_via_linked_server(
+                                context,
+                                mssql_target_dso,
+                                recovery_config,
+                                mssql_source_staging=mssql_source_staging,
+                                validate_schemas=False,
+                                last_sync_checkpoint=None,
+                                checkpoint_upper_bound=None,
+                            )
+                        except RuntimeError:
+                            if mssql_source_staging is not None and staging_reachable:
+                                result = _sync_via_python(
+                                    context,
+                                    mssql_source_staging,
+                                    mssql_target_dso,
+                                    recovery_config,
+                                    last_sync_checkpoint=None,
+                                    checkpoint_upper_bound=None,
+                                )
+                            else:
+                                raise
 
-            # Advance watermark after recovery (mode="merge" doesn't auto-advance)
-            state_mgr = SyncStateManager(mssql_target_dso, context)
-            state_mgr.update_sync_state(
-                config.schema,
-                config.table,
-                rows_affected=result["rows_affected"],
-                duration_ms=result.get("duration_ms", 0),
-                status="recovery_full_merge",
-            )
+                        result["recovery_full_merge"] = True
+                        result["pre_recovery_staging_count"] = staging_count
+                        result["pre_recovery_dso_count"] = dso_count
 
-            result["recovery_full_merge"] = True
-            result["pre_recovery_staging_count"] = counts["staging_count"]
-            result["pre_recovery_dso_count"] = counts["dso_count"]
+                        post_counts = compare_row_counts(
+                            context,
+                            mssql_target_dso,
+                            config.schema,
+                            config.table,
+                            mssql_source_staging=mssql_source_staging,
+                            staging_schema=config.staging_schema,
+                            staging_table=config.staging_table,
+                        )
+                        if not post_counts["match"]:
+                            context.log.error(
+                                f"❌ RECOVERY FAILED: {full_table} — row counts still "
+                                f"mismatched after full MERGE "
+                                f"(staging={post_counts['staging_count']}, "
+                                f"dso={post_counts['dso_count']}). "
+                                f"Will NOT retry — investigate manually."
+                            )
+                            result["recovery_failed"] = True
+                        else:
+                            context.log.info(
+                                f"✅ RECOVERY COMPLETE: {full_table} — "
+                                f"synced {result['rows_affected']} rows via full MERGE"
+                            )
 
-            # Verify recovery succeeded — no retry, just report
-            post_counts = compare_row_counts(
-                context,
-                mssql_target_dso,
-                config.schema,
-                config.table,
-                mssql_source_staging=mssql_source_staging,
-            )
-            if not post_counts["match"]:
-                context.log.error(
-                    f"❌ RECOVERY FAILED: {full_table} — row counts still "
-                    f"mismatched after full MERGE "
-                    f"(staging={post_counts['staging_count']}, "
-                    f"dso={post_counts['dso_count']}). "
-                    f"Will NOT retry — investigate manually."
+                        finalize_dfm_run(
+                            dfm_session.dfm,
+                            recovery_ctx,
+                            config,
+                            columns,
+                            mssql_source_staging,
+                            rows_affected=result.get("rows_affected", 0),
+                            dfm_mode="full_load",
+                            checkpoint_upper_bound=checkpoint_upper_bound,
+                        )
+                    except Exception as exc:
+                        dfm_session.fail_run(recovery_ctx.log_id, str(exc))
+                        raise
+                    return result
+                if not counts["match"]:
+                    # DSO has more rows than staging: MERGE cannot delete DSO-only
+                    # residue. Log and continue — do not full-MERGE or fail recovery.
+                    context.log.warning(
+                        f"⚠️ ROW_COUNT_MISMATCH (DSO >= staging): {full_table} "
+                        f"staging={staging_count}, dso={dso_count}. "
+                        f"Skipping full-MERGE recovery (no missing DSO rows)."
+                    )
+
+            try:
+                finalize_dfm_run(
+                    dfm_session.dfm,
+                    run_ctx,
+                    config,
+                    columns,
+                    mssql_source_staging,
+                    rows_affected=result.get("rows_affected", 0),
+                    dfm_mode=dfm_mode,
+                    checkpoint_upper_bound=checkpoint_upper_bound,
                 )
-                result["recovery_failed"] = True
-            else:
-                context.log.info(
-                    f"✅ RECOVERY COMPLETE: {full_table} — "
-                    f"synced {result['rows_affected']} rows via full MERGE"
-                )
-
-    return result
+            except Exception as exc:
+                dfm_session.fail_run(run_ctx.log_id, str(exc))
+                raise
+            return result
+        except Exception:
+            raise
 
 
 def _sync_via_linked_server_batched(
     context: dg.AssetExecutionContext,
     mssql_target_dso: MSSQLResource,
     config: SyncTableConfig,
-    last_sync_timestamp: datetime | None,
+    last_sync_checkpoint: str | None,
     columns: list[str],
     string_pk_cols: set[str],
+    checkpoint_upper_bound: str | None = None,
 ) -> dict:
     """Execute sync by staging linked server data locally, then merging.
 
@@ -1602,11 +1769,19 @@ def _sync_via_linked_server_batched(
     insert_ts_col = _find_insert_timestamp_col(sync_columns)
 
     watermark_where = ""
-    if config.mode == "watermark" and last_sync_timestamp is not None:
+    if config.mode == "watermark" and (
+        last_sync_checkpoint is not None or checkpoint_upper_bound is not None
+    ):
         wm_col = config.watermark_column or update_ts_col or "dw_timestamp_update"
         ins_col = insert_ts_col or "dw_timestamp_insert"
-        ts_str = last_sync_timestamp.strftime("%Y-%m-%d %H:%M:%S")
-        watermark_where = f" AND COALESCE([{wm_col}], [{ins_col}]) >= ''{ts_str}''"
+        pred = build_watermark_coalesce_predicate(
+            wm_col,
+            ins_col,
+            lower_exclusive=last_sync_checkpoint,
+            upper_inclusive=checkpoint_upper_bound,
+            openquery=True,
+        )
+        watermark_where = f" AND {pred}"
 
     def _batch_select_sql(last_pk_value) -> str:
         """Return INSERT INTO #_sync_staging ... OPENQUERY(...) for one batch."""
@@ -1780,7 +1955,7 @@ def _sync_via_linked_server_batched(
             effective_mode = config.mode
             if config.mode == "watermark":
                 effective_mode = (
-                    "watermark_delta" if last_sync_timestamp is not None else "watermark_full"
+                    "watermark_delta" if last_sync_checkpoint is not None else "watermark_full"
                 )
             return {
                 "rows_affected": 0,
@@ -1793,9 +1968,33 @@ def _sync_via_linked_server_batched(
                 "rows_per_second": 0.0,
             }
 
-        # Phase 2: Local MERGE (or INSERT for truncate_insert)
+        # Phase 2: Local MERGE (or bulk INSERT for truncate_insert / empty target).
+        #
+        # Decide the write up front, because index handling depends on it. The
+        # non-truncate emptiness check drives both the MERGE-vs-INSERT branch and
+        # whether disabling the nonclustered indexes is worth it. MERGE is always
+        # fully logged, but a MERGE into an empty target is a pure insert: when
+        # the DSO target has no rows (first load / rebuilt table) we bulk INSERT
+        # WITH (TABLOCK) instead — minimally logged under bulk-logged/simple
+        # recovery. Unlike the DSA staging temp tables, the staged snapshot here
+        # carries its own keys (incl. any -1 sentinel row), so the guard is a
+        # plain emptiness check, NOT sentinel-aware (inserting the sentinel into a
+        # sentinel-only target would collide).
+        target_is_empty = False
+        if config.mode != "truncate_insert":
+            cursor.execute(
+                f"SELECT CASE WHEN EXISTS (SELECT 1 FROM {full_table}) THEN 1 ELSE 0 END"
+            )
+            target_is_empty = cursor.fetchone()[0] == 0
+        is_bulk_load = config.mode == "truncate_insert" or target_is_empty
+
+        # Disable the nonclustered indexes ONLY for a bulk load. The insert then
+        # maintains just the clustered PK and the indexes are rebuilt once,
+        # sorted; for an incremental MERGE into a populated target we leave them
+        # intact (rebuilding every index over the whole table to absorb a small
+        # delta would cost far more than per-row upkeep). See the field docstring.
         disabled_indexes: list[str] = []
-        if config.disable_target_indexes_during_sync:
+        if config.disable_target_indexes_during_sync and is_bulk_load:
             disabled_indexes = _get_non_pk_nonclustered_index_names(
                 cursor, config.schema, config.table
             )
@@ -1803,7 +2002,8 @@ def _sync_via_linked_server_batched(
                 cursor.execute(f"ALTER INDEX [{idx_name}] ON {full_table} DISABLE")
             if disabled_indexes:
                 context.log.info(
-                    f"Disabled {len(disabled_indexes)} nonclustered indexes on {full_table}"
+                    f"Disabled {len(disabled_indexes)} nonclustered indexes on {full_table} "
+                    f"for bulk load (rebuilt after Phase 2)"
                 )
 
         if config.identity_insert:
@@ -1819,36 +2019,22 @@ def _sync_via_linked_server_batched(
                     f"SELECT {col_list} FROM #_sync_staging"
                 )
                 rows_affected = cursor.rowcount
+            elif not target_is_empty:
+                merge_sql = _build_local_merge_sql()
+                context.log.info(f"Phase 2: Local MERGE into {full_table}")
+                _clear_stale_current_before_merge(cursor, config, "#_sync_staging", string_pk_cols)
+                cursor.execute(merge_sql)
+                rows_affected = cursor.rowcount
             else:
-                # Empty-target short-circuit: MERGE is always fully logged, but a
-                # MERGE into an empty target is a pure insert. When the DSO target
-                # has no rows (first load / rebuilt table), bulk INSERT WITH
-                # (TABLOCK) instead — minimally logged under bulk-logged/simple
-                # recovery. Unlike the DSA staging temp tables, the staged snapshot
-                # here carries its own keys (incl. any -1 sentinel row), so the
-                # guard is a plain emptiness check, NOT sentinel-aware (inserting
-                # the sentinel into a sentinel-only target would collide).
-                cursor.execute(
-                    f"SELECT CASE WHEN EXISTS (SELECT 1 FROM {full_table}) THEN 1 ELSE 0 END"
+                context.log.info(
+                    f"Phase 2: target empty - bulk INSERT WITH (TABLOCK) into {full_table} "
+                    "(minimally logged)"
                 )
-                if cursor.fetchone()[0]:
-                    merge_sql = _build_local_merge_sql()
-                    context.log.info(f"Phase 2: Local MERGE into {full_table}")
-                    _clear_stale_current_before_merge(
-                        cursor, config, "#_sync_staging", string_pk_cols
-                    )
-                    cursor.execute(merge_sql)
-                    rows_affected = cursor.rowcount
-                else:
-                    context.log.info(
-                        f"Phase 2: target empty - bulk INSERT WITH (TABLOCK) into {full_table} "
-                        "(minimally logged)"
-                    )
-                    cursor.execute(
-                        f"INSERT INTO {full_table} WITH (TABLOCK) ({col_list}) "
-                        f"SELECT {col_list} FROM #_sync_staging"
-                    )
-                    rows_affected = cursor.rowcount
+                cursor.execute(
+                    f"INSERT INTO {full_table} WITH (TABLOCK) ({col_list}) "
+                    f"SELECT {col_list} FROM #_sync_staging"
+                )
+                rows_affected = cursor.rowcount
 
         finally:
             if config.identity_insert:
@@ -1886,7 +2072,7 @@ def _sync_via_linked_server_batched(
     rows_per_second = rows_affected / sync_duration_seconds if sync_duration_seconds > 0 else 0.0
 
     effective_mode = config.mode
-    if config.mode == "watermark" and last_sync_timestamp is not None:
+    if config.mode == "watermark" and last_sync_checkpoint is not None:
         effective_mode = "watermark_delta"
     elif config.mode == "watermark":
         effective_mode = "watermark_full"
@@ -1948,9 +2134,10 @@ def _sync_via_linked_server_batched_composite(
     context: dg.AssetExecutionContext,
     mssql_target_dso: MSSQLResource,
     config: SyncTableConfig,
-    last_sync_timestamp: datetime | None,
+    last_sync_checkpoint: str | None,
     columns: list[str],
     string_pk_cols: set[str],
+    checkpoint_upper_bound: str | None = None,
 ) -> dict:
     """Stage composite-PK linked-server data locally, then MERGE on DSO."""
     full_table = f"[{config.schema}].[{config.table}]"
@@ -1969,11 +2156,19 @@ def _sync_via_linked_server_batched_composite(
     insert_ts_col = _find_insert_timestamp_col(sync_columns)
 
     watermark_where = ""
-    if config.mode == "watermark" and last_sync_timestamp is not None:
+    if config.mode == "watermark" and (
+        last_sync_checkpoint is not None or checkpoint_upper_bound is not None
+    ):
         wm_col = config.watermark_column or update_ts_col or "dw_timestamp_update"
         ins_col = insert_ts_col or "dw_timestamp_insert"
-        ts_str = last_sync_timestamp.strftime("%Y-%m-%d %H:%M:%S")
-        watermark_where = f" AND COALESCE([{wm_col}], [{ins_col}]) >= ''{ts_str}''"
+        pred = build_watermark_coalesce_predicate(
+            wm_col,
+            ins_col,
+            lower_exclusive=last_sync_checkpoint,
+            upper_inclusive=checkpoint_upper_bound,
+            openquery=True,
+        )
+        watermark_where = f" AND {pred}"
 
     def _batch_inner_sql(last_pk_values: tuple | None, select_cols: str) -> str:
         pk_filter = _build_composite_keyset_predicate(pk_cols, last_pk_values)
@@ -2161,7 +2356,7 @@ def _sync_via_linked_server_batched_composite(
     rows_per_second = rows_affected / sync_duration_seconds if sync_duration_seconds > 0 else 0.0
 
     effective_mode = config.mode
-    if config.mode == "watermark" and last_sync_timestamp is not None:
+    if config.mode == "watermark" and last_sync_checkpoint is not None:
         effective_mode = "watermark_delta"
     elif config.mode == "watermark":
         effective_mode = "watermark_full"
@@ -2190,22 +2385,21 @@ def _sync_via_linked_server(
     config: SyncTableConfig,
     mssql_source_staging: MSSQLResource | None = None,
     validate_schemas: bool = False,
+    last_sync_checkpoint: str | None = None,
+    checkpoint_upper_bound: str | None = None,
 ) -> dict:
     """Execute sync using linked server SQL.
 
     Behaviour depends on config.mode:
     - 'merge': Full MERGE of all rows via build_merge_statement().
-    - 'watermark': Reads last sync timestamp from SyncStateManager, uses
-      build_delta_merge_statement() to only sync changed rows. Falls back
-      to full merge when no previous timestamp exists (first run). Updates
-      SyncStateManager after a successful sync.
+    - 'watermark': Uses build_delta_merge_statement() with DFM checkpoint (exclusive >)
+      and optional pre-MERGE upper bound (inclusive <=). Falls back to full merge when
+      no bounds exist (first run without pin).
     - 'truncate_insert': TRUNCATE + INSERT for full table refresh.
 
     Schema validation should be done by the caller (sync_table_via_linked_server).
     This function assumes schemas have already been validated.
     """
-    from DSO.load.sync_state import SyncStateManager
-
     full_table = f"[{config.schema}].[{config.table}]"
 
     # Schema validation is now done by caller - only validate here if explicitly requested
@@ -2246,19 +2440,26 @@ def _sync_via_linked_server(
         else set()
     )
 
-    # Resolve delta state for watermark mode
-    last_sync_timestamp: datetime | None = None
+    # Resolve delta checkpoint for watermark mode (provided by DFM caller)
     if config.mode == "watermark":
-        state_mgr = SyncStateManager(mssql_target_dso, context)
-        last_sync_timestamp = state_mgr.get_last_sync_timestamp(config.schema, config.table)
-        if last_sync_timestamp is not None:
+        if last_sync_checkpoint is not None:
             context.log.info(
                 f"Watermark mode: column={config.watermark_column}, "
-                f"last_sync={last_sync_timestamp.isoformat()}"
+                f"last_checkpoint={last_sync_checkpoint}"
+                + (
+                    f", max_now={checkpoint_upper_bound}"
+                    if checkpoint_upper_bound is not None
+                    else ""
+                )
             )
         else:
             context.log.info(
-                "Watermark mode: no previous sync found — executing full sync (first run)"
+                "Watermark mode: no previous checkpoint — executing full sync (first run)"
+                + (
+                    f" bounded by max_now={checkpoint_upper_bound}"
+                    if checkpoint_upper_bound is not None
+                    else ""
+                )
             )
 
     # Delegate to batched path for single-PK tables
@@ -2271,21 +2472,11 @@ def _sync_via_linked_server(
             context,
             mssql_target_dso,
             config,
-            last_sync_timestamp=last_sync_timestamp,
+            last_sync_checkpoint=last_sync_checkpoint,
             columns=columns,
             string_pk_cols=string_pk_cols,
+            checkpoint_upper_bound=checkpoint_upper_bound,
         )
-        if config.mode == "watermark":
-            if result["rows_affected"] > 0:
-                state_mgr.update_sync_state(
-                    config.schema,
-                    config.table,
-                    rows_affected=result["rows_affected"],
-                    duration_ms=result.get("duration_ms", 0),
-                    status="success",
-                )
-            else:
-                context.log.info(f"Watermark not advanced for {full_table} — 0 rows synced")
         return result
 
     # Composite PK tables use the same local-staging principle as single-PK
@@ -2300,21 +2491,11 @@ def _sync_via_linked_server(
             context,
             mssql_target_dso,
             config,
-            last_sync_timestamp=last_sync_timestamp,
+            last_sync_checkpoint=last_sync_checkpoint,
             columns=columns,
             string_pk_cols=string_pk_cols,
+            checkpoint_upper_bound=checkpoint_upper_bound,
         )
-        if config.mode == "watermark":
-            if result["rows_affected"] > 0:
-                state_mgr.update_sync_state(
-                    config.schema,
-                    config.table,
-                    rows_affected=result["rows_affected"],
-                    duration_ms=result.get("duration_ms", 0),
-                    status="success",
-                )
-            else:
-                context.log.info(f"Watermark not advanced for {full_table} — 0 rows synced")
         return result
 
     # ── Fallback for any remaining non-batched cases ──────
@@ -2355,19 +2536,22 @@ def _sync_via_linked_server(
                 cursor.execute(insert_sql)
                 rows_affected = cursor.rowcount
 
-            elif config.mode == "watermark" and last_sync_timestamp is not None:
-                # Delta MERGE mode — only sync rows changed since last watermark
+            elif config.mode == "watermark" and (
+                last_sync_checkpoint is not None or checkpoint_upper_bound is not None
+            ):
+                # Delta / pinned-window MERGE
                 merge_sql = build_delta_merge_statement(
                     config,
                     columns,
-                    last_sync_timestamp=last_sync_timestamp,
+                    last_sync_checkpoint=last_sync_checkpoint,
                     string_pk_cols=string_pk_cols,
+                    checkpoint_upper_bound=checkpoint_upper_bound,
                 )
 
                 context.log.info(
                     f"Executing delta MERGE from staging via linked server "
-                    f"(rows where {config.watermark_column} >= "
-                    f"'{last_sync_timestamp.strftime('%Y-%m-%d %H:%M:%S')}')"
+                    f"(watermark window lower={last_sync_checkpoint!r} "
+                    f"upper={checkpoint_upper_bound!r})"
                 )
                 source_from = (
                     f"[{LINKED_SERVER_NAME}].[{STAGING_DATABASE}]"
@@ -2378,7 +2562,7 @@ def _sync_via_linked_server(
                 rows_affected = cursor.rowcount
 
             else:
-                # Full MERGE (mode='merge', or mode='watermark' first-run fallback)
+                # Full MERGE (mode='merge', or mode='watermark' unbounded first-run)
                 merge_sql = build_merge_statement(config, columns, string_pk_cols=string_pk_cols)
 
                 context.log.info("Executing MERGE from staging via linked server")
@@ -2411,22 +2595,8 @@ def _sync_via_linked_server(
     sync_duration_seconds = duration_ms / 1000.0
     rows_per_second = rows_affected / sync_duration_seconds if sync_duration_seconds > 0 else 0.0
 
-    # Only advance watermark when rows were actually synced — advancing on
-    # zero rows causes the delta window to skip past unsynced data.
-    if config.mode == "watermark":
-        if rows_affected > 0:
-            state_mgr.update_sync_state(
-                config.schema,
-                config.table,
-                rows_affected=rows_affected,
-                duration_ms=duration_ms,
-                status="success",
-            )
-        else:
-            context.log.info(f"Watermark not advanced for {full_table} — 0 rows synced")
-
     effective_mode = config.mode
-    if config.mode == "watermark" and last_sync_timestamp is not None:
+    if config.mode == "watermark" and last_sync_checkpoint is not None:
         effective_mode = "watermark_delta"
     elif config.mode == "watermark":
         effective_mode = "watermark_full"
@@ -2455,6 +2625,8 @@ def _sync_via_python(
     mssql_target_dso: MSSQLResource,
     config: SyncTableConfig,
     fallback_reason: str | None = None,
+    last_sync_checkpoint: str | None = None,
+    checkpoint_upper_bound: str | None = None,
 ) -> dict:
     """
     Execute sync using Python-based data transfer with streaming chunks.
@@ -2470,8 +2642,6 @@ def _sync_via_python(
     Schema validation should be done by the caller (sync_table_via_linked_server).
     This function assumes schemas have already been validated and match.
     """
-    from DSO.load.sync_state import SyncStateManager
-
     staging_table_ref = f"[{config.staging_schema}].[{config.staging_table}]"
     target_table_ref = f"[{config.schema}].[{config.table}]"
     full_table = target_table_ref
@@ -2541,25 +2711,22 @@ def _sync_via_python(
                 f"Cannot sync {full_table}: missing PK columns in staging: {missing_pk_cols}"
             )
 
-    # Resolve delta state for watermark mode
-    state_mgr: SyncStateManager | None = None
-    last_sync_timestamp: datetime | None = None
     if config.mode == "watermark":
-        state_mgr = SyncStateManager(mssql_target_dso, context)
-        last_sync_timestamp = state_mgr.get_last_sync_timestamp(config.schema, config.table)
-        if last_sync_timestamp is not None:
+        if last_sync_checkpoint is not None:
             context.log.info(
                 f"Python watermark mode: column={config.watermark_column}, "
-                f"last_sync={last_sync_timestamp.isoformat()}"
+                f"last_checkpoint={last_sync_checkpoint}"
             )
         else:
             context.log.info(
-                "Python watermark mode: no previous sync found — executing full sync (first run)"
+                "Python watermark mode: no previous checkpoint — executing full sync (first run)"
             )
 
     watermark_where_clause = ""
-    select_params: tuple[datetime] | tuple[()] = ()
-    if config.mode == "watermark" and last_sync_timestamp is not None:
+    select_params: tuple = ()
+    if config.mode == "watermark" and (
+        last_sync_checkpoint is not None or checkpoint_upper_bound is not None
+    ):
         source_placeholder = get_param_placeholder(mssql_source_staging)
         watermark_col = (
             config.watermark_column
@@ -2567,10 +2734,17 @@ def _sync_via_python(
             or "dw_timestamp_update"
         )
         insert_fallback = _find_insert_timestamp_col(sync_columns) or "dw_timestamp_insert"
-        watermark_where_clause = (
-            f"WHERE COALESCE([{watermark_col}], [{insert_fallback}]) >= " f"{source_placeholder}"
-        )
-        select_params = (last_sync_timestamp,)
+        expr = f"COALESCE([{watermark_col}], [{insert_fallback}])"
+        parts: list[str] = []
+        params: list[str] = []
+        if last_sync_checkpoint is not None:
+            parts.append(f"{expr} > {source_placeholder}")
+            params.append(last_sync_checkpoint)
+        if checkpoint_upper_bound is not None:
+            parts.append(f"{expr} <= {source_placeholder}")
+            params.append(checkpoint_upper_bound)
+        watermark_where_clause = "WHERE " + " AND ".join(parts)
+        select_params = tuple(params)
 
     if len(pk_cols_present) > 1:
         pk_list = ", ".join(f"[{c}]" for c in pk_cols_present)
@@ -2609,7 +2783,7 @@ def _sync_via_python(
     merge_from_temp_sql: str | None = None
     row_upsert_sql: str | None = None
 
-    if config.mode == "watermark" and last_sync_timestamp is not None:
+    if config.mode == "watermark" and last_sync_checkpoint is not None:
         source_column_list = ", ".join(f"[{c}]" for c in sync_columns)
         on_clause = _build_on_clause(pk_cols, config, string_pk_cols)
         update_ts_col = _find_update_timestamp_col(sync_columns)
@@ -2674,7 +2848,7 @@ def _sync_via_python(
                     first_chunk = staging_cursor.fetchmany(config.chunk_size)
                     if not first_chunk:
                         duration_ms = int((time.monotonic() - sync_start) * 1000)
-                        if config.mode == "watermark" and state_mgr is not None:
+                        if config.mode == "watermark" and last_sync_checkpoint is not None:
                             context.log.info(
                                 f"Watermark not advanced for {full_table} — no source data"
                             )
@@ -2682,7 +2856,7 @@ def _sync_via_python(
                         if config.mode == "watermark":
                             effective_mode = (
                                 "python_watermark_delta"
-                                if last_sync_timestamp is not None
+                                if last_sync_checkpoint is not None
                                 else "python_watermark_full"
                             )
                         return {
@@ -2706,7 +2880,7 @@ def _sync_via_python(
 
                         try:
                             is_watermark_delta = (
-                                config.mode == "watermark" and last_sync_timestamp is not None
+                                config.mode == "watermark" and last_sync_checkpoint is not None
                             )
                             use_temp_table = False
                             if is_watermark_delta:
@@ -2825,18 +2999,6 @@ def _sync_via_python(
     duration_ms = int((time.monotonic() - sync_start) * 1000)
     sync_duration_seconds = duration_ms / 1000.0
     rows_per_second = total_rows / sync_duration_seconds if sync_duration_seconds > 0 else 0.0
-
-    if config.mode == "watermark" and state_mgr is not None:
-        if total_rows > 0:
-            state_mgr.update_sync_state(
-                config.schema,
-                config.table,
-                rows_affected=total_rows,
-                duration_ms=duration_ms,
-                status="success",
-            )
-        else:
-            context.log.info(f"Watermark not advanced for {full_table} — 0 rows synced")
 
     context.log.info(
         f"✅ Synced {total_rows:,} rows to {full_table} via Python fallback "

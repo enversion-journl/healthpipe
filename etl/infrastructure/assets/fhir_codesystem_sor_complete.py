@@ -48,10 +48,10 @@ SOR_PROPERTY_DEFINITIONS = [
     {"code": "openingDate", "description": "Opening date", "type": "dateTime"},
     {"code": "closingDate", "description": "Closing date", "type": "dateTime"},
     {
-        "code": "activeRsdOrganization",
+        "code": "activeOwnOrganization",
         "description": (
             "True when the entity is open, has taken effect, and belongs to "
-            "Region Syddanmark's own current organisation (reachable from SOR "
+            "Example Region's own current organisation (reachable from SOR "
             "unit 6101000016001 through a chain of open entities)."
         ),
         "type": "boolean",

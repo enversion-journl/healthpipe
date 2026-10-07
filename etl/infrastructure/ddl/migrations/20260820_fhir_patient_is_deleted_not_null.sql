@@ -7,12 +7,12 @@
 -- ============================================================================
 -- fhir.Patient.dw_is_deleted: NULL -> 0, og herefter NOT NULL DEFAULT 0
 --
--- Fundet under AB#27834. fhir.Patient havde 1.991.600 raekker med 0 og 898 med
--- NULL. De 898 er praecis de stub-patienter AB#27833 oprettede: SQL-on-FHIR-
+-- Fundet under [internal ticket]. fhir.Patient havde 1.991.600 raekker med 0 og 898 med
+-- NULL. De 898 er praecis de stub-patienter [internal ticket] oprettede: SQL-on-FHIR-
 -- mergens INSERT naevner ikke kolonnen, og uden default lander den som NULL.
 --
 -- Det er en faelde, ikke kosmetik. Et helt almindeligt `WHERE dw_is_deleted = 0`
--- dropper lydloest netop de borgere, AB#27833 blev lavet for at tilfoeje. I dag
+-- dropper lydloest netop de borgere, [internal ticket] blev lavet for at tilfoeje. I dag
 -- reddes de kun af, at ref.PatientToBorger ikke filtrerer paa kolonnen.
 --
 -- Samme moenster er allerede loest paa fhir.Patient_Address og

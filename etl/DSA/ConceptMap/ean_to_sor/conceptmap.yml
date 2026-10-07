@@ -11,8 +11,8 @@ status: active
 name: "EanToSor"
 title: "ean to SOR"
 description: "Maps MySupply ean codes to SOR organisation codes"
-sourceScopeUri: "https://regionsyd.dk/mysupply/ean"
+sourceScopeUri: "https://example.org/mysupply/ean"
 targetScopeUri: "https://sundhedsdatastyrelsen.dk/sor"
 group:
-  - source: "https://regionsyd.dk/mysupply/ean"
+  - source: "https://example.org/mysupply/ean"
     target: "https://sundhedsdatastyrelsen.dk/sor"

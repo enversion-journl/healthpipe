@@ -236,12 +236,13 @@ id_rsa*
 /etl/docs/dso_navngivningsanalyse.md
 /etl/docs/erp_star_schema_sprint_review.html
 /etl/docs/star_schema.html
-/RegionSyddanmark.sln
+/healthpipe.sln
 /.superpowers/
 
 # Local editor/AI configs — kept out of this client-facing repo
 # (mcp.json also holds local DB credentials).
 /.cursor/
 gitlab-cicd-verified-project/
-
+.gitnexus/
 .gitnexus
+.code-review-graph/

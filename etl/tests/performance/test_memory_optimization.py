@@ -62,8 +62,8 @@ pytestmark = pytest.mark.skipif(
 
 # Identifier system URIs used in tests
 SYSTEM_CPR = "urn:dk:cpr"
-SYSTEM_PATIENT_ID = "urn:region-syddanmark:ifdb:patient-id"
-SYSTEM_EPISODE_OF_CARE_ID = "urn:region-syddanmark:ifdb:episode-of-care-id"
+SYSTEM_PATIENT_ID = "urn:example-region:ifdb:patient-id"
+SYSTEM_EPISODE_OF_CARE_ID = "urn:example-region:ifdb:episode-of-care-id"
 
 
 # =============================================================================
@@ -285,7 +285,7 @@ def cleanup_test_data(fhir_database: FHIRDatabaseResource) -> None:
             cur.execute(
                 """
                 DELETE FROM episodeofcare
-                WHERE resource->'identifier' @> '[{"system": "urn:region-syddanmark:ifdb:episode-of-care-id"}]'
+                WHERE resource->'identifier' @> '[{"system": "urn:example-region:ifdb:episode-of-care-id"}]'
                 AND resource->'identifier'->>0 LIKE '%test-episode%'
             """
             )
@@ -295,7 +295,7 @@ def cleanup_test_data(fhir_database: FHIRDatabaseResource) -> None:
             cur.execute(
                 """
                 DELETE FROM patient
-                WHERE resource->'identifier' @> '[{"system": "urn:region-syddanmark:ifdb:patient-id"}]'
+                WHERE resource->'identifier' @> '[{"system": "urn:example-region:ifdb:patient-id"}]'
                 AND resource->'identifier'->>0 LIKE '%test-patient%'
             """
             )

@@ -5,7 +5,7 @@
 -- root for the full AGPL-3.0 license text.
 
 -- ============================================================================
--- Archive: DRG-grupperet LPR fra SDS (feature AB#27624, US AB#29514)
+-- Archive: DRG-grupperet LPR fra SDS
 --
 -- 1:1 spejling af leverancefilerne MINUS de leverance-interne heltals-ID'er og
 -- SDS' DW_EK_*/DW_SK_*-noegler: de omnummereres ved hver leverance og ville
@@ -17,7 +17,7 @@
 --
 -- Alle vaerdikolonner er NVARCHAR — arkivet typer ikke. Vaerdikolonner har
 -- SAMME bredde som ext (min. 500) saa en for lang vaerdi aldrig kan afbryde
--- mergen med truncation (HAIBA-laere, AB#29407); kun noeglekolonner er
+-- mergen med truncation (HAIBA-laere, [internal ticket]); kun noeglekolonner er
 -- snaevre, og extract validerer deres laengde med tydelig fejl.
 --
 -- Merge-noegler (verificeret i drg_noegler_beslutningsnotat.md): takstsystem +

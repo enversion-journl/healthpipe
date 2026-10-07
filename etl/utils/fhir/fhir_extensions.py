@@ -15,10 +15,10 @@ from __future__ import annotations
 
 # Extension URLs for EpisodeOfCare
 EXTENSION_PREVIOUS_EPISODE_OF_CARE = (
-    "http://regionsyddanmark.dk/fhir/StructureDefinition/previousEpisodeOfCare"
+    "http://example.org/fhir/StructureDefinition/previousEpisodeOfCare"
 )
 EXTENSION_PREVIOUS_EPISODE_TYPE = (
-    "http://regionsyddanmark.dk/fhir/StructureDefinition/previousEpisodeOfCareType"
+    "http://example.org/fhir/StructureDefinition/previousEpisodeOfCareType"
 )
 EXTENSION_PREVIOUS_EOC_REF_TYPE = "urn:source:ifdb:previous_eoc_ref_type_code"
 EXTENSION_DISCHARGE_DISPOSITION = "urn:source:ifdb:discharge_disposition_code"
@@ -29,88 +29,79 @@ EXTENSION_DISCHARGE_DISPOSITION = "urn:source:ifdb:discharge_disposition_code"
 EXTENSION_IFDB_HEALTHISSUE_CODE = "urn:source:ifdb:healthissue_code"
 
 # Extension URLs for Observation / Procedure
-EXTENSION_EPISODE_OF_CARE = "http://regionsyddanmark.dk/fhir/StructureDefinition/episodeOfCare"
-EXTENSION_ENCOUNTER = "http://regionsyddanmark.dk/fhir/StructureDefinition/encounter"
+EXTENSION_EPISODE_OF_CARE = "http://example.org/fhir/StructureDefinition/episodeOfCare"
+EXTENSION_ENCOUNTER = "http://example.org/fhir/StructureDefinition/encounter"
+
+# Extension URLs for Location
+EXTENSION_LOCATION_VALIDITY_PERIOD = (
+    "http://example.org/fhir/StructureDefinition/locationValidityPeriod"
+)
 
 # Extension URLs for source metadata
-EXTENSION_SOURCE_CREATED_AT = "http://regionsyddanmark.dk/fhir/StructureDefinition/sourceCreatedAt"
-EXTENSION_SOURCE_MODIFIED_AT = (
-    "http://regionsyddanmark.dk/fhir/StructureDefinition/sourceModifiedAt"
-)
+EXTENSION_SOURCE_CREATED_AT = "http://example.org/fhir/StructureDefinition/sourceCreatedAt"
+EXTENSION_SOURCE_MODIFIED_AT = "http://example.org/fhir/StructureDefinition/sourceModifiedAt"
 # Extension URLs for AKTIVITETSRESULTAT lossless XML fields
-EXTENSION_XML_KONTEKST = (
-    "http://regionsyddanmark.dk/fhir/StructureDefinition/aktivitetsresultatKontekst"
-)
-EXTENSION_XML_HIERARCHY = (
-    "http://regionsyddanmark.dk/fhir/StructureDefinition/aktivitetsresultatHierarki"
-)
+EXTENSION_XML_KONTEKST = "http://example.org/fhir/StructureDefinition/aktivitetsresultatKontekst"
+EXTENSION_XML_HIERARCHY = "http://example.org/fhir/StructureDefinition/aktivitetsresultatHierarki"
 EXTENSION_XML_ELEMENT_META = (
-    "http://regionsyddanmark.dk/fhir/StructureDefinition/aktivitetsresultatElementMeta"
+    "http://example.org/fhir/StructureDefinition/aktivitetsresultatElementMeta"
 )
-EXTENSION_XML_ROOT_META = (
-    "http://regionsyddanmark.dk/fhir/StructureDefinition/aktivitetsresultatRootMeta"
-)
-EXTENSION_XML_ROW_TYPE = (
-    "http://regionsyddanmark.dk/fhir/StructureDefinition/aktivitetsresultatRowType"
-)
+EXTENSION_XML_ROOT_META = "http://example.org/fhir/StructureDefinition/aktivitetsresultatRootMeta"
+EXTENSION_XML_ROW_TYPE = "http://example.org/fhir/StructureDefinition/aktivitetsresultatRowType"
 EXTENSION_AKTIVITETSRESULTAT_SOURCE_META = (
-    "http://regionsyddanmark.dk/fhir/StructureDefinition/aktivitetsresultatSourceMeta"
+    "http://example.org/fhir/StructureDefinition/aktivitetsresultatSourceMeta"
 )
 
 # SFI instance-level metadata (per-registration fields that vary per occurrence)
-EXTENSION_SFI_INSTANCE_META = "http://regionsyddanmark.dk/fhir/StructureDefinition/sfiInstanceMeta"
+EXTENSION_SFI_INSTANCE_META = "http://example.org/fhir/StructureDefinition/sfiInstanceMeta"
 
 # AKTIVITETSUDFOERELSE administrative metadata extension
 EXTENSION_AKTIVITETSUDFOERELSE_META = (
-    "http://regionsyddanmark.dk/fhir/StructureDefinition/aktivitetsudfoerelseMetadata"
+    "http://example.org/fhir/StructureDefinition/aktivitetsudfoerelseMetadata"
 )
 
 # AKTIVITETTYPE_KODE hierarchy split (LEVEL1-8)
 EXTENSION_AKTIVITETTYPE_KODE_HIERARKI = (
-    "http://regionsyddanmark.dk/fhir/StructureDefinition/aktivitettypeKodeHierarki"
+    "http://example.org/fhir/StructureDefinition/aktivitettypeKodeHierarki"
 )
 
 EXTENSION_AKTIVITETSUDFOERELSE_SPECIALE = (
-    "http://regionsyddanmark.dk/fhir/StructureDefinition/aktivitetsudfoerelseSpeciale"
+    "http://example.org/fhir/StructureDefinition/aktivitetsudfoerelseSpeciale"
 )
 
 # AKTIVITETSRESULTAT-derived Procedure extensions
 EXTENSION_AKTIVITETSRESULTAT_PROCEDURE_SOURCE_META = (
-    "http://regionsyddanmark.dk/fhir/StructureDefinition/aktivitetsresultatProcedureSourceMeta"
+    "http://example.org/fhir/StructureDefinition/aktivitetsresultatProcedureSourceMeta"
 )
 
 # AKTIVITETSRESULTAT-derived Condition extensions
 EXTENSION_AKTIVITETSRESULTAT_CONDITION_SOURCE_META = (
-    "http://regionsyddanmark.dk/fhir/StructureDefinition/aktivitetsresultatConditionSourceMeta"
+    "http://example.org/fhir/StructureDefinition/aktivitetsresultatConditionSourceMeta"
 )
 
 # =============================================================================
 # ADMINISTRATIVE_PROCEDURE lossless extensions
 # =============================================================================
-EXTENSION_PROCEDURE_SOURCE_META = (
-    "http://regionsyddanmark.dk/fhir/StructureDefinition/procedureSourceMeta"
-)
+EXTENSION_PROCEDURE_SOURCE_META = "http://example.org/fhir/StructureDefinition/procedureSourceMeta"
 EXTENSION_PROCEDURE_LOCATION_META = (
-    "http://regionsyddanmark.dk/fhir/StructureDefinition/procedureLocationMeta"
+    "http://example.org/fhir/StructureDefinition/procedureLocationMeta"
 )
 
 # =============================================================================
 # PAS_DIAGNOSE lossless extensions
 # =============================================================================
 EXTENSION_PAS_DIAGNOSE_SOURCE_META = (
-    "http://regionsyddanmark.dk/fhir/StructureDefinition/pasDiagnoseSourceMeta"
+    "http://example.org/fhir/StructureDefinition/pasDiagnoseSourceMeta"
 )
 
 # =============================================================================
 # RIS_YDELSE lossless extensions
 # =============================================================================
-EXTENSION_RIS_YDELSE_SOURCE_META = (
-    "http://regionsyddanmark.dk/fhir/StructureDefinition/risYdelseSourceMeta"
-)
+EXTENSION_RIS_YDELSE_SOURCE_META = "http://example.org/fhir/StructureDefinition/risYdelseSourceMeta"
 EXTENSION_RIS_YDELSE_LOCATION_META = (
-    "http://regionsyddanmark.dk/fhir/StructureDefinition/risYdelseLocationMeta"
+    "http://example.org/fhir/StructureDefinition/risYdelseLocationMeta"
 )
-EXTENSION_RIS_YDELSE_XML = "http://regionsyddanmark.dk/fhir/StructureDefinition/risYdelseXml"
+EXTENSION_RIS_YDELSE_XML = "http://example.org/fhir/StructureDefinition/risYdelseXml"
 
 # =============================================================================
 # ServiceRequest source metadata extensions
@@ -118,32 +109,30 @@ EXTENSION_RIS_YDELSE_XML = "http://regionsyddanmark.dk/fhir/StructureDefinition/
 # Discriminates which source table a ServiceRequest row came from
 # (HENVISNING vs RIS_YDELSE). First-class so the SoF view reads it in one
 # anchored hop instead of scanning source-meta sub-extensions.
-EXTENSION_SOURCE_TABLE = "http://regionsyddanmark.dk/fhir/StructureDefinition/sourceTable"
+EXTENSION_SOURCE_TABLE = "http://example.org/fhir/StructureDefinition/sourceTable"
 EXTENSION_HENVISNING_SOURCE_META = (
-    "http://regionsyddanmark.dk/fhir/StructureDefinition/henvisningSourceMeta"
+    "http://example.org/fhir/StructureDefinition/henvisningSourceMeta"
 )
 # Distinct from EXTENSION_RIS_YDELSE_SOURCE_META (Procedure): the ServiceRequest
 # RIS source-meta carries a different payload (request/order fields), so it must
 # have its own URL — one extension URL must map to exactly one definition.
 EXTENSION_SERVICE_REQUEST_RIS_SOURCE_META = (
-    "http://regionsyddanmark.dk/fhir/StructureDefinition/serviceRequestRisYdelseSourceMeta"
+    "http://example.org/fhir/StructureDefinition/serviceRequestRisYdelseSourceMeta"
 )
 
 # Extension URL for MODTIDSPUNKT (used for temporal address tracking)
-EXTENSION_MODTIDSPUNKT = "http://regionsyddanmark.dk/fhir/StructureDefinition/modtidspunkt"
+EXTENSION_MODTIDSPUNKT = "http://example.org/fhir/StructureDefinition/modtidspunkt"
 
 # Diagnosis type qualifier on Condition (PAS_DIAGNOSE.DIAGNOSETYPE: A=aktions-,
 # B=bi-, V=henvisnings-/visitationsdiagnose). FHIR Condition has no native
 # diagnosis-role element (the standard puts roles on Encounter.diagnosis), so
 # the source code is carried as a first-class extension.
-EXTENSION_DIAGNOSETYPE = "http://regionsyddanmark.dk/fhir/StructureDefinition/diagnosetype"
+EXTENSION_DIAGNOSETYPE = "http://example.org/fhir/StructureDefinition/diagnosetype"
 
 # Extension URLs for Patient demographic data
-EXTENSION_DISTRICT = "http://regionsyddanmark.dk/fhir/StructureDefinition/district"
-EXTENSION_SOCIAL_DISTRICT = "http://regionsyddanmark.dk/fhir/StructureDefinition/social-district"
-EXTENSION_ADDRESS_PROTECTION = (
-    "http://regionsyddanmark.dk/fhir/StructureDefinition/address-protection"
-)
+EXTENSION_DISTRICT = "http://example.org/fhir/StructureDefinition/district"
+EXTENSION_SOCIAL_DISTRICT = "http://example.org/fhir/StructureDefinition/social-district"
+EXTENSION_ADDRESS_PROTECTION = "http://example.org/fhir/StructureDefinition/address-protection"
 
 # Danish CPR person status codes
 # See: https://cpr.dk/cpr-systemet/personnumre-uden-telegraferingskode/
@@ -154,10 +143,10 @@ CPR_STATUS_INACTIVE = {"80"}  # Code 80 = Annulled/cancelled CPR
 # CarePlan Activity Extension URLs
 # =============================================================================
 EXTENSION_ACTIVITY_IDENTIFIER = (
-    "http://regionsyddanmark.dk/fhir/StructureDefinition/activity-source-identifier"
+    "http://example.org/fhir/StructureDefinition/activity-source-identifier"
 )
 EXTENSION_ACTIVITY_EPISODE_OF_CARE = (
-    "http://regionsyddanmark.dk/fhir/StructureDefinition/activity-episode-of-care"
+    "http://example.org/fhir/StructureDefinition/activity-episode-of-care"
 )
 
 # =============================================================================
@@ -173,10 +162,10 @@ EXTENSION_ACTIVITY_EPISODE_OF_CARE = (
 # This matching is NOT performed during ETL. It should be performed post-FHIR using
 # the Organization references in the CarePlan activities.
 EXTENSION_REQUIRES_HOSPITAL_MATCHING = (
-    "http://regionsyddanmark.dk/fhir/StructureDefinition/requires-hospital-matching"
+    "http://example.org/fhir/StructureDefinition/requires-hospital-matching"
 )
-EXTENSION_HAS_REREFERRAL = "http://regionsyddanmark.dk/fhir/StructureDefinition/has-rereferral"
-EXTENSION_MATCHING_LEVEL = "http://regionsyddanmark.dk/fhir/StructureDefinition/matching-level"
+EXTENSION_HAS_REREFERRAL = "http://example.org/fhir/StructureDefinition/has-rereferral"
+EXTENSION_MATCHING_LEVEL = "http://example.org/fhir/StructureDefinition/matching-level"
 
 # =============================================================================
 # US-FHIR-07: DocumentReference extensions (epikrise + udskrivningsrapport)

@@ -9,7 +9,7 @@
 SDS drops full snapshots per (leverancetype, takstsystem) on the NGC share:
 `Region_1083_<DRG|DRGPSYK>_<T24|T25|T26>[_<M|U>]_<timestamp>.tar.bz2`. Files
 accumulate; the NEWEST file per (leverancetype, takstsystem) is authoritative
-regardless of cadence (decision on feature AB#27624 — M and U are packaging
+regardless of cadence (decision on [internal ticket] — M and U are packaging
 cadences of the same LPR update track, but M covers THREE activity years and
 U only two, which the archive handles with year-scoped delete detection, see
 drg_archive.py).
@@ -23,16 +23,16 @@ cp1252 CSVs plus SDS' own column schemas (Metadata_*.csv) and an export log
 (SDP_ExportLog_*.csv) with the row count per file. Members are streamed
 straight from the tar into the ext tables — the ~16 GB somatik deliveries are
 never unpacked to disk. Row counts are validated against the export log after
-each archive: a mismatch is a delivery defect and fails the run (US AB#29518).
+each archive: a mismatch is a delivery defect and fails the run.
 
 ext is a 1:1 mirror of the source INCLUDING the per-delivery integer IDs —
 they are needed for the intra-delivery UUID resolution views in
 drg_archive.py, and ext is the debugging surface for the latest delivery.
-The archive layer deliberately excludes them (review decision on AB#29511).
+The archive layer deliberately excludes them (review decision on [internal ticket]).
 
 Key columns are validated against their declared max width so the narrow
 archive keys can never abort a MERGE with a truncation error (the HAIBA
-lesson from AB#29407). GDPR: the files carry raw CPR — row contents are never
+lesson from [internal ticket]). GDPR: the files carry raw CPR — row contents are never
 logged or reported, only file names, counts and delivery dates.
 """
 
@@ -67,13 +67,13 @@ INSERT_CHUNK_SIZE = 1000
 TAKSTSYSTEM_COLUMN = "takstsystem"
 DELIVERY_COLUMN = "leverance_dato"
 
-# Forventet kadence (AB#29518): somatik faar U-leverancer ugentligt (mandag)
+# Forventet kadence: somatik faar U-leverancer ugentligt (mandag)
 # og M ca. d. 14.-18.; psyk kun M ca. d. 12. Graenserne giver slack for
 # helligdage. Kun den FRISKESTE leverance pr. leverancetype vurderes —
 # pensionerede takstsystemer (fx somatik T24) faar aldrig nye filer.
 MAX_DELIVERY_AGE_DAYS = {"DRG": 10, "DRGPSYK": 40}
 
-# Encoding-sanity (AB#29518): U+FFFD opstaar naar afsenderen selv har
+# Encoding-sanity: U+FFFD opstaar naar afsenderen selv har
 # erstattet udecodbare tegn; "ï¿½" er U+FFFD's UTF-8-bytes fejllaest som
 # cp1252 (dvs. filen var i virkeligheden UTF-8). Begge er entydige
 # korruptionsmarkoerer uden falske positiver i danske sundhedsdata.
@@ -283,7 +283,7 @@ def check_delivery_age(
     today: date,
     max_age_days: int | None = None,
 ) -> dict[str, int]:
-    """Foraeldet leverance-alarm (AB#29518): det AKTIVE takstsystem skal have
+    """Foraeldet leverance-alarm: det AKTIVE takstsystem skal have
     en frisk, brugbar leverance.
 
     Det aktive takstaar er altid det hoejeste takstsystem paa sharet (T26 >
@@ -511,7 +511,7 @@ def _stream_data_member(
         raise ValueError(
             f"{filename}: noeglekolonner overskrider deres deklarerede bredde: "
             f"{dict(key_width_overflow)}. Arkivets noegler er bevidst smalle "
-            f"(AB#29407) — undersoeg leverancen."
+            f" — undersoeg leverancen."
         )
     if mojibake:
         # GDPR: kun kolonnenavne og antal — aldrig vaerdierne.

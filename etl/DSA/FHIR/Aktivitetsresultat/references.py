@@ -22,6 +22,7 @@ from DSA.FHIR.Questionnaire.Questionnaire_IFDB import (
 )
 from DSA.FHIR.utils.ifdb.aktivitetsresultat_identifiers import _sfi_identifier_value
 from DSA.FHIR.utils.ifdb.transforms import normalize_oracle_id as _normalize_oracle_id
+from DSA.FHIR.utils.ifdb.xml_child_reconcile import FAMILY_SFI_OBS, FAMILY_XML_CONDITION
 from utils.fhir.identifier_systems import (
     SYSTEM_IFDB_AKTIVITETSRESULTAT,
     SYSTEM_IFDB_AKTIVITETSRESULTAT_CONDITION,
@@ -60,9 +61,11 @@ class ResolvedRefLookup:
         "_questionnaire",
         "_questionnaire_response",
         "_minted_observation_sfi_ids",
+        "_minted_procedure_ids",
         "_minted_xml_condition_ids",
         "_minted_questionnaire_ids",
         "_minted_questionnaire_response_ids",
+        "_chunk_merged_keys",
         "lookup_profile",
         "miss_counts",
     )
@@ -87,9 +90,13 @@ class ResolvedRefLookup:
         self._questionnaire = questionnaire or {}
         self._questionnaire_response = questionnaire_response or {}
         self._minted_observation_sfi_ids: dict[str, str] = {}
+        self._minted_procedure_ids: dict[str, str] = {}
         self._minted_xml_condition_ids: dict[str, str] = {}
         self._minted_questionnaire_ids: dict[str, str] = {}
         self._minted_questionnaire_response_ids: dict[str, str] = {}
+        # Opslag flettet ind for den aktuelle chunk (eksisterende ressourcer) —
+        # frigives sammen med de mintede id'er, se release_chunk_scoped_ids.
+        self._chunk_merged_keys: list[tuple[IdentifierLookup, tuple[str, str]]] = []
         self.lookup_profile: dict[str, Any] = {}
         # Tracks cache misses so SoF NULL-joins can be diagnosed without log-spam.
         self.miss_counts: dict[str, int] = {"Patient": 0, "Encounter": 0, "EpisodeOfCare": 0}
@@ -187,12 +194,50 @@ class ResolvedRefLookup:
                     ) from _exc
                 if existing:
                     return existing
-        key_value = (
-            key_value or f"{_normalize_oracle_id(objekt_id) or ''}#sfi#{element_nummer or ''}"
+        key_value = key_value or FAMILY_SFI_OBS.child_value(
+            _normalize_oracle_id(objekt_id) or "", element_nummer or ""
         )
         if key_value not in self._minted_observation_sfi_ids:
             self._minted_observation_sfi_ids[key_value] = str(uuid.uuid4())
         return self._minted_observation_sfi_ids[key_value]
+
+    def release_chunk_scoped_ids(self) -> int:
+        """Frigiv chunkens id-tilstand, når chunken er postet.
+
+        To ting lever kun chunken ud:
+        - id'er mintet for *nye* ressourcer (QuestionnaireResponse, Procedure,
+          SFI-observation, XML-diagnose) — de sikrer kun, at gentagne forekomster
+          af samme kildenøgle inden for chunken får samme uuid;
+        - opslag flettet ind for *eksisterende* ressourcer via
+          ``merge_*_identifiers`` — næste chunk slår sine egne identifikatorer op
+          i databasen først, så de gamle behøves ikke.
+
+        Kildenøglen (OBJEKT_ID, evt. med elementnummer) er arkivets flettenøgle og
+        dermed unik pr. række, så en nøgle lander aldrig i to chunks. Uden
+        frigivelse vokser begge dele med én post pr. række i hele perioden —
+        nye rækker fylder memoerne, genpostede rækker fylder de flettede opslag —
+        og barneprocessen dræbes ved store perioder.
+
+        De opslag, der blev opløst før chunk-løkken (partitionens eksisterende
+        selv-id'er og relationer), røres ikke. Questionnaire-memoen deles på
+        tværs af chunks (samme model/version i mange rækker) og beholdes; den er
+        lille. Returnerer antal frigivne poster.
+        """
+        released = (
+            len(self._minted_observation_sfi_ids)
+            + len(self._minted_procedure_ids)
+            + len(self._minted_xml_condition_ids)
+            + len(self._minted_questionnaire_response_ids)
+            + len(self._chunk_merged_keys)
+        )
+        self._minted_observation_sfi_ids.clear()
+        self._minted_procedure_ids.clear()
+        self._minted_xml_condition_ids.clear()
+        self._minted_questionnaire_response_ids.clear()
+        for lookup, key in self._chunk_merged_keys:
+            lookup.pop(key, None)
+        self._chunk_merged_keys.clear()
+        return released
 
     def merge_observation_identifiers(
         self,
@@ -214,6 +259,7 @@ class ResolvedRefLookup:
             key = (identifier_system, str(source_value))
             if key not in self._observation:
                 self._observation[key] = fhir_id
+                self._chunk_merged_keys.append((self._observation, key))
                 added = added + 1
         return added
 
@@ -237,6 +283,31 @@ class ResolvedRefLookup:
             key = (identifier_system, str(source_value))
             if key not in self._condition:
                 self._condition[key] = fhir_id
+                self._chunk_merged_keys.append((self._condition, key))
+                added = added + 1
+        return added
+
+    def merge_procedure_identifiers(
+        self,
+        identifier_system: str,
+        values_to_ids: dict[str, str],
+    ) -> int:
+        """Merge resolved Procedure identifiers into the shared partition cache.
+
+        Returns how many new entries were added.
+        """
+        if not values_to_ids:
+            return 0
+
+        if not isinstance(self._procedure, dict):
+            return 0
+
+        added = 0
+        for source_value, fhir_id in values_to_ids.items():
+            key = (identifier_system, str(source_value))
+            if key not in self._procedure:
+                self._procedure[key] = fhir_id
+                self._chunk_merged_keys.append((self._procedure, key))
                 added = added + 1
         return added
 
@@ -252,6 +323,9 @@ class ResolvedRefLookup:
                     ) from _exc
                 if existing:
                     return existing
+                if oid not in self._minted_procedure_ids:
+                    self._minted_procedure_ids[oid] = str(uuid.uuid4())
+                return self._minted_procedure_ids[oid]
         return str(uuid.uuid4())
 
     def condition_id(self, objekt_id: Any) -> str:
@@ -272,7 +346,7 @@ class ResolvedRefLookup:
         oid = _normalize_oracle_id(objekt_id)
         if oid is None or element_nummer is None:
             return str(uuid.uuid4())
-        identifier_value = f"{oid}/{element_nummer}"
+        identifier_value = FAMILY_XML_CONDITION.child_value(oid, element_nummer)
         try:
             existing = self._condition.get(
                 (

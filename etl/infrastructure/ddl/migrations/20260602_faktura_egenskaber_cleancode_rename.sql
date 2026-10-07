@@ -8,7 +8,7 @@
 -- Migration: Rename map.FakturaEgenskaber.CleanCode_Faktura
 --            → CleanCode_FakturaEgenskaber
 --
--- AB#28348 — Complete the Faktura ↔ FakturaEgenskaber rename.
+-- Complete the Faktura ↔ FakturaEgenskaber rename.
 --
 -- WHY: The composite business key of the FakturaEgenskaber entity
 --   (CleanCode_Kreditor + '_' + CleanCode_Faktura) was still called

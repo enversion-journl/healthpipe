@@ -372,12 +372,16 @@ class TestQuestionnaireResponseExtensions:
         urls = _collect_extension_urls(qr)
         top_level_urls = {u for u in urls if u.startswith(("http://", "urn:"))}
         allowed_qr = {
-            "http://regionsyddanmark.dk/fhir/StructureDefinition/sfiInstanceMeta",
+            "http://example.org/fhir/StructureDefinition/sfiInstanceMeta",
+            # Platform-standarden for sletmarkering: de flade tabellers
+            # sletteflag-kolonner laeser denne, og alle fire ressourcetyper
+            # skriver den nu.
+            "urn:fhir:isDeleted",
         }
         unexpected = top_level_urls - allowed_qr
         assert not unexpected, (
-            f"QuestionnaireResponse should only use native item fields "
-            f"and sfiInstanceMeta, found unexpected: {unexpected}"
+            f"QuestionnaireResponse should only use native item fields, "
+            f"sfiInstanceMeta and urn:fhir:isDeleted, found unexpected: {unexpected}"
         )
 
     def test_qr_item_id_is_native_occurrence_key(self):

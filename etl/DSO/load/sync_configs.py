@@ -257,7 +257,7 @@ SHARED_DIMS_MAP_CONFIGS = {
     # (INT IDENTITY) in the new FHIR + ref-table architecture.
     # map.Organisation removed — dim.Organisation is built from
     # ref.Organisation (fhir.Organization), and the SOR source now flows
-    # through arc.sor_register -> codesystem.SOR* (US #28833). The persisted
+    # through arc.sor_register -> codesystem.SOR*. The persisted
     # map.Organisation table remains as the one-time ref.Organisation seed
     # source (migration 20260618_ref_organisation.sql).
 }
@@ -350,8 +350,8 @@ SHARED_DIMS_SYNC_CONFIGS = {
 # =============================================================================
 
 SECURITY_SYNC_CONFIGS = {
-    # DPA security model (US 28010) — populated on staging by the AD load
-    # script (infrastructure/security/load_sydbi_ad_to_mssql.py), synced
+    # DPA security model — populated on staging by the AD load
+    # script (infrastructure/security/load_healthpipe_ad_to_mssql.py), synced
     # staging -> DSO here. Both tables are composite-PK without IDENTITY
     # (sec.RolleDomaene in 04_dpa_tables.sql, sec.RBOrganisation in
     # 01_tables.sql), so no exclude_columns.
@@ -674,6 +674,24 @@ FHIR_SYNC_CONFIGS = {
         mode="watermark",
         watermark_column="dw_timestamp_update",
     ),
+    # Epikrise + udskrivningsrapport document index; one row per resource,
+    # sources distinguished by source_table.
+    "fhir_documentreference": SyncTableConfig(
+        schema="fhir",
+        table="DocumentReference",
+        primary_key="documentreference_id",
+        mode="watermark",
+        watermark_column="dw_timestamp_update",
+    ),
+    # Composite PK like ServiceRequest_Recipient: the recipients extension is
+    # flattened one row per recipient, keyed by recipient_key.
+    "fhir_documentreference_recipient": SyncTableConfig(
+        schema="fhir",
+        table="DocumentReference_Recipient",
+        primary_key=["documentreference_id", "recipient_key"],
+        mode="watermark",
+        watermark_column="dw_timestamp_update",
+    ),
     "fhir_organization": SyncTableConfig(
         schema="fhir",
         table="Organization",
@@ -747,6 +765,140 @@ CONCEPTMAP_SYNC_CONFIGS = {
 
 
 # =============================================================================
+# HAIBA CONFIGURATIONS
+# =============================================================================
+
+# The dm rebuild is itself TRUNCATE + INSERT, so every dw_timestamp is renewed
+# on each run — a watermark sync would move the full table anyway and only add
+# machinery. truncate_insert states what actually happens. Fact and egenskaber
+# share the dw_ek primary key (1:1). map.HAIBA_* is deliberately absent: it is
+# staging-internal and its clean_code carries CPR on the case tables.
+#
+# Follow-up: the map now mints a dw_ek that is stable across
+# runs and soft-deletes — exactly the key a MERGE needs. Rebuilding dm with a
+# MERGE on dw_ek instead of TRUNCATE + INSERT would make dw_timestamp_update
+# meaningful, and these configs then drop to mode="watermark": the weekly
+# change volume is ~16,500 revised rows (see arc 00_archive.sql), not the
+# ~6.7M that truncate_insert rewrites across the linked server today.
+
+
+def _haiba_dm_config(table: str) -> SyncTableConfig:
+    # The egenskaber table shares the fact's dw_ek (HAIBA, unlike the older
+    # *Egenskaber dims that carry their own key), so strip the suffix to reach
+    # it. PascalCase means no separating underscore before Egenskaber.
+    base = table.removesuffix("Egenskaber")
+    return SyncTableConfig(
+        schema="dm",
+        table=table,
+        primary_key=f"dw_ek_{base}",
+        mode="truncate_insert",
+        chunk_size=20_000,
+    )
+
+
+# The DSO-sync Dagster asset id derives from the config KEY
+# (dso_sync_{key}.lower()), so the key is kept in the pre-rename snake form to
+# keep the asset graph and its materialisation history stable; the config's
+# `table` is the renamed PascalCase dm table. Renaming the key instead would
+# both orphan the asset history and mash the id (…casesinfektionegenskaber).
+_HAIBA_DM_TABLE_BY_KEY = {
+    "HAIBA_Agg_Infektion": "HAIBA_AggInfektion",
+    "HAIBA_Agg_Infektion_Egenskaber": "HAIBA_AggInfektionEgenskaber",
+    "HAIBA_Agg_Ortopaedi": "HAIBA_AggOrtopaedi",
+    "HAIBA_Agg_Ortopaedi_Egenskaber": "HAIBA_AggOrtopaediEgenskaber",
+    "HAIBA_Cases_Infektion": "HAIBA_CasesInfektion",
+    "HAIBA_Cases_Infektion_Egenskaber": "HAIBA_CasesInfektionEgenskaber",
+    "HAIBA_Cases_SSI": "HAIBA_CasesSSI",
+    "HAIBA_Cases_SSI_Egenskaber": "HAIBA_CasesSSIEgenskaber",
+}
+HAIBA_DM_CONFIGS = {
+    f"dm_{key}": _haiba_dm_config(table) for key, table in _HAIBA_DM_TABLE_BY_KEY.items()
+}
+
+
+# =============================================================================
+# DRG CONFIGURATIONS
+# =============================================================================
+
+# Every DRG dim/fct/bridge carries dw_timestamp_update and is maintained
+# incrementally in the DSA layer (fct MERGE + soft-delete; dims/group-bridges
+# are append-only), so a watermark delta on dw_timestamp_update moves exactly
+# the changed rows — no benefit to truncate_insert. map.DRG* is deliberately
+# absent: it mints the IDENTITY keys and is staging-internal (and never carries
+# CPR either). The group keys the fact references live in map.DRG*Gruppe; DSO
+# exposes them through the group->code bridges, not a group dimension.
+DRG_SYNC_CONFIGS = {
+    "dim_DRGKontaktEgenskaber": SyncTableConfig(
+        schema="dim",
+        table="DRGKontaktEgenskaber",
+        primary_key="dw_ek_DRGKontakt",
+        mode="watermark",
+        watermark_column="dw_timestamp_update",
+    ),
+    "dim_DRGKontaktKlassifikation": SyncTableConfig(
+        schema="dim",
+        table="DRGKontaktKlassifikation",
+        primary_key="dw_ek_DRGKontaktKlassifikation",
+        mode="watermark",
+        watermark_column="dw_timestamp_update",
+    ),
+    "dim_DRGDiagnose": SyncTableConfig(
+        schema="dim",
+        table="DRGDiagnose",
+        primary_key="dw_ek_DRGDiagnose",
+        mode="watermark",
+        watermark_column="dw_timestamp_update",
+    ),
+    "dim_DRGProcedure": SyncTableConfig(
+        schema="dim",
+        table="DRGProcedure",
+        primary_key="dw_ek_DRGProcedure",
+        mode="watermark",
+        watermark_column="dw_timestamp_update",
+    ),
+    "bridge_DRGDiagnoseGruppe": SyncTableConfig(
+        schema="bridge",
+        table="DRGDiagnoseGruppe",
+        primary_key=["dw_ek_DRGDiagnoseGruppe", "dw_ek_DRGDiagnose"],
+        mode="watermark",
+        watermark_column="dw_timestamp_update",
+    ),
+    "bridge_DRGProcedureGruppe": SyncTableConfig(
+        schema="bridge",
+        table="DRGProcedureGruppe",
+        primary_key=[
+            "dw_ek_DRGProcedureGruppe",
+            "dw_ek_DRGProcedure",
+            "dw_ek_Organisation_producerende",
+        ],
+        mode="watermark",
+        watermark_column="dw_timestamp_update",
+    ),
+    # fct.DRGKontakt is wide (42 cols) and carries 11 nonclustered indexes on
+    # top of the clustered PK. The first load moves all ~35.6M rows into an
+    # empty DSO target (dso_infra_drg creates the table but never seeds it), and
+    # maintaining 11 nonclustered B-trees per row over 35.6M rows is pure random
+    # I/O — the sync hung on PAGEIOLATCH_EX for hours on dev. disable_target_
+    # indexes_during_sync makes the sync drop the nonclustered indexes for the
+    # bulk-load path only (empty target / truncate_insert), so the insert
+    # maintains just the clustered PK and the 11 indexes are rebuilt once,
+    # sorted, afterwards. The nightly watermark delta lands on a populated
+    # target and takes the MERGE path, where the indexes are left intact (see
+    # _sync_via_linked_server_batched): rebuilding every index over the whole
+    # table to absorb a small delta would cost far more than per-row upkeep.
+    "fct_DRGKontakt": SyncTableConfig(
+        schema="fct",
+        table="DRGKontakt",
+        primary_key="dw_ek_DRGKontakt",
+        mode="watermark",
+        watermark_column="dw_timestamp_update",
+        chunk_size=20_000,
+        disable_target_indexes_during_sync=True,
+    ),
+}
+
+
+# =============================================================================
 # ALL CONFIGURATIONS
 # =============================================================================
 
@@ -757,6 +909,8 @@ ALL_SYNC_CONFIGS = {
     **CODESYSTEM_SYNC_CONFIGS,
     **FHIR_SYNC_CONFIGS,
     **CONCEPTMAP_SYNC_CONFIGS,
+    **HAIBA_DM_CONFIGS,
+    **DRG_SYNC_CONFIGS,
 }
 
 

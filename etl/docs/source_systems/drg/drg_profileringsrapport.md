@@ -8,21 +8,21 @@
 
 # Profileringsrapport: DRG-grupperet LPR fra SDS
 
-US AB#29509 (feature AB#27624 "SDS DRG-grupperet LPR (SDSDRG) version 1.0").
+[internal ticket] ([internal ticket] "SDS DRG-grupperet LPR (SDSDRG) version 1.0").
 Første version 2026-08-26. Alle tal er målt med [`drg_snapshot_profiler.py`](drg_snapshot_profiler.py)
 i samme mappe og kan genskabes — se §Metode. Merge-nøgle-konklusionerne er
 samlet i [beslutningsnotatet](drg_noegler_beslutningsnotat.md).
 
 ## 1. Formål og omfang
 
-Rapporten fastlægger faktagrundlaget for ingestion (US AB#29514) og
-modellering (US AB#29520/29526/29531) af DRG-leverancerne:
+Rapporten fastlægger faktagrundlaget for ingestion og
+modellering af DRG-leverancerne:
 
 1. Hvilke kolonner er stabile naturlige nøgler — og hvor stabile er de på
-   tværs af leverancer, kadencer (M/U) og takstsystemer? (AB#29510)
-2. Hvad identificerer sygehusforløb og diagnoser, som ingen UUID har? (AB#29511)
+   tværs af leverancer, kadencer (M/U) og takstsystemer?
+2. Hvad identificerer sygehusforløb og diagnoser, som ingen UUID har?
 3. Hvad indeholder M- og U-kadencerne, og holder SDS' egne kontroltotaler
-   (SDP_ExportLog)? (AB#29512)
+   (SDP_ExportLog)?
 4. Hvilke kontakt-attributter er funktionelt afhængige af (takstsystem,
    DRG-kode) og dermed kandidater til `dim.DRG` frem for
    transaktionsdimensionen?
@@ -46,7 +46,7 @@ python3 drg_snapshot_profiler.py compare --a /tmp/dumps/u17 --b /tmp/dumps/u24
 ```
 
 Kørt på `dagster-code-server-development` (mount `/mnt/ftproot/...`, se
-KONTEKST-blokken på feature AB#27624). OBS: allokeringens `/tmp` ryddes ved
+KONTEKST-blokken på [internal ticket]). OBS: allokeringens `/tmp` ryddes ved
 redeploy — gem outputs løbende.
 
 ## 3. Leverancerne
@@ -65,7 +65,7 @@ Filmønster: `Region_1083_<DRG|DRGPSYK>_<T24|T25|T26>[_<M|U>]_<timestamp>.tar.bz
   Takstsystemer udgår af leverancerne, når takståret lukkes — men IKKE
   synkront på tværs af leverancetyper: somatik-T24 fik sidste fil
   2026-03-17, mens psyk-T24 stadig leveres (seneste 2026-08-12).
-- Besluttet forretningsregel (feature AB#27624): den gældende fil pr.
+- Besluttet forretningsregel: den gældende fil pr.
   (leverancetype, takstsystem) er den NYESTE uanset kadence.
 
 Hver tar.bz2 indeholder én mappe (`T2x/`) med semikolonseparerede, fuldt
@@ -105,7 +105,7 @@ Vigtige observationer:
 
 Eksportlog-verifikation: alle 9 datafiler matcher SDP_ExportLog EKSAKT
 (CSV-bevidst gennemtælling). Kontroltotalerne er dermed anvendelige som
-hårdt indlæsningsværn i US AB#29514.
+hårdt indlæsningsværn i [internal ticket].
 
 | Måling | Resultat |
 |---|---|
@@ -250,14 +250,14 @@ Inventaret afgør spørgsmålet på filniveau (T26-serien, kontaktrækker):
   indeholder TRE aktivitetsår (t-2, t-1, t), U-leverancer kun TO (t-1, t).
   Compare M/U-16/8 → U-23/8: 4.539.910 kontakter fandtes kun i M-indholdet
   ≈ 2024-årgangen (4.532.162) + ugens revisioner; kun 97.884 var nye i U.
-- **Konsekvens for arkivet (US AB#29514)**: "nyeste fil uanset kadence"
+- **Konsekvens for arkivet**: "nyeste fil uanset kadence"
   kombineret med naiv delete-detection ville soft-slette det ældste
   aktivitetsår ved hver U-leverance og genoplive det ved næste M.
   **Arkiv-enheden skal derfor være (takstsystem × aktivitetsår)**:
   delete-detection scopes til de aktivitetsår, leverancen faktisk
   indeholder — en U-leverance opdaterer to årsskiver, en M-leverance tre.
   Aktivitetsår-fordelingen pr. leverance rapporteres allerede af
-  extract-checket (AB#29518) og definerer skiverne.
+  extract-checket og definerer skiverne.
 
 ## 9. Forløbsidentitet
 
@@ -322,7 +322,7 @@ side/handlingsspec/kontrast/tidspunkter/producerende enhed). Bridges
 bygges derfor fra børnetabellerne; UUID-behovet dækkes af PROCEDURE_VAERDI
 (på børnerækken) hhv. kontakt-UUID opløst ved extract (0 manglende
 referencer målt). De fladgjorte kolonner bruges alene som
-konsistens-stikprøve (AB#29534).
+konsistens-stikprøve.
 
 ## 11. FD-analyse: kandidater til dim.DRG
 
@@ -378,7 +378,7 @@ mintes i map-laget på clean_code = alle attributværdier.
 `dim.DRGKontaktKlassifikation`** (parallelt med `dim.DRGKontaktEgenskaber`,
 som beholder lav-frekvens- og fritekst-attributterne). Facten bærer
 `dw_ek_DRGKontaktKlassifikation`; nøglen mintes i
-`map.DRGKontaktKlassifikation`. Implementeres i US AB#29526.
+`map.DRGKontaktKlassifikation`. Implementeres i [internal ticket].
 
 ## 12. Leverancedefekter og -observationer
 
@@ -389,7 +389,7 @@ som beholder lav-frekvens- og fritekst-attributterne). Facten bærer
   ca. 2,7× det normale M-niveau** og er den eneste af sin slags. Alle tre
   takstsystemer fik en M-fil netop 17/3 (T24's sidste). Årsagen er ukendt
   (mulig dobbelt-/tripel-pakning); den er aldrig "nyeste gældende" længere,
-  men rækkeantal-drift-værnet i US AB#29514 skal fange den slags.
+  men rækkeantal-drift-værnet i [internal ticket] skal fange den slags.
 - U-filen 2026-08-17 (T26) er ikke en defekt: indholdet er identisk med
   M 2026-08-18 (se §8).
 - Identiske gentagelses-leverancer forekommer (samme indhold pakket flere
@@ -404,7 +404,7 @@ som beholder lav-frekvens- og fritekst-attributterne). Facten bærer
    — fuldt specificeret i [beslutningsnotatet](drg_noegler_beslutningsnotat.md).
 2. **Kontroltotaler**: SDP_ExportLog matcher eksakt (verificeret på to
    somatik- og tre psyk-leverancer, i alt ~80M talte rækker) og skal
-   håndhæves som hard fail i extract (AB#29516/29518).
+   håndhæves som hard fail i extract.
 2b. **Arkiv-enheden er (takstsystem × aktivitetsår)** — M-leverancer dækker
    tre aktivitetsår, U-leverancer to; delete-detection scopes til de
    årsskiver leverancen indeholder (§8).
@@ -420,7 +420,7 @@ som beholder lav-frekvens- og fritekst-attributterne). Facten bærer
    takstsystem): gruppering + kontakt- og afregningsklassifikation +
    beskrivelse/trimpunkt/standardtakst denormaliseret på DRG-delen —
    målet er at 80-90 % af analyser klares uden egenskabsdimensionen.
-6. **KONTEKST-blok-rettelser** (feature AB#27624), indarbejdet 2026-08-26:
+6. **KONTEKST-blok-rettelser**, indarbejdet 2026-08-26:
    (a) tungeste/udfaldsgivende falder IKKE altid sammen (744.996 rækker);
    (b) diagnose-kompositten ER unik i målt leverance → komposit-merge er
    primær strategi; (c) FORLOB_VAERDI er helbredsforløbets UUID (1:1 med

@@ -12,7 +12,11 @@ from collections import Counter
 from datetime import date, datetime
 from typing import Any
 
-from DSA.CodeSystem.sfi.catalog import SfiElement, sfi_datapoint_to_element
+from DSA.CodeSystem.sfi.catalog import (
+    SfiElement,
+    add_sfi_catalog_element,
+    sfi_datapoint_to_element,
+)
 from DSA.FHIR.Aktivitetsresultat.questionnaire_outputs import (
     _append_questionnaire_outputs_for_row,
 )
@@ -34,12 +38,15 @@ from DSA.FHIR.Observation.observation_dict_builder import (
 )
 from DSA.FHIR.Procedure.procedure_aktivitetsresultat_builder import (
     _append_procedure_routing_decision,
-    _build_aktivitetsresultat_procedure_dict,
     _decision_with_parallel_procedure,
     _procedure_observation_without_numeric_values_decision,
+    build_aktivitetsresultat_procedure_dicts,
 )
 from DSA.FHIR.Questionnaire.Questionnaire_IFDB import _is_value_carrying_row
-from DSA.FHIR.utils.code_normalization import is_sks_diagnosis_code, is_sks_procedure_code
+from DSA.FHIR.utils.code_normalization import (
+    is_sks_diagnosis_code,
+    is_sks_procedure_code,
+)
 from DSA.FHIR.utils.ifdb.aktivitetsresultat_config import _OBS_BUILD_STAGE
 from DSA.FHIR.utils.ifdb.aktivitetsresultat_identifiers import _sfi_identifier_value
 from DSA.FHIR.utils.ifdb.dict_validation import (
@@ -584,7 +591,7 @@ def _build_sfi_observation_dicts_for_rows(
                 dps = extract_sfi_datapoints(xml_rows, model_name=mn, model_version=mv)
                 for dp in dps:
                     elem = sfi_datapoint_to_element(dp, model_name=mn)
-                    sfi_catalog_sink.setdefault(elem.code, []).append(elem)
+                    add_sfi_catalog_element(sfi_catalog_sink, elem)
 
             aktivitetstype_kode = row_dict.get("AKTIVITETTYPE_KODE")
             is_procedure_row = is_sks_procedure_code(aktivitetstype_kode)
@@ -600,8 +607,9 @@ def _build_sfi_observation_dicts_for_rows(
             condition_dicts.extend(xml_condition_dicts)
 
             if is_procedure_row:
-                proc_rid, proc = _build_aktivitetsresultat_procedure_dict(row_dict, resolved)
-                procedure_dicts.append((proc_rid, proc))
+                procedure_dicts.extend(
+                    build_aktivitetsresultat_procedure_dicts(row_dict, xml_rows, resolved)
+                )
                 if not _has_value_bearing_xml_rows(xml_rows):
                     _append_procedure_routing_decision(
                         routing_decision_sink,
@@ -733,7 +741,7 @@ def _build_sfi_unified_dicts_for_rows(
                 dps = extract_sfi_datapoints(xml_rows, model_name=mn, model_version=mv)
                 for dp in dps:
                     elem = sfi_datapoint_to_element(dp, model_name=mn)
-                    sfi_catalog_sink.setdefault(elem.code, []).append(elem)
+                    add_sfi_catalog_element(sfi_catalog_sink, elem)
 
             aktivitetstype_kode = row_dict.get("AKTIVITETTYPE_KODE")
             is_procedure_row = is_sks_procedure_code(aktivitetstype_kode)
@@ -749,11 +757,9 @@ def _build_sfi_unified_dicts_for_rows(
             condition_dicts.extend(xml_condition_dicts)
 
             if is_procedure_row:
-                proc_rid, proc = _build_aktivitetsresultat_procedure_dict(
-                    row_dict,
-                    resolved,
+                procedure_dicts.extend(
+                    build_aktivitetsresultat_procedure_dicts(row_dict, xml_rows, resolved)
                 )
-                procedure_dicts.append((proc_rid, proc))
                 if not _has_value_bearing_xml_rows(xml_rows):
                     _append_procedure_routing_decision(
                         routing_decision_sink,

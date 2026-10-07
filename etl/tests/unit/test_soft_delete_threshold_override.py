@@ -79,7 +79,7 @@ def test_config_defaults_to_no_override():
 
 
 def test_ratio_param_fires_for_an_unregistered_asset():
-    """Callers with dynamic asset names (DRG archive, AB#29518) pass the ratio
+    """Callers with dynamic asset names (DRG archive, [internal ticket]) pass the ratio
     directly instead of registering 16 entries in the core dict."""
     with pytest.raises(dg.Failure) as excinfo:
         check_soft_delete_threshold("arc_drg_kontakt", 300, live_row_count=1000, ratio=0.20)

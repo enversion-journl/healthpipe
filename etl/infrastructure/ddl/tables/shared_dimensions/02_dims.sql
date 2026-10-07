@@ -92,7 +92,7 @@ BEGIN
         [laege_navn]                     NVARCHAR(500) NULL,
         [laege_nummer]                   VARCHAR(50) NULL,
 
-        -- District (RSyd-local, Type 1)
+        -- District (region-local, Type 1)
         [person_distriktkode]           VARCHAR(20) NULL,
         [person_distriktkodetekst]      NVARCHAR(100) NULL,
         [person_socialdistriktkode]     VARCHAR(32) NULL,

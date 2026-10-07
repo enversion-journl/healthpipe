@@ -12,7 +12,7 @@ On any run FAILURE in this code location, each failed step is fingerprinted
 as ``.nightly/reports/<fingerprint>.json`` on the ``nightly/<report-date>-<env>``
 branch, created from ``NIGHTLY_REPORT_BASE_BRANCH`` (default ``development``)
 when missing. Pushes go through the ADO Git Pushes REST API - no local clone.
-The 07:00 Cursor triage agent checks out that branch and uses the reports as
+The 07:00 triage agent checks out that branch and uses the reports as
 context for fixes.
 
 The report date rolls at 07:00 (the agent's schedule): a failure at 23:00 and
@@ -170,7 +170,7 @@ def build_nightly_failure_sensor() -> dg.SensorDefinition:
         description=(
             "On run FAILURE (schedule/sensor-triggered runs only): commit one "
             "JSON report per failed step to the nightly/<date>-<env> branch "
-            "for the 07:00 Cursor triage agent."
+            "for the 07:00 triage agent."
         ),
     )
     def nightly_failure_report_sensor(

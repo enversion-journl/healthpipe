@@ -1,0 +1,32 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: dimension
+  TableName: dm.HAIBA_AggOrtopaediEgenskaber
+  Domain: [HAIBA]
+  DimModel: transaction
+  TransactionDimFor: dm.HAIBA_AggOrtopaedi
+  Description: "Transaktionsdimension til dm.HAIBA_AggOrtopaedi — kildens deskriptive kolonner (grainet) som rå værdier, 1:1 på dw_ek"
+  Grain: "Én række pr. (HAI, HAIBA_dato, Rolle_ansvar, RegionKode, SORIdentifier) — samme grain som fakta"
+
+  SourceSystems:
+    - haiba: [agg_ortopaedi]
+
+  Columns:
+    dw_ek_HAIBA_AggOrtopaedi: { Type: PK, DataType: INT, Description: "Delt entitetsnøgle med dm.HAIBA_AggOrtopaedi — mintes i map.HAIBA_AggOrtopaedi." }
+    HAI:                       { DataType: NVARCHAR(50), Source: [haiba.agg_ortopaedi.HAI], Description: "HAI-type: Acute_HIP, Acute_KNEE, Elective_HIP, Elective_KNEE" }
+    HAIBA_dato:                { DataType: NVARCHAR(30), Source: [haiba.agg_ortopaedi.HAIBA_dato], Description: "Rå datostreng fra kilden — den opløste nøgle bor på fakta (dw_ek_Dato)" }
+    Rolle_ansvar:              { DataType: NVARCHAR(50), Source: [haiba.agg_ortopaedi.Rolle_ansvar] }
+    RegionKode:                { DataType: NVARCHAR(10), Source: [haiba.agg_ortopaedi.RegionKode], Description: "Beholdes som org-tekstkolonne: bærer landsaggregat-skellet (8888/9999, tom SOR)" }
+    SORIdentifier:             { DataType: NVARCHAR(30), Source: [haiba.agg_ortopaedi.SORIdentifier], Description: "Rå SOR-kode — den opløste nøgle bor på fakta (dw_ek_Organisation)" }
+    leverance_dato:            { DataType: DATE, Expr: "Afledt af leverancefilens navn, ført med fra arc" }
+    dw_is_deleted:             { DataType: BIT, Expr: "Ført med fra arc — se dm.HAIBA_AggOrtopaedi" }
+    dw_timestamp_insert:       { Type: Audit, DataType: DATETIME2(0), Expr: "SYSDATETIME() ved rebuild (TRUNCATE + INSERT)" }
+    dw_timestamp_update:       { Type: Audit, DataType: DATETIME2(0), Expr: "SYSDATETIME() ved rebuild" }
+
+  Notes:
+    - "Rå SOR-koder og rå datostrenge bevares her, så en uopløst nøgle (-1) på fakta aldrig koster kildeværdien."

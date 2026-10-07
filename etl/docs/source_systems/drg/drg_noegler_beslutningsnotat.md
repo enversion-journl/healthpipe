@@ -6,7 +6,7 @@
   root for the full AGPL-3.0 license text.
 -->
 
-# DRG-grupperet LPR: Beslutningsnotat om merge-nøgler (AB#29511)
+# DRG-grupperet LPR: Beslutningsnotat om merge-nøgler
 
 Status: KOMPLET 2026-08-26 — alle målinger gennemført (7 leverancer
 profileret, 6 krydsmålinger). Grundlag: profileringskørsler med `drg_snapshot_profiler.py` (samme mappe) mod
@@ -27,7 +27,7 @@ derfor bygges på leverancens LPR3-UUID'er (`*_VAERDI`-kolonnerne) — og hvor d
 mangler, på veldefinerede afledninger, som dette notat fastlægger.
 
 Fordi samme kontakt vurderes under flere takstsystemer (M-leverancer dækker
-tre aktivitetsår; grain-beslutning på feature AB#27624: alle kombinationer
+tre aktivitetsår; grain-beslutning på [internal ticket]: alle kombinationer
 medtages), indgår **takstsystem** i alle merge-nøgler. Takstsystem kommer
 fra leverancens filnavn/mappenavn og stemples på alle rækker ved extract.
 
@@ -102,9 +102,9 @@ U-leverance og genoplive det ved næste M.
 
 **Arkiv-enheden er (takstsystem × aktivitetsår):** delete-detection scopes
 til de aktivitetsår, leverancen faktisk indeholder — en U-leverance
-opdaterer to årsskiver, en M tre. Implementeres i US-2 (AB#29517) som
+opdaterer to årsskiver, en M tre. Implementeres i US-2 som
 scoped NOT MATCHED BY SOURCE (eller tilsvarende) pr. årsskive; leverancens
-aktivitetsår-fordeling kendes fra extract-checket (AB#29518).
+aktivitetsår-fordeling kendes fra extract-checket.
 
 ## Forløbsidentitet
 
@@ -174,7 +174,7 @@ Samme strategi for psyk-diagnoser — kompositten er målt unik i begge
 psyk-leverancer. `arc.drg_interne_koder` og
 `arc.drgpsyk_betalingsoplysninger` verificeres tilsvarende i US-2.
 
-## Kildedubletter: målt i drift 2026-08-27 (AB#29587)
+## Kildedubletter: målt i drift 2026-08-27
 
 Første fulde ingestion på dev-miljøet afkræftede antagelsen om, at
 kompositterne er unikke i alle leverancer. **SDS leverer samme række flere
@@ -225,14 +225,14 @@ change detection og delete detection, som kontakterne.
 - Kontakt/procedure/forløb/diagnoser: HAIBA-mønstret (upsert +
   detect_deletes + update_only_on_change) med nøglerne ovenfor. Værnet mod
   dubletter er IKKE fast `dedup_source_on_keys` som oprindeligt foreslået,
-  men den skelnende guard fra AB#29587 (se §Kildedubletter) — dedup slås
+  men den skelnende guard fra [internal ticket] (se §Kildedubletter) — dedup slås
   kun til for den enkelte kørsel, og kun for byte-identiske dubletter.
 - Fallback for diagnoser (kun hvis dubletter observeres): genopbygning pr.
   kontakt — kræver enten `core/archive_merge.py`-udvidelse (scoped replace)
   eller et dedikeret merge-mønster i drg_archive.py. Beslutning ligger i
-  US-2 (AB#29517).
+  US-2.
 - Delete-detection skal scopes pr. (takstsystem × AKTIVITETSÅR) — jf.
-  §Kadence og arkiv-enhed ovenfor samt arkiv-invariant 1 på AB#29514.
+  §Kadence og arkiv-enhed ovenfor samt arkiv-invariant 1 på [internal ticket].
   Skemavariation: T25-somatik mangler DW_EK_HelbredsForloeb og
   FORLOB_REFERENCE_* — arc-DDL og extract-validering skal være pr.
   takstsystem-skema (Metadata_*-filerne er autoritative).
@@ -240,7 +240,7 @@ change detection og delete detection, som kontakterne.
   tilføjes/slettes en diagnose- eller procedurerække, skal HELE kontakten
   (og forløbsmål-bæringen) med i staging-deltaet — børnenes
   `dw_timestamp_update` i arc driver ikke automatisk kontaktens. Delta-
-  scope i pre_stg/stg (US-3, AB#29521/29522) og bridges (US-5, AB#29533)
+  scope i pre_stg/stg og bridges
   defineres derfor som: kontakter hvor kontakten SELV, en af dens
   diagnoser/procedurer/tillæg ELLER dens forløb har ændret sig siden
   checkpoint — joinet på kontakt-UUID.
@@ -254,7 +254,7 @@ change detection og delete detection, som kontakterne.
   max 16), og de fladgjorte kolonner er kapacitetsbegrænsede (målt T26-M:
   104.027 kontakter har >40 procedurer, max 5.260; 303.791 kontakter har
   >10 proceduretillæg, max 1.506; 7 kontakter har >20 diagnoser). De
-  fladgjorte kolonner bruges alene som konsistens-stikprøve (AB#29534) —
+  fladgjorte kolonner bruges alene som konsistens-stikprøve —
   se rapportens §10.1.
 - **Leverance-identifikation:** arc-rækker stemples med leverance_dato,
   `meta.DRGLeverance` logger hvilken fil arkivet afspejler pr.

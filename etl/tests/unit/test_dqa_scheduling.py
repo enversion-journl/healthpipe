@@ -81,6 +81,17 @@ def test_erp_spec_uses_dfm_job():
     assert erp["weekly_jobs"] == ["dqa_dwh_weekly_job"]
 
 
+def test_drg_spec_runs_dwh_dqa_after_publish_and_starts_stopped():
+    """The DRG DQA subjects live in the DWH track, so the DRG publish job triggers
+    the shared DWH daily/weekly DQA jobs. Ships STOPPED until the sentinel caps are
+    validated against a real run (and the first psyk delivery)."""
+    drg = next(s for s in DQA_AFTER_ETL_SENSOR_SPECS if s["name"] == "dqa_drg_after_publish")
+    assert drg["monitored"] == ["drg_publish_job"]
+    assert drg["daily_job"] == "dqa_dwh_daily_job"
+    assert drg["weekly_jobs"] == ["dqa_dwh_weekly_job"]
+    assert drg["default_status"] is dg.DefaultSensorStatus.STOPPED
+
+
 # --- _evaluate: AND-join + daily/weekly gating -----------------------------------
 
 _FHIR_ARGS = dict(
@@ -149,7 +160,7 @@ def test_dso_weekly_schedules_stagger_and_exclude_fhir():
     names = {s.name for s in scheds}
     assert names == {
         f"dqa_dso_{d}_job_schedule"
-        for d in ("erp", "shared", "security", "codesystem", "conceptmap")
+        for d in ("erp", "shared", "security", "codesystem", "conceptmap", "drg", "haiba")
     }
     # fhir is sensor-driven, never cron'd.
     assert not any("fhir" in n for n in names)

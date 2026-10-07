@@ -8,7 +8,7 @@
 
 # DWH ETL Pipeline Architecture
 
-This document describes the Data Warehouse (DWH) ETL pipeline architecture used for business domains that do not require FHIR representation (e.g., Finance/Procurement). It is intended for both human developers and LLM assistants that need to understand or extend the pipeline.
+This document describes the Data Warehouse (DWH) ETL pipeline architecture used for business domains that do not require FHIR representation (e.g., Finance/Procurement). It is intended for developers that need to understand or extend the pipeline.
 
 ## Overview
 
@@ -54,6 +54,15 @@ Reference: `etl/docs/implementation/data_lineage_guide.md`.
 └───────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
+A domain whose source grain already IS the reporting grain can end in a **datamart**
+instead of conformed dim/fct tables — the dm path (today: HAIBA):
+
+```
+ext ──> arc ──> map ──> dm (fact + Egenskaber) ──> DSO sync ──> vw_dm.*
+```
+
+See [The Datamart Path (dm)](#the-datamart-path-dm).
+
 ### Layer Descriptions
 
 | Layer | Location | Purpose |
@@ -64,6 +73,7 @@ Reference: `etl/docs/implementation/data_lineage_guide.md`.
 | **stg** | `DSA/SQL/staging/` | Entity-level staging with bk_* columns. Reads from `stg.pre_*` or `arc.*`, writes to `stg.dim_*` / `stg.fct_*`. |
 | **map** | `DSA/SQL/map/` | Mapping tables that translate CleanCodes to surrogate keys (`dw_ek_*`). One map table per dimension and per fact. |
 | **dim / fct** | `DSA/SQL/dim/`, `DSA/SQL/fct/` | Final dimension and fact tables with resolved EK values. |
+| **dm** | `DSA/SQL/dm/` | Resolved datamart layer: slim facts (DW keys + typed measures) paired with `Egenskaber` transaction dimensions (raw source values 1:1 on `dw_ek`). Full rebuild from `arc` each run. See [The Datamart Path (dm)](#the-datamart-path-dm). |
 | **DSO Sync** | DSO / DPA Database | Dimensions and facts synced from DSA to DSO via linked-server MERGE (see `docs/implementation/dso_sync_guide.md`). |
 | **Views** | DSO / DPA Database | Presentation views that resolve SK keys for Type 2 dimensions and complex fact-to-fact relationships. |
 
@@ -136,6 +146,7 @@ The `stg.*` schema is reserved for **DSA-produced output** only:
 | **pre_stg** | `[arc].[table_name]` | `[stg].[pre_table_name]` |
 | **stg_dim / stg_fct** | `[stg].[pre_*]` or `[arc].[table_name]` | `[stg].[dim_*]` / `[stg].[fct_*]` |
 | **map / dim / fct update** | `[stg].[dim_*]`, `[stg].[fct_*]`, `[map].[*]` | `[map].[*]`, `[dim].[*]`, `[fct].[*]` |
+| **dm rebuild** | `[arc].[table_name]`, `[map].[*]`, shared dims (`[dim].[Organisation]`, `[ref].[PatientToBorger]`) as lookups | `[map].[*]`, `[dm].[*]` |
 
 ### CleanCode generation in pre_stg SQL
 
@@ -457,6 +468,86 @@ CREATE TABLE [fct].[Postering] (
 );
 ```
 
+## The Datamart Path (dm)
+
+Some domains arrive at the reporting grain: the source row IS the thing being
+counted, and nothing needs conforming into shared fct tables. Those domains skip
+`pre_stg`/`stg` entirely and end in the **dm** schema instead of `dim`/`fct`:
+
+```
+ext ──> arc ──> map (mint dw_ek) ──> dm.<X> (fact) + dm.<X>Egenskaber ──> DSO ──> vw_dm.<X>
+```
+
+The pattern is domain-neutral; whether a SOURCE belongs on it (and how its
+archive should handle revisions) is covered by
+[kpi_aggregat_data_guide.md](kpi_aggregat_data_guide.md). HAIBA
+(hospital-acquired infections, weekly CSV snapshots from SDS) is the reference
+implementation used as the example below; a new dm domain gets its own asset
+groups, jobs and tables on the same shape.
+
+**Example — the HAIBA chain, by layer:**
+
+| Layer | Assets (group) | Code | Tables |
+|-------|----------------|------|--------|
+| Extract | `ext_haiba_*` (`haiba_extract`) | `DSI/csv_files/haiba.py` | `ext.haiba_*` |
+| Archive | `arc_haiba_*` (`haiba_archive`) | `DSI/csv_files/haiba_archive.py` | `arc.haiba_*`, `arc.haiba_agg_revision`, `meta.HAIBALeverance` |
+| Citizen stubs | `fhir_patient_haiba` (`haiba_borger`) | `DSA/FHIR/Patient/Patient_HAIBA.py` | (Aidbox Patients) |
+| Datamart | `dm_haiba_*` (`haiba_dm`) | `DSA/SQL/dm/haiba.py` | `map.HAIBA_*`, `dm.HAIBA_*`, `dm.HAIBA_*Egenskaber` |
+| Contact stamp | `dm_haiba_cases_*_kontakt` (`haiba_dm`) | `DSA/SQL/dm/haiba_kontakt.py` | relation keys on the facts, match quality on `Egenskaber` |
+| DSO sync | `dso_sync_dm_haiba_*` (`haiba_dso_sync`) | `DSO/load/sync_haiba.py` | `dm.HAIBA_*` on DSO (`truncate_insert`) |
+| Views | `dso_infra_views_haiba` | `infrastructure/ddl/views/haiba/01_vw_dm.sql` | `vw_dm.HAIBA_*` (filter `dw_is_deleted = 0`) |
+
+Orchestration follows one general rule: split INGEST (extract + archive) from
+PUBLISH (dm + DSO sync) whenever the rebuild depends on keys another pipeline
+resolves in between, and let a sensor request the publish when a new delivery
+has landed. (HAIBA: `haiba_ingest_job` daily 05:00, the nightly DFM chain
+projects new citizen stubs into `ref.PatientToBorger`, and
+`haiba_publish_sensor` requests `haiba_publish_job` — re-publishing on
+following nights while the unresolved-citizen count falls.)
+
+### The dm pattern
+
+- **The fact/egenskaber pair is a transaction dimension**: `dm.<X>` carries ONLY
+  DW keys and typed measures; `dm.<X>Egenskaber` carries the source's
+  descriptive columns 1:1 on the shared `dw_ek_<X>` (minted append-only in
+  `map.<X>` per clean_code — the map also serves a FACT here, not just dims).
+- **Full rebuild, not MERGE**: each run is `TRUNCATE` + `INSERT ... WITH (TABLOCK)`
+  from `arc` — deliveries are complete snapshots, so a rebuild is always
+  consistent with the archive, and `dw_ek` stays stable through the map.
+- **Typing happens in the rebuild** (`TRY_CONVERT(<type>, NULLIF(src, ''))`),
+  not in a stg layer — with a per-column conversion-loss counter so a source
+  format change surfaces instead of silently becoming NULL/-1.
+- **`dw_is_deleted` is carried, never filtered**: soft-deleted rows stay in dm
+  as the revision trail when the producer retracts history. Consumers read
+  `vw_dm.*`, where the `dw_is_deleted = 0` filter is the default; the trail is
+  read from the dm tables directly.
+- **Person identifiers never reach dm**: when the source grain carries a
+  person identifier (CPR or similar) it lives only in the map's clean_code and
+  in `arc` — both staging-internal, never synced. The person is carried as its
+  `dw_ek_*` entity key, so no access restriction is needed on DSO. (HAIBA:
+  CPR-free by construction, citizen as `dw_ek_Borger`.)
+
+### Guards, state and quality
+
+- **In-run guards** (the rebuild fails hard): arc == fact == egenskaber row
+  parity, empty-fact-with-source-rows, and a re-keying warning when a run mints
+  more than `REKEY_WARN_FRACTION` of the source (a clean_code format change
+  would otherwise silently re-key the whole history).
+- **DFM**: every layer logs to `meta.DFMRunLog` (schema `dm` → target_type
+  `datamart`). ext and dm runs are **log-only** with the mode locked to
+  `full_load` — dm owns no checkpoint (a full rebuild has no delta position);
+  the delivery watermark lives in `meta.HAIBALeverance`. The arc layer owns its
+  checkpoint via the standard archive merge.
+- **Lineage**: one YAML per dm table in `data_lineage/dm/`, verified by the
+  lineage↔DDL checker like dim/fct/fhir (see `data_lineage_guide.md`).
+- **DQA**: `dqa/config/haiba_subjects.py` — row parity (fact↔arc,
+  fact↔egenskaber), the rebuild's own conversion-loss counter, sentinel rates,
+  lineage-driven referential integrity plus the relation keys → `fhir.Encounter`
+  / `fhir.Location`, match-quality checks, and delivery freshness on
+  `meta.HAIBALeverance`. All at DAILY cadence: `dqa_dwh_haiba_daily_job` is
+  sensor-chained onto `haiba_publish_job` (per publish), and the DSO
+  reconciliation (`dqa_dso_haiba_job`) runs on the Saturday cron stagger.
+
 ## Update Logic Principles
 
 1. **Staging tables define the contract** - They contain exactly what goes into target tables, nothing more.
@@ -519,7 +610,7 @@ Declarative data-quality framework (see `etl/dqa/` and `docs/architecture/dqa/`)
 
 ## Testing Expectations
 
-Follow the test-value policy in `.cursor/rules/05-testing.mdc`: every test must be able to fail on a plausible bug — no config-assert or existence tests.
+Every test must be able to fail on a plausible bug — no config-assert or existence tests.
 
 For a new or modified pipeline, the coverage that matters:
 
@@ -542,13 +633,15 @@ The view layer in DSO / DPA handles:
 3. **Filtering** - Apply `dw_is_deleted = 0` and validity filters
 4. **Datamart assembly** - Combine dimensions and facts for specific reporting needs
 
-View DDL lives in `infrastructure/ddl/views/{erp,security,fhir,codesystem,conceptmap,dqa}/` and uses `CREATE OR ALTER VIEW`.
+View DDL lives in `infrastructure/ddl/views/{erp,security,fhir,codesystem,conceptmap,dqa,haiba}/` and uses `CREATE OR ALTER VIEW`.
 
 ### View Naming
 
 ```
 vw_dim_<table>              -- Dimension view
 vw_fct_<table>              -- Fact view
+vw_dm.<Table>               -- Datamart-layer view (own schema; the safe default read:
+                            --  SELECT * ... WHERE dw_is_deleted = 0)
 tabel_datamart_<name>       -- Datamart-specific views
 ```
 
@@ -727,7 +820,7 @@ ALTER TABLE [fct].[T] DROP COLUMN [OldColumn];
 
 ## Quick Reference: Creating a New Pipeline
 
-1. **Infrastructure DDL** (`infrastructure/ddl/tables/{domain}/`): map/dim/fct tables + registration chain — see the new-domain checklist in `.cursor/rules/07-infrastructure-pipeline.mdc`.
+1. **Infrastructure DDL** (`infrastructure/ddl/tables/{domain}/`): map/dim/fct tables + registration chain.
 2. **Extract + archive** (`DSI/mssql/extract/{source}_extract_configs.py`, `DSI/mssql/archive/{source}_archive_configs.py`): add a `DfmExtractConfig` and archive config for each source table. 1:1 raw, no CleanCodes. See `dfm_extract_factory_guide.md`.
 3. **Pre-staging** (`DSA/SQL/staging/`): complex joins, dedup, CleanCode generation. Reads `arc.*`, writes `stg.pre_*`.
 4. **Staging** (`DSA/SQL/staging/`): staging tables with exact target columns and bk_* columns. Writes `stg.dim_*` / `stg.fct_*`.

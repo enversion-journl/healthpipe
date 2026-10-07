@@ -41,12 +41,12 @@ class TestSorPropertyDefinitions:
             assert prop["type"] == "dateTime"
 
     def test_boolean_properties_use_boolean_type(self):
-        bool_props = [p for p in SOR_PROPERTY_DEFINITIONS if p["code"] == "activeRsdOrganization"]
+        bool_props = [p for p in SOR_PROPERTY_DEFINITIONS if p["code"] == "activeOwnOrganization"]
         assert len(bool_props) == 1
         assert bool_props[0]["type"] == "boolean"
 
     def test_remaining_properties_use_string_type(self):
-        non_string = ("openingDate", "closingDate", "activeRsdOrganization")
+        non_string = ("openingDate", "closingDate", "activeOwnOrganization")
         string_props = [p for p in SOR_PROPERTY_DEFINITIONS if p["code"] not in non_string]
         assert len(string_props) == 13
         for prop in string_props:
@@ -70,7 +70,7 @@ class TestSorPropertyDefinitions:
             "city",
             "openingDate",
             "closingDate",
-            "activeRsdOrganization",
+            "activeOwnOrganization",
         }
         assert codes == expected
 
@@ -92,7 +92,7 @@ class TestSorFullCodesystemDict:
 
     def test_structure_has_correct_keys(self):
         cs = self._build_codesystem(
-            [("21000016006", "Region Syddanmark"), ("21000016007", "OUH")],
+            [("21000016006", "Example Region"), ("21000016007", "OUH")],
             [("21000016006", "entityType", "Region", "String")],
             [],
         )
@@ -131,7 +131,7 @@ class TestSorFullCodesystemDict:
 
     def test_properties_preserved_in_concepts(self):
         cs = self._build_codesystem(
-            [("21000016006", "Region Syddanmark")],
+            [("21000016006", "Example Region")],
             [
                 ("21000016006", "entityType", "Region", "String"),
                 ("21000016006", "municipality", "Odense", "String"),

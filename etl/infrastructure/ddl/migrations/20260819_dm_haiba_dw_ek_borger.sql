@@ -5,10 +5,10 @@
 -- root for the full AGPL-3.0 license text.
 
 -- ============================================================================
--- AB#27833: dw_ek_Borger på dm's HAIBA-case-tabeller
+-- dw_ek_Borger på dm's HAIBA-case-tabeller
 --
--- Tabellerne er oprettet uden kolonnen af AB#27832. Landes både her og i
--- tables/haiba/01_dm.sql, jf. 07-infrastructure-pipeline.mdc: migrationen
+-- Tabellerne er oprettet uden kolonnen af [internal ticket]. Landes både her og i
+-- tables/haiba/01_dm.sql: migrationen
 -- retter eksisterende databaser, base-DDL'en er alt en frisk database får.
 --
 -- Kolonnen er NOT NULL DEFAULT (-1): dm genopbygges fuldt ved hver kørsel, så

@@ -6,8 +6,7 @@
 
 """Invariant tests for MySupply DFM extract + archive merge configs.
 
-Validates design invariants for the DFM pipeline that lands in arc.mysupply_*
-(see docs/superpowers/specs/2026-06-19-mysupply-archive-with-dfm-design.md).
+Validates design invariants for the DFM pipeline that lands in arc.mysupply_*.
 """
 
 from __future__ import annotations

@@ -13,7 +13,7 @@
 -- They are not in the end-state DDL (tables/organisation/02_dims.sql), nothing
 -- populates them (dim_organisation writes only Code/DW_EK_Org_Parent/ParentCode/
 -- Name/Type/Active), and nothing reads them — dim.Organisation is SOR-only,
--- Type 1, sourced from fhir.Organization + ref.Organisation (US #28193).
+-- Type 1, sourced from fhir.Organization + ref.Organisation.
 --
 -- Columns removed: SourceType, CodeSource, CodeSOR, DW_EK_Org_ParentSOR,
 --                  DW_EK_Org_ParentSource, ParentSOR, ParentSource

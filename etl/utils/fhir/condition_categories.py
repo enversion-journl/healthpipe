@@ -10,7 +10,7 @@ from fhir.resources.R4B.codeableconcept import CodeableConcept
 from fhir.resources.R4B.coding import Coding
 
 SYSTEM_CONDITION_CATEGORY_HL7 = "http://terminology.hl7.org/CodeSystem/condition-category"
-SYSTEM_CONDITION_CATEGORY_RSD = "http://regionsyddanmark.dk/fhir/CodeSystem/condition-category"
+SYSTEM_CONDITION_CATEGORY_LOCAL = "http://example.org/fhir/CodeSystem/condition-category"
 
 CODE_ENCOUNTER_DIAGNOSIS = "encounter-diagnosis"
 CODE_REFERRAL_INDICATION = "referral-indication"
@@ -34,7 +34,7 @@ def build_referral_indication_category() -> list[CodeableConcept]:
         CodeableConcept(
             coding=[
                 Coding(
-                    system=SYSTEM_CONDITION_CATEGORY_RSD,
+                    system=SYSTEM_CONDITION_CATEGORY_LOCAL,
                     code=CODE_REFERRAL_INDICATION,
                     display="Henvisningsindikation",
                 )

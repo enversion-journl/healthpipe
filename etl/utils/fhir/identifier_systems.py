@@ -132,7 +132,7 @@ SYSTEM_COLUMNA_BOOKING_ACTIVITY_ID = (
 # Patient Rights CarePlan identifiers
 # =============================================================================
 # Common code system for patient rights type (category)
-SYSTEM_PATIENT_RIGHTS_TYPE = "http://regionsyddanmark.dk/fhir/CodeSystem/patient-rights-type"
+SYSTEM_PATIENT_RIGHTS_TYPE = "http://example.org/fhir/CodeSystem/patient-rights-type"
 
 # Kræftpakker (Cancer Pathways)
 SYSTEM_CAREPLAN_KRAEFTPAKKE = "urn:dk:sundhed:kraeftpakke:careplan"
@@ -164,9 +164,6 @@ SYSTEM_SKS_D = "urn:oid:1.2.208.176.2.4.12"
 # =============================================================================
 SYSTEM_PAKKETYPEMODEL = "http://sundhedsdatastyrelsen.dk/fhir/CodeSystem/pakketypemodel"
 SYSTEM_PAKKETYPE = "http://sundhedsdatastyrelsen.dk/fhir/CodeSystem/pakketype"
-
-# SOR entity type classification (EntityTypeName from SOR registry)
-SYSTEM_SOR_ENTITY_TYPE = "http://sundhedsdatastyrelsen.dk/fhir/CodeSystem/sor-entity-type"
 
 # =============================================================================
 # US-FHIR-07: local IFDB code systems for DocumentReference CodeableConcepts/tags

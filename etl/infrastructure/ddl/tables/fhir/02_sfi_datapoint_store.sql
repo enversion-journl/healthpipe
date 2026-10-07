@@ -101,15 +101,9 @@ BEGIN
             [has_value],
             [value_int],
             [value_dec],
-            [value_text],
             [value_quantity],
             [value_unit]
         )
-        ON [PRIMARY];
-
-    CREATE NONCLUSTERED INDEX [IX_FHIR_SFI_datapoint_store_PatientDate]
-        ON [fhir].[SFI_datapoint_store] ([patient_id] ASC, [occurred_at] ASC)
-        INCLUDE ([element_code], [element_display], [source_model_name], [source_resource])
         ON [PRIMARY];
 
     CREATE NONCLUSTERED INDEX [IX_FHIR_SFI_datapoint_store_ModelElement]
@@ -119,7 +113,7 @@ BEGIN
 
     CREATE NONCLUSTERED INDEX [IX_FHIR_SFI_datapoint_store_PatientOccurredDt]
         ON [fhir].[SFI_datapoint_store] ([patient_id] ASC, [occurred_at_dt] ASC)
-        INCLUDE ([element_code], [element_display], [source_model_name], [source_resource])
+        INCLUDE ([element_code], [element_display], [source_model_name], [source_resource], [occurred_at])
         ON [PRIMARY];
 
     CREATE NONCLUSTERED INDEX [IX_FHIR_SFI_datapoint_store_SourceResource]

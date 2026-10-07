@@ -74,7 +74,7 @@ GO
 IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'[dim].[Borger]') AND name = 'IsCurrent')
 BEGIN
     -- Legacy filtered unique index from the deleted kraeftpakker infrastructure
-    -- (PR 10485 removed the asset code but not the index from existing servers).
+    -- ([internal ticket] removed the asset code but not the index from existing servers).
     -- Its WHERE clause references [IsCurrent]; sp_rename does not propagate to
     -- filtered-index expressions, so we must drop it before the rename. The
     -- end-state schema in tables/shared_dimensions/02_dims.sql does not include

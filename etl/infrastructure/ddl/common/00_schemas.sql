@@ -65,7 +65,7 @@ BEGIN
 END
 GO
 
--- meta: Metadata schema (sync watermarks, operational state)
+-- meta: Metadata schema (sync watermarks, DFM state, space snapshots)
 IF NOT EXISTS (SELECT 1 FROM sys.schemas WHERE name = 'meta')
 BEGIN
     EXEC('CREATE SCHEMA [meta]');

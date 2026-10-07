@@ -61,6 +61,9 @@ from utils.fhir.is_deleted_extension import build_is_deleted_extension
 
 BATCH_SIZE = 10_000
 
+_V3_CONFIDENTIALITY_SYSTEM = "http://terminology.hl7.org/CodeSystem/v3-Confidentiality"
+_V3_PARTICIPATION_TYPE_SYSTEM = "http://terminology.hl7.org/CodeSystem/v3-ParticipationType"
+
 _PARTICIPANT_COLUMNS = [
     "OID",
     "AFTALEOID",
@@ -291,7 +294,7 @@ def _transform_appointments_to_fhir(
             resource_meta = Meta(
                 security=[
                     Coding(
-                        system="http://terminology.hl7.org/CodeSystem/v3-Confidentiality",
+                        system=_V3_CONFIDENTIALITY_SYSTEM,
                         code="R",
                         display="restricted",
                     )
@@ -348,7 +351,7 @@ def _transform_appointments_to_fhir(
                     CodeableConcept(
                         coding=[
                             Coding(
-                                system="http://terminology.hl7.org/CodeSystem/v3-ParticipationType",
+                                system=_V3_PARTICIPATION_TYPE_SYSTEM,
                                 code="SBJ",
                                 display="subject",
                             )
@@ -373,7 +376,7 @@ def _transform_appointments_to_fhir(
                             CodeableConcept(
                                 coding=[
                                     Coding(
-                                        system="http://terminology.hl7.org/CodeSystem/v3-ParticipationType",
+                                        system=_V3_PARTICIPATION_TYPE_SYSTEM,
                                         code="ATND",
                                         display=str(rolle_code),
                                     )
@@ -396,7 +399,7 @@ def _transform_appointments_to_fhir(
                         CodeableConcept(
                             coding=[
                                 Coding(
-                                    system="http://terminology.hl7.org/CodeSystem/v3-ParticipationType",
+                                    system=_V3_PARTICIPATION_TYPE_SYSTEM,
                                     code="LOC",
                                     display="location",
                                 )

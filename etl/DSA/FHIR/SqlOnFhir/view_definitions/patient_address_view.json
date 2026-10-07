@@ -22,7 +22,7 @@
         {"name": "address_country", "path": "country"},
         {"name": "municipality_code", "path": "extension.where(url='http://hl7.dk/fhir/core/StructureDefinition/dk-core-municipalityCodes').valueCodeableConcept.coding.code.first()"},
         {"name": "region_code", "path": "extension.where(url='http://hl7.dk/fhir/core/StructureDefinition/dk-core-RegionalSubDivisionCodes').valueCodeableConcept.coding.code.first()"},
-        {"name": "kvhx", "path": "extension.where(url='http://regionsyddanmark.dk/fhir/StructureDefinition/addressKvhx').valueString"}
+        {"name": "kvhx", "path": "extension.where(url='http://example.org/fhir/StructureDefinition/addressKvhx').valueString"}
       ]
     }
   ]

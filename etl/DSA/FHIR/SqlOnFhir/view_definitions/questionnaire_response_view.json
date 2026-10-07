@@ -6,16 +6,50 @@
   "select": [
     {
       "column": [
-        {"name": "qr_id", "path": "id"},
-        {"name": "questionnaire", "path": "questionnaire"},
-        {"name": "status", "path": "status"},
-        {"name": "patient_id", "path": "subject.id"},
-        {"name": "encounter_id", "path": "encounter.id"},
-        {"name": "organization_id", "path": "author.getReferenceKey(Organization)"},
-        {"name": "practitioner_id", "path": "author.where(type='Practitioner').identifier.value.first()"},
-        {"name": "practitioner_display", "path": "author.where(type='Practitioner').display.first()"},
-        {"name": "authored", "path": "authored"},
-        {"name": "source_aktivitet_id", "path": "identifier.where(system='urn:source:ifdb:aktivitetsresultat').value.first()"}
+        {
+          "name": "qr_id",
+          "path": "id"
+        },
+        {
+          "name": "questionnaire",
+          "path": "questionnaire"
+        },
+        {
+          "name": "status",
+          "path": "status"
+        },
+        {
+          "name": "patient_id",
+          "path": "subject.id"
+        },
+        {
+          "name": "encounter_id",
+          "path": "encounter.id"
+        },
+        {
+          "name": "organization_id",
+          "path": "author.getReferenceKey(Organization)"
+        },
+        {
+          "name": "practitioner_id",
+          "path": "author.where(type='Practitioner').identifier.value.first()"
+        },
+        {
+          "name": "practitioner_display",
+          "path": "author.where(type='Practitioner').display.first()"
+        },
+        {
+          "name": "authored",
+          "path": "authored"
+        },
+        {
+          "name": "source_aktivitet_id",
+          "path": "identifier.where(system='urn:source:ifdb:aktivitetsresultat').value.first()"
+        },
+        {
+          "name": "dw_is_deleted",
+          "path": "extension('urn:fhir:isDeleted').valueInteger.first()"
+        }
       ]
     }
   ]

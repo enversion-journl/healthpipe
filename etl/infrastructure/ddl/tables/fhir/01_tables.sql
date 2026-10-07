@@ -63,19 +63,19 @@ CREATE TABLE [fhir].[Patient] (
     -- Citizenship (HL7 patient-citizenship extension)
     [citizenship_code] NVARCHAR(8) NULL,
     [citizenship_display] NVARCHAR(255) NULL,
-    -- Family relations (RSyd-internal extensions)
+    -- Family relations (region-internal extensions)
     [mother_ssn] NVARCHAR(10) NULL,
     [father_ssn] NVARCHAR(10) NULL,
     -- Privacy / context flags
     [address_protection] BIT NOT NULL CONSTRAINT [DF_Patient_address_protection] DEFAULT 0,
     [discretion_flag] BIT NULL,
     [medcom_test_person] BIT NULL,
-    -- District (RSyd-local extensions)
+    -- District (region-local extensions)
     [district_code] NVARCHAR(20) NULL,
     [district_text] NVARCHAR(100) NULL,
     [social_district_code] NVARCHAR(32) NULL,
     [social_district_text] NVARCHAR(100) NULL,
-    -- Audit (meta + RSyd-internal)
+    -- Audit (meta + region-internal)
     [modtidspunkt] DATETIME2 NULL,
     -- Projected from the resource's urn:fhir:isDeleted extension; a missing
     -- extension coalesces to 0 at load (boolean_false_default_columns in
@@ -381,6 +381,16 @@ BEGIN
         [category_code] NVARCHAR(100) NULL,
         [source_system] NVARCHAR(100) NULL,
         [source_identifier_value] NVARCHAR(255) NULL,
+        -- Forloebsreference fra episodeOfCare-udvidelsen. Samme sti som paa
+        -- fhir.Procedure, saa diagnose- og procedurespor kobles til forloeb
+        -- paa samme maade paa tvaers af aftagerfladen.
+        [episode_of_care_id] NVARCHAR(255) NULL,
+        -- Registreringen skal ikke indberettes til Landspatientregisteret.
+        -- Samme meta-tag som paa fhir.Procedure: sat naar kildens flag er
+        -- sandt, saa loadet skriver 0 eller 1 og aldrig NULL. Raekker fra
+        -- foer kolonnen fandtes staar NULL, indtil genkoerslen har skrevet
+        -- dem om -- derefter strammes til NOT NULL.
+        [lpr3_ignored] BIT NULL,
         [modtidspunkt] DATETIME2 NULL,
         -- Projected from the resource's urn:fhir:isDeleted extension.
         -- NOT NULL DEFAULT 0; a missing extension coalesces to 0 at load
@@ -429,14 +439,12 @@ BEGIN
         [created_at] DATETIME2 NULL,
         -- Soft-delete flag (0 = live, 1 = deleted). Warehouse-managed: the parent
         -- resource carries urn:fhir:isDeleted, but this view grain does not
-        -- project the field -- it is set only by dqa_fhir_server_cleanup when the
+        -- project the field -- it is set by dqa_fhir_server_cleanup when the
         -- parent is hard-deleted in Aidbox, and cleared on MERGE match
         -- (resurrect_soft_deleted).
-        -- NOTE the limit: `= 0` means "not marked by cleanup" -- NOT "still
-        -- exists under the parent". A row that disappears from a still-live
-        -- parent, or whose parent is IFDB-tombstoned (isDeleted=1) but still in
-        -- Aidbox, stays at 0. Child-grain reconcile (see Patient_Address) is not
-        -- enabled here.
+        -- Child-grain reconcile IS enabled for this grain (child_grain_reconcile
+        -- on the view config), so a row that disappears from a still-live parent
+        -- is also marked here -- unlike the grains where only cleanup writes it.
         [dw_is_deleted] INT NOT NULL CONSTRAINT [DF_Condition_tillaegskode_dw_is_deleted] DEFAULT 0,
         [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Condition_tillaegskode_dw_timestamp_insert] DEFAULT SYSDATETIME(),
         [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Condition_tillaegskode_dw_timestamp_update] DEFAULT SYSDATETIME(),
@@ -969,14 +977,12 @@ BEGIN
         [created_at] DATETIME2 NULL,
         -- Soft-delete flag (0 = live, 1 = deleted). Warehouse-managed: the parent
         -- resource carries urn:fhir:isDeleted, but this view grain does not
-        -- project the field -- it is set only by dqa_fhir_server_cleanup when the
+        -- project the field -- it is set by dqa_fhir_server_cleanup when the
         -- parent is hard-deleted in Aidbox, and cleared on MERGE match
         -- (resurrect_soft_deleted).
-        -- NOTE the limit: `= 0` means "not marked by cleanup" -- NOT "still
-        -- exists under the parent". A row that disappears from a still-live
-        -- parent, or whose parent is IFDB-tombstoned (isDeleted=1) but still in
-        -- Aidbox, stays at 0. Child-grain reconcile (see Patient_Address) is not
-        -- enabled here.
+        -- Child-grain reconcile IS enabled for this grain (child_grain_reconcile
+        -- on the view config), so a row that disappears from a still-live parent
+        -- is also marked here -- unlike the grains where only cleanup writes it.
         [dw_is_deleted] INT NOT NULL CONSTRAINT [DF_ServiceRequest_tillaegskode_dw_is_deleted] DEFAULT 0,
         [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_ServiceRequest_tillaegskode_dw_timestamp_insert] DEFAULT SYSDATETIME(),
         [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_ServiceRequest_tillaegskode_dw_timestamp_update] DEFAULT SYSDATETIME(),
@@ -1074,7 +1080,31 @@ CREATE TABLE [fhir].[Procedure] (
     [body_site_code] NVARCHAR(255) NULL,
     [body_site_display] NVARCHAR(500) NULL,
     [source_system] NVARCHAR(100) NULL,
+    -- Forretningsnoeglen fra den kilde source_system peger paa. ifdb_aktivitet_id
+    -- daekker kun SFI, saa uden denne kan en procedure fra administrative
+    -- procedurer eller RIS ikke spores tilbage til sin kilderaekke.
+    [source_identifier_value] NVARCHAR(255) NULL,
     [ifdb_aktivitet_id] NVARCHAR(255) NULL,
+    -- Peger fra en deloperation til hovedoperationen. NULL paa hovedoperationer.
+    -- Uden den kan 1+N-strukturen ikke opgoeres fladt: man kan ikke taelle
+    -- operationer uden at blande hoved og dele sammen.
+    [part_of_id] NVARCHAR(255) NULL,
+    -- Knivtid: det tidsrum der reelt blev opereret, til forskel fra
+    -- performed_period, som er kilderaekkens administrative aktivitetsperiode.
+    -- DATETIME2 og ikke NVARCHAR som performed_period: knivtid skal kunne
+    -- regnes paa. Vaerdien normaliseres til dansk tid ved load.
+    [knivtid_start] DATETIME2 NULL,
+    [knivtid_slut] DATETIME2 NULL,
+    -- Beregnet i byggelaget af de to tidspunkter, saa varigheden ikke kraever
+    -- strengparsning i SQL. NULL naar et af tidspunkterne mangler.
+    [knivtid_minutter] INT NULL,
+    -- Registreringen skal ikke indberettes til Landspatientregisteret. Bygget
+    -- paa et meta.tag, der kun saettes naar flaget er sandt, saa loadet skriver
+    -- 0 eller 1 og aldrig NULL. Raekker fra foer kolonnen fandtes staar NULL,
+    -- indtil genkoerslen har skrevet dem om -- derefter strammes til NOT NULL.
+    -- Skal skelnes "kilden sagde nej" fra "kilden sagde ingenting", staar den
+    -- boolske vaerdi i kilde-metadata paa ressourcen.
+    [lpr3_ignored] BIT NULL,
     [last_updated] DATETIME2 NULL,
     [created_at] DATETIME2 NULL,
     -- Projected from the resource's urn:fhir:isDeleted extension.
@@ -1123,14 +1153,12 @@ BEGIN
         [created_at] DATETIME2 NULL,
         -- Soft-delete flag (0 = live, 1 = deleted). Warehouse-managed: the parent
         -- resource carries urn:fhir:isDeleted, but this view grain does not
-        -- project the field -- it is set only by dqa_fhir_server_cleanup when the
+        -- project the field -- it is set by dqa_fhir_server_cleanup when the
         -- parent is hard-deleted in Aidbox, and cleared on MERGE match
         -- (resurrect_soft_deleted).
-        -- NOTE the limit: `= 0` means "not marked by cleanup" -- NOT "still
-        -- exists under the parent". A row that disappears from a still-live
-        -- parent, or whose parent is IFDB-tombstoned (isDeleted=1) but still in
-        -- Aidbox, stays at 0. Child-grain reconcile (see Patient_Address) is not
-        -- enabled here.
+        -- Child-grain reconcile IS enabled for this grain (child_grain_reconcile
+        -- on the view config), so a row that disappears from a still-live parent
+        -- is also marked here -- unlike the grains where only cleanup writes it.
         [dw_is_deleted] INT NOT NULL CONSTRAINT [DF_Procedure_tillaegskode_dw_is_deleted] DEFAULT 0,
         [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Procedure_tillaegskode_dw_timestamp_insert] DEFAULT SYSDATETIME(),
         [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Procedure_tillaegskode_dw_timestamp_update] DEFAULT SYSDATETIME(),
@@ -1343,11 +1371,14 @@ CREATE TABLE [fhir].[QuestionnaireResponse] (
     [source_model_version] NVARCHAR(100) NULL,
     [last_updated] DATETIME2 NULL,
     [created_at] DATETIME2 NULL,
-    -- Soft-delete flag (0 = live, 1 = deleted). Warehouse-managed: the
-    -- resource has no urn:fhir:isDeleted extension and the view does not
-    -- project the field. Set only by dqa_fhir_server_cleanup; cleared on
-    -- MERGE match (resurrect_soft_deleted). NOT NULL DEFAULT 0 so consumers
-    -- can write `= 0` uniformly across fhir.* tables.
+    -- Soft-delete flag (0 = live, 1 = deleted). Kilde-afledt: ressourcen baerer
+    -- urn:fhir:isDeleted sat af kildens SLETTET, og viewet projicerer den --
+    -- samme moenster som Procedure og Condition. Foer projiceringen afspejlede
+    -- kolonnen KUN dqa_fhir_server_cleanup, saa en aftager kunne ikke se at et
+    -- skemasvar var slettet i kilden, selvom barnetabellen
+    -- QuestionnaireResponse_item havde markeringen. Ryddes ogsaa af cleanup og
+    -- nulstilles paa MERGE-match (resurrect_soft_deleted). NOT NULL DEFAULT 0
+    -- saa aftagere kan skrive `= 0` ensartet paa tvaers af fhir.*-tabellerne.
     [dw_is_deleted] INT NOT NULL CONSTRAINT [DF_QuestionnaireResponse_dw_is_deleted] DEFAULT 0,
     [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_QuestionnaireResponse_dw_timestamp_insert] DEFAULT SYSDATETIME(),
     [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_QuestionnaireResponse_dw_timestamp_update] DEFAULT SYSDATETIME(),
@@ -1425,47 +1456,6 @@ IF EXISTS (
     ALTER TABLE [fhir].[QuestionnaireResponse]
         ADD [practitioner_display] NVARCHAR(500) NULL;
 
-    UPDATE qr
-    SET
-        questionnaire_canonical =
-            CASE
-                WHEN qr.questionnaire IS NULL THEN NULL
-                WHEN CHARINDEX(N'|', qr.questionnaire) > 0
-                    THEN LEFT(qr.questionnaire, CHARINDEX(N'|', qr.questionnaire) - 1)
-                ELSE qr.questionnaire
-            END,
-        questionnaire_version =
-            CASE
-                WHEN qr.questionnaire IS NULL THEN NULL
-                WHEN CHARINDEX(N'|', qr.questionnaire) > 0
-                    THEN SUBSTRING(
-                        qr.questionnaire,
-                        CHARINDEX(N'|', qr.questionnaire) + 1,
-                        LEN(qr.questionnaire)
-                    )
-                ELSE NULL
-            END
-    FROM [fhir].[QuestionnaireResponse] AS qr
-    WHERE
-        qr.questionnaire IS NOT NULL
-        AND (
-            qr.questionnaire_canonical IS NULL
-            OR qr.questionnaire_canonical <> CASE
-                WHEN CHARINDEX(N'|', qr.questionnaire) > 0
-                    THEN LEFT(qr.questionnaire, CHARINDEX(N'|', qr.questionnaire) - 1)
-                ELSE qr.questionnaire
-            END
-            OR ISNULL(qr.questionnaire_version, N'') <> ISNULL(CASE
-                WHEN CHARINDEX(N'|', qr.questionnaire) > 0
-                    THEN SUBSTRING(
-                        qr.questionnaire,
-                        CHARINDEX(N'|', qr.questionnaire) + 1,
-                        LEN(qr.questionnaire)
-                    )
-                ELSE NULL
-            END, N'')
-        );
-
     IF NOT EXISTS (
         SELECT 1 FROM sys.indexes
         WHERE object_id = OBJECT_ID(N'[fhir].[QuestionnaireResponse]')
@@ -1537,14 +1527,14 @@ CREATE TABLE [fhir].[QuestionnaireResponse_item] (
     [xml_status_text] NVARCHAR(255) NULL,
     [last_updated] DATETIME2 NULL,
     [created_at] DATETIME2 NULL,
-    -- Soft-delete flag (0 = live, 1 = deleted). Warehouse-managed: set to 1
-    -- only by dqa_fhir_server_cleanup when the parent is hard-deleted in
-    -- Aidbox; cleared to 0 on MERGE match (resurrect_soft_deleted).
-    -- NOT NULL DEFAULT 0.
-    -- NOTE the limit: this is a child-grain table, so `= 0` means "not
-    -- marked by cleanup" -- NOT "still exists under the parent". A row
-    -- that disappears from a still-live parent stays at 0. Child-grain
-    -- reconcile (see Patient_Address) is not enabled here.
+        -- Soft-delete flag (0 = live, 1 = deleted). Warehouse-managed: the parent
+        -- resource carries urn:fhir:isDeleted, but this view grain does not
+        -- project the field -- it is set by dqa_fhir_server_cleanup when the
+        -- parent is hard-deleted in Aidbox, and cleared on MERGE match
+        -- (resurrect_soft_deleted).
+        -- Child-grain reconcile IS enabled for this grain (child_grain_reconcile
+        -- on the view config), so a row that disappears from a still-live parent
+        -- is also marked here -- unlike the grains where only cleanup writes it.
     [dw_is_deleted] INT NOT NULL CONSTRAINT [DF_QuestionnaireResponse_item_dw_is_deleted] DEFAULT 0,
     [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_QuestionnaireResponse_item_dw_timestamp_insert] DEFAULT SYSDATETIME(),
     [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_QuestionnaireResponse_item_dw_timestamp_update] DEFAULT SYSDATETIME(),

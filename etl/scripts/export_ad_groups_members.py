@@ -24,7 +24,7 @@ Forudsætninger
 - VPN aktivt (ldaps.example.org er intern)
 - Python-pakker: ``ldap3``, ``pycryptodome``, ``python-dotenv``
 - LDAP_* miljøvariabler sat i ``.env`` (repo-root)
-- ``LDAP_GROUP_OU_DN`` kan sættes; default er ``OU=SOC,OU=Service Areas,DC=Rsyd,DC=net``
+- ``LDAP_GROUP_OU_DN`` kan sættes; default er ``OU=SOC,OU=Service Areas,DC=example,DC=org``
 
 Miljøvariabler
 --------------
@@ -39,7 +39,7 @@ LDAP_OUTPUT_JSONL              scripts/output/ad_grupper.jsonl  Sti til JSONL-ou
 LDAP_OUTPUT_TXT                scripts/output/ad_grupper.txt    Sti til tekst-outputfil
 LDAP_SERVER                    ldaps.example.org           LDAP-serverens hostname
 LDAP_PORT                      636                         TCP-port (636 = LDAPS)
-LDAP_BIND_USER                 regionsyd\\svc-sasldap      Bind-brugernavn (DOMAIN\\user for NTLM)
+LDAP_BIND_USER                 EXAMPLE\\svc-ldap      Bind-brugernavn (DOMAIN\\user for NTLM)
 LDAP_PASSWORD                  *(påkrævet)*                Bind-password
 LDAP_USE_SSL                   true                        Brug SSL/TLS fra start
 LDAP_AUTH                      NTLM                        Autentificeringsmetode (NTLM | SIMPLE)
@@ -53,7 +53,7 @@ Fra ``etl/``::
     python scripts/export_ad_groups_members.py
 
     # Anden OU:
-    LDAP_GROUP_OU_DN="OU=Organisational,OU=REG,OU=Groups,OU=SydID,DC=Rsyd,DC=net" \\
+    LDAP_GROUP_OU_DN="OU=Organisational,OU=REG,OU=Groups,OU=Identity,DC=example,DC=org" \\
         python scripts/export_ad_groups_members.py
 
     # Custom output-stier:
@@ -106,7 +106,6 @@ Se også
 -------
 - ``test_ldap_connection.py`` — smoke-test af LDAP-forbindelse
 - ``scan_ou_inventory.py`` — find OU'er med grupper/brugere
-- ``etl/docs/implementation/ldap_ad_guide.md`` — fuld guide
 """
 
 from __future__ import annotations
@@ -161,7 +160,7 @@ def _env_required(name: str) -> str:
 def _connect() -> tuple[Server, Connection]:
     ldap_server = os.environ.get("LDAP_SERVER", "ldaps.example.org")
     ldap_port = int(os.environ.get("LDAP_PORT", "636"))
-    ldap_bind_user = os.environ.get("LDAP_BIND_USER", r"regionsyd\svc-sasldap")
+    ldap_bind_user = os.environ.get("LDAP_BIND_USER", r"EXAMPLE\svc-ldap")
     ldap_password = os.environ.get("LDAP_PASSWORD", "")
     ldap_use_ssl = os.environ.get("LDAP_USE_SSL", "true").lower() == "true"
     ldap_auth = os.environ.get("LDAP_AUTH", "NTLM").upper()
@@ -318,7 +317,7 @@ def _iter_groups(
 def main() -> int:
     _load_dotenv_repo_root()
 
-    _DEFAULT_GROUP_OU_DN = "OU=SOC,OU=Service Areas,DC=Rsyd,DC=net"
+    _DEFAULT_GROUP_OU_DN = "OU=SOC,OU=Service Areas,DC=example,DC=org"
     ou_dn = (os.environ.get("LDAP_GROUP_OU_DN") or "").strip() or _DEFAULT_GROUP_OU_DN
 
     group_filter = (os.environ.get("LDAP_GROUP_FILTER") or "(objectCategory=group)").strip()

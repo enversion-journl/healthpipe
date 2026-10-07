@@ -6,8 +6,8 @@
 
 """DPA security AD pipeline assets: extract from AD -> populate staging.
 
-Wraps the AD extraction/load modules (infrastructure/security/export_sydbi_ad_groups.py,
-infrastructure/security/load_sydbi_ad_to_mssql.py) as Dagster assets so the full chain
+Wraps the AD extraction/load modules (infrastructure/security/export_healthpipe_ad_groups.py,
+infrastructure/security/load_healthpipe_ad_to_mssql.py) as Dagster assets so the full chain
 runs in security_daily_job: extract_security -> populate_security -> dso_sync_sec_* -> views.
 (Those modules live in the app package — NOT under scripts/, which is dev-only tooling and
 is not importable in the deployed Dagster runtime.)
@@ -26,10 +26,10 @@ import dagster as dg
     group_name="extract_security",
     compute_kind="python",
     tags={"domain": "security", "layer": "extract"},
-    description="Extract SydBI AD groups (roles/org/bopael) over LDAPS; returns rows in-memory (+ writes JSONL for audit).",
+    description="Extract HealthPipe AD groups (roles/org/bopael) over LDAPS; returns rows in-memory (+ writes JSONL for audit).",
 )
 def extract_security(context: dg.AssetExecutionContext) -> dict:
-    from infrastructure.security.export_sydbi_ad_groups import run_export
+    from infrastructure.security.export_healthpipe_ad_groups import run_export
 
     data = run_export()
     counts = {k: len(v) for k, v in data.items()}
@@ -51,7 +51,7 @@ def populate_security(
     context: dg.AssetExecutionContext,
     extract_security: dict,
 ) -> dg.MaterializeResult:
-    from infrastructure.security.load_sydbi_ad_to_mssql import (
+    from infrastructure.security.load_healthpipe_ad_to_mssql import (
         _connect,
         _load_rb_organisation,
         _load_rolle_domaene,

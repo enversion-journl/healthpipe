@@ -7,7 +7,7 @@
 """
 XML parser for IFDB AKTIVITETSRESULTAT.
 
-Ported from Region Nord's C# SSIS ScriptMain (Extract_UDPAKAKTIVITETXML.dtsx).
+Ported from the reference implementation's C# XML unpacking routine.
 Parses the XML column from AKTIVITETSRESULTAT into two flat structures:
   - AktivitetsresultatRow: one row per Element/Selektion in the XML tree
   - AktivitetskontekstRow: one row per AKTIVITETSRESULTAT with context metadata
@@ -237,7 +237,7 @@ def parse_aktivitetsresultat_xml(
     """Parse the XML column from AKTIVITETSRESULTAT into flat row structures.
 
     This is the Python equivalent of the C# ScriptMain.Input0_ProcessInputRow()
-    from Region Nord's SSIS package Extract_UDPAKAKTIVITETXML.dtsx.
+    from the reference implementation's XML unpacking routine.
 
     Returns:
         Tuple of (aktivitetsresultat_rows, kontekst_row).
@@ -657,7 +657,7 @@ def parse_xml_components_fast(
         components: list of (code_text, value_text) tuples in document order.
         xml_error_count: 1 if XML was invalid/empty, 0 otherwise.
 
-    Explicitly omitted Region Nord-compatible fields in fast mode:
+    Explicitly omitted reference-compatible fields in fast mode:
       - Root metadata:
           Overskrift, Ledetekst, Type, Kladde
       - Kontekst block:

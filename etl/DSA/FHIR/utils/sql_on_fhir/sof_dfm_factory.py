@@ -89,6 +89,15 @@ def create_sof_dfm_asset(
             partition_start = run_ctx.checkpoint
             partition_end: str | None = None
 
+            # Stamp the next checkpoint BEFORE reading the view. The window is
+            # ``ts >= partition_start``, so a resource written to Aidbox between
+            # the query snapshot and a post-read stamp would be missed by this
+            # run and fall below the next run's window — lost from the flat
+            # table for good. Stamping first makes consecutive windows overlap
+            # by the read duration instead; the MERGE is idempotent, so the
+            # overlap costs nothing.
+            new_checkpoint = datetime.now(UTC).isoformat()
+
             if config.mode == "ids":
                 context.log.warning(
                     "SOF assets do not support mode='ids' — falling back to delta "
@@ -113,9 +122,9 @@ def create_sof_dfm_asset(
                 partition_end=partition_end,
                 context=context,
                 null_sentinel_columns=cfg.get("null_sentinel_columns"),
+                normalized_datetime_columns=cfg.get("normalized_datetime_columns"),
             )
 
-            new_checkpoint = datetime.now(UTC).isoformat()
             logged_checkpoint: str | None = None
             if config.should_advance_checkpoint:
                 dfm.set_checkpoint(

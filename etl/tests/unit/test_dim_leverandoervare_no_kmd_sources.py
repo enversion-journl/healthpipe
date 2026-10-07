@@ -4,7 +4,7 @@
 # This file is part of Healthpipe. See the LICENSE file in the project
 # root for the full AGPL-3.0 license text.
 
-"""Guardrail: dim.Leverandoervare must NEVER use KMD data (task 27191).
+"""Guardrail: dim.Leverandoervare must NEVER use KMD data.
 
 KMD ItemDescription/ItemName may contain patient-identifiable free text.
 dim.Leverandoervare is a shared dimension visible to many users, so it must only
@@ -44,7 +44,7 @@ class TestDimLeverandoervareNoKmdSources:
         for forbidden in _FORBIDDEN_REFERENCES:
             assert forbidden.lower() not in combined, (
                 f"dim_Leverandoervare.py SQL contains forbidden reference '{forbidden}'. "
-                "dim.Leverandoervare must NOT use KMD data (task 27191)."
+                "dim.Leverandoervare must NOT use KMD data."
             )
 
     def test_stg_dim_leverandoervare_sql_no_kmd_references(self):
@@ -59,7 +59,7 @@ class TestDimLeverandoervareNoKmdSources:
         for forbidden in _FORBIDDEN_REFERENCES:
             assert forbidden.lower() not in content.lower(), (
                 f"stg_dim_Leverandoervare.py contains forbidden reference '{forbidden}'. "
-                "dim.Leverandoervare must NOT use KMD data (task 27191)."
+                "dim.Leverandoervare must NOT use KMD data."
             )
 
     def test_dim_leverandoervare_asset_deps_no_kmd(self):
@@ -73,7 +73,7 @@ class TestDimLeverandoervareNoKmdSources:
             for indicator in kmd_indicators:
                 assert indicator not in key_str, (
                     f"dim_Leverandoervare depends on '{dep_key}' which looks KMD-related. "
-                    "dim.Leverandoervare must NOT depend on KMD assets (task 27191)."
+                    "dim.Leverandoervare must NOT depend on KMD assets."
                 )
 
     def test_stg_dim_leverandoervare_asset_deps_no_kmd(self):
@@ -87,5 +87,5 @@ class TestDimLeverandoervareNoKmdSources:
             for indicator in kmd_indicators:
                 assert indicator not in key_str, (
                     f"stg_dim_Leverandoervare depends on '{dep_key}' which looks KMD-related. "
-                    "stg.dim_Leverandoervare must NOT depend on KMD assets (task 27191)."
+                    "stg.dim_Leverandoervare must NOT depend on KMD assets."
                 )

@@ -5,7 +5,7 @@
 # root for the full AGPL-3.0 license text.
 
 resourceType: CodeSystem
-url: "https://regionsyd.dk/mysupply/ean"
+url: "https://example.org/mysupply/ean"
 name: "MySupplyEAN"
 description: "ean/GLN koder fra NemHandelsregisteret. Flad struktur uden hierarki."
 status: active

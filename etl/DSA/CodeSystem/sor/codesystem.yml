@@ -7,7 +7,7 @@
 resourceType: CodeSystem
 url: "https://sundhedsdatastyrelsen.dk/sor"
 name: "SOR"
-description: "Sundhedsvaesenets Organisationsregister (SOR) for Region Syddanmark. Hierarkisk struktur over sundhedsorganisationer."
+description: "Sundhedsvaesenets Organisationsregister (SOR) for Example Region. Hierarkisk struktur over sundhedsorganisationer."
 status: active
 hierarchyMeaning: is-a
 content: not-present

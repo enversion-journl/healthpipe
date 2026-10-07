@@ -1,0 +1,28 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: dimension
+  TableName: dim.DRGDiagnose
+  Domain: [DRG]
+  Description: >
+    Kode-dimension for diagnoser: ét medlem pr. (diagnose_kode, art,
+    sideangivelse, tillaegskoder), uafhængigt af kontakt. Attributterne er
+    funktionelt bestemt af den hashede clean_code, så dimensionen er
+    append-only. Koden kobles referentielt til SKS-codesystemet (SDSSKS).
+  Grain: "Ét medlem pr. distinkt (diagnose_kode, art, sideangivelse, tillaegskoder)."
+  SCD: type1
+
+  SourceSystems:
+    - sds_drg: [DRG.DIAGNOSER, DRG.DIAGNOSER_TILLAEG, DRGPSYK.Psyk_Diagnose, DRGPSYK.Psyk_Diagnose_tillaeg]
+
+  Columns:
+    dw_ek_DRGDiagnose: { Type: PK, DataType: INT }
+    clean_code_DRGDiagnose: { DataType: NVARCHAR(100), Expr: "DRGDIAG_{sha256 over den længde-præfiksede kodekombination}" }
+    diagnose_kode: { DataType: NVARCHAR(20), Source: [sds_drg.DRG.DIAGNOSER.DIAGNOSE, sds_drg.DRGPSYK.Psyk_Diagnose.Diagnose] }
+    art: { DataType: NVARCHAR(20), Source: [sds_drg.DRG.DIAGNOSER.ART, sds_drg.DRGPSYK.Psyk_Diagnose.ART] }
+    sideangivelse: { DataType: NVARCHAR(20), Source: [sds_drg.DRG.DIAGNOSER.SIDEANGIVELSE, sds_drg.DRGPSYK.Psyk_Diagnose.SIDEANGIVELSE] }
+    tillaegskoder: { DataType: NVARCHAR(MAX), Source: [sds_drg.DRG.DIAGNOSER_TILLAEG.TILLAEGSKODE_DIAGNOSE, sds_drg.DRGPSYK.Psyk_Diagnose_tillaeg.TILLAEGSKODE_DIAGNOSE], Description: "Sorteret, delimiteret sæt af tillægskoder pr. diagnose (denormaliseret, én-til-få)." }

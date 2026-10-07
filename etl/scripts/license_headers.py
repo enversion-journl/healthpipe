@@ -4,11 +4,7 @@
 # This file is part of Healthpipe. See the LICENSE file in the project
 # root for the full AGPL-3.0 license text.
 
-"""SPDX license-header stamper and verifier for the Healthpipe public tree.
-
-Implements US 27067. See
-docs/superpowers/specs/2026-06-17-license-header-script-design.md.
-"""
+"""SPDX license-header stamper and verifier for the Healthpipe public tree."""
 
 from __future__ import annotations
 

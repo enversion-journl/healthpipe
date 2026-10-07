@@ -34,13 +34,13 @@ for history — do not rely on them for current behavior).
 | [dsi_etl_guide.md](implementation/dsi_etl_guide.md) | DSI: onboarding a new source system, and adding an archive table (`ext` → `arc`) |
 | [navngivningsstandard.md](implementation/navngivningsstandard.md) | The naming standard (snake_case grammar, `dw_*` columns) — single source of truth for naming |
 | [sql_etl_guide.md](implementation/sql_etl_guide.md) | DWH architecture and SQL ETL patterns: `ext` → `arc` → `pre_stg`/`stg` → `map`/`dim`/`fct` |
+| [kpi_aggregat_data_guide.md](implementation/kpi_aggregat_data_guide.md) | Externally delivered KPI/aggregate data as a source shape: revision strategy, ingestion guards, the dm path, and the five pitfalls |
 | [fhir_etl_guide.md](implementation/fhir_etl_guide.md) | FHIR pipeline patterns and IFDB extraction |
 | [codesystem_conceptmap_guide.md](implementation/codesystem_conceptmap_guide.md) | CodeSystem & ConceptMap pipeline patterns |
 | [dfm_extract_factory_guide.md](implementation/dfm_extract_factory_guide.md) | Building DFM-based extract/archive assets |
 | [dfm_operations_guide.md](implementation/dfm_operations_guide.md) | DFM checkpoint operations, ad-hoc runs, period orchestrator |
 | [dso_sync_guide.md](implementation/dso_sync_guide.md) | Syncing staging tables to the DSO database |
 | [data_lineage_guide.md](implementation/data_lineage_guide.md) | YAML lineage structure under `data_lineage/` |
-| [ldap_ad_guide.md](implementation/ldap_ad_guide.md) | LDAP/AD integration |
 | [sikkerhedsmodel.md](implementation/sikkerhedsmodel.md) | Security model |
 | [archive_merge_options.md](implementation/archive_merge_options.md) | Archive-merge strategy options (`ArchiveMergeConfig` flag reference) |
 | [feature_branch_deployments.md](implementation/feature_branch_deployments.md) | Running multiple feature branches on one Dagster instance |
@@ -55,13 +55,11 @@ for history — do not rely on them for current behavior).
 | [dsa_delete_handling_strategy.md](architecture/dsa_delete_handling_strategy.md) | Soft-delete handling in DSA |
 | [dso_delta_load_strategy.md](architecture/dso_delta_load_strategy.md) | Watermark-based delta sync to DSO |
 | [core_cache_parallel_execution.md](architecture/core_cache_parallel_execution.md) | Identifier caches and parallel chunked execution |
-| [nightly_auto_triage_design.md](architecture/nightly_auto_triage_design.md) | Nightly failure auto-triage design |
 
 ### Guides (runbooks and user guides)
 
 | Document | What it covers |
 |---|---|
-| [nightly_auto_triage_runbook.md](guides/nightly_auto_triage_runbook.md) | Operating the nightly auto-triage |
 | [qr_sfi_datapoint_runbook.md](guides/qr_sfi_datapoint_runbook.md) | QR → SFI datapoint chain: preflight, reconciliation, verification, rollback |
 | [sfi_datapoint_brugervejledning.md](guides/sfi_datapoint_brugervejledning.md) | SFI datapoint user guide |
 

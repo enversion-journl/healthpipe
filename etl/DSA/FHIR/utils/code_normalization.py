@@ -112,10 +112,23 @@ _DIAGNOSIS_RULES_PATH = (
 
 _DEFAULT_PROCEDURE_CODE_RULES: dict[str, list[str]] = {
     "exact": [],
-    "prefixes": ["SKS.a.opr", "SKS.a.pro"],
+    # Alle SKS-typekoder danner Procedure; tillaegskodefamilierne undtaget,
+    # fordi en tillaegskode ikke er en procedure i sig selv. Skal matche
+    # infrastructure/seed/ifdb_procedure_code_rules.yml.
+    "prefixes": ["SKS.a."],
     "bare_regex": [],
     "exclude_exact": [],
-    "exclude_prefixes": ["KPYdelser.", "BomKS."],
+    "exclude_prefixes": [
+        "KPYdelser.",
+        "BomKS.",
+        "SKS.a.dia",
+        "SKS.a.til",
+        "SKS_Vaerdier.",
+        "SKS.a.atc",
+        "SKS.a.afd",
+        "SKS.a.sgh",
+        "SKS.a.spc",
+    ],
 }
 
 _DEFAULT_DIAGNOSIS_CODE_RULES: dict[str, list[str]] = {
@@ -236,8 +249,9 @@ def is_sks_procedure_code(
     ``infrastructure/seed/ifdb_procedure_code_rules.yml``.
 
     Default classification rules:
-    - ``SKS.a.opr`` prefix -> operation/procedure
-    - ``SKS.a.pro`` prefix -> procedure
+    - ``SKS.a.`` prefix -> activity family (opr/pro/und/adm and unknown families)
+    - ``dia`` / ``til`` / ``atc`` / organisation / speciale are excluded
+    - RESULTATTYPE is not an axis (neither inclusion nor exclusion)
     - Bare ``K``/``B`` prefixes are not enabled by default because they also
       match IFDB families such as ``KPYdelser`` and ``BomKS``.
 
@@ -252,6 +266,10 @@ def is_sks_procedure_code(
         True
         >>> is_sks_procedure_code("SKS.a.proZXY01")
         True
+        >>> is_sks_procedure_code("SKS.a.undUXUC80")
+        True
+        >>> is_sks_procedure_code("SKS.a.admAAF22")
+        True
         >>> is_sks_procedure_code("KABC10")
         False
         >>> is_sks_procedure_code("KPYdelser.Afdelingsydelser.X")
@@ -263,8 +281,7 @@ def is_sks_procedure_code(
         >>> is_sks_procedure_code(None)
         False
     """
-    rules = load_ifdb_procedure_code_rules(rules_path)
-    return _matches_ifdb_code_rules(code, rules=rules)
+    return _matches_ifdb_code_rules(code, rules=load_ifdb_procedure_code_rules(rules_path))
 
 
 def is_sks_diagnosis_code(
@@ -361,11 +378,31 @@ def is_xml_diagnosis_element_name(element_navn: str | None) -> bool:
     return element_navn.strip().lower() in _XML_DIAGNOSIS_ELEMENT_NAMES
 
 
+def _diagnosis_candidate_from_original(original: str | None) -> str | None:
+    """The ``element_original_kode`` value, when its SKS family is diagnoses.
+
+    A prefixed code from another family must not be considered: an operation
+    code shaped letter+digit (``SKS.a.oprD1234``) would otherwise canonicalise
+    into a diagnosis that does not exist. Unprefixed values are passed through
+    and validated by :func:`to_sks_diagnosis_code` on shape alone.
+    """
+    if not original:
+        return None
+    text = str(original).strip()
+    if not text:
+        return None
+    lowered = text.lower()
+    if lowered.startswith("sks.") and not lowered.startswith("sks.a.dia"):
+        return None
+    return text
+
+
 def extract_xml_clinical_diagnosis_code(
     *,
     element_navn: str | None,
     element_kode: str | None,
     element_vaerdi: str | None,
+    element_original_kode: str | None = None,
 ) -> str | None:
     """Extract an SKS diagnosis code from a parsed XML Element row, if present.
 
@@ -373,10 +410,21 @@ def extract_xml_clinical_diagnosis_code(
     so the XML ``DiagnoseKode`` path is SKS-gated identically to the
     ``AKTIVITETTYPE_KODE`` path. Values that are not recognisable SKS diagnosis
     codes yield ``None`` and therefore emit no Condition.
+
+    ``element_original_kode`` is tried first, because that is the field IFDB's
+    SFI schemas put the finished code in -- the same field the operation path
+    reads. A structured ``Diagnosekode`` element carries the SKS code there
+    (``SKS.a.diaDC509``), the trailing digit in ``element_kode`` (``9``) and the
+    Danish diagnosis text in ``element_vaerdi`` (``Brystkraeft UNS``), so
+    reading only the latter two yields no code at all.
     """
     if not is_xml_diagnosis_element_name(element_navn):
         return None
-    for candidate in (element_kode, element_vaerdi):
+    for candidate in (
+        _diagnosis_candidate_from_original(element_original_kode),
+        element_kode,
+        element_vaerdi,
+    ):
         if not candidate:
             continue
         sks_code = to_sks_diagnosis_code(candidate)
@@ -388,7 +436,7 @@ def extract_xml_clinical_diagnosis_code(
 def split_aktivitettype_kode(kode: str | None) -> list[str | None]:
     """Split AKTIVITETTYPE_KODE by '.' into up to 8 hierarchy levels.
 
-    Matches Region Syd DWH LEVEL1-8 logic from Extract_BEHANDL_AKTIVITETSRESULTAT.
+    Matches Example Region DWH LEVEL1-8 logic from Extract_BEHANDL_AKTIVITETSRESULTAT.
     Returns a list of exactly 8 elements, padded with None.
 
     Examples:

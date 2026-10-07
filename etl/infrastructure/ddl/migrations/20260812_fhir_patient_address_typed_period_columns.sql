@@ -132,8 +132,7 @@ GO
 -- compile-time "Invalid object name" for the whole batch even when the guarding IF
 -- is false -- deferred name resolution is reliable for stored procedures, not for
 -- ad-hoc batches. sp_executesql defers the reference until the string is actually
--- run, which is the same reason 07-infrastructure-pipeline.mdc mandates dynamic SQL
--- for potentially-renamed columns.
+-- run.
 -- Guard on the objects alone -- OBJECT_ID is safe on any database. Reaching this
 -- state means someone dropped the procedure but kept the state table, which the
 -- reset cannot silently skip.

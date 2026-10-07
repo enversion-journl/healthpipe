@@ -4,7 +4,7 @@
 # This file is part of Healthpipe. See the LICENSE file in the project
 # root for the full AGPL-3.0 license text.
 
-"""Unit tests for fct.AfdelingLagerbeholdning dw_ek_UNSPSC FK resolution (task 28041)."""
+"""Unit tests for fct.AfdelingLagerbeholdning dw_ek_UNSPSC FK resolution."""
 
 import sys
 

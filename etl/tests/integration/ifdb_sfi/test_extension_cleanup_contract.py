@@ -44,15 +44,15 @@ def test_disallowed_extensions_cover_known_redundancies(sfi_allowed_extensions):
         row["extension_url"] for row in sfi_allowed_extensions if row["status"] == "disallowed"
     }
     must_be_disallowed = {
-        "http://regionsyddanmark.dk/fhir/StructureDefinition/aktivitetsresultatRootMeta",
-        "http://regionsyddanmark.dk/fhir/StructureDefinition/aktivitetsresultatSourceMeta",
-        "http://regionsyddanmark.dk/fhir/StructureDefinition/aktivitetsresultatHierarki",
-        "http://regionsyddanmark.dk/fhir/StructureDefinition/aktivitetsresultatElementMeta",
-        "http://regionsyddanmark.dk/fhir/StructureDefinition/aktivitetsresultatRowType",
-        "http://regionsyddanmark.dk/fhir/StructureDefinition/aktivitetsudfoerelseMetadata",
-        "http://regionsyddanmark.dk/fhir/StructureDefinition/aktivitetsudfoerelseSpeciale",
-        "http://regionsyddanmark.dk/fhir/StructureDefinition/aktivitettypeKodeHierarki",
-        "http://regionsyddanmark.dk/fhir/StructureDefinition/aktivitetsresultatKontekst",
+        "http://example.org/fhir/StructureDefinition/aktivitetsresultatRootMeta",
+        "http://example.org/fhir/StructureDefinition/aktivitetsresultatSourceMeta",
+        "http://example.org/fhir/StructureDefinition/aktivitetsresultatHierarki",
+        "http://example.org/fhir/StructureDefinition/aktivitetsresultatElementMeta",
+        "http://example.org/fhir/StructureDefinition/aktivitetsresultatRowType",
+        "http://example.org/fhir/StructureDefinition/aktivitetsudfoerelseMetadata",
+        "http://example.org/fhir/StructureDefinition/aktivitetsudfoerelseSpeciale",
+        "http://example.org/fhir/StructureDefinition/aktivitettypeKodeHierarki",
+        "http://example.org/fhir/StructureDefinition/aktivitetsresultatKontekst",
     }
     missing = must_be_disallowed - disallowed
     assert (

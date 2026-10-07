@@ -15,6 +15,7 @@ from .apply_fakturalinje_unspsc import fct_apply_fakturalinje_unspsc
 from .fct_AfdelingLagerbeholdning import fct_AfdelingLagerbeholdning
 from .fct_AftaleVarePris import fct_AftaleVarePris
 from .fct_Budget import fct_Budget
+from .fct_DRGKontakt import fct_DRGKontakt
 from .fct_Faktura import fct_Faktura
 from .fct_Fakturalinje import fct_Fakturalinje
 from .fct_Finanskladdelinje import fct_Finanskladdelinje
@@ -23,6 +24,7 @@ from .fct_Postering import fct_Postering
 from .fct_Vareudlevering import fct_Vareudlevering
 
 all_assets = [
+    fct_DRGKontakt,
     fct_AftaleVarePris,
     fct_Budget,
     fct_Faktura,
@@ -37,6 +39,7 @@ all_assets = [
 ]
 
 __all__ = [
+    "fct_DRGKontakt",
     "all_assets",
     "fct_AftaleVarePris",
     "fct_apply_faktura_postering_relations",

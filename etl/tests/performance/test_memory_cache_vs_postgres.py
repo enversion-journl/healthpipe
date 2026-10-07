@@ -611,7 +611,7 @@ def run_memory_vs_speed_benchmark():
     os.environ["USE_REAL_DB_FOR_TESTS"] = "true"
 
     # Add project root to path
-    project_root = "/workspaces/sydbi_basismodel"
+    project_root = "/workspaces/healthpipe"
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 

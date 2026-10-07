@@ -5,7 +5,7 @@
 -- root for the full AGPL-3.0 license text.
 
 -- ============================================================================
--- AB#27834: FHIR-kontaktrelation på dm's HAIBA-case-tabeller
+-- FHIR-kontaktrelation på dm's HAIBA-case-tabeller
 --
 -- Én rolle = én SOR-kolonne på casen, og hver rolle får sin egen relation og
 -- sin egen matchkvalitet. Kvaliteten er ikke pynt: matchraten falder fra
@@ -18,7 +18,7 @@
 -- hardkodet et tolerancevindue — case-definitionerne ejes af infektionshygiejne,
 -- ikke af ETL'en.
 --
--- Landes både her og i tables/haiba/01_dm.sql, jf. 07-infrastructure-pipeline.mdc.
+-- Landes både her og i tables/haiba/01_dm.sql.
 -- Kvalitetskolonnerne er NOT NULL DEFAULT 'ikke_koert', så en række aldrig kan
 -- læses som "intet match" alene fordi relationen endnu ikke er beregnet.
 -- ============================================================================

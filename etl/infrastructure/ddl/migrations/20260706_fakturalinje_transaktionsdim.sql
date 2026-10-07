@@ -5,7 +5,7 @@
 -- root for the full AGPL-3.0 license text.
 
 -- ============================================================================
--- Migration: Fakturalinje transaktionsdimension (US 28058, Task 4)
+-- Migration: Fakturalinje transaktionsdimension ([internal ticket], Task 4)
 --
 -- fct.Fakturalinje.DW_EK_Fakturalinje was a local, independent IDENTITY(1,1) —
 -- NOT derived from map.Fakturalinje like dim.Fakturalinje is. Both tables share
@@ -30,7 +30,7 @@
 -- CleanCode_Fakturalinje / update column references after this migration runs.
 --
 -- Idempotent: guarded by sys.columns / sys.indexes checks, same pattern as
--- 20260504_27574_vareudlevering-egenskaber-fk.sql (Section B).
+-- 20260504_01_vareudlevering-egenskaber-fk.sql (Section B).
 -- ============================================================================
 
 -- ---------- A: map.Fakturalinje — rename DW_EK_Fakturalinje -> dw_ek_Fakturalinje ----------

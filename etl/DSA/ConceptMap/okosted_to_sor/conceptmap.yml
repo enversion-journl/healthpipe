@@ -11,8 +11,8 @@ status: active
 name: "OkostedToSor"
 title: "Okosted to SOR"
 description: "Maps RDW okosted codes to SOR organisation codes"
-sourceScopeUri: "https://regionsyd.dk/rdw/okosted"
+sourceScopeUri: "https://example.org/rdw/okosted"
 targetScopeUri: "https://sundhedsdatastyrelsen.dk/sor"
 group:
-  - source: "https://regionsyd.dk/rdw/okosted"
+  - source: "https://example.org/rdw/okosted"
     target: "https://sundhedsdatastyrelsen.dk/sor"

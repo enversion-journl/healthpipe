@@ -18,10 +18,11 @@ from DSA.FHIR.utils.code_normalization import (
 from DSA.FHIR.utils.fhir_utils import fhir_datetime
 from DSA.FHIR.utils.ifdb.routing import TargetResource
 from DSA.FHIR.utils.ifdb.routing_fallback import RoutingDecision
-from DSA.FHIR.utils.ifdb.transforms import normalize_oracle_id as _normalize_oracle_id
 from DSA.FHIR.utils.ifdb.transforms import (
+    is_true_flag,
     parse_clob_datetime,
 )
+from DSA.FHIR.utils.ifdb.transforms import normalize_oracle_id as _normalize_oracle_id
 from DSA.FHIR.utils.ifdb.transforms import source_deleted_to_int as _slettet_to_int
 from DSA.FHIR.utils.ifdb.xml_aktivitetsresultat import AktivitetsresultatRow
 from utils.fhir.condition_categories import (
@@ -31,6 +32,7 @@ from utils.fhir.condition_categories import (
 from utils.fhir.fhir_extensions import (
     EXTENSION_AKTIVITETSRESULTAT_CONDITION_SOURCE_META,
     EXTENSION_EPISODE_OF_CARE,
+    EXTENSION_MODTIDSPUNKT,
 )
 from utils.fhir.identifier_systems import (
     SYSTEM_IFDB_AKTIVITETSRESULTAT_CONDITION,
@@ -41,6 +43,7 @@ from utils.fhir.identifier_systems import (
     SYSTEM_SKS_D,
 )
 from utils.fhir.is_deleted_extension import build_is_deleted_extension_dict
+from utils.fhir.resource_flags import FLAG_LPR3_IGNORED, add_flag_tags_dict
 
 _CONDITION_CLINICAL_STATUS_SYSTEM = "http://terminology.hl7.org/CodeSystem/condition-clinical"
 _CONDITION_VERIFICATION_STATUS_SYSTEM = "http://terminology.hl7.org/CodeSystem/condition-ver-status"
@@ -99,15 +102,19 @@ def _build_aktivitetsresultat_condition_dict(
     is_deleted = deleted_int != 0
     has_end = period_end is not None
 
+    # Kladde betyder at dokumentationen ikke er faerdiggjort. Uden dette led
+    # taeller en kladdediagnose som gaeldende, og aftagerne kan ikke filtrere
+    # den fra. Samme trappe som resten af familien: slettet slaar kladde.
+    is_draft = is_true_flag(row_dict.get("KLADDE"))
     if is_deleted:
         clinical_status_code = None
         verification_status_code = "entered-in-error"
     elif has_end:
         clinical_status_code = "resolved"
-        verification_status_code = "confirmed"
+        verification_status_code = "provisional" if is_draft else "confirmed"
     else:
         clinical_status_code = "active"
-        verification_status_code = "confirmed"
+        verification_status_code = "provisional" if is_draft else "confirmed"
 
     onset_str = _parse_period_datetime(period_start)
     abatement_str = _parse_period_datetime(period_end) if has_end and not is_deleted else None
@@ -193,6 +200,10 @@ def _build_aktivitetsresultat_condition_dict(
         cond["recordedDate"] = recorded_str
 
     extensions: list[dict] = [build_is_deleted_extension_dict(deleted_int)]
+    if recorded_str:
+        # Samme datetime-extension som de oevrige diagnosespor -- uden den er
+        # den flade modtidspunkt-kolonne NULL for SFI-diagnoser.
+        extensions.append({"url": EXTENSION_MODTIDSPUNKT, "valueDateTime": recorded_str})
 
     if episode_id_norm:
         if resolved:
@@ -242,6 +253,9 @@ def _build_aktivitetsresultat_condition_dict(
 
     if extensions:
         cond["extension"] = extensions
+    if is_true_flag(row_dict.get("LPR3_IGNORED")):
+        # Samme soegbare maerke som Procedure -- flaget sidder paa samme kilderaekke.
+        add_flag_tags_dict(cond, [FLAG_LPR3_IGNORED])
 
     return resource_id, cond
 
@@ -265,15 +279,19 @@ def _build_xml_diagnosis_condition_dict(
     is_deleted = deleted_int != 0
     has_end = period_end is not None
 
+    # Kladde betyder at dokumentationen ikke er faerdiggjort. Uden dette led
+    # taeller en kladdediagnose som gaeldende, og aftagerne kan ikke filtrere
+    # den fra. Samme trappe som resten af familien: slettet slaar kladde.
+    is_draft = is_true_flag(row_dict.get("KLADDE"))
     if is_deleted:
         clinical_status_code = None
         verification_status_code = "entered-in-error"
     elif has_end:
         clinical_status_code = "resolved"
-        verification_status_code = "confirmed"
+        verification_status_code = "provisional" if is_draft else "confirmed"
     else:
         clinical_status_code = "active"
-        verification_status_code = "confirmed"
+        verification_status_code = "provisional" if is_draft else "confirmed"
 
     onset_str = _parse_period_datetime(period_start)
     abatement_str = _parse_period_datetime(period_end) if has_end and not is_deleted else None
@@ -365,6 +383,10 @@ def _build_xml_diagnosis_condition_dict(
         cond["recordedDate"] = recorded_str
 
     extensions: list[dict] = [build_is_deleted_extension_dict(deleted_int)]
+    if recorded_str:
+        # Samme datetime-extension som de oevrige diagnosespor -- uden den er
+        # den flade modtidspunkt-kolonne NULL for SFI-diagnoser.
+        extensions.append({"url": EXTENSION_MODTIDSPUNKT, "valueDateTime": recorded_str})
 
     if episode_id_norm:
         if resolved:
@@ -413,6 +435,9 @@ def _build_xml_diagnosis_condition_dict(
 
     if extensions:
         cond["extension"] = extensions
+    if is_true_flag(row_dict.get("LPR3_IGNORED")):
+        # Samme soegbare maerke som Procedure -- flaget sidder paa samme kilderaekke.
+        add_flag_tags_dict(cond, [FLAG_LPR3_IGNORED])
 
     return resource_id, cond
 
@@ -435,6 +460,7 @@ def _append_xml_diagnosis_condition_dicts(
             element_navn=xml_row.element_navn,
             element_kode=xml_row.element_kode,
             element_vaerdi=xml_row.element_vaerdi,
+            element_original_kode=xml_row.element_original_kode,
         )
         if not diagnosis_code:
             continue

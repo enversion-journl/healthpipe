@@ -12,7 +12,7 @@
 
 > **Vigtigt:** Der er kun én måde at blive tildelt sikkerhed på, og det er
 > igennem AD. De to DPA-tabeller (`sec.RolleDomaene`, `sec.RBOrganisation`)
-> populeres udelukkende fra SydBI's AD-grupper via det natlige Dagster-job
+> populeres udelukkende fra HealthPipe's AD-grupper via det natlige Dagster-job
 > (se [Drift (Dagster)](#drift-dagster)).
 
 Sikkerhedsmodellen implementerer adgangskontrol på DPA-views i DSO-databasen.
@@ -56,8 +56,8 @@ uanset organisations-match.
 ### sec.RolleDomaene
 
 Mapper bruger til sikkerhedsdomæne med rolle og populationsansvar.
-Populeres fra AD-grupperne `LSSAPP_RSD_SydBI_Domaenerolle_<domæne>_<rolle>`
-(rolle) og `LSSAPP_RSD_SydBI_Bopael_<sygehus>` (populationsansvar).
+Populeres fra AD-grupperne `LSSAPP_HP_Domaenerolle_<domæne>_<rolle>`
+(rolle) og `LSSAPP_HP_Bopael_<sygehus>` (populationsansvar).
 
 | Kolonne | Type | beskrivelse |
 |---------|------|-------------|
@@ -73,7 +73,7 @@ Populeres fra AD-grupperne `LSSAPP_RSD_SydBI_Domaenerolle_<domæne>_<rolle>`
 ### sec.RBOrganisation
 
 Mapper bruger til tilladte organisationer (rækkebaseret sikkerhed).
-Populeres fra AD-grupperne `LSSAPP/GSCAPP_RSD_SydBI_Org_<SOR-kode>`;
+Populeres fra AD-grupperne `LSSAPP/GSCAPP_HP_Org_<SOR-kode>`;
 SOR-koden udpakkes først til sig selv + alle underliggende SOR-koder via
 `codesystem.SORHierarchy`, hvorefter hver kode opløses til organisationsnøgler
 via join til `dim.Organisation`. Der indsættes altså én række pr. underliggende
@@ -314,7 +314,7 @@ SELECT dw_ek_Borger FROM Tilladte;
 > **reference-implementering** i
 > `infrastructure/ddl/views/security/_reference/01_vw_dpa_medicin.sql` og
 > deployes ikke herfra. Den fulde test-opsætning (inkl. seed-data og
-> test-fakta-tabel) ligger på branchen `feature/28010_SikkerhedViews`.
+> test-fakta-tabel) ligger på branchen `[internal ticket]`.
 
 ### Scenarie 1: bruger med U-rolle
 
@@ -364,7 +364,7 @@ SELECT * FROM [vw_dim].[Borger_Medicin];
 
 > **NB:** Proceduren kan ikke køres på denne branch som den står — den kræver
 > at reference-SQL'en (`_reference/01_vw_dpa_medicin.sql`) og test-opsætningen
-> (test-fakta-tabel + seeds) fra `feature/28010_SikkerhedViews` først deployes
+> (test-fakta-tabel + seeds) fra `[internal ticket]` først deployes
 > manuelt.
 
 > **NB:** Manuelle `UPDATE`s på `sec.RolleDomaene` er *kun* til test og
@@ -442,7 +442,7 @@ infrastructure/ddl/
 ├── tables/security/
 │   ├── 01_tables.sql          # sec.RBOrganisation
 │   ├── 02_functions.sql       # sec.BeskytDimLeverandoervare_v1 (fritekst-maskering, @Rolle)
-│   ├── 04_dpa_tables.sql      # sec.RolleDomaene (kanonisk, fra PR 11799)
+│   ├── 04_dpa_tables.sql      # sec.RolleDomaene (kanonisk, fra [internal ticket])
 │   └── 05_dpa_functions.sql   # sec.HentDPASikkerhed, HentBrugerRolleDomaene,
 │                              #   HentRBOrganisation, BeskytPersonoplysning, BeskytDimBorger
 └── views/security/
@@ -453,7 +453,7 @@ infrastructure/ddl/
 
 > **NB:** Seed-filerne og test-fakta-tabellen (`01_seed_rolle_domaene.sql`,
 > `02_seed_rb_organisation.sql`, `03_seed_test_fcttable.sql`,
-> `03_test_fct_table.sql`) findes kun på branchen `feature/28010_SikkerhedViews`
+> `03_test_fct_table.sql`) findes kun på branchen `[internal ticket]`
 > og deployes ikke fra dette repo — tabellerne populeres i stedet fra AD
 > (se [Drift (Dagster)](#drift-dagster)).
 
@@ -464,7 +464,7 @@ infrastructure/ddl/
 For at tilføje sikkerhed på et nyt domæne (fx `DPA_HR`):
 
 1. Opret AD-grupperne for domænet
-   (`LSSAPP_RSD_SydBI_Domaenerolle_DPA_HR_U` / `..._K`) — rolle-tildelingerne
+   (`LSSAPP_HP_Domaenerolle_DPA_HR_U` / `..._K`) — rolle-tildelingerne
    indlæses derefter automatisk af det natlige AD-load
 2. Tilføj domænets fakta-tabel via domænets egen pipeline
 3. Tilføj sikkerhedsviews i `infrastructure/ddl/views/security/` (ny SQL-fil med
@@ -491,10 +491,10 @@ dso_infra_security     ┴→ extract_security → populate_security → dso_syn
   functions on both databases. In the job's selection because a `deps` edge
   only guarantees ordering — not that the tables exist. The DDL is idempotent.
   `{staging,dso}_migrations` is excluded; migrations run at deploy time.
-- **extract_security** (`infrastructure/security/export_sydbi_ad_groups.py`):
-  live LDAPS-udtræk af SydBI-grupperne (org / domæneroller / bopæl) — kræver
+- **extract_security** (`infrastructure/security/export_healthpipe_ad_groups.py`):
+  live LDAPS-udtræk af HealthPipe-grupperne (org / domæneroller / bopæl) — kræver
   netværksadgang til AD.
-- **populate_security** (`infrastructure/security/load_sydbi_ad_to_mssql.py`):
+- **populate_security** (`infrastructure/security/load_healthpipe_ad_to_mssql.py`):
   fuld genindlæsning på STAGING (sandhedskilden): `sec.RolleDomaene` via
   TRUNCATE+INSERT; `sec.RBOrganisation` via **swap-load** — `_New` fyldes,
   gammel/ny-metrikker (rækker + distinkte brugere) logges til
@@ -536,21 +536,19 @@ genindlæser til sidst AD-sandheden. Afbryder hvis miljøet ligner prod.
 
 ```bash
 cd etl
-python infrastructure/security/export_sydbi_ad_groups.py
-python infrastructure/security/load_sydbi_ad_to_mssql.py --dry-run   # verificér først
-python infrastructure/security/load_sydbi_ad_to_mssql.py
+python infrastructure/security/export_healthpipe_ad_groups.py
+python infrastructure/security/load_healthpipe_ad_to_mssql.py --dry-run   # verificér først
+python infrastructure/security/load_healthpipe_ad_to_mssql.py
 ```
 
-Se modulernes docstrings for detaljer (miljøvariabler, dublet-regler, exit codes),
-og [LDAP & AD-guide](./ldap_ad_guide.md) for selve AD/LDAP-udtrækket
-(forbindelse, gruppestruktur, fejlfinding).
+Se modulernes docstrings for detaljer (miljøvariabler, dublet-regler, exit codes).
 
 ---
 
 ## Åbne punkter
 
 - Fritekst-maskeringen på `vw_dim.Leverandoervare` og `vw_dim.Fakturalinje` er nu RolleDomaene-baseret
-  (PR 11799, reconciled ind i denne branch): viewsene `CROSS JOIN`'er
+  ([internal ticket], reconciled ind i denne branch): viewsene `CROSS JOIN`'er
   `sec.HentBrugerRolleDomaene(SUSER_SNAME(), 'DPA_ERP')` og viser fritekst-kolonner
   kun for `Rolle = 'U'` (ellers `[MASKERET]`). Den gamle `sec.BrugerRoller.Fritekst` /
   `sec.HentFritekstAdgang_v1`-vej er fjernet. En bruger uden en `DPA_ERP`-rolle i

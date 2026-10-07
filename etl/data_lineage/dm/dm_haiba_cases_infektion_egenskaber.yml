@@ -1,0 +1,48 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: dimension
+  TableName: dm.HAIBA_CasesInfektionEgenskaber
+  Domain: [HAIBA]
+  DimModel: transaction
+  TransactionDimFor: dm.HAIBA_CasesInfektion
+  Description: "Transaktionsdimension til dm.HAIBA_CasesInfektion — kildens deskriptive kolonner som rå værdier plus encounter-matchets kvalitet, 1:1 på dw_ek"
+  Grain: "Én række pr. case (HAI_type, cprnr, HAI_date) — samme grain som fakta"
+  Privacy: >
+    CPR-frit: cprnr fra kilden projiceres bevidst IKKE — borgeren bæres kun som
+    dw_ek_Borger på fakta. extid/larlabnr er lab-id-lister, ikke personnumre.
+
+  SourceSystems:
+    - haiba: [cases_infektion]
+
+  Columns:
+    dw_ek_HAIBA_CasesInfektion:   { Type: PK, DataType: INT, Description: "Delt entitetsnøgle med dm.HAIBA_CasesInfektion — mintes i map.HAIBA_CasesInfektion." }
+    HAI_type:                      { DataType: NVARCHAR(50), Source: [haiba.cases_infektion.HAI_type], Description: "HAI-type: BACT, UTI, CDI_COHA, CDI_HOHA (agg-tabellerne bruger 'COHA'/'HOHA' — join skal mappe)" }
+    HAI_date:                      { DataType: NVARCHAR(30), Source: [haiba.cases_infektion.HAI_date], Description: "Rå datostreng — den opløste nøgle bor på fakta (dw_ek_Dato_hai)" }
+    HAI_Opholdsadresse:            { DataType: NVARCHAR(30), Source: [haiba.cases_infektion.HAI_Opholdsadresse], Description: "Rå SOR-kode, enheden hvor patienten fysisk var — opløst nøgle på fakta" }
+    HAI_Kontaktansvar:             { DataType: NVARCHAR(30), Source: [haiba.cases_infektion.HAI_Kontaktansvar], Description: "Rå SOR-kode, behandlingsansvarlig enhed — opløst nøgle på fakta" }
+    extid:                         { DataType: NVARCHAR(500), Source: [haiba.cases_infektion.extid], Description: "Mellemrumssepareret lab-id-liste uden øvre grænse" }
+    larlabnr:                      { DataType: NVARCHAR(500), Source: [haiba.cases_infektion.larlabnr], Description: "Mellemrumssepareret lab-id-liste uden øvre grænse" }
+    HAI_RegionKode:                { DataType: NVARCHAR(10), Source: [haiba.cases_infektion.HAI_RegionKode], Description: "Eneste org-tekstkolonne der beholdes (samme princip som RegionKode på agg): bærer landsaggregat-skellet og er eneste vej til region når SOR-opslaget lander på -1" }
+    findings1:                     { DataType: NVARCHAR(500), Source: [haiba.cases_infektion.findings1] }
+    findings2:                     { DataType: NVARCHAR(500), Source: [haiba.cases_infektion.findings2] }
+    findings3:                     { DataType: NVARCHAR(500), Source: [haiba.cases_infektion.findings3] }
+    findings4:                     { DataType: NVARCHAR(500), Source: [haiba.cases_infektion.findings4] }
+    findings5:                     { DataType: NVARCHAR(500), Source: [haiba.cases_infektion.findings5] }
+    findings6:                     { DataType: NVARCHAR(500), Source: [haiba.cases_infektion.findings6] }
+    findings7:                     { DataType: NVARCHAR(500), Source: [haiba.cases_infektion.findings7] }
+    match_kvalitet_kontaktansvar:  { DataType: VARCHAR(20), Expr: "Beregnes af haiba_kontakt-assettet (8 værdier: eksakt, eksakt_flere, kun_periode, kun_sor, intet_match, ingen_kontakter, ingen_borger, ikke_koert). NOT NULL DEFAULT 'ikke_koert' så en række aldrig læses som 'intet match' alene fordi relationen endnu ikke er beregnet." }
+    match_dage_kontaktansvar:      { DataType: INT, Expr: "Fortegnsbærende afstand i dage: negativ før kontakten, positiv efter, 0 indeni. Bevidst intet hardkodet tolerancevindue — case-definitionerne ejes af infektionshygiejne." }
+    match_kvalitet_opholdsadresse: { DataType: VARCHAR(20), Expr: "Som match_kvalitet_kontaktansvar, men for opholdsadresse-rollen (lokationsruten)" }
+    match_dage_opholdsadresse:     { DataType: INT, Expr: "Som match_dage_kontaktansvar, men for opholdsadresse-rollen" }
+    leverance_dato:                { DataType: DATE, Expr: "Afledt af leverancefilens navn, ført med fra arc" }
+    dw_is_deleted:                 { DataType: BIT, Expr: "Ført med fra arc — se dm.HAIBA_CasesInfektion" }
+    dw_timestamp_insert:           { Type: Audit, DataType: DATETIME2(0), Expr: "SYSDATETIME() ved rebuild (TRUNCATE + INSERT)" }
+    dw_timestamp_update:           { Type: Audit, DataType: DATETIME2(0), Expr: "SYSDATETIME() ved rebuild" }
+
+  Notes:
+    - "Match-kvalitetsfordelingen skifter med EPJ-udrulningen (Cosmic): eksakt-andelen er ~0 % i 2020, ~2 % i 2021 og 66-70 % fra 2022. En aggregering over encounter-relationen uden filter på match_kvalitet_* viser derfor infektioner der 'forsvinder' bagud i tid."

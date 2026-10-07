@@ -12,7 +12,7 @@ realistic throughput including: GIN-indexes on `resource jsonb`, history-table
 trigger, JSONB validation, ON CONFLICT DO UPDATE overhead, etc.
 
 Run inside the devcontainer:
-    python /workspaces/sydbi_basismodel/etl/tests/performance/test_aidbox_load_vs_executemany.py
+    python /workspaces/healthpipe/etl/tests/performance/test_aidbox_load_vs_executemany.py
 
 The Observation dicts mimic the structure produced by the AKTIVITETSRESULTAT
 asset (lossless, ~10-20 components per resource, full FHIR extension stack)
@@ -98,19 +98,19 @@ def _component(i: int) -> dict:
         "valueString": f"Værdi nummer {i}",
         "extension": [
             {
-                "url": "http://regionsyddanmark.dk/fhir/StructureDefinition/aktivitetsresultatElementMeta#elementId",
+                "url": "http://example.org/fhir/StructureDefinition/aktivitetsresultatElementMeta#elementId",
                 "valueString": f"RM_Bench:edElement{i}",
             },
             {
-                "url": "http://regionsyddanmark.dk/fhir/StructureDefinition/aktivitetsresultatElementMeta#type",
+                "url": "http://example.org/fhir/StructureDefinition/aktivitetsresultatElementMeta#type",
                 "valueString": "string",
             },
             {
-                "url": "http://regionsyddanmark.dk/fhir/StructureDefinition/aktivitetsresultatHierarki#elementNummer",
+                "url": "http://example.org/fhir/StructureDefinition/aktivitetsresultatHierarki#elementNummer",
                 "valueInteger": i,
             },
             {
-                "url": "http://regionsyddanmark.dk/fhir/StructureDefinition/aktivitetsresultatRowType",
+                "url": "http://example.org/fhir/StructureDefinition/aktivitetsresultatRowType",
                 "valueString": "Element",
             },
         ],
@@ -155,14 +155,14 @@ def make_observation(idx: int) -> dict:
         ],
         "extension": [
             {
-                "url": "http://regionsyddanmark.dk/fhir/StructureDefinition/aktivitetsresultatRootMeta",
+                "url": "http://example.org/fhir/StructureDefinition/aktivitetsresultatRootMeta",
                 "extension": [
                     {"url": "type", "valueString": "BenchType"},
                     {"url": "kladde", "valueString": "False"},
                 ],
             },
             {
-                "url": "http://regionsyddanmark.dk/fhir/StructureDefinition/aktivitetsresultatKontekst#oprettet",
+                "url": "http://example.org/fhir/StructureDefinition/aktivitetsresultatKontekst#oprettet",
                 "extension": [
                     {"url": "bruger", "valueString": "Bench User"},
                     {"url": "persId", "valueString": "pr-bench"},

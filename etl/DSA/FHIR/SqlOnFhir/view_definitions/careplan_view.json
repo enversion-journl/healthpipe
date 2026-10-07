@@ -5,7 +5,7 @@
   "status": "active",
   "where": [
     {
-      "path": "category.coding.where(system='http://regionsyddanmark.dk/fhir/CodeSystem/patient-rights-type' and code='alle_markoerer').exists()"
+      "path": "category.coding.where(system='http://example.org/fhir/CodeSystem/patient-rights-type' and code='alle_markoerer').exists()"
     }
   ],
   "select": [

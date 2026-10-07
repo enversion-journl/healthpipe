@@ -30,7 +30,7 @@ ENABLE_TEST_WRITES=true
 TEST_ENV=local
 ```
 
-Database connection settings are already configured in `/workspaces/sydbi_basismodel/etl/tests/config/test.env`.
+Database connection settings are already configured in `/workspaces/healthpipe/etl/tests/config/test.env`.
 
 ### 2. Test Data Setup
 
@@ -71,7 +71,7 @@ The tests expect these specific records to exist:
 ### Run All Real Resource Tests
 
 ```bash
-cd /workspaces/sydbi_basismodel/etl
+cd /workspaces/healthpipe/etl
 pytest tests/integration/datawarehouse/erp/ -m "real_resources and erp" -v
 ```
 

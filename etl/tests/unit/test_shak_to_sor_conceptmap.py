@@ -104,7 +104,7 @@ class TestMergeConceptmapDeleteStale:
 class TestBuildFhirConceptmap:
     META = {
         "id": "shak-to-sor",
-        "url": "https://regionsyd.dk/fhir/ConceptMap/shak-to-sor",
+        "url": "https://example.org/fhir/ConceptMap/shak-to-sor",
         "name": "SHAKToSor",
         "title": "SHAK to SOR",
         "status": "active",

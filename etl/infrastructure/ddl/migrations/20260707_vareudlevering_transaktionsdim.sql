@@ -5,10 +5,10 @@
 -- root for the full AGPL-3.0 license text.
 
 -- ============================================================================
--- Migration: Vareudlevering transaktionsdimension — afslut navngivning (US 28058, Task 3)
+-- Migration: Vareudlevering transaktionsdimension — afslut navngivning ([internal ticket], Task 3)
 --
 -- map.Vareudlevering has been shared between dim and fct since migration
--- 20260504_27574_vareudlevering-egenskaber-fk.sql, but the naming was never
+-- 20260504_01_vareudlevering-egenskaber-fk.sql, but the naming was never
 -- finished: the dimension was still called dim.VareudleveringEgenskaber, and
 -- fct.Vareudlevering carried a redundant DW_EK_VareudleveringEgenskaber FK
 -- column that was always identical to its own PK (DW_EK_Vareudlevering).

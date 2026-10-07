@@ -9,7 +9,7 @@
 -- FakturaEgenskaber keyspace (map, dim, fct.Postering) and ADD the new FK
 -- column to fct.Faktura + fct.Fakturalinje.
 --
--- AB#28348 — Fix Faktura ↔ FakturaEgenskaber relationship modelling.
+-- Fix Faktura ↔ FakturaEgenskaber relationship modelling.
 --
 -- Idempotent: safe to re-run (checks new name does NOT already exist before
 -- calling sp_rename; ADD COLUMN guarded by sys.columns check).

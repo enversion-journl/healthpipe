@@ -608,20 +608,18 @@ As archive tables are built out, FHIR assets that currently read from `ext.*` or
 
 ## 8. DSO Sync Layer
 
-> **Status: NOT YET IMPLEMENTED.** The design below describes the target architecture for DSO sync unification with DFM. Currently, DSO sync still uses the legacy `SyncStateManager` class with `meta.SyncWatermarks` on the DSO database. This section documents the intended migration path.
-
-The DSO (Data Staging Out) sync transfers data from staging to the reporting database via linked-server delta MERGE. Its state tracking is unified into the DFM system using the same physical `meta.DFMState` and `meta.DFMRunLog` tables on the staging database.
+DSO sync checkpointing uses `DfmManager` on **staging** with `scope='dso'`. Legacy
+`SyncStateManager` + `[meta].[SyncWatermarks]` on DSO is deprecated for table sync;
+SFI datapoint refresh still uses SyncWatermarks until a follow-up US.
 
 ### 8.1 Unification with DFM
-
-Previously, DSO sync used a separate `SyncStateManager` class with a `meta.SyncWatermarks` table on the DSO database. Under DFM, everything lives in one place:
 
 | Aspect | Previous | DFM |
 |---|---|---|
 | State table | `meta.SyncWatermarks` (DSO DB) | `meta.DFMState` (staging DB) |
 | Log table | None (no run log) | `meta.DFMRunLog` (staging DB) |
 | Manager class | `SyncStateManager` | `DfmManager` |
-| Checkpoint read | `get_last_sync_timestamp()` | `get_checkpoint()` or `start_dfm_run()` |
+| Checkpoint read | `get_last_sync_timestamp()` | `start_dfm_run(..., scope='dso')` |
 | Checkpoint write | `update_sync_state()` | `set_checkpoint()` + `complete_dfm_run()` |
 
 ### 8.2 Scope Column for DSO
@@ -655,7 +653,49 @@ This keeps all state in a single `meta.DFMState` table with no ambiguity:
 | `dso` | `fhir` | `fhir_table` | `Encounter` | Last DSO sync of fhir.Encounter |
 | `staging` | `fhir_server` | `fhir_resource` | `Patient` | Last FHIR server upload |
 
-### 8.3 Benefits of Unification
+### 8.3 Checkpoint and delta semantics (Strategy B, pinned window)
+
+DSO sync filters the **staging source** directly, so it uses Strategy B from
+section 6.6 (`MAX(source_column)` checkpoint), not dim/fct Strategy A
+(`SYSDATETIME()`), with an explicit **upper bound** sampled **before** the MERGE.
+
+**Pinned window (before any source read):**
+
+```sql
+SELECT CONVERT(NVARCHAR(50), MAX(COALESCE([watermark_col], [dw_timestamp_insert])), 121)
+FROM [schema].[table]   -- staging source table → max_now
+```
+
+**Delta predicate on every source read** (MERGE / OPENQUERY batch / Python):
+
+```text
+COALESCE([watermark_col], [dw_timestamp_insert]) > '<checkpoint_before>'
+AND COALESCE([watermark_col], [dw_timestamp_insert]) <= '<max_now>'
+```
+
+After success with `rows_affected > 0`, `set_checkpoint(max_now)` — **never**
+re-query `MAX(...)` after the MERGE (that would advance past rows that landed
+mid-sync and were not in the source set). Mid-sync inserts fall outside
+`<= max_now` and are picked up by the next delta.
+
+**Zero-row guard:** complete the DFM run but do **not** call `set_checkpoint` when
+`rows_affected == 0` (`checkpoint_after = checkpoint_before`).
+
+**Read failure:** fail-closed — `DfmManager` raises; no soft-fail to full sync.
+
+**Auto-recovery:** fail the delta `DFMRunLog` row, then start a second run with
+`mode='full_load'` for integrity → TRUNCATE+INSERT, or for row-count mismatch →
+full MERGE **only when** `dso_count < staging_count` after a `watermark_delta`
+(including zero-row deltas, so a shortfall is not a silent green success).
+When `dso_count >= staging_count`, log a warning and skip recovery (MERGE cannot
+remove DSO-only rows).
+
+**Non-watermark syncs** (`merge`, `truncate_insert`): DFM run log only; no checkpoint.
+
+Implementation: [DSO/load/sync_dfm.py](../../DSO/load/sync_dfm.py),
+[DSO/load/sync_utils.py](../../DSO/load/sync_utils.py).
+
+### 8.4 Benefits of Unification
 
 - **Single source of truth**: all checkpoint state in one table on one database — queryable with a single `SELECT`
 - **Run logging**: DSO sync gains full run lifecycle logging (start/success/fail) with `meta.DFMRunLog`
@@ -679,6 +719,7 @@ SCHEMA_TO_TARGET_TYPE: dict[str, str] = {
     "stg": "staging",
     "dim": "dimension",
     "fct": "fact",
+    "dm": "datamart",
     "map": "mapping",
     "bridge": "bridge",
     "fhir_stg": "fhir_staging",
@@ -688,6 +729,7 @@ SCHEMA_TO_TARGET_TYPE: dict[str, str] = {
     "conceptmap": "conceptmap",
     "ref": "reference",
     "dfm": "dfm",
+    "sec": "security",
 }
 
 def _target_type_for_schema(schema: str) -> str:
@@ -796,6 +838,7 @@ BEGIN
         WHEN 'codesystem'  THEN 'codesystem'
         WHEN 'conceptmap'  THEN 'conceptmap'
         WHEN 'ref'         THEN 'reference'
+        WHEN 'sec'         THEN 'security'
         ELSE @schema_name
     END;
 
@@ -1658,6 +1701,23 @@ These are orchestrated by `fhir_ifdb_dfm_sof_dso_job` (and the full `ifdb_dfm_da
 The upstream `fhir.Patient` / `fhir.Patient_Address` tables are populated by DFM SQL-on-FHIR assets (`sof_patient_dfm`, `sof_patient_address_dfm`) in the same job. `sof_patient_address_dfm` runs a child-grain reconcile (mark live address rows deleted for changed patients, then MERGE-resurrect keys still in the view) in one transaction with the MERGE. The DFM borger assets declare these as Dagster lineage dependencies but use independent `last_updated`-based checkpoints — no DFM flow-start is needed at the SOF layer. `ref_patient_address_borger` builds LEAD intervals from active (`dw_is_deleted = 0`) address rows only; retired periods stay in ref/dim with `dw_is_deleted = 1`.
 
 Legacy `_watermark` Borger asset variants and temporary Borger validation jobs have been removed after DFM verification.
+
+### HAIBA (CSV datamart path)
+
+The HAIBA chain (`ext → arc → map/dm → DSO`) is on DFM run-logging end to end,
+with a deliberately different checkpoint story because every SDS delivery is a
+**full snapshot**:
+
+| Layer | Assets | DFM usage |
+|-------|--------|-----------|
+| ext | `ext_haiba_*` (`DSI/csv_files/haiba.py`) | Log-only; borrows the arc owner's checkpoint via `checkpoint_from`; mode locked to `full_load` (a partial ext would soft-delete whole HAI types downstream) |
+| arc | `arc_haiba_*` (`DSI/csv_files/haiba_archive.py`) | Standard `execute_archive_merge` — checkpoint owner. The delivery watermark itself lives in `meta.HAIBALeverance` (`guard_delivery_direction` / `record_delivery`) |
+| dm | `dm_haiba_*` + `dm_haiba_*_kontakt` (`DSA/SQL/dm/`) | Log-only against schema `dm` (target_type `datamart`); TRUNCATE + INSERT rebuild has no delta position, so `dm` is intentionally NOT in `CHECKPOINT_OWNER_SCHEMAS` |
+| DSO | `dso_sync_dm_haiba_*` | Still on `SyncStateManager` (`mode="truncate_insert"`) like the rest of the DSO layer — see section 8 |
+
+The `period` / `ids` run modes are intentionally not offered for HAIBA — the
+archive merges with `detect_deletes` + `upstream_is_full_load`, so anything but
+a full snapshot in `ext` is destructive.
 
 ### Legacy watermark system
 

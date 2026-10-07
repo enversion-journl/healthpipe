@@ -19,7 +19,16 @@ from dqa.registry import CHECK_TYPES
 
 pytestmark = pytest.mark.unit
 
-_EXPECTED_DOMAINS = {"fhir", "erp", "shared", "security", "codesystem", "conceptmap"}
+_EXPECTED_DOMAINS = {
+    "fhir",
+    "erp",
+    "shared",
+    "security",
+    "codesystem",
+    "conceptmap",
+    "haiba",
+    "drg",
+}
 
 
 def _make_resource(cursor):

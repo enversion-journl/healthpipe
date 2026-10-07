@@ -4,7 +4,7 @@
 -- This file is part of Healthpipe. See the LICENSE file in the project
 -- root for the full AGPL-3.0 license text.
 
--- Idempotent: create ref.RekvirentUndtagelse (AB#29115 PR-B).
+-- Idempotent: create ref.RekvirentUndtagelse.
 -- Exclusion list for reelt forbrug. PK: clean_code_Rekvirent (pad-only).
 
 IF NOT EXISTS (

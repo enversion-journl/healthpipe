@@ -20,8 +20,8 @@ dso_lineage:
     region_code:       "http://hl7.dk/fhir/core/StructureDefinition/dk-core-RegionalSubDivisionCodes"
     # HL7 international officiel
     address_official:  "http://hl7.org/fhir/StructureDefinition/address-official"
-    # RSyd-intern (KVHX/DAR-id har ingen dk-core extension endnu)
-    kvhx:              "http://regionsyddanmark.dk/fhir/StructureDefinition/addressKvhx"
+    # region-intern (KVHX/DAR-id har ingen dk-core extension endnu)
+    kvhx:              "http://example.org/fhir/StructureDefinition/addressKvhx"
 
   SourceSystems:
     - ifdb:         [IFDB.PATIENT_OPLYSNINGER_COLUMNA]
@@ -41,7 +41,7 @@ dso_lineage:
     address_country:       { DataType: NVARCHAR(8),   FhirPath: "address.country",                                                                       Expr: "Default 'DK' (ISO 3166-1 alpha-2); Datafordeleren kan levere ikke-DK" }
     municipality_code:     { DataType: NVARCHAR(8),   FhirPath: "address.extension('http://hl7.dk/fhir/core/StructureDefinition/dk-core-municipalityCodes').valueCodeableConcept.coding.code",      Source: [datafordeler.CPR.Adresse.Kommunekode, ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.KOMMUNEKODE], Description: "Kommunekode (dk-core extension). Primær: datafordeler; fallback: IFDB." }
     region_code:           { DataType: NVARCHAR(8),   FhirPath: "address.extension('http://hl7.dk/fhir/core/StructureDefinition/dk-core-RegionalSubDivisionCodes').valueCodeableConcept.coding.code", Source: [datafordeler.CPR.Adresse.Regionskode],   Description: "Regionskode (dk-core extension) — kommer fra Datafordeleren" }
-    kvhx:                  { DataType: NVARCHAR(64),  FhirPath: "address.extension('http://regionsyddanmark.dk/fhir/StructureDefinition/addressKvhx').valueString",                                  Source: [datafordeler.CPR.Adresse.KVHX],          Description: "Officielt adresse-id (DAR/KVHX) — RSyd-intern extension; kommer fra Datafordeleren" }
+    kvhx:                  { DataType: NVARCHAR(64),  FhirPath: "address.extension('http://example.org/fhir/StructureDefinition/addressKvhx').valueString",                                  Source: [datafordeler.CPR.Adresse.KVHX],          Description: "Officielt adresse-id (DAR/KVHX) — region-intern extension; kommer fra Datafordeleren" }
     last_updated:          { DataType: DATETIME2,     FhirPath: "meta.lastUpdated" }
     created_at:            { DataType: DATETIME2,     FhirPath: "r.cts" }
     dw_is_deleted:         { DataType: INT,           Description: "Slettet-flag (1 = slettet). Projiceres ikke fra FHIR; sættes af dqa_fhir_server_cleanup og af child-grain reconcile for rækker der ikke længere findes i sof.patient_address_view. NOT NULL DEFAULT 0, så indeksfilter og konsument-prædikater kan skrives som '= 0'." }

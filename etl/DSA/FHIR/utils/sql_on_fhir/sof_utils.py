@@ -228,6 +228,10 @@ SOF_RESOURCE_CONFIGS: dict[str, dict[str, Any]] = {
         "primary_keys": ["procedure_id"],
         # Absent isDeleted extension must land 0, not NULL -- see patient_view.
         "boolean_false_default_columns": ["dw_is_deleted"],
+        # Knivtid lander som DATETIME2 og ikke som streng, fordi den skal kunne
+        # regnes paa. Ressourcen baerer et tidspunkt med dansk zoneangivelse, saa
+        # normaliseringen her bevarer det tidspunkt der blev registreret.
+        "normalized_datetime_columns": ["knivtid_start", "knivtid_slut"],
     },
     "procedure_tillaegskode_view": {
         "view_name": "procedure_tillaegskode_view",
@@ -236,11 +240,14 @@ SOF_RESOURCE_CONFIGS: dict[str, dict[str, Any]] = {
         "mssql_table": "Procedure_tillaegskode",
         "primary_keys": ["procedure_id", "tillaegskode_kode", "tillaegskode_system"],
         "null_sentinel_columns": ["tillaegskode_kode", "tillaegskode_system"],
+        "deduplicate_by_pk": True,
+        "dedup_tiebreak_columns": ["last_updated", "created_at"],
         # dw_is_deleted is not projected by this view: dqa_fhir_server_cleanup
         # sets it to 1, and this MERGE is the only thing that writes 0 back.
         # Without it a retired row stays invisible even when the resource
         # returns.
         "resurrect_soft_deleted": True,
+        "child_grain_reconcile": True,
     },
     "servicerequest_view": {
         "view_name": "servicerequest_view",
@@ -265,6 +272,7 @@ SOF_RESOURCE_CONFIGS: dict[str, dict[str, Any]] = {
         # Without it a retired row stays invisible even when the resource
         # returns.
         "resurrect_soft_deleted": True,
+        "child_grain_reconcile": True,
     },
     # Rehabilitation_Plan-receivers. forEach over the receivers extension; only
     # source_table='REHABILITATION_PLAN' ServiceRequests carry it, so HENVISNING/
@@ -302,11 +310,14 @@ SOF_RESOURCE_CONFIGS: dict[str, dict[str, Any]] = {
         "mssql_table": "Condition_tillaegskode",
         "primary_keys": ["condition_id", "tillaegskode_kode", "tillaegskode_system"],
         "null_sentinel_columns": ["tillaegskode_kode", "tillaegskode_system"],
+        "deduplicate_by_pk": True,
+        "dedup_tiebreak_columns": ["last_updated", "created_at"],
         # dw_is_deleted is not projected by this view: dqa_fhir_server_cleanup
         # sets it to 1, and this MERGE is the only thing that writes 0 back.
         # Without it a retired row stays invisible even when the resource
         # returns.
         "resurrect_soft_deleted": True,
+        "child_grain_reconcile": True,
     },
     "appointment_view": {
         "view_name": "appointment_view",
@@ -347,12 +358,12 @@ SOF_RESOURCE_CONFIGS: dict[str, dict[str, Any]] = {
         "resource_table": "questionnaireresponse",
         "id_column": "qr_id",
         "mssql_table": "QuestionnaireResponse",
+        # Absent isDeleted extension must land 0, not NULL -- see patient_view.
+        "boolean_false_default_columns": ["dw_is_deleted"],
         "primary_keys": ["qr_id"],
         # dw_is_deleted is not projected by this view: dqa_fhir_server_cleanup
         # sets it to 1, and this MERGE is the only thing that writes 0 back.
         # Without it a retired row stays invisible even when the resource
-        # returns.
-        "resurrect_soft_deleted": True,
     },
     "questionnaire_response_item_view": {
         "view_name": "questionnaire_response_item_view",
@@ -366,6 +377,7 @@ SOF_RESOURCE_CONFIGS: dict[str, dict[str, Any]] = {
         # Without it a retired row stays invisible even when the resource
         # returns.
         "resurrect_soft_deleted": True,
+        "child_grain_reconcile": True,
     },
 }
 
@@ -1206,7 +1218,11 @@ def extract_and_merge_sof_view(
                     reconcile_open = False
                     try:
                         if reconcile_deletes and (full_load or parent_ids):
-                            if source_row_count == 0:
+                            # A full extract with no rows would retire the entire
+                            # target and is therefore unsafe. A delta child reconcile
+                            # is scoped to changed parent ids, where no children is a
+                            # legitimate result: the scoped children must be retired.
+                            if source_row_count == 0 and full_load:
                                 raise dg.Failure(
                                     description=(
                                         f"Delete reconcile for fhir.{table_name}: "

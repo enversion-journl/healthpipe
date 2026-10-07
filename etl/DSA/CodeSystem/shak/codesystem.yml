@@ -7,7 +7,7 @@
 resourceType: CodeSystem
 url: "urn:dk:shak"
 name: "SHAK"
-description: "Sygehus-Afdelingsklassifikation (SHAK) for Region Syddanmark. Hierarkisk struktur over sygehuse og afdelinger udledt fra SHAKSORMap (Sundhedsdatastyrelsen)."
+description: "Sygehus-Afdelingsklassifikation (SHAK) for Example Region. Hierarkisk struktur over sygehuse og afdelinger udledt fra SHAKSORMap (Sundhedsdatastyrelsen)."
 status: active
 hierarchyMeaning: is-a
 publisher: Sundhedsdatastyrelsen

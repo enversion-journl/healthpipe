@@ -18,7 +18,7 @@ from DSA.FHIR.utils.code_normalization import shak_identifier_value
 from DSA.FHIR.utils.ifdb.ris_ydelse_xml import extract_ris_row_fields
 from utils.fhir.condition_categories import (
     CODE_REFERRAL_INDICATION,
-    SYSTEM_CONDITION_CATEGORY_RSD,
+    SYSTEM_CONDITION_CATEGORY_LOCAL,
 )
 from utils.fhir.fhir_extensions import (
     EXTENSION_EPISODE_OF_CARE,
@@ -276,7 +276,7 @@ def test_ris_ordered_becomes_active_service_request():
     assert cond.code.coding[0].system == SYSTEM_SKS_D
     assert cond.code.coding[0].code == "DZ016"
     assert cond.verificationStatus.coding[0].code == "unconfirmed"
-    assert cond.category[0].coding[0].system == SYSTEM_CONDITION_CATEGORY_RSD
+    assert cond.category[0].coding[0].system == SYSTEM_CONDITION_CATEGORY_LOCAL
     assert cond.category[0].coding[0].code == CODE_REFERRAL_INDICATION
     assert req.authoredOn is not None
     # prioritet was the SPACE sentinel -> no FHIR priority.

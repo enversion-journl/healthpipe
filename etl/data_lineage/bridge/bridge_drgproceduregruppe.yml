@@ -1,0 +1,27 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: bridge
+  TableName: bridge.DRGProcedureGruppe
+  Domain: [DRG]
+  Description: >
+    Gruppe→kode-medlemskab for procedurer, inkl. producerende enhed. fct.DRGKontakt
+    refererer en kontakts hele distinkte sæt af (procedure, producerende enhed)
+    med én FK (dw_ek_DRGProcedureGruppe); denne bridge folder gruppen ud. Den
+    producerende enhed er en del af gruppens definerende sæt, så samme kode fra to
+    enheder er to medlemsrækker. Append-only: immutabelt medlemskab pr. gruppe.
+  Grain: "Én række pr. (dw_ek_DRGProcedureGruppe, dw_ek_DRGProcedure, dw_ek_Organisation_producerende); seed-række (-1, -1, -1)."
+  Privacy: "Ingen PII — kun surrogatnøgler."
+
+  SourceSystems:
+    - sds_drg: [DRG.PROCEDURE, DRGPSYK.Psyk_procedure]
+
+  Columns:
+    dw_ek_DRGProcedureGruppe: { Type: PK, DataType: INT, Description: "Del af sammensat PK. Gruppenøgle mintet i map.DRGProcedureGruppe over kontaktens distinkte (procedure, enhed)-sæt; refereres af fct.DRGKontakt (ingen egen dimension)." }
+    dw_ek_DRGProcedure: { Type: FK, DataType: INT, FK-Target: dim.DRGProcedure, Source: [sds_drg.DRG.PROCEDURE.PROCEDURE, sds_drg.DRGPSYK.Psyk_procedure.PROCEDUREKODE], Description: "Del af sammensat PK. Opslag via map.DRGProcedure på kodekombinationens clean_code." }
+    dw_ek_Organisation_producerende: { Type: FK, DataType: INT, FK-Target: dim.Organisation, Source: [sds_drg.DRG.PROCEDURE.PRODUCERENDE_ENHED, sds_drg.DRGPSYK.Psyk_procedure.PRODUCERENDE_ENHED], Description: "Del af sammensat PK. Producerende enhed (SOR) opslået i dim.Organisation; -1 ved tom/ukendt." }
+    dw_is_deleted: { DataType: BIT, Expr: "Altid 0 — medlemskab er append-only og immutabelt pr. gruppe." }

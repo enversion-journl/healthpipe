@@ -4,7 +4,7 @@
 -- This file is part of Healthpipe. See the LICENSE file in the project
 -- root for the full AGPL-3.0 license text.
 
--- Migration: Add IsCreditnote BIT to fct.IndkoebsanalyseLinje (task 28292)
+-- Migration: Add IsCreditnote BIT to fct.IndkoebsanalyseLinje
 -- Idempotent: only adds column if it does not already exist.
 -- Backfill from arc.invoice_kmd_uddata via arc.spend_analysis_lines_kmd_uddata.
 

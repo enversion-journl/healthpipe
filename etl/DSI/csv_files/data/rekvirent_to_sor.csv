@@ -1,9 +1,1 @@
 source_code,source_display,target_code,target_display,relationship,note
-SGH_55,,8041000016000,Esbjerg Sygehus Grindsted Sygehus,equivalent,Hospital mapping: Sydvestjysk Sygehus
-SGH_4200,,8071000016009,Odense Universitetshospital - Svendborg,equal,Hospital mapping: Odense Universitetshospital
-SGH_5001,,8051000016002,Sygehus Sønderjylland,equal,Hospital mapping: Sygehus Sønderjylland
-SGH_6000,,8061000016004,Sygehus Lillebælt,equal,Hospital mapping: Sygehus Lillebælt
-SGH_1000,,6101000016001,Region Syddanmark,equal,Hospital mapping: Region Syddanmark (not Psykiatrien)
-SGH_9999,,6101000016001,Region Syddanmark,equal,Hospital mapping: Region Syddanmark (not Psykiatrien)
-SGH_8000,,602571000016006,Praksisafdelingen,equivalent,Hospital mapping: Praksis
-SGH_9000,,696851000016002,Medicoteknik,equal,Hospital mapping: Medicoteknik

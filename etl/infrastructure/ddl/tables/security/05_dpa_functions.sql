@@ -5,7 +5,7 @@
 -- root for the full AGPL-3.0 license text.
 
 /*============================================================
-  DPA Security Functions (additive — new RBAC model, US 28010)
+  DPA Security Functions (additive — new RBAC model, [internal ticket])
   Purpose: Inline table-valued functions for DPA security
   Target:  sec schema
   Dependencies: 04_dpa_tables.sql (sec.RolleDomaene), 01_tables.sql (sec.RBOrganisation)

@@ -103,6 +103,9 @@ class TestStandardFields:
         rows = [_full_row()]
         procs = _transform_adm_procedure_to_fhir(rows, _MockContext())
         assert len(procs) == 1
+        # Præcis ét identifier: aftagerfladen joiner (source_system,
+        # source_identifier_value) som to uafhængige first() over listen.
+        assert len(procs[0].identifier) == 1
         assert procs[0].identifier[0].system == SYSTEM_IFDB_ADMINISTRATIVE_PROCEDURE
         assert procs[0].identifier[0].value == "ADM-001"
 

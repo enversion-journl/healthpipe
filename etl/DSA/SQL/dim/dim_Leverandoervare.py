@@ -17,7 +17,7 @@ Uses the delta-driven staging table:
 Source-flags are derived in staging from EXISTS over the full current archive
 picture, so a plain assignment from stg.dim_Leverandoervare is correct on every run.
 
-Privacy (task 27191): This dimension uses ONLY MySupply/ILS sources.
+Privacy: This dimension uses ONLY MySupply/ILS sources.
 KMD ItemDescription/ItemName must NEVER be added here — see guardrail test.
 """
 

@@ -35,6 +35,19 @@ _RES = "mssql_target_staging"  # DSA (fct/dim live here)
 # The ERP facts that have monthly partition-completeness coverage today; the
 # natural first set for DWH referential + null checks.
 _FACTS: list[tuple[str, str]] = [
+    # fct.DRGKontakt caps below are set from the observed baseline (dqa.results /
+    # a direct measure over the full 35.6M-row load). The always-resolving FK
+    # roles get a tight 0.01 cap to catch a lookup regression; the design-blank
+    # roles (a contact without a diagnosis/procedure/henvisning maps to -1) get
+    # headroom above baseline; henvisende is left observability-only (empty on
+    # ~57 % of somatik rows and on ALL psyk rows by design). NOTE: the baseline
+    # is somatik-only (no DRGPSYK in the data yet) — re-validate the design-blank
+    # caps, especially DRGProcedureGruppe, after the first psyk delivery. Partition
+    # completeness per (takstsystem, aktivitetsaar) is enforced harder than the
+    # monthly check family: the fact asset's built-in control total compares live
+    # rows and totalpris against the archive per slice and FAILS the run on any
+    # deviation.
+    ("dwh_drgkontakt", "fct.DRGKontakt"),
     ("dwh_fakturalinje", "fct.Fakturalinje"),
     ("dwh_faktura", "fct.Faktura"),
     ("dwh_postering", "fct.Postering"),
@@ -55,6 +68,24 @@ _SENTINEL_MAX_RATES: dict[str, float | dict[str, float]] = {
     "fct.Vareudlevering": 0.5,
     "fct.Finanskladdelinje": 0.5,
     "fct.Budget": 0.5,
+    # DRG baseline (full somatik load, -1 rate per FK role):
+    #   Klassifikation/sygehus/kontaktansvar/Dato_ind/Dato_ud ~0.000, Borger 0.0003,
+    #   forloebselement/Dato_henvisning ~0.027, DRGProcedureGruppe ~0.048,
+    #   DRGDiagnoseGruppe ~0.150, Organisation_henvisende ~0.559.
+    # Tight caps on the always-resolving roles (catch a regression); headroom on the
+    # design-blank roles; henvisende omitted -> observability-only (see _FACTS note).
+    "fct.DRGKontakt": {
+        "dw_ek_Borger": 0.01,
+        "dw_ek_DRGKontaktKlassifikation": 0.01,
+        "dw_ek_Organisation_sygehus": 0.01,
+        "dw_ek_Organisation_kontaktansvar": 0.01,
+        "dw_ek_Dato_ind": 0.01,
+        "dw_ek_Dato_ud": 0.01,
+        "dw_ek_DRGDiagnoseGruppe": 0.25,
+        "dw_ek_DRGProcedureGruppe": 0.15,
+        "dw_ek_Organisation_forloebselement": 0.08,
+        "dw_ek_Dato_henvisning": 0.08,
+    },
 }
 
 
@@ -115,6 +146,8 @@ def _fact(name: str, table: str) -> DqaSubject:
 # sentinel_rate/completeness (composite grain, no single source-count query).
 _BRIDGES: list[tuple[str, str]] = [
     ("dwh_bridge_leverandoervare_ilsvare", "bridge.LeverandoervareILSVare"),
+    ("dwh_bridge_drgdiagnosegruppe", "bridge.DRGDiagnoseGruppe"),
+    ("dwh_bridge_drgproceduregruppe", "bridge.DRGProcedureGruppe"),
 ]
 
 DWH_SUBJECTS: list[DqaSubject] = [_fact(name, table) for name, table in _FACTS] + [

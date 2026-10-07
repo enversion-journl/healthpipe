@@ -99,6 +99,9 @@ PAS_DIAGNOSE_REFERENCE_CONFIGS = [
 
 BATCH_SIZE = 10_000
 
+_CONDITION_CLINICAL_STATUS_SYSTEM = "http://terminology.hl7.org/CodeSystem/condition-clinical"
+_CONDITION_VERIFICATION_STATUS_SYSTEM = "http://terminology.hl7.org/CodeSystem/condition-ver-status"
+
 # ---------------------------------------------------------------------------
 # Inline lookup helpers (batch-scoped, chunked IN against the archive)
 # ---------------------------------------------------------------------------
@@ -220,7 +223,7 @@ def _transform_pas_diagnose_to_fhir(
             CodeableConcept(
                 coding=[
                     Coding(
-                        system="http://terminology.hl7.org/CodeSystem/condition-clinical",
+                        system=_CONDITION_CLINICAL_STATUS_SYSTEM,
                         code=clinical_status_code,
                     )
                 ]
@@ -232,7 +235,7 @@ def _transform_pas_diagnose_to_fhir(
         verification_status = CodeableConcept(
             coding=[
                 Coding(
-                    system="http://terminology.hl7.org/CodeSystem/condition-ver-status",
+                    system=_CONDITION_VERIFICATION_STATUS_SYSTEM,
                     code=verification_code,
                 )
             ]

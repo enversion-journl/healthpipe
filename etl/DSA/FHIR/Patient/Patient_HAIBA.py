@@ -30,7 +30,7 @@ would paper over a gap in the Patient chain rather than close it.
 The resources are stubs by design: HAIBA delivers a CPR and nothing else — no
 name, birth date or gender. meta.source is set to "HAIBA" so downstream can
 tell these apart from clinically sourced patients; the priority order between
-sources (CPR register > IFDB > HAIBA) is AB#29390.
+sources (CPR register > IFDB > HAIBA) is [internal ticket].
 
 CPRs are created regardless of format. A structurally invalid CPR still gets a
 resource; the count of malformed values is logged as a signal but never blocks,
@@ -160,7 +160,10 @@ def post_missing_patients(
         resources=new_patients, resource_type="Patient"
     )
     if failed:
-        context.log.error(f"{failed} Patient(s) failed to upsert: {failed_ids[:5]}")
+        # failed_ids carries driver error text of unbounded provenance;
+        # the only data in these resources IS the person identifier,
+        # so only the count may reach the log.
+        context.log.error(f"{failed} Patient(s) failed to upsert")
     return posted, failed, skipped
 
 

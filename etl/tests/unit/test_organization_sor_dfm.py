@@ -4,7 +4,7 @@
 # This file is part of Healthpipe. See the LICENSE file in the project
 # root for the full AGPL-3.0 license text.
 
-"""Unit tests for the codesystem-sourced FHIR Organization build (US #28833).
+"""Unit tests for the codesystem-sourced FHIR Organization build.
 
 Covers the transform branches of Organization_SOR_dfm: active-status
 derivation from the closingDate property, name/type fallbacks, and the

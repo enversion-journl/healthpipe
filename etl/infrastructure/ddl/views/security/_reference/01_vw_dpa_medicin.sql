@@ -6,7 +6,7 @@
 
 -- ============================================================================
 -- REFERENCE ONLY — NOT DEPLOYED.
--- Implementation pattern for DPA per-domain secured views (US 28010, Medicin).
+-- Implementation pattern for DPA per-domain secured views ([internal ticket], Medicin).
 -- These views require a real fct.Medicinadministration (a later pipeline). They
 -- live under views/security/_reference/ specifically so the non-recursive
 -- views/security/*.sql glob in dso_infra_views_security does NOT execute them.

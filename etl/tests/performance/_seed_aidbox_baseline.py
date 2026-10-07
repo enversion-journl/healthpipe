@@ -58,15 +58,15 @@ def _component(i: int) -> dict:
         "valueString": f"Værdi nummer {i}",
         "extension": [
             {
-                "url": "http://regionsyddanmark.dk/fhir/StructureDefinition/aktivitetsresultatElementMeta#elementId",
+                "url": "http://example.org/fhir/StructureDefinition/aktivitetsresultatElementMeta#elementId",
                 "valueString": f"RM_Bench:edElement{i}",
             },
             {
-                "url": "http://regionsyddanmark.dk/fhir/StructureDefinition/aktivitetsresultatHierarki#elementNummer",
+                "url": "http://example.org/fhir/StructureDefinition/aktivitetsresultatHierarki#elementNummer",
                 "valueInteger": i,
             },
             {
-                "url": "http://regionsyddanmark.dk/fhir/StructureDefinition/aktivitetsresultatRowType",
+                "url": "http://example.org/fhir/StructureDefinition/aktivitetsresultatRowType",
                 "valueString": "Element",
             },
         ],
@@ -86,7 +86,7 @@ def make_observation(idx: int) -> dict:
         "issued": "2025-01-01T11:00:00+00:00",
         "extension": [
             {
-                "url": "http://regionsyddanmark.dk/fhir/StructureDefinition/aktivitetsresultatRootMeta",
+                "url": "http://example.org/fhir/StructureDefinition/aktivitetsresultatRootMeta",
                 "extension": [{"url": "type", "valueString": "Seed"}],
             }
         ],

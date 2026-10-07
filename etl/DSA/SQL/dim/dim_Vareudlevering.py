@@ -103,6 +103,7 @@ def dim_Vareudlevering(
                     ds.sw_haster,
                     ds.sw_erstat,
                     ds.projektnummer,
+                    ds.projektnavn,
                     ds.kontonummer_kode,
                     ds.bruger,
                     ds.bk_prrowid,
@@ -116,7 +117,11 @@ def dim_Vareudlevering(
                     ds.afleveringsoperatoer,
                     ds.afleveringstekst,
                     ds.afleveringsstregkode,
-                    ds.vognnummer
+                    ds.vognnummer,
+                    ds.lgrlok,
+                    ds.ekspeditionsnummer,
+                    ds.lager_varetype,
+                    ds.lager_varetype_navn
 
                 INTO #Vareudlevering_Attributes
                 FROM [stg].[dim_Vareudlevering_ils] ds
@@ -141,11 +146,13 @@ def dim_Vareudlevering(
                         src.leverandoernummer, src.ordrenummer, src.ordrelinje,
                         src.sw_direkte_udlevering, src.sw_pakkeseddel, src.sw_foelgeseddel,
                         src.sw_fly, src.sw_haster, src.sw_erstat,
-                        src.projektnummer, src.kontonummer_kode, src.bruger,
+                        src.projektnummer, src.projektnavn, src.kontonummer_kode, src.bruger,
                         src.bk_prrowid, src.referencenummer, src.referencelinje,
                         src.salgsordre, src.salgsordre_id, src.salgsfakturanummer,
                         src.rekvisitionsvare_id, src.plukvarer_id, src.afleveringsoperatoer,
-                        src.afleveringstekst, src.afleveringsstregkode, src.vognnummer
+                        src.afleveringstekst, src.afleveringsstregkode, src.vognnummer,
+                        src.lgrlok, src.ekspeditionsnummer,
+                        src.lager_varetype, src.lager_varetype_navn
                     EXCEPT
                     SELECT
                         tgt.clean_code_Vareudlevering,
@@ -153,11 +160,13 @@ def dim_Vareudlevering(
                         tgt.leverandoernummer, tgt.ordrenummer, tgt.ordrelinje,
                         tgt.sw_direkte_udlevering, tgt.sw_pakkeseddel, tgt.sw_foelgeseddel,
                         tgt.sw_fly, tgt.sw_haster, tgt.sw_erstat,
-                        tgt.projektnummer, tgt.kontonummer_kode, tgt.bruger,
+                        tgt.projektnummer, tgt.projektnavn, tgt.kontonummer_kode, tgt.bruger,
                         tgt.bk_prrowid, tgt.referencenummer, tgt.referencelinje,
                         tgt.salgsordre, tgt.salgsordre_id, tgt.salgsfakturanummer,
                         tgt.rekvisitionsvare_id, tgt.plukvarer_id, tgt.afleveringsoperatoer,
-                        tgt.afleveringstekst, tgt.afleveringsstregkode, tgt.vognnummer
+                        tgt.afleveringstekst, tgt.afleveringsstregkode, tgt.vognnummer,
+                        tgt.lgrlok, tgt.ekspeditionsnummer,
+                        tgt.lager_varetype, tgt.lager_varetype_navn
                 ) THEN
                     UPDATE SET
                         tgt.clean_code_Vareudlevering = src.clean_code_Vareudlevering,
@@ -174,6 +183,7 @@ def dim_Vareudlevering(
                         tgt.sw_haster = src.sw_haster,
                         tgt.sw_erstat = src.sw_erstat,
                         tgt.projektnummer = src.projektnummer,
+                        tgt.projektnavn = src.projektnavn,
                         tgt.kontonummer_kode = src.kontonummer_kode,
                         tgt.bruger = src.bruger,
                         tgt.bk_prrowid = src.bk_prrowid,
@@ -188,6 +198,10 @@ def dim_Vareudlevering(
                         tgt.afleveringstekst = src.afleveringstekst,
                         tgt.afleveringsstregkode = src.afleveringsstregkode,
                         tgt.vognnummer = src.vognnummer,
+                        tgt.lgrlok = src.lgrlok,
+                        tgt.ekspeditionsnummer = src.ekspeditionsnummer,
+                        tgt.lager_varetype = src.lager_varetype,
+                        tgt.lager_varetype_navn = src.lager_varetype_navn,
                         tgt.dw_timestamp_update = CAST(SYSDATETIME() AS datetime2(0))
 
                 WHEN NOT MATCHED BY TARGET THEN
@@ -207,6 +221,7 @@ def dim_Vareudlevering(
                         sw_haster,
                         sw_erstat,
                         projektnummer,
+                        projektnavn,
                         kontonummer_kode,
                         bruger,
                         bk_prrowid,
@@ -221,6 +236,10 @@ def dim_Vareudlevering(
                         afleveringstekst,
                         afleveringsstregkode,
                         vognnummer,
+                        lgrlok,
+                        ekspeditionsnummer,
+                        lager_varetype,
+                        lager_varetype_navn,
                         dw_timestamp_insert,
                         dw_timestamp_update
                     )
@@ -240,6 +259,7 @@ def dim_Vareudlevering(
                         src.sw_haster,
                         src.sw_erstat,
                         src.projektnummer,
+                        src.projektnavn,
                         src.kontonummer_kode,
                         src.bruger,
                         src.bk_prrowid,
@@ -254,6 +274,10 @@ def dim_Vareudlevering(
                         src.afleveringstekst,
                         src.afleveringsstregkode,
                         src.vognnummer,
+                        src.lgrlok,
+                        src.ekspeditionsnummer,
+                        src.lager_varetype,
+                        src.lager_varetype_navn,
                         CAST(SYSDATETIME() AS datetime2(0)),
                         CAST(SYSDATETIME() AS datetime2(0))
                     );
@@ -265,12 +289,13 @@ def dim_Vareudlevering(
                     foelgeseddelnummer, brik, leverandoernummer,
                     ordrenummer, ordrelinje, sw_direkte_udlevering,
                     sw_pakkeseddel, sw_foelgeseddel, sw_fly,
-                    sw_haster, sw_erstat, projektnummer,
+                    sw_haster, sw_erstat, projektnummer, projektnavn,
                     kontonummer_kode, bruger, bk_prrowid,
                     referencenummer, referencelinje, salgsordre,
                     salgsordre_id, salgsfakturanummer, rekvisitionsvare_id,
                     plukvarer_id, afleveringsoperatoer, afleveringstekst,
-                    afleveringsstregkode, vognnummer, dw_timestamp_insert,
+                    afleveringsstregkode, vognnummer, lgrlok, ekspeditionsnummer,
+                    lager_varetype, lager_varetype_navn, dw_timestamp_insert,
                     dw_timestamp_update
             )
             SELECT
@@ -278,12 +303,13 @@ def dim_Vareudlevering(
                     src.foelgeseddelnummer, src.brik, src.leverandoernummer,
                     src.ordrenummer, src.ordrelinje, src.sw_direkte_udlevering,
                     src.sw_pakkeseddel, src.sw_foelgeseddel, src.sw_fly,
-                    src.sw_haster, src.sw_erstat, src.projektnummer,
+                    src.sw_haster, src.sw_erstat, src.projektnummer, src.projektnavn,
                     src.kontonummer_kode, src.bruger, src.bk_prrowid,
                     src.referencenummer, src.referencelinje, src.salgsordre,
                     src.salgsordre_id, src.salgsfakturanummer, src.rekvisitionsvare_id,
                     src.plukvarer_id, src.afleveringsoperatoer, src.afleveringstekst,
-                    src.afleveringsstregkode, src.vognnummer, CAST(SYSDATETIME() AS datetime2(0)),
+                    src.afleveringsstregkode, src.vognnummer, src.lgrlok, src.ekspeditionsnummer,
+                    src.lager_varetype, src.lager_varetype_navn, CAST(SYSDATETIME() AS datetime2(0)),
                     CAST(SYSDATETIME() AS datetime2(0))
             FROM #Vareudlevering_Attributes src;
             """
@@ -335,6 +361,7 @@ def dim_Vareudlevering(
                     COUNT(sw_haster) AS has_sw_haster,
                     COUNT(sw_erstat) AS has_sw_erstat,
                     COUNT(projektnummer) AS has_projektnummer,
+                    COUNT(projektnavn) AS has_projektnavn,
                     COUNT(kontonummer_kode) AS has_kontonummer_kode,
                     COUNT(bruger) AS has_bruger,
                     COUNT(bk_prrowid) AS has_bk_prrowid,
@@ -348,7 +375,11 @@ def dim_Vareudlevering(
                     COUNT(afleveringsoperatoer) AS has_afleveringsoperatoer,
                     COUNT(afleveringstekst) AS has_afleveringstekst,
                     COUNT(afleveringsstregkode) AS has_afleveringsstregkode,
-                    COUNT(vognnummer) AS has_vognnummer
+                    COUNT(vognnummer) AS has_vognnummer,
+                    COUNT(lgrlok) AS has_lgrlok,
+                    COUNT(ekspeditionsnummer) AS has_ekspeditionsnummer,
+                    COUNT(lager_varetype) AS has_lager_varetype,
+                    COUNT(lager_varetype_navn) AS has_lager_varetype_navn
                 FROM [dim].[Vareudlevering]
                 WHERE dw_ek_Vareudlevering <> -1
             """
@@ -370,20 +401,25 @@ def dim_Vareudlevering(
                 has_sw_haster = stats[13]
                 has_sw_erstat = stats[14]
                 has_projektnummer = stats[15]
-                has_kontonummer_kode = stats[16]
-                has_bruger = stats[17]
-                has_bk_prrowid = stats[18]
-                has_referencenummer = stats[19]
-                has_referencelinje = stats[20]
-                has_salgsordre = stats[21]
-                has_salgsordre_id = stats[22]
-                has_salgsfakturanummer = stats[23]
-                has_rekvisitionsvareid = stats[24]
-                has_plukvareid = stats[25]
-                has_afleveringsoperatoer = stats[26]
-                has_afleveringstekst = stats[27]
-                has_afleveringsstregkode = stats[28]
-                has_vognnummer = stats[29]
+                has_projektnavn = stats[16]
+                has_kontonummer_kode = stats[17]
+                has_bruger = stats[18]
+                has_bk_prrowid = stats[19]
+                has_referencenummer = stats[20]
+                has_referencelinje = stats[21]
+                has_salgsordre = stats[22]
+                has_salgsordre_id = stats[23]
+                has_salgsfakturanummer = stats[24]
+                has_rekvisitionsvareid = stats[25]
+                has_plukvareid = stats[26]
+                has_afleveringsoperatoer = stats[27]
+                has_afleveringstekst = stats[28]
+                has_afleveringsstregkode = stats[29]
+                has_vognnummer = stats[30]
+                has_lgrlok = stats[31]
+                has_ekspeditionsnummer = stats[32]
+                has_lager_varetype = stats[33]
+                has_lager_varetype_navn = stats[34]
 
                 context.log.info(
                     f"Dimension sync complete: {total_dim_rows} total rows "
@@ -403,6 +439,7 @@ def dim_Vareudlevering(
                     f"{has_sw_haster}/{total_dim_rows} with sw_haster, "
                     f"{has_sw_erstat}/{total_dim_rows} with sw_erstat, "
                     f"{has_projektnummer}/{total_dim_rows} with projektnummer, "
+                    f"{has_projektnavn}/{total_dim_rows} with projektnavn, "
                     f"{has_kontonummer_kode}/{total_dim_rows} with kontonummer_kode, "
                     f"{has_bruger}/{total_dim_rows} with bruger, "
                     f"{has_bk_prrowid}/{total_dim_rows} with bk_prrowid, "
@@ -416,7 +453,11 @@ def dim_Vareudlevering(
                     f"{has_afleveringsoperatoer}/{total_dim_rows} with afleveringsoperatoer, "
                     f"{has_afleveringstekst}/{total_dim_rows} with afleveringstekst, "
                     f"{has_afleveringsstregkode}/{total_dim_rows} with afleveringsstregkode, "
-                    f"{has_vognnummer}/{total_dim_rows} with vognnummer"
+                    f"{has_vognnummer}/{total_dim_rows} with vognnummer, "
+                    f"{has_lgrlok}/{total_dim_rows} with lgrlok, "
+                    f"{has_ekspeditionsnummer}/{total_dim_rows} with ekspeditionsnummer, "
+                    f"{has_lager_varetype}/{total_dim_rows} with lager_varetype, "
+                    f"{has_lager_varetype_navn}/{total_dim_rows} with lager_varetype_navn"
                 )
             finally:
                 cursor.close()
@@ -451,6 +492,7 @@ def dim_Vareudlevering(
             "has_sw_haster": has_sw_haster,
             "has_sw_erstat": has_sw_erstat,
             "has_projektnummer": has_projektnummer,
+            "has_projektnavn": has_projektnavn,
             "has_kontonummer_kode": has_kontonummer_kode,
             "has_bruger": has_bruger,
             "has_bk_prrowid": has_bk_prrowid,
@@ -465,6 +507,10 @@ def dim_Vareudlevering(
             "has_afleveringstekst": has_afleveringstekst,
             "has_afleveringsstregkode": has_afleveringsstregkode,
             "has_vognnummer": has_vognnummer,
+            "has_lgrlok": has_lgrlok,
+            "has_ekspeditionsnummer": has_ekspeditionsnummer,
+            "has_lager_varetype": has_lager_varetype,
+            "has_lager_varetype_navn": has_lager_varetype_navn,
             "table": "dim.Vareudlevering",
             "source_tables": "stg.dim_Vareudlevering_ils + map.Vareudlevering",
             "scd_type": "Type 1 (overwrite)",

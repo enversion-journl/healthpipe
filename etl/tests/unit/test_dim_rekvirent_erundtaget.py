@@ -4,7 +4,7 @@
 # This file is part of Healthpipe. See the LICENSE file in the project
 # root for the full AGPL-3.0 license text.
 
-"""SQL contract tests for dim.Rekvirent.er_undtaget (AB#29116 PR-C)."""
+"""SQL contract tests for dim.Rekvirent.er_undtaget."""
 
 from pathlib import Path
 

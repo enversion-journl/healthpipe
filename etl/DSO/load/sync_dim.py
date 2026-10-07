@@ -380,7 +380,7 @@ def dso_sync_dim_borger(
     group_name="shared_dimensions_dso_sync",
     compute_kind="mssql",
     # No longer gated on dso_sync_map_organisation: dim.Organisation is built
-    # from ref.Organisation, not map.Organisation (US #28193).
+    # from ref.Organisation, not map.Organisation.
     deps=["dim_Organisation", "dso_infra_organisation"],
     tags={"domain": "shared_dimensions", "layer": "dso_sync", "type": "dimension"},
     description="Sync dim.Organisation from staging to DSO database",

@@ -20,9 +20,10 @@ dso_lineage:
 
   Columns:
     dw_ek_Organisation:      { Type: PK, DataType: INT, Expr: "Fra ref.Organisation (INT IDENTITY tildelt ud fra fhir.Organization.organization_id)" }
-    kode:                    { DataType: VARCHAR(50), Source: [sor.SOR_registry.SORId], Expr: "fhir.Organization.identifier_value_sor (= ref.Organisation.sor_code)" }
     dw_ek_Organisation_parent:        { Type: FK, DataType: INT, FK-Target: dim.Organisation, Expr: "Resolves fhir.Organization.part_of_id -> ref.Organisation.dw_ek_Organisation; -1 hvis ingen/ukendt forælder" }
-    parent_kode:              { DataType: VARCHAR(50), Source: [sor.SOR_registry.ParentSorId], Expr: "Forælderens sor_code (fra fhir.Organization)" }
+    fhir_Organization_id:    { DataType: NVARCHAR(255), Expr: "ref.Organisation.organization_id — fhir.Organization-ressourcens id bag dw_ek_Organisation. NULL på sentinel -1." }
+    kode:                    { DataType: VARCHAR(50), Source: [sor.SOR_registry.SORId], Expr: "fhir.Organization.identifier_value_sor (= ref.Organisation.sor_code)" }
+    kode_parent:              { DataType: VARCHAR(50), Source: [sor.SOR_registry.ParentSorId], Expr: "Forælderens sor_code (fra fhir.Organization)" }
     navn:                    { DataType: NVARCHAR(500), Source: [sor.SOR_registry.EntityName], Expr: "fhir.Organization.name" }
     aktiv:                   { DataType: BIT, Source: [sor.SOR_registry.Status], Expr: "1 hvor fhir.Organization.active = 'true'" }
     hierarki_niveau:         { DataType: INT, Expr: "Dybde fra SOR-rod (1 = rod). NULL på sentinel -1. Afledt af dw_ek_Organisation_parent-kæden." }

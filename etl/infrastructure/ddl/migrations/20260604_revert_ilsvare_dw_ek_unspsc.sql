@@ -4,7 +4,7 @@
 -- This file is part of Healthpipe. See the LICENSE file in the project
 -- root for the full AGPL-3.0 license text.
 
--- Migration: revert dim.IlsVare DW_EK_UNSPSC outrigger (task 27788 revert)
+-- Migration: revert dim.IlsVare DW_EK_UNSPSC outrigger ([internal ticket] revert)
 -- UNSPSC FK belongs on facts via map.UNSPSC, not on dim.IlsVare.
 
 IF OBJECT_ID(N'[dim].[IlsVare]') IS NOT NULL

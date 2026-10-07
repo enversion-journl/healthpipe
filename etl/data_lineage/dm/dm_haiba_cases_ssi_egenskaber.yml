@@ -1,0 +1,67 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: dimension
+  TableName: dm.HAIBA_CasesSSIEgenskaber
+  Domain: [HAIBA]
+  DimModel: transaction
+  TransactionDimFor: dm.HAIBA_CasesSSI
+  Description: "Transaktionsdimension til dm.HAIBA_CasesSSI — kildens deskriptive kolonner som rå værdier plus encounter-matchets kvalitet pr. rolle, 1:1 på dw_ek"
+  Grain: "Én række pr. case (HAI_type, cprnr, operation_date) — samme grain som fakta"
+  Privacy: >
+    CPR-frit: cprnr fra kilden projiceres bevidst IKKE — borgeren bæres kun som
+    dw_ek_Borger på fakta. banr/extid/larlabnr er id-lister, ikke personnumre.
+
+  SourceSystems:
+    - haiba: [cases_ssi]
+
+  Columns:
+    dw_ek_HAIBA_CasesSSI:               { Type: PK, DataType: INT, Description: "Delt entitetsnøgle med dm.HAIBA_CasesSSI — mintes i map.HAIBA_CasesSSI." }
+    HAI_type:                            { DataType: NVARCHAR(50), Source: [haiba.cases_ssi.HAI_type], Description: "HAI-type: SSI_HIP, SSI_KNEE" }
+    operation_date:                      { DataType: NVARCHAR(30), Source: [haiba.cases_ssi.operation_date], Description: "Rå datostreng (SAS-format) — den opløste nøgle bor på fakta (dw_ek_Dato_operation)" }
+    HAI_date:                            { DataType: NVARCHAR(30), Source: [haiba.cases_ssi.HAI_date], Description: "Rå datostreng; strukturelt blank på rækker uden infektion — opløst nøgle på fakta (dw_ek_Dato_hai)" }
+    reo_date:                            { DataType: NVARCHAR(30), Source: [haiba.cases_ssi.reo_date], Description: "Rå datostreng (SAS-format); strukturelt blank på rækker uden reoperation — opløst nøgle på fakta (dw_ek_Dato_reo)" }
+    banr:                                { DataType: NVARCHAR(500), Source: [haiba.cases_ssi.banr], Description: "Mellemrumssepareret id-liste uden øvre grænse (78 tegn observeret i leverance 2026-08-08)" }
+    larlabnr:                            { DataType: NVARCHAR(500), Source: [haiba.cases_ssi.larlabnr], Description: "Mellemrumssepareret lab-id-liste uden øvre grænse" }
+    extid:                               { DataType: NVARCHAR(500), Source: [haiba.cases_ssi.extid], Description: "Mellemrumssepareret lab-id-liste uden øvre grænse" }
+    Index_diagnosis:                     { DataType: NVARCHAR(50), Source: [haiba.cases_ssi.Index_diagnosis] }
+    Index_operation:                     { DataType: NVARCHAR(100), Source: [haiba.cases_ssi.Index_operation] }
+    Index_acute:                        { DataType: NVARCHAR(10), Source: [haiba.cases_ssi.Index_acute] }
+    Index_side:                          { DataType: NVARCHAR(20), Source: [haiba.cases_ssi.Index_side] }
+    reo_diagnosis:                       { DataType: NVARCHAR(50), Source: [haiba.cases_ssi.reo_diagnosis] }
+    reoperation:                         { DataType: NVARCHAR(255), Source: [haiba.cases_ssi.reoperation] }
+    reo_acute:                           { DataType: NVARCHAR(10), Source: [haiba.cases_ssi.reo_acute] }
+    reo_side:                            { DataType: NVARCHAR(20), Source: [haiba.cases_ssi.reo_side] }
+    HAI_producent:                       { DataType: NVARCHAR(30), Source: [haiba.cases_ssi.HAI_producent], Description: "Rå SOR-kode for indeksoperationens producent — opløst nøgle på fakta" }
+    HAI_kontaktansvarlig:                { DataType: NVARCHAR(30), Source: [haiba.cases_ssi.HAI_kontaktansvarlig], Description: "Rå SOR-kode for indeksoperationens kontaktansvarlige — opløst nøgle på fakta" }
+    reo_producent:                       { DataType: NVARCHAR(30), Source: [haiba.cases_ssi.reo_producent], Description: "Rå SOR-kode for reoperationens producent — opløst nøgle på fakta" }
+    reo_kontaktansvarlig:                { DataType: NVARCHAR(30), Source: [haiba.cases_ssi.reo_kontaktansvarlig], Description: "Rå SOR-kode for reoperationens kontaktansvarlige — opløst nøgle på fakta" }
+    HAI_RegionKode:                      { DataType: NVARCHAR(10), Source: [haiba.cases_ssi.HAI_RegionKode], Description: "Se dm.HAIBA_CasesInfektionEgenskaber — bærer landsaggregat-skellet" }
+    findings1:                           { DataType: NVARCHAR(500), Source: [haiba.cases_ssi.findings1] }
+    findings2:                           { DataType: NVARCHAR(500), Source: [haiba.cases_ssi.findings2] }
+    findings3:                           { DataType: NVARCHAR(500), Source: [haiba.cases_ssi.findings3] }
+    findings4:                           { DataType: NVARCHAR(500), Source: [haiba.cases_ssi.findings4] }
+    findings5:                           { DataType: NVARCHAR(500), Source: [haiba.cases_ssi.findings5] }
+    findings6:                           { DataType: NVARCHAR(500), Source: [haiba.cases_ssi.findings6] }
+    findings7:                           { DataType: NVARCHAR(500), Source: [haiba.cases_ssi.findings7] }
+    findings8:                           { DataType: NVARCHAR(500), Source: [haiba.cases_ssi.findings8] }
+    findings9:                           { DataType: NVARCHAR(500), Source: [haiba.cases_ssi.findings9] }
+    match_kvalitet_producent:            { DataType: VARCHAR(20), Expr: "Beregnes af haiba_kontakt-assettet (8 værdier: eksakt, eksakt_flere, kun_periode, kun_sor, intet_match, ingen_kontakter, ingen_borger, ikke_koert). NOT NULL DEFAULT 'ikke_koert'." }
+    match_dage_producent:                { DataType: INT, Expr: "Fortegnsbærende afstand i dage: negativ før kontakten, positiv efter, 0 indeni" }
+    match_kvalitet_kontaktansvarlig:     { DataType: VARCHAR(20), Expr: "Som match_kvalitet_producent, for kontaktansvarlig-rollen" }
+    match_dage_kontaktansvarlig:         { DataType: INT, Expr: "Som match_dage_producent" }
+    match_kvalitet_reo_producent:        { DataType: VARCHAR(20), Expr: "Som match_kvalitet_producent, for reoperationens producent (mod reo_date)" }
+    match_dage_reo_producent:            { DataType: INT, Expr: "Som match_dage_producent" }
+    match_kvalitet_reo_kontaktansvarlig: { DataType: VARCHAR(20), Expr: "Som match_kvalitet_producent, for reoperationens kontaktansvarlige (mod reo_date)" }
+    match_dage_reo_kontaktansvarlig:     { DataType: INT, Expr: "Som match_dage_producent" }
+    leverance_dato:                      { DataType: DATE, Expr: "Afledt af leverancefilens navn, ført med fra arc" }
+    dw_is_deleted:                       { DataType: BIT, Expr: "Ført med fra arc — se dm.HAIBA_CasesSSI" }
+    dw_timestamp_insert:                 { Type: Audit, DataType: DATETIME2(0), Expr: "SYSDATETIME() ved rebuild (TRUNCATE + INSERT)" }
+    dw_timestamp_update:                 { Type: Audit, DataType: DATETIME2(0), Expr: "SYSDATETIME() ved rebuild" }
+
+  Notes:
+    - "Match-kvalitetsfordelingen skifter med EPJ-udrulningen (Cosmic) — se dm.HAIBA_CasesInfektionEgenskaber."

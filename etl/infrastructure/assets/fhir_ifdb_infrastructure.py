@@ -22,6 +22,7 @@ from DSA.FHIR.utils.sql_on_fhir.sof_utils import check_sof_required_indexes
 from utils.fhir.identifier_index_names import sanitize_system_for_identifier
 from utils.fhir.index_config import (
     FAR_CODESYSTEMCONCEPT_INDEXES,
+    IDENTIFIER_PREFIX_INDEX_SPECS,
     IDENTIFIER_UNIQUE_INDEX_SPECS,
     SOF_TS_RESOURCES,
     TXID_BTREE_RESOURCES,
@@ -81,6 +82,58 @@ def _create_unique_identifier_index(
         f"CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS {index_name} "
         f"ON {table_name} ("
         f"    extract_identifier_value(resource, '{identifier_system}')"
+        f") "
+        f"WHERE resource->'identifier' @> '{system_filter}'::jsonb"
+        f"  AND extract_identifier_value(resource, '{identifier_system}') "
+        f"IS NOT NULL"
+    )
+    return index_name
+
+
+def _prefix_index_name(table_name: str, system_safe: str) -> str:
+    """Navn til præfiks-indekset, der overlever 63-tegns-grænsen.
+
+    Postgres afkorter identifikatorer til 63 tegn. For lange systemnavne
+    (fx aktivitetsresultat_xml_condition) blev "..._prefix" afkortet til
+    PRÆCIS samme navn som det unikke indeks — og CREATE INDEX IF NOT EXISTS
+    no-oppede lydløst, så indekset aldrig blev oprettet. Det kostede en
+    fuld indeksscanning pr. opslag i oprydningen (målt: 33 ms mod 0,05 ms).
+
+    Kendetegnet ("pfx") lægges derfor FØRST, når navnet ellers ville blive
+    afkortet, så det aldrig kan klippes væk. Eksisterende korte navne
+    bevares uændret, så allerede oprettede indekser genfindes.
+    """
+    name = f"idx_{table_name}_{system_safe}_prefix"
+    if len(name) <= 63:
+        return name
+    return f"idx_{table_name}_pfx_{system_safe}"[:63]
+
+
+def _create_prefix_identifier_index(
+    cur: Any, resource_type: str, identifier_system: str, logger: Any
+) -> str:
+    """Praefiks-indeks til oprydning af XML-boern.
+
+    Boernenes identifier-vaerdi er "{foraelder}{infix}{n}", saa oprydningen
+    skal finde alt med et givet praefiks. Det unikke indeks bruger standard-
+    opklassen og kan kun slaa op paa hele vaerdien; ``text_pattern_ops``
+    sammenligner byte for byte, saa intervallet fra praefikset til praefikset
+    med sidste tegn plus en er eksakt uanset databasens collation.
+
+    Samme partielle praedikat som det unikke indeks, saa planlaeggeren kan
+    matche det fra samme forespoergsel.
+    """
+    table_name = resource_type.lower()
+    system_safe = sanitize_system_for_identifier(identifier_system)
+    index_name = _prefix_index_name(table_name, system_safe)
+    system_filter = json.dumps([{"system": identifier_system}])
+
+    _drop_invalid_index_if_exists(cur, index_name, logger)
+
+    cur.execute(
+        f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {index_name} "
+        f"ON {table_name} ("
+        f"    extract_identifier_value(resource, '{identifier_system}') text_pattern_ops"
         f") "
         f"WHERE resource->'identifier' @> '{system_filter}'::jsonb"
         f"  AND extract_identifier_value(resource, '{identifier_system}') "
@@ -212,6 +265,48 @@ def fhir_ifdb_database_indexes(
                         logger.warning(f"[INDEXING] {warning_msg}")
                         unique_index_warnings.append(warning_msg)
                         unique_indexes_skipped.append(f"{resource_type}:{identifier_system}")
+
+            # --- Phase 1b: praefiks-indekser til oprydning af XML-boern ---
+            for resource_type, identifier_system in IDENTIFIER_PREFIX_INDEX_SPECS:
+                table_name = resource_type.lower()
+                system_safe = sanitize_system_for_identifier(identifier_system)
+                index_name = _prefix_index_name(table_name, system_safe)
+
+                # Ryd det gamle navn op, hvor kollisionssikringen har givet et
+                # nyt: ellers staar to identiske praefiks-indekser og koster
+                # dobbelt skrive-I/O paa hver upsert for evigt.
+                gammelt_navn = f"idx_{table_name}_{system_safe}_prefix"[:63]
+                if gammelt_navn != index_name:
+                    try:
+                        cur.execute("SELECT 1 FROM pg_class WHERE relname = %s", (gammelt_navn,))
+                        if cur.fetchone():
+                            logger.info(
+                                f"[INDEXING] Dropping superseded prefix index {gammelt_navn}"
+                            )
+                            cur.execute(f"DROP INDEX CONCURRENTLY IF EXISTS {gammelt_navn}")
+                            indexes_dropped.append(gammelt_navn)
+                    except Exception as exc:
+                        logger.warning(
+                            f"[INDEXING] Failed to drop superseded prefix index "
+                            f"{gammelt_navn}: {exc}"
+                        )
+                try:
+                    logger.info(
+                        f"[INDEXING] Creating prefix index {index_name} for {resource_type}"
+                    )
+                    _create_prefix_identifier_index(cur, resource_type, identifier_system, logger)
+                    indexes_created.append(f"{resource_type}:{identifier_system}:prefix")
+                    tables_to_analyze.add(table_name)
+                    logger.info(f"[INDEXING] Created prefix index for {resource_type}")
+                except Exception as exc:
+                    # Ikke-fatal af samme grund som de unikke indekser: uden
+                    # indekset er oprydningen langsom, ikke forkert.
+                    warning_msg = (
+                        f"Prefix index {index_name} for {resource_type} failed "
+                        f"(non-fatal, reconcile falls back to a scan): {exc}"
+                    )
+                    logger.warning(f"[INDEXING] {warning_msg}")
+                    unique_index_warnings.append(warning_msg)
 
             # --- Phase 2: txid btree indexes for MAX(txid) in batch upserts ---
             for resource_type in TXID_BTREE_RESOURCES:

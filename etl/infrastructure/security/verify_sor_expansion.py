@@ -12,7 +12,7 @@ Formål
 ------
 AD-grupperne har endnu for få medlemmer til at validere udpakningen end-to-end
 med rigtige brugere. Dette værktøj indlæser derfor det SENESTE reelle
-AD-udtræk (audit-JSONL fra ``export_sydbi_ad_groups.py``) plus to hardcodede
+AD-udtræk (audit-JSONL fra ``export_healthpipe_ad_groups.py``) plus to hardcodede
 dummy-brugere gennem den rigtige loader, og krydstjekker resultatet mod en
 UAFHÆNGIG rekursiv CTE-traversering af ``codesystem.SORHierarchy`` i SQL:
 
@@ -35,7 +35,7 @@ Kørsel (fra etl-roden, fx i dev code-server-containeren)
     python -m infrastructure.security.verify_sor_expansion --yes
 
 Kræver samme miljøvariabler som loaderen (``MSSQL_TARGET_STAGING_*``) samt et
-frisk audit-JSONL fra seneste extract (``LDAP_SYDBI_OUTPUT_JSONL``).
+frisk audit-JSONL fra seneste extract (``LDAP_HP_OUTPUT_JSONL``).
 KUN til dev/QA: afbryder hvis miljøet ligner prod. Skriver i
 ``sec.RBOrganisation`` (``sec.RolleDomaene`` røres ikke).
 
@@ -58,7 +58,7 @@ from core.environment import is_prod_environment, prod_environment_reason
 from DSA.ConceptMap.utils import find_all_descendants
 
 try:
-    from infrastructure.security import load_sydbi_ad_to_mssql as loader
+    from infrastructure.security import load_healthpipe_ad_to_mssql as loader
 except ImportError:
     sys.exit(
         "Kør som modul fra etl-roden: "
@@ -156,8 +156,8 @@ def main() -> int:
         return 2
 
     org_jsonl = Path(
-        os.environ.get("LDAP_SYDBI_OUTPUT_JSONL")
-        or str(Path(loader.__file__).resolve().parent / "output" / "sydbi_grupper.jsonl")
+        os.environ.get("LDAP_HP_OUTPUT_JSONL")
+        or str(Path(loader.__file__).resolve().parent / "output" / "healthpipe_grupper.jsonl")
     )
     real_rows = loader._read_jsonl(org_jsonl)
     if not real_rows:

@@ -1,0 +1,48 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: dimension
+  TableName: dim.DRGKontaktKlassifikation
+  Domain: [DRG]
+  Description: >
+    Den primære analysedimension for DRG-kontakter: ét medlem pr.
+    kombination af klassifikationsattributterne (leverancetype + takstsystem
+    + 17 attributter), ~131.500 medlemmer pr. takstsystem. Beskrivelse,
+    trimpunkt og standardtakst er funktionelt afhængige af (takstsystem,
+    drg_kode) og denormaliseret på uden ekstra kardinalitet. Psyk-kontakter
+    indgår i samme dimension med tomme grouper-felter.
+  Grain: "Ét medlem pr. kombination af klassifikationsattributterne."
+  SCD: type1
+
+  SourceSystems:
+    - sds_drg: [DRG.DRGKONTAKT, DRG.DRGTAKSTBESKRIVELSE, DRGPSYK.Psyk_kontakt]
+
+  Columns:
+    dw_ek_DRGKontaktKlassifikation: { Type: PK, DataType: INT }
+    clean_code_DRGKontaktKlassifikation: { DataType: NVARCHAR(100), Expr: "DRGKLASS_{sha256 over den længde-præfiksede attributkombination}" }
+    leverancetype: { DataType: NVARCHAR(10), Expr: "'DRG' | 'DRGPSYK'" }
+    takstsystem: { DataType: NVARCHAR(3), Source: [sds_drg.DRG.DRGKONTAKT.takstsystem] }
+    drg_kode: { DataType: NVARCHAR(10), Source: [sds_drg.DRG.DRGKONTAKT.DRG] }
+    mdc: { DataType: NVARCHAR(10), Source: [sds_drg.DRG.DRGKONTAKT.MDC] }
+    drg_grouper: { DataType: NVARCHAR(10), Source: [sds_drg.DRG.DRGKONTAKT.DRG_GROUPER] }
+    regel: { DataType: NVARCHAR(10), Source: [sds_drg.DRG.DRGKONTAKT.REGEL] }
+    rtc: { DataType: NVARCHAR(10), Source: [sds_drg.DRG.DRGKONTAKT.RTC] }
+    d90ua05: { DataType: NVARCHAR(10), Source: [sds_drg.DRG.DRGKONTAKT.D90UA05] }
+    drgkontakttype: { DataType: NVARCHAR(100), Source: [sds_drg.DRG.DRGKONTAKT.DRGKONTAKTTYPE] }
+    kontakttype: { DataType: NVARCHAR(100), Source: [sds_drg.DRG.DRGKONTAKT.KONTAKTTYPE, sds_drg.DRGPSYK.Psyk_kontakt.KONTAKTTYPE] }
+    prioritet: { DataType: NVARCHAR(100), Source: [sds_drg.DRG.DRGKONTAKT.PRIORITET, sds_drg.DRGPSYK.Psyk_kontakt.PRIORITET] }
+    kontaktaarsag: { DataType: NVARCHAR(100), Source: [sds_drg.DRG.DRGKONTAKT.KONTAKTAARSAG] }
+    afslutningsmaade: { DataType: NVARCHAR(100), Source: [sds_drg.DRG.DRGKONTAKT.AFSLUTNINGSMAADE] }
+    henvisningsmaade: { DataType: NVARCHAR(100), Source: [sds_drg.DRG.DRGKONTAKT.HENVISNINGSMAADE] }
+    henvisningsaarsag: { DataType: NVARCHAR(100), Source: [sds_drg.DRG.DRGKONTAKT.HENVISNINGSAARSAG] }
+    betalingsaftale: { DataType: NVARCHAR(100), Source: [sds_drg.DRG.DRGKONTAKT.BETALINGSAFTALE] }
+    betaler: { DataType: NVARCHAR(100), Source: [sds_drg.DRG.DRGKONTAKT.BETALER] }
+    specialiseringsniveau: { DataType: NVARCHAR(100), Source: [sds_drg.DRG.DRGKONTAKT.SPECIALISERINGSNIVEAU] }
+    sygehustype: { DataType: NVARCHAR(10), Source: [sds_drg.DRG.DRGKONTAKT.SYGEHUSTYPE, sds_drg.DRGPSYK.Psyk_kontakt.SYGEHUSTYPE] }
+    drg_beskrivelse: { DataType: NVARCHAR(500), Source: [sds_drg.DRG.DRGTAKSTBESKRIVELSE.BESKRIVELSE], Description: "Denormaliseret fra takstkataloget — FD af (takstsystem, drg_kode)." }
+    trimpunkt: { DataType: NVARCHAR(10), Source: [sds_drg.DRG.DRGKONTAKT.TRIMPUNKT], Description: "FD af (takstsystem, drg_kode) — målt i kildeprofilen." }
+    standardtakst: { DataType: DECIMAL(19,4), Source: [sds_drg.DRG.DRGKONTAKT.PRIS_DRG], Description: "DRG-taksten — FD af (takstsystem, drg_kode); Type 1, så en takstrevision overskriver." }

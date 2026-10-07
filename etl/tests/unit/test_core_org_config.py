@@ -36,7 +36,7 @@ def test_defaults_are_locked(monkeypatch):
         monkeypatch.delenv(key, raising=False)
     cfg = importlib.reload(org_config)
 
-    assert cfg.DATA_DIR == "/workspaces/sydbi_basismodel/data"
+    assert cfg.DATA_DIR == "/workspaces/healthpipe/data"
     assert cfg.FHIR_PUBLISHER == "Your Organization"
 
 

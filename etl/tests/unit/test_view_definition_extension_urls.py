@@ -21,7 +21,7 @@ pytestmark = pytest.mark.unit
 _VIEW_DEFINITIONS_DIR = (
     Path(__file__).resolve().parents[2] / "DSA" / "FHIR" / "SqlOnFhir" / "view_definitions"
 )
-_RSD_URL = re.compile(r"http://regionsyddanmark\.dk/fhir/StructureDefinition/[A-Za-z0-9._-]+")
+_LOCAL_URL = re.compile(r"http://example\.org/fhir/StructureDefinition/[A-Za-z0-9._-]+")
 
 # URLs a ViewDefinition reads on purpose even though no transform writes them yet.
 # Adding an entry here is a deliberate act: it records "the column is expected to
@@ -29,17 +29,17 @@ _RSD_URL = re.compile(r"http://regionsyddanmark\.dk/fhir/StructureDefinition/[A-
 # transform without removing it here would go unnoticed, so keep the reason
 # specific enough that the next person can tell whether it is still true.
 _NOT_PRODUCED_YET: dict[str, str] = {
-    "http://regionsyddanmark.dk/fhir/StructureDefinition/motherIdentifier": (
+    "http://example.org/fhir/StructureDefinition/motherIdentifier": (
         "No source column in PATIENT_COLUMN_MAPPING; mother CPR is not delivered by IFDB."
     ),
-    "http://regionsyddanmark.dk/fhir/StructureDefinition/fatherIdentifier": (
+    "http://example.org/fhir/StructureDefinition/fatherIdentifier": (
         "No source column in PATIENT_COLUMN_MAPPING; father CPR is not delivered by IFDB."
     ),
-    "http://regionsyddanmark.dk/fhir/StructureDefinition/discretionFlag": (
+    "http://example.org/fhir/StructureDefinition/discretionFlag": (
         "OENSKER_DISKRETION is mapped in PATIENT_COLUMN_MAPPING but transforms.py "
         "does not build the extension."
     ),
-    "http://regionsyddanmark.dk/fhir/StructureDefinition/addressKvhx": (
+    "http://example.org/fhir/StructureDefinition/addressKvhx": (
         "No source column for KVHX; transforms.py does not build the extension."
     ),
 }
@@ -50,7 +50,7 @@ def _written_urls() -> set[str]:
     return {
         value
         for name, value in vars(fhir_extensions).items()
-        if name.startswith("EXTENSION_") and isinstance(value, str) and _RSD_URL.fullmatch(value)
+        if name.startswith("EXTENSION_") and isinstance(value, str) and _LOCAL_URL.fullmatch(value)
     }
 
 
@@ -61,7 +61,7 @@ def _read_urls() -> dict[str, list[tuple[str, str]]]:
         definition = json.loads(path.read_text(encoding="utf-8"))
         for select in definition.get("select", []):
             for column in select.get("column", []):
-                for url in _RSD_URL.findall(column.get("path", "")):
+                for url in _LOCAL_URL.findall(column.get("path", "")):
                     found.setdefault(url, []).append((path.name, column.get("name", "?")))
     return found
 

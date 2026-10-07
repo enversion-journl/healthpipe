@@ -12,7 +12,7 @@ applies fuzzy matching and manual overrides, and MERGEs mappings
 into persistent table: conceptmap.lager_to_sor.
 
 Matching strategy:
-1. Top-level: REGION_SYD -> Region Syddanmark (6101000016001) - "equal"
+1. Top-level: REGION_SYD -> Example Region (6101000016001) - "equal"
 2. Hospital level: SGH_* -> SOR hospitals using manual CSV mappings
 3. Lager level: LGR_* -> specific SOR codes or parent hospital with "narrower"
 """

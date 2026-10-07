@@ -6,7 +6,7 @@
 
 """DSO security sync assets: sync sec.* tables from staging to DSO.
 
-Part of the additive DPA security model (US 28010). The RolleDomaene /
+Part of the additive DPA security model. The RolleDomaene /
 RBOrganisation tables are maintained on staging (source of truth) and synced to
 DSO, where the secured views read them. Population of these tables from source
 systems is a later branch; until then these assets sync empty tables (a 0-row

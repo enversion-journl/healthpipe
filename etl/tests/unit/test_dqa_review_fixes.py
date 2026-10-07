@@ -598,6 +598,31 @@ def test_dwh_subjects_use_sentinel_rate_not_not_null():
             assert spec.params["columns"], f"{s.name} sentinel_rate has no columns"
 
 
+def test_drgkontakt_sentinel_caps_tight_on_always_resolving_loose_on_design_blank():
+    """fct.DRGKontakt caps come from the measured baseline: the always-resolving FK
+    roles are capped tight (catch a lookup regression); henvisende is left
+    observability-only (empty by design on ~57 % somatik + all psyk)."""
+    from dqa.config.dwh_subjects import _SENTINEL_MAX_RATES
+
+    caps = _SENTINEL_MAX_RATES["fct.DRGKontakt"]
+    assert isinstance(caps, dict)
+    # henvisende must NOT be capped — a fixed cap would false-alarm on psyk.
+    assert "dw_ek_Organisation_henvisende" not in caps
+    # always-resolving roles get a tight cap.
+    for col in (
+        "dw_ek_Borger",
+        "dw_ek_DRGKontaktKlassifikation",
+        "dw_ek_Organisation_sygehus",
+        "dw_ek_Organisation_kontaktansvar",
+        "dw_ek_Dato_ind",
+        "dw_ek_Dato_ud",
+    ):
+        assert caps[col] <= 0.01
+    # design-blank roles get headroom above their baseline.
+    assert caps["dw_ek_DRGDiagnoseGruppe"] >= 0.15
+    assert caps["dw_ek_DRGProcedureGruppe"] >= 0.10
+
+
 # --- N4: uniqueness refuses ignore_values on a composite grain --------------------
 
 
@@ -819,9 +844,14 @@ def test_arc_sensor_spec_is_weekly_only():
     # though the base job succeeds daily).
     assert arc["daily_job"] is None
     assert "dqa_arc_ifdb_weekly_job" in arc["weekly_jobs"]
-    # The FHIR and ERP pipelines DO have a daily job (fired every day).
+    # FHIR, ERP, DRG and HAIBA pipelines DO have a daily job.
     daily = {s["name"] for s in DQA_AFTER_ETL_SENSOR_SPECS if s["daily_job"]}
-    assert daily == {"dqa_fhir_after_etl", "dqa_erp_daily_after_dfm"}
+    assert daily == {
+        "dqa_fhir_after_etl",
+        "dqa_erp_daily_after_dfm",
+        "dqa_drg_after_publish",
+        "dqa_haiba_after_publish",
+    }
 
 
 # --- arc replay: ids-mode re-extract for archive_reconciliation gaps ---------------
@@ -1017,7 +1047,8 @@ def test_stage_ifdb_keys_single_column_shape_is_unchanged():
     )
 
     create = str(cur.execute.call_args_list[0].args[0])
-    assert "(k NVARCHAR(255) NOT NULL)" in create
+    assert "[k] NVARCHAR(255) COLLATE DATABASE_DEFAULT NOT NULL" in create
+    assert "(k " not in create  # column is bracketed
     # 123.0 normalized to '123'; the NULL row skipped.
     assert cur.bulkcopy.call_args.args[1] == [("123",)]
     assert cur.bulkcopy.call_args.kwargs["column_mappings"] == ["k"]
@@ -1046,7 +1077,8 @@ def test_stage_ifdb_keys_composite_normalizes_each_part():
     )
 
     create = str(cur.execute.call_args_list[0].args[0])
-    assert "k0 NVARCHAR(255) NOT NULL, k1 NVARCHAR(255) NOT NULL" in create
+    assert "[k0] NVARCHAR(255) COLLATE DATABASE_DEFAULT NOT NULL" in create
+    assert "[k1] NVARCHAR(255) COLLATE DATABASE_DEFAULT NOT NULL" in create
     assert cur.bulkcopy.call_args.args[1] == [("100014109707", "2026-01-02 03:04:05")]
     assert cur.bulkcopy.call_args.kwargs["column_mappings"] == ["k0", "k1"]
     assert loaded == 1  # raekken med NULL PERIOD_START er skippet

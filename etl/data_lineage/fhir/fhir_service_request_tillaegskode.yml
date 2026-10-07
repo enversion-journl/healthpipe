@@ -21,6 +21,6 @@ dso_lineage:
     tillaegskode_kode:   { Type: PK, DataType: NVARCHAR(255), FhirPath: "code", Source: [ifdb_ris_ydelse.IFDB.RIS_YDELSE.XML] }
     tillaegskode_system: { Type: PK, DataType: NVARCHAR(500), FhirPath: "system" }
     tillaegskode_display: { DataType: NVARCHAR(500), FhirPath: "display" }
-    dw_is_deleted:       { DataType: INT, Description: "Slettet-flag (0 = live, 1 = slettet). Warehouse-styret: foraeldre-resourcen baerer urn:fhir:isDeleted, men dette grain projicerer ikke feltet — det saettes kun af dqa_fhir_server_cleanup naar foraeldre-resourcen er hard-slettet i Aidbox, og nulstilles ved MERGE-match. NOT NULL DEFAULT 0. BEMAERK: '= 0' betyder 'ikke markeret af cleanup', IKKE 'findes stadig under foraeldren' — child-grain reconcile er ikke slaaet til her." }
+    dw_is_deleted:           { DataType: INT, Description: "Slettet-flag (0 = live, 1 = slettet). Warehouse-styret: foraeldre-ressourcen baerer urn:fhir:isDeleted, men dette grain projicerer ikke feltet. Saettes af child-grain reconcile, naar koden ikke laengere findes under den levende foraelder, og af dqa_fhir_server_cleanup ved hard-delete i Aidbox; nulstilles ved MERGE-match (resurrect_soft_deleted). NOT NULL DEFAULT 0." }
     last_updated:        { DataType: DATETIME2, FhirPath: "r.ts" }
     created_at:          { DataType: DATETIME2, FhirPath: "r.cts" }

@@ -10,7 +10,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "healthpipe"
-version = "1.0.1"
+version = "1.0.2"
 description = "Healthpipe — an open-source healthcare data pipeline platform"
 readme = "README.md"
 requires-python = "==3.12.*"
@@ -41,7 +41,7 @@ dependencies = [
     "mssql-python==1.13.0",
     "lxml>=6.1.1",
     "orjson>=3.9.0",
-    # AD/LDAP security extraction (infrastructure/security/export_sydbi_ad_groups.py -> extract_security asset)
+    # AD/LDAP security extraction (infrastructure/security/export_healthpipe_ad_groups.py -> extract_security asset)
     "ldap3>=2.9,<3",
     "pycryptodome>=3.20,<4",  # NTLM auth (MD4) on Python 3.12+
 ]

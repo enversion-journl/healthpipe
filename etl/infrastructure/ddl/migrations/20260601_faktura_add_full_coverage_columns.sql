@@ -8,7 +8,7 @@
 -- Migration: Add full CSV specification columns to dim.FakturaEgenskaber and
 -- dim.Fakturalinje.
 --
--- AB#28293 — Tilføj Kreditnota (DokumentType) + full MySupply field coverage.
+-- Tilføj Kreditnota (DokumentType) + full MySupply field coverage.
 --
 -- Adds:
 --   dim.FakturaEgenskaber: 30 new columns (29 high-NULL header + DokumentType)

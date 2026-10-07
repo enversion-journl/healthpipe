@@ -5,12 +5,21 @@
 # root for the full AGPL-3.0 license text.
 
 """
-AB#27834 — stamp the FHIR contact relation onto the dm HAIBA case rows.
+Stamp the FHIR contact relation onto the dm HAIBA case rows.
 
 A HAIBA case says "this citizen had this infection, on this date, attributed to
 this unit". It does not say which hospital contact that was. This module finds
 the contact and writes it beside the case, so a consumer can go from an
 infection to the admission it belongs to without re-deriving the join.
+
+Since the dimensional split, a case is a fact row
+(dw_ek_Borger and the resolved keys) plus an egenskaber row (the raw SOR
+codes and dates), joined 1:1 on dw_ek. The relation is stamped in two
+places by design: the relation KEYS (encounter_id_*, location_id_*) land on
+the FACT so the join out to the contact is direct, while the match QUALITY
+(match_kvalitet_*, match_dage_*) lands on the egenskaber table. The rebuild
+resets both sides ('ikke_koert' / NULL), so these assets run after it and
+re-stamp every row.
 
 Two kinds of role, and they resolve against different FHIR resources:
 
@@ -84,6 +93,7 @@ whose only same-unit contact is in 2026.
 from dataclasses import dataclass
 
 import dagster as dg
+from core.dfm_manager import DfmManager
 from core.resources import MSSQLResource
 
 # Sentinel written by the dm rebuild when no citizen could be resolved.
@@ -169,34 +179,54 @@ class KontaktRolle:
         return f"match_dage_{self.navn}"
 
     @property
-    def columns(self) -> tuple[str, ...]:
-        cols = [self.encounter_column, self.kvalitet_column, self.dage_column]
+    def fact_columns(self) -> tuple[str, ...]:
+        """Relation keys — live on the fact so the join out is direct."""
+        cols = [self.encounter_column]
         if self.location_column:
-            cols.insert(1, self.location_column)
+            cols.append(self.location_column)
         return tuple(cols)
+
+    @property
+    def egenskaber_columns(self) -> tuple[str, ...]:
+        """Match quality — lives on the egenskaber transaction dimension."""
+        return (self.kvalitet_column, self.dage_column)
+
+    @property
+    def columns(self) -> tuple[str, ...]:
+        return self.fact_columns + self.egenskaber_columns
 
 
 @dataclass(frozen=True)
 class KontaktTabel:
-    """A dm case table, its primary key, and the roles stamped onto it."""
+    """A dm case fact table and the roles stamped onto its egenskaber table.
+
+    ``dm_table`` is the fact; the raw SOR/date columns and the relation
+    columns live on ``egenskaber_table``, 1:1 on ``dw_ek_column``.
+    """
 
     dm_table: str
-    key_columns: tuple[str, ...]
     roller: tuple[KontaktRolle, ...]
+
+    @property
+    def dw_ek_column(self) -> str:
+        return f"dw_ek_{self.dm_table}"
+
+    @property
+    def egenskaber_table(self) -> str:
+        # PascalCase, no separating underscore: HAIBA_CasesSSIEgenskaber.
+        return f"{self.dm_table}Egenskaber"
 
 
 KONTAKT_TABELLER = (
     KontaktTabel(
-        "HAIBA_Cases_Infektion",
-        ("HAI_type", "cprnr", "HAI_date"),
+        "HAIBA_CasesInfektion",
         (
             KontaktRolle("kontaktansvar", "HAI_Kontaktansvar", "HAI_date", "organisation"),
             KontaktRolle("opholdsadresse", "HAI_Opholdsadresse", "HAI_date", "lokation"),
         ),
     ),
     KontaktTabel(
-        "HAIBA_Cases_SSI",
-        ("HAI_type", "cprnr", "operation_date"),
+        "HAIBA_CasesSSI",
         (
             # The index operation and the reoperation are separate events with
             # their own dates; each has a performing and a responsible unit.
@@ -228,11 +258,14 @@ def build_match_sql(tabel: KontaktTabel, rolle: KontaktRolle) -> str:
     patient records the contacts under both should be searched — the ranking
     below picks a single winner per case either way, so fan-out is safe here in
     a way it is not in the dm rebuild's INSERT.
+
+    The case key is the fact's dw_ek — dw_ek_Borger sits on the fact and the
+    raw SOR and date on egenskaber, so both sides of the 1:1 pair are read.
+    The write is split the same way the columns are: the relation keys onto
+    the fact, the match quality onto egenskaber — two UPDATEs from the same
+    #match, so they cannot diverge.
     """
-    keys = tabel.key_columns
-    key_cols = ", ".join(f"[{k}]" for k in keys)
-    key_on = " AND ".join(f"m.[{k}] = c.[{k}]" for k in keys)
-    key_part = ", ".join(f"c.[{k}]" for k in keys)
+    dw_ek = tabel.dw_ek_column
 
     if rolle.via == "lokation":
         # The location period is when the patient occupied that ward — narrower
@@ -276,7 +309,7 @@ WHERE {_live("e")} AND e.[status] <> 'entered-in-error'
 
     location_set = ""
     if rolle.location_column:
-        location_set = f"    c.[{rolle.location_column}] = m.[location_id],\n"
+        location_set = f",\n    f.[{rolle.location_column}] = m.[location_id]"
 
     return f"""
 DROP TABLE IF EXISTS #pat;
@@ -288,26 +321,28 @@ DROP TABLE IF EXISTS #match;
 -- is narrowed before anything else touches it.
 SELECT DISTINCT CAST(p.[patient_id] AS NVARCHAR(255)) AS [patient_id]
 INTO #pat
-FROM [dm].[{tabel.dm_table}] AS c
+FROM [dm].[{tabel.dm_table}] AS f
 INNER JOIN [ref].[PatientToBorger] AS p
-        ON p.[dw_ek_Borger] = c.[dw_ek_Borger] AND p.[dw_is_deleted] = 0
-WHERE c.[dw_ek_Borger] <> {UNKNOWN_BORGER};
+        ON p.[dw_ek_Borger] = f.[dw_ek_Borger] AND p.[dw_is_deleted] = 0
+WHERE f.[dw_ek_Borger] <> {UNKNOWN_BORGER};
 CREATE UNIQUE CLUSTERED INDEX [IX_pat] ON #pat([patient_id]);
 
-SELECT {key_part}, CAST(p.[patient_id] AS NVARCHAR(255)) AS [patient_id],
-       CAST(c.[{rolle.sor_column}] AS NVARCHAR(50)) AS sor,
-       TRY_CONVERT(datetime2(0), c.[{rolle.date_column}]) AS hai_ts
+SELECT f.[{dw_ek}] AS [dw_ek], CAST(p.[patient_id] AS NVARCHAR(255)) AS [patient_id],
+       CAST(eg.[{rolle.sor_column}] AS NVARCHAR(50)) AS sor,
+       TRY_CONVERT(datetime2(0), eg.[{rolle.date_column}]) AS hai_ts
 INTO #cs
-FROM [dm].[{tabel.dm_table}] AS c
+FROM [dm].[{tabel.dm_table}] AS f
+INNER JOIN [dm].[{tabel.egenskaber_table}] AS eg
+        ON eg.[{dw_ek}] = f.[{dw_ek}]
 INNER JOIN [ref].[PatientToBorger] AS p
-        ON p.[dw_ek_Borger] = c.[dw_ek_Borger] AND p.[dw_is_deleted] = 0
-WHERE c.[dw_ek_Borger] <> {UNKNOWN_BORGER};
+        ON p.[dw_ek_Borger] = f.[dw_ek_Borger] AND p.[dw_is_deleted] = 0
+WHERE f.[dw_ek_Borger] <> {UNKNOWN_BORGER};
 CREATE CLUSTERED INDEX [IX_cs] ON #cs([patient_id]);
 {enc_source};
 CREATE CLUSTERED INDEX [IX_enc] ON #enc([patient_id]);
 
 WITH kandidat AS (
-    SELECT {key_part.replace("c.", "c.")}, e.[encounter_id], e.[location_id],
+    SELECT c.[dw_ek], e.[encounter_id], e.[location_id],
         CASE
             WHEN e.sor = c.sor AND c.hai_ts >= e.p_start
                  AND (e.p_end IS NULL OR c.hai_ts <= e.p_end) THEN 1
@@ -334,29 +369,35 @@ WITH kandidat AS (
 rangeret AS (
     SELECT *,
         ROW_NUMBER() OVER (
-            PARTITION BY {key_cols}
+            PARTITION BY [dw_ek]
             -- Best tier first, then nearest in time, then the most recent
             -- admission, then the id: fully deterministic across runs.
             ORDER BY tier, ABS(dage), p_start DESC, [encounter_id]
         ) AS rn,
-        COUNT(*) OVER (PARTITION BY {key_cols}, tier) AS n_i_tier
+        COUNT(*) OVER (PARTITION BY [dw_ek], tier) AS n_i_tier
     FROM kandidat
     WHERE tier < 9
 )
-SELECT {key_cols}, [encounter_id], [location_id], tier, dage, n_i_tier
+SELECT [dw_ek], [encounter_id], [location_id], tier, dage, n_i_tier
 INTO #match
 FROM rangeret
 WHERE rn = 1;
-CREATE CLUSTERED INDEX [IX_match] ON #match({key_cols});
+CREATE CLUSTERED INDEX [IX_match] ON #match([dw_ek]);
 
 -- Every row is rewritten, including the ones that found nothing, so a rerun
--- cannot leave a stale relation behind from an earlier delivery.
-UPDATE c SET
-    c.[{rolle.encounter_column}] = m.[encounter_id],
-{location_set}    c.[{rolle.dage_column}] = m.dage,
-    c.[{rolle.kvalitet_column}] =
+-- cannot leave a stale relation behind from an earlier delivery. The relation
+-- KEYS land on the fact (direct join out to the contact); the match QUALITY
+-- lands on egenskaber. Same #match feeds both, so they cannot diverge.
+UPDATE f SET
+    f.[{rolle.encounter_column}] = m.[encounter_id]{location_set}
+FROM [dm].[{tabel.dm_table}] AS f
+LEFT JOIN #match AS m ON m.[dw_ek] = f.[{dw_ek}];
+
+UPDATE eg SET
+    eg.[{rolle.dage_column}] = m.dage,
+    eg.[{rolle.kvalitet_column}] =
         CASE
-            WHEN c.[dw_ek_Borger] = {UNKNOWN_BORGER} THEN 'ingen_borger'
+            WHEN f.[dw_ek_Borger] = {UNKNOWN_BORGER} THEN 'ingen_borger'
             WHEN m.tier = 1 AND m.n_i_tier = 1 THEN 'eksakt'
             WHEN m.tier = 1 THEN 'eksakt_flere'
             WHEN m.tier = 2 THEN 'kun_periode'
@@ -364,12 +405,14 @@ UPDATE c SET
             WHEN pe.[patient_id] IS NULL THEN 'ingen_kontakter'
             ELSE 'intet_match'
         END
-FROM [dm].[{tabel.dm_table}] AS c
-LEFT JOIN #match AS m ON {key_on}
+FROM [dm].[{tabel.egenskaber_table}] AS eg
+INNER JOIN [dm].[{tabel.dm_table}] AS f
+        ON f.[{dw_ek}] = eg.[{dw_ek}]
+LEFT JOIN #match AS m ON m.[dw_ek] = eg.[{dw_ek}]
 LEFT JOIN (SELECT DISTINCT [patient_id] FROM #enc) AS pe
        ON pe.[patient_id] = (
             SELECT MIN(p2.[patient_id]) FROM [ref].[PatientToBorger] AS p2
-            WHERE p2.[dw_ek_Borger] = c.[dw_ek_Borger] AND p2.[dw_is_deleted] = 0
+            WHERE p2.[dw_ek_Borger] = f.[dw_ek_Borger] AND p2.[dw_is_deleted] = 0
        );
 
 DROP TABLE IF EXISTS #pat;
@@ -389,7 +432,7 @@ def build_stats_sql(tabel: KontaktTabel, rolle: KontaktRolle) -> str:
     return f"""
 SELECT YEAR(TRY_CONVERT(datetime2(0), [{rolle.date_column}])) AS aar,
        [{rolle.kvalitet_column}] AS kvalitet, COUNT(*) AS antal
-FROM [dm].[{tabel.dm_table}]
+FROM [dm].[{tabel.egenskaber_table}]
 GROUP BY YEAR(TRY_CONVERT(datetime2(0), [{rolle.date_column}])),
          [{rolle.kvalitet_column}]
 ORDER BY aar, kvalitet;
@@ -434,7 +477,7 @@ def _stamp(
 
     return dg.MaterializeResult(
         metadata={
-            "target_table": dg.MetadataValue.text(f"dm.{tabel.dm_table}"),
+            "target_table": dg.MetadataValue.text(f"dm.{tabel.egenskaber_table}"),
             "roller": dg.MetadataValue.json(stats),
             "match_kvalitet": dg.MetadataValue.json(MATCH_KVALITET),
         }
@@ -451,14 +494,29 @@ def _build_asset(tabel: KontaktTabel):
         deps=[f"dm_{arc_name}"],
         tags={"domain": "haiba", "layer": "dm", "source": "haiba"},
         description=(
-            f"Stamp the FHIR contact relation onto dm.{tabel.dm_table} for "
-            f"{len(tabel.roller)} role(s), each with its own match quality."
+            f"Stamp the FHIR contact relation onto dm.{tabel.egenskaber_table} "
+            f"for {len(tabel.roller)} role(s), each with its own match quality."
         ),
     )
     def _asset(
         context: dg.AssetExecutionContext, mssql_target_staging: MSSQLResource
     ) -> dg.MaterializeResult:
-        return _stamp(context, mssql_target_staging, tabel)
+        # Log-only DFM run against the same dm table as the rebuild — a
+        # publish therefore leaves two DFMRunLog rows per case table (rebuild,
+        # then stamp), tied together by dagster_run_id. The stamp re-derives
+        # every row, hence full_load; rows_affected is left unset because the
+        # per-role UPDATEs overlap on the same rows.
+        dfm = DfmManager(mssql_target_staging, context)
+        run_ctx = dfm.start_dfm_run(
+            "dm", tabel.dm_table, dagster_run_id=context.run_id, mode="full_load"
+        )
+        try:
+            result = _stamp(context, mssql_target_staging, tabel)
+        except Exception as exc:
+            dfm.fail_dfm_run(run_ctx.log_id, error_message=str(exc))
+            raise
+        dfm.complete_dfm_run(run_ctx.log_id)
+        return result
 
     return _asset
 

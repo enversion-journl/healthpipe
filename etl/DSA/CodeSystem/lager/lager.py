@@ -49,7 +49,7 @@ def build_lager_hierarchy(
     hierarchy: list[dict] = []
 
     root_code = "REGION_SYD"
-    concepts.append({"CODE": root_code, "DISPLAY": "Region Syddanmark"})
+    concepts.append({"CODE": root_code, "DISPLAY": "Example Region"})
     _add_property(properties, root_code, "entityType", "region")
 
     sgh_codes: dict[str, str] = {}

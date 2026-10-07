@@ -7,7 +7,7 @@
 """
 Rehabilitation plan (genoptræningsplan, G-GOP) transform tests — deep coverage.
 
-REHABILITATION_PLAN (+ _RECEIVER) → FHIR ServiceRequest (US27554). The rich
+REHABILITATION_PLAN (+ _RECEIVER) → FHIR ServiceRequest. The rich
 domain behaviour lives here: status/intent, the receiver fan-out (Mønster A),
 receiverKey composite derivation, NVL-sentinel handling, receiverType derivation,
 source-meta, and the upsert identifier-system isolation that keeps this DFM source

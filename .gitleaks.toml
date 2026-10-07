@@ -4,9 +4,9 @@
 # This file is part of Healthpipe. See the LICENSE file in the project
 # root for the full AGPL-3.0 license text.
 
-# gitleaks configuration — RegionSyddanmark / HealthPipe
+# gitleaks configuration — healthpipe / HealthPipe
 #
-# Commit-time secret + PII guard (follow-up to work item 27068).
+# Commit-time secret + PII guard (follow-up to [internal ticket]).
 # Auto-loaded by gitleaks from the repo root; wired in via .pre-commit-config.yaml
 # (the "gitleaks" hook scans the STAGED diff on every commit).
 #
@@ -16,7 +16,7 @@
 # False positive? Add an inline  # gitleaks:allow  comment on the offending line,
 # or extend the [allowlist] below.
 
-title = "RegionSyddanmark / HealthPipe gitleaks config"
+title = "healthpipe / HealthPipe gitleaks config"
 
 [extend]
 # Inherit all built-in rules (AWS/Azure/GCP keys, JWTs, private keys,

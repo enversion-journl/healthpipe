@@ -27,7 +27,7 @@ def test_not_prod_when_nothing_set():
     assert prod_environment_reason() == "not prod"
 
 
-@pytest.mark.parametrize("value", ["prod", "PROD", " production ", "sydbi-prod"])
+@pytest.mark.parametrize("value", ["prod", "PROD", " production ", "healthpipe-prod"])
 def test_prod_detected_from_environment_name(monkeypatch, value):
     monkeypatch.setenv("DAGSTER_ENVIRONMENT", value)
     assert is_prod_environment() is True

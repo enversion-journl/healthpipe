@@ -721,6 +721,7 @@ Checkpoints live in `meta.DFMState`. Key checkpoint entries for IFDB:
 | `arc` | `bom_ifdb_aftale` (+`bom_ifdb_aftaleressourcedeltager`) | staging | Last archived Appointment (AFTALE flatten + deltager-lookup) |
 | `arc` | `bom_ifdb_orgenhed_sor` / `bom_ifdb_patientinfo` | staging | Last archived Location_SOR flatten / PATIENTINFO (CPR fallback) |
 | `arc` | `sor_register` | staging | Last archived SOR register snapshot |
+| `arc` | `haiba_agg_infektion` / `haiba_agg_ortopaedi` / `haiba_cases_infektion` / `haiba_cases_ssi` | staging | Last archived HAIBA table (archive merge; the delivery watermark itself lives in `meta.HAIBALeverance`). The HAIBA `ext` and `dm` layers log runs to `DFMRunLog` (mode locked to `full_load`) but own no checkpoint — `ext` borrows the arc owner's, and `dm` (target_type `datamart`) is a full rebuild with no delta position. |
 | `fhir_server` | `Patient` / `Encounter` / `EpisodeOfCare` / `Location` / `Organization` | staging | Last FHIR-posted timestamp per resource |
 | `fhir_server` | `DocumentReference_Epikrise` / `DocumentReference_CareDischargeReport` | staging | Last FHIR-posted DocumentReference per slice |
 | `fhir_server` | `Condition_Diagnose` / `Condition_PasDiagnose` | staging | Last FHIR-posted Condition per slice |
@@ -752,3 +753,85 @@ SELECT TOP 20 *
 FROM [meta].[DFMRunLog]
 ORDER BY run_started_at DESC;
 ```
+
+---
+
+## 10. DSO Sync (`scope='dso'`)
+
+DSO table sync (dim/fct/fhir/…) tracks checkpoints on **staging** in
+`meta.DFMState` with `scope='dso'`, separate from staging-side dim/fct builds.
+
+### View DSO sync checkpoints
+
+```sql
+SELECT schema_name, table_name, checkpoint_value, last_mode, updated_at
+FROM [meta].[DFMState]
+WHERE scope = 'dso'
+ORDER BY schema_name, table_name;
+```
+
+### View DSO sync run log
+
+```sql
+SELECT TOP 50 schema_name, table_name, mode, status,
+       checkpoint_before, checkpoint_after, rows_affected, run_started_at
+FROM [meta].[DFMRunLog]
+WHERE scope = 'dso'
+ORDER BY run_started_at DESC;
+```
+
+### Reset a DSO sync checkpoint (full re-sync on next run)
+
+Via SSMS on **staging**:
+
+```sql
+EXEC [meta].[usp_dfm_reset]
+    @schema_name = 'dim',
+    @table_name  = 'Kreditor',
+    @new_value   = '0001-01-01',
+    @reason      = 'Re-sync dim.Kreditor to DSO',
+    @scope       = 'dso';
+```
+
+Or use `dfm_reset_job` with `scope: dso` in the asset config when available.
+
+### Cutover: migrate legacy SyncWatermarks → DFMState
+
+Run **once per environment** (DEV → TEST → PROD) **before** the first watermark
+DSO sync on the new code. Skipping this leaves `scope='dso'` empty, so the first
+sync does a full MERGE for every `mode='watermark'` table.
+
+**Preferred — Dagster**
+
+1. Ensure `staging_infra_dfm` and `dso_infra_meta` have been materialized (asset deps).
+2. Launch job `migrate_dso_sync_watermarks_to_dfm_job`, **or** materialize asset
+   `migrate_dso_sync_watermarks_to_dfm`.
+
+**CLI fallback** (same DB env as Dagster resources):
+
+```bash
+cd etl
+python -m DSO.load.migrate_sync_watermarks_to_dfm
+```
+
+| Role | Env prefix | Table |
+|------|------------|--------|
+| Read | `MSSQL_TARGET_DSO_*` | DSO `[meta].[SyncWatermarks]` |
+| Write | `MSSQL_TARGET_STAGING_*` (else `MSSQL_SOURCE_STAGING_*`) | staging `[meta].[DFMState]` |
+
+Passwords (`*_PASSWORD`) are required for the CLI. Skips `sfi_datapoint.*`.
+Idempotent: inserts missing rows, fills `checkpoint_value IS NULL` (auto-seeded if a
+DSO sync ran first), leaves non-NULL checkpoints untouched. Logs
+inserted / updated_null / skipped_existing separately.
+
+Migrated checkpoints are stepped back one day (`DATEADD(DAY, -1, last_sync_timestamp)`)
+per table so wall-clock SyncWatermarks values do not skip staging rows under exclusive
+`>` on the first post-cutover delta. Steady-state delta still uses source `MAX()` — no
+ongoing lookback. Prefer running before the first watermark DSO sync so those runs stay
+delta; NULL-seed fill still recovers if ordering slips. Verify afterwards:
+
+```sql
+SELECT COUNT(*) FROM [meta].[DFMState] WHERE scope = 'dso';
+```
+
+**Note:** SFI datapoint refresh still uses legacy `[meta].[SyncWatermarks]` on DSO.

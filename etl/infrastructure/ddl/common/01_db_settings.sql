@@ -15,7 +15,7 @@
 -- (feature/sfi-datapoint-perf-investigation, results.md) — synchronous
 -- StatMan scans triggered mid-INSERT by the SFI batch apply accounted for
 -- 62% of insert time (1128s -> 434s on an identical replayed workload).
--- AUTO_CLOSE OFF: same investigation — sydbi_dso closed/reopened 61x in 37h,
+-- AUTO_CLOSE OFF: same investigation — healthpipe_dso closed/reopened 61x in 37h,
 -- flushing the buffer pool so every nightly run started cold on NFS.
 --
 -- Each ALTER is wrapped in TRY/CATCH: on client-managed servers the ETL login

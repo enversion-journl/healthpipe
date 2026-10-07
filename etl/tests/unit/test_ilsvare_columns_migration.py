@@ -4,7 +4,7 @@
 # This file is part of Healthpipe. See the LICENSE file in the project
 # root for the full AGPL-3.0 license text.
 
-"""Unit tests for dim.IlsVare schema change (task 28149): CREATE + migration.
+"""Unit tests for dim.IlsVare schema change: CREATE + migration.
 
 The migration lives in the centralized auto-run directory
 (infrastructure/ddl/migrations/), applied automatically against BOTH staging
@@ -20,7 +20,7 @@ pytestmark = pytest.mark.unit
 
 REPO = Path(__file__).resolve().parents[2]  # etl/
 DDL = REPO / "infrastructure" / "ddl" / "tables" / "erp" / "02_dims.sql"
-MIG = REPO / "infrastructure" / "ddl" / "migrations" / "20260625_28149_add_ilsvare_columns.sql"
+MIG = REPO / "infrastructure" / "ddl" / "migrations" / "20260625_01_add_ilsvare_columns.sql"
 
 NEW_DIM_COLS = [
     "FaellesVarenummer",

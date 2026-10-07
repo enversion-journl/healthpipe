@@ -27,6 +27,23 @@ from dqa.model import CheckOutcome
 # Width of the [environment] column on dqa.Results / dqa.RemediationQueue.
 _ENVIRONMENT_MAX_LEN = 128
 
+# Pin char columns to the *current database's* collation. Two DQA uses, same token:
+#
+# * ##temp DDL on mssql_target_staging (fhir_server / oracle_source /
+#   archive_reconciliation): tempdb inherits the instance collation (SQL_Latin1
+#   on QA/Prod) while healthpipe_staging is Danish_Norwegian_CI_AS. Without this,
+#   joining the staged keys to fhir.* / arc.* -- or MERGEing them into
+#   dqa.RemediationQueue -- raises "Cannot resolve the collation conflict".
+#   DATABASE_DEFAULT is only correct here because the creating connection's
+#   current DB *is* staging; a mssql_source_dso connection would silently
+#   resolve to DSO/Latin1 and reintroduce the conflict against Danish fhir.*.
+# * dso_reconciliation aliases this as _COLLATE for the STAGING_LINK case
+#   (see that module -- different connection, same portable token).
+#
+# COLLATE is only legal on character types (never INT/datetime). Pin at DDL, not
+# on the join predicate, so IX_dqa_fhir_ids / IX_dqa_recon stay sargable.
+COLLATE_DB_DEFAULT = " COLLATE DATABASE_DEFAULT"
+
 
 def dqa_environment() -> str:
     """The environment label persisted with DQA rows.

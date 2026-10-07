@@ -57,8 +57,10 @@ def test_sentinel_constants():
 
 def test_dato_key_four_way_sentinels():
     sql = dato_key("g.Bogfoeringsdato")
-    # empty/whitespace string -> BLANK
-    assert "IS NULL AND (g.Bogfoeringsdato IS NOT NULL AND" in sql
+    # empty/whitespace string -> BLANK, tested FIRST: TRY_CONVERT(DATETIME2, '')
+    # "succeeds" as 1900-01-01, so a ts-IS-NULL-guarded blank branch is dead
+    # code and the blank would fall through to the range clamp as BEFORE.
+    assert sql.startswith("CASE WHEN (g.Bogfoeringsdato IS NOT NULL AND")
     assert f"THEN {DATO_BLANK_KEY}" in sql
     # NULL/unparseable (non-blank) -> UNKNOWN
     assert f"IS NULL THEN {DATO_UNKNOWN_KEY}" in sql
@@ -70,6 +72,19 @@ def test_dato_key_four_way_sentinels():
     assert "TRY_CONVERT(DATETIME2, g.Bogfoeringsdato)" in sql
     # no trailing column alias
     assert sql.rstrip().endswith("END")
+
+
+def test_dato_key_blank_branch_precedes_try_convert():
+    """T-SQL konverterer '' til 1900-01-01 (ikke NULL), saa en blank-test gated
+    paa TRY_CONVERT IS NULL fyrer aldrig — en tom NVARCHAR-dato ville keye til
+    BEFORE (-2) i stedet for BLANK. Blank-testen SKAL derfor staa som FOERSTE
+    CASE-gren, uafhaengigt af TRY_CONVERT."""
+    sql = dato_key("p.[ind_tidspunkt]")
+    first_when = sql[: sql.index(" THEN ")]
+    assert first_when.startswith("CASE WHEN (p.[ind_tidspunkt] IS NOT NULL AND")
+    assert "NULLIF(LTRIM(RTRIM(" in first_when
+    assert "TRY_CONVERT" not in first_when
+    assert sql.index(f"THEN {DATO_BLANK_KEY}") < sql.index(f"THEN {DATO_UNKNOWN_KEY}")
 
 
 def test_dato_key_composes_with_aggregate():

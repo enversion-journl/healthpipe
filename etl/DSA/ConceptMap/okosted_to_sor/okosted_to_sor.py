@@ -12,7 +12,7 @@ applies fuzzy matching and manual overrides, and MERGEs mappings
 into persistent table: conceptmap.okosted_to_sor.
 
 Matching strategy:
-1. Top-level: RSD -> Region Syddanmark (6101000016001) via manual CSV
+1. Top-level: RSD -> Example Region (6101000016001) via manual CSV
 2. Top-level okosted codes (direct children of RSD): fuzzy match to SOR
 3. Lower-level codes: fuzzy match, fallback to parent's target with "narrower"
 """

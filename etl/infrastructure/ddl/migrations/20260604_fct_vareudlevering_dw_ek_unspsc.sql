@@ -4,7 +4,7 @@
 -- This file is part of Healthpipe. See the LICENSE file in the project
 -- root for the full AGPL-3.0 license text.
 
--- Migration: fct.Vareudlevering DW_EK_UNSPSC FK via map.UNSPSC (task 28041)
+-- Migration: fct.Vareudlevering DW_EK_UNSPSC FK via map.UNSPSC
 
 IF OBJECT_ID(N'[fct].[Vareudlevering]', 'U') IS NOT NULL
    AND COL_LENGTH('fct.Vareudlevering', 'DW_EK_UNSPSC') IS NULL

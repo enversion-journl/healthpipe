@@ -115,7 +115,7 @@ _REFRESH_INSERT_COLUMNS = """
 """
 
 # NB: the SFI DSO syncs are the unpartitioned DFM assets
-# (and Encounter already with PR 11609). A dep on a non-existent asset key is
+# (and Encounter already with [internal ticket]). A dep on a non-existent asset key is
 # treated as an external asset by Dagster — the ordering edge silently
 # disappears — so these lists MUST name the _dfm variants. The daily refresh
 # asset itself must also live in fhir_dso_sync_dfm so it is selected by

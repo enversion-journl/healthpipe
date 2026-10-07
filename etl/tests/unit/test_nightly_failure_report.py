@@ -263,7 +263,7 @@ class TestBuildReportContent:
         assert report["occurrences"][0]["run_id"] == "run-5"
 
 
-_BASE = "https://dev.azure.com/enversion/RegionSyddanmark/_apis/git/repositories/RegionSyddanmark"
+_BASE = "https://dev.azure.com/enversion/healthpipe/_apis/git/repositories/healthpipe"
 
 
 @pytest.mark.unit
@@ -271,7 +271,7 @@ class TestReportsBranchClient:
     def _client(self):
         return ReportsBranchClient(
             org_url="https://dev.azure.com/enversion",
-            project="RegionSyddanmark",
+            project="healthpipe",
             pat="secret",
         )
 
@@ -288,7 +288,7 @@ class TestReportsBranchClient:
         assert not client.configured
 
     def test_repository_defaults_to_project(self):
-        assert self._client().repository == "RegionSyddanmark"
+        assert self._client().repository == "healthpipe"
 
     @responses.activate
     def test_get_branch_head_matches_exact_ref(self):

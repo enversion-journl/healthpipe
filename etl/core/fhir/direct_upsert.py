@@ -101,15 +101,17 @@ def _resolve_existing_id_for_identifier_collision(
                 if len(rows) == 1:
                     return str(rows[0][0])
                 if len(rows) > 1:
+                    # The identifier value can be a person identifier (e.g. CPR)
+                    # and must never reach a log — the system + count suffice.
                     _logger().warning(
                         f"Identifier collision for {table_name} system={system!r} "
-                        f"value={value!r} matched multiple rows; treating insert as failure"
+                        f"matched {len(rows)} rows; treating insert as failure"
                     )
                     return None
     except Exception as lookup_err:  # noqa: BLE001
         _logger().warning(
             f"Identifier-collision re-resolve failed for {table_name}: "
-            f"{lookup_err}; treating original insert as failure"
+            f"{_error_label(lookup_err, table_name)}; treating original insert as failure"
         )
         return None
     return None
@@ -121,6 +123,65 @@ def _is_unique_violation(exc: Exception) -> bool:
 
 def _constraint_name(exc: Exception) -> str | None:
     return getattr(getattr(exc, "diag", None), "constraint_name", None)
+
+
+def _safe_error_label(exc: BaseException) -> str:
+    """Bounded-provenance stand-in for an error message, safe for logs.
+
+    Driver and serializer error text is of unbounded provenance and can embed
+    resource content — for Patient resources the CPR, e.g. in a
+    unique-violation DETAIL — so only the exception class name and the
+    SQLSTATE code may reach logs and failed-id reports, never the message.
+    """
+    sqlstate = getattr(exc, "sqlstate", None)
+    if sqlstate:
+        return f"{type(exc).__name__} [sqlstate={sqlstate}]"
+    return type(exc).__name__
+
+
+# Resource types whose own resource / unique constraint carries a person
+# identifier (the CPR), so their driver or serializer error text can embed a
+# CPR — e.g. a unique-violation DETAIL on the CPR identifier. Every other FHIR
+# type references a patient by logical id, not the raw CPR (nsh-enversion, !51
+# review), so its error text and traceback are safe to log in full and stay
+# debuggable. "UnknownResource" is included out of caution: its content is by
+# definition unknown, so it is treated as if it could carry a CPR. Matched
+# case-insensitively, so the same check serves both resource_type ("Patient")
+# and the derived table_name ("patient" == resource_type.lower()).
+_PERSON_REFERABLE_TYPES = frozenset({"patient", "unknownresource"})
+
+
+def _carries_person_identifier(resource_type_or_table: str) -> bool:
+    return resource_type_or_table.lower() in _PERSON_REFERABLE_TYPES
+
+
+def _error_label(exc: BaseException, resource_type_or_table: str) -> str:
+    """Error label for logs and failed_ids, scoped to CPR risk by resource type.
+
+    Person-referable types (see ``_PERSON_REFERABLE_TYPES``) get the bounded
+    class+SQLSTATE stand-in (``_safe_error_label``) with no message, since both
+    the message and the traceback can embed a CPR. Every other type carries no
+    CPR, so its full driver message is kept (bounded length) — a failed
+    Organization/Encounter/… upsert stays debuggable. Call sites pair this with
+    ``exc_info`` only for the non-person types, so the traceback is dropped only
+    where it must be.
+    """
+    if _carries_person_identifier(resource_type_or_table):
+        return _safe_error_label(exc)
+    return str(exc)[:200]
+
+
+def _reupsert_resolved_row(
+    *,
+    conn: Any,
+    cur: Any,
+    upsert_sql: str,
+    resource_id: str,
+    txid: int,
+    payload: str,
+) -> None:
+    with conn.transaction():
+        cur.execute(upsert_sql, (resource_id, txid, payload))
 
 
 def batch_upsert_resources(
@@ -146,7 +207,10 @@ def batch_upsert_resources(
         batch_size: Number of resources to process per batch (default 500)
 
     Returns:
-        Tuple of (successes, failures, failed_ids)
+        Tuple of (successes, failures, failed_ids). Each failed_ids element
+        is ``"<id>: <exception class [sqlstate=…]>"`` — the error message
+        itself is never carried, since it can embed resource content
+        (for Patient resources the CPR).
     """
     import uuid
 
@@ -174,10 +238,11 @@ def batch_upsert_resources(
         except Exception as e:
             failures += 1
             resource_id = getattr(resource, "id", f"resource_{i}")
-            failed_ids.append(f"{resource_id}: {str(e)[:100]}")
+            failed_ids.append(f"{resource_id}: {_error_label(e, resource_type)}")
             _logger().warning(
-                f"Failed to serialize {resource_type} resource {resource_id}: {e}",
-                exc_info=True,
+                f"Failed to serialize {resource_type} resource {resource_id}: "
+                f"{_error_label(e, resource_type)}",
+                exc_info=not _carries_person_identifier(resource_type),
             )
 
     if not prepared_resources:
@@ -228,7 +293,7 @@ def batch_upsert_resources(
                             delay = _BATCH_RETRY_BACKOFFS[attempt]
                             _logger().warning(
                                 f"Batch insert attempt {attempt + 1}/{1 + _BATCH_MAX_RETRIES} "
-                                f"failed, retrying in {delay}s: {e}"
+                                f"failed, retrying in {delay}s: {_error_label(e, resource_type)}"
                             )
                             time.sleep(delay)
                     except Exception:
@@ -237,7 +302,7 @@ def batch_upsert_resources(
                 if batch_err is not None:
                     _logger().warning(
                         f"Batch insert failed after {1 + _BATCH_MAX_RETRIES} attempts, "
-                        f"falling back to individual inserts: {batch_err}"
+                        f"falling back to individual inserts: {_error_label(batch_err, resource_type)}"
                     )
                     for i, (resource_id, resource_json, resource) in enumerate(batch):
                         try:
@@ -267,17 +332,38 @@ def batch_upsert_resources(
                                 if existing_id:
                                     resource.id = existing_id
                                     resource_json["id"] = existing_id
+                                    try:
+                                        _reupsert_resolved_row(
+                                            conn=conn,
+                                            cur=cur,
+                                            upsert_sql=upsert_sql,
+                                            resource_id=existing_id,
+                                            txid=next_txid + batch_start + i,
+                                            payload=json.dumps(resource_json),
+                                        )
+                                    except Exception as retry_e:
+                                        failures += 1
+                                        failed_ids.append(f"{resource_id}: {str(retry_e)[:100]}")
+                                        _logger().warning(
+                                            f"Unique-violation inserting {resource_type} "
+                                            f"{resource_id} (constraint={constraint}): "
+                                            f"resolved existing row {existing_id}; "
+                                            f"re-upsert failed: {retry_e}"
+                                        )
+                                        continue
                                     successes += 1
                                     _logger().warning(
                                         f"Unique-violation inserting {resource_type} "
                                         f"{resource_id} (constraint={constraint}): "
                                         f"resolved existing row {existing_id}; "
-                                        "counting as idempotent success."
+                                        "re-executing upsert."
                                     )
                                     continue
 
                             failures += 1
-                            failed_ids.append(f"{resource_id}: {str(inner_e)[:100]}")
+                            failed_ids.append(
+                                f"{resource_id}: {_error_label(inner_e, resource_type)}"
+                            )
                             if _is_unique_violation(inner_e):
                                 _logger().warning(
                                     f"Unique-violation inserting {resource_type} "
@@ -287,7 +373,7 @@ def batch_upsert_resources(
                             else:
                                 _logger().warning(
                                     f"Failed to insert {resource_type} resource "
-                                    f"{resource_id}: {inner_e}"
+                                    f"{resource_id}: {_error_label(inner_e, resource_type)}"
                                 )
 
             conn.commit()
@@ -367,7 +453,9 @@ def batch_upsert_resource_dicts(
 
     total_start = perf_counter()
     prepare_start = perf_counter()
-    prepared, failures, failed_ids = self._prepare_resource_dicts_for_upsert(resource_dicts)
+    prepared, failures, failed_ids = self._prepare_resource_dicts_for_upsert(
+        resource_dicts, resource_type
+    )
     prepare_seconds = perf_counter() - prepare_start
     if not prepared:
         _logger().info(
@@ -439,6 +527,7 @@ def batch_upsert_resource_dicts(
 
 def _prepare_resource_dicts_for_upsert(
     resource_dicts: list[tuple[str, dict]],
+    resource_type: str,
 ) -> tuple[list[tuple[str, dict]], int, list[str]]:
     """Apply the Aidbox reference transform to each dict in-place.
 
@@ -455,10 +544,11 @@ def _prepare_resource_dicts_for_upsert(
             prepared.append((resource_id, resource_dict))
         except Exception as e:  # noqa: BLE001 — preserve historic behaviour
             failures += 1
-            failed_ids.append(f"{resource_id}: {str(e)[:100]}")
+            failed_ids.append(f"{resource_id}: {_error_label(e, resource_type)}")
             _logger().warning(
-                f"Failed to prepare {resource_id} for dict upsert: {e}",
-                exc_info=True,
+                f"Failed to prepare {resource_id} for dict upsert: "
+                f"{_error_label(e, resource_type)}",
+                exc_info=not _carries_person_identifier(resource_type),
             )
     return prepared, failures, failed_ids
 
@@ -747,7 +837,7 @@ def _run_dict_upsert_batches(
                     delay = _BATCH_RETRY_BACKOFFS[attempt]
                     _logger().warning(
                         f"Dict batch insert attempt {attempt + 1}/{1 + _BATCH_MAX_RETRIES} "
-                        f"failed, retrying in {delay}s: {e}"
+                        f"failed, retrying in {delay}s: {_error_label(e, table_name)}"
                     )
                     time.sleep(delay)
             except Exception:
@@ -756,7 +846,7 @@ def _run_dict_upsert_batches(
         if batch_err is not None:
             _logger().warning(
                 f"Dict batch insert failed after {1 + _BATCH_MAX_RETRIES} attempts, "
-                f"falling back to individual: {batch_err}"
+                f"falling back to individual: {_error_label(batch_err, table_name)}"
             )
             for i, (rid, rjson) in enumerate(batch):
                 try:
@@ -785,17 +875,35 @@ def _run_dict_upsert_batches(
                         )
                         if existing_id:
                             rjson["id"] = existing_id
+                            try:
+                                _reupsert_resolved_row(
+                                    conn=conn,
+                                    cur=cur,
+                                    upsert_sql=upsert_sql,
+                                    resource_id=existing_id,
+                                    txid=txid_base + batch_start + i,
+                                    payload=orjson.dumps(rjson).decode("utf-8"),
+                                )
+                            except Exception as retry_e:  # noqa: BLE001
+                                failures += 1
+                                failed_ids.append(f"{rid}: {str(retry_e)[:100]}")
+                                _logger().warning(
+                                    f"Unique-violation inserting into {table_name} "
+                                    f"(id={rid}, constraint={constraint}): "
+                                    f"resolved existing row {existing_id}; "
+                                    f"re-upsert failed: {retry_e}"
+                                )
+                                continue
                             successes += 1
                             _logger().warning(
                                 f"Unique-violation inserting into {table_name} "
                                 f"(id={rid}, constraint={constraint}): resolved "
-                                f"existing row {existing_id}; counting as "
-                                "idempotent success."
+                                f"existing row {existing_id}; re-executing upsert."
                             )
                             continue
 
                     failures += 1
-                    failed_ids.append(f"{rid}: {str(inner_e)[:100]}")
+                    failed_ids.append(f"{rid}: {_error_label(inner_e, table_name)}")
                     if _is_unique_violation(inner_e):
                         _logger().warning(
                             f"Unique-violation inserting into {table_name} "

@@ -66,7 +66,7 @@ dso_lineage:
     deceased:               { DataType: BIT,           Source: [datafordeler.CPR.Person.Status, ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.PERSON_STATUSKODE],                     Description: "Patient.deceasedBoolean (status 90)" }
 
     # ------------------------------------------------------------------
-    # Familierelationer (Type 1) — via RSyd-interne extensions eller Patient.link
+    # Familierelationer (Type 1) — via region-interne extensions eller Patient.link
     # ------------------------------------------------------------------
     mor_cpr_nummer:           { DataType: VARCHAR(10),   Source: [datafordeler.CPR.Person.MorCPR],                                                                              Description: "Datafordeler — planlagt" }
     far_cpr_nummer:           { DataType: VARCHAR(10),   Source: [datafordeler.CPR.Person.FarCPR],                                                                              Description: "Datafordeler — planlagt" }
@@ -117,7 +117,7 @@ dso_lineage:
     laege_nummer:            { DataType: VARCHAR(50),   Source: [datafordeler.CPR.Sundhedskort.Ydernummer, ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.LAEGENUMMER],                 Description: "Ydernummer — system: identifier_systems.SYSTEM_YDERNUMMER" }
 
     # ------------------------------------------------------------------
-    # Distrikt (RSyd lokal — Type 1)
+    # Distrikt (region lokal — Type 1)
     # ------------------------------------------------------------------
     person_distriktkode:           { DataType: VARCHAR(20),   Source: [ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.PERSON_DISTRIKTKODE] }
     person_distriktkodetekst:      { DataType: NVARCHAR(100), Source: [ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.PERSON_DISTRIKTKODETEKST] }

@@ -1,0 +1,26 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: bridge
+  TableName: bridge.DRGDiagnoseGruppe
+  Domain: [DRG]
+  Description: >
+    Gruppe→kode-medlemskab for diagnoser. fct.DRGKontakt refererer en kontakts
+    hele distinkte diagnosesæt med én FK (dw_ek_DRGDiagnoseGruppe); denne bridge
+    folder gruppen ud i dens medlems-koder i dim.DRGDiagnose. Append-only:
+    medlemskab er immutabelt pr. gruppe (identificeret ved hash af sættet), så
+    rækker indsættes kun. Kodens attributter lever i dim.DRGDiagnose.
+  Grain: "Én række pr. (dw_ek_DRGDiagnoseGruppe, dw_ek_DRGDiagnose); seed-række (-1, -1)."
+  Privacy: "Ingen PII — kun surrogatnøgler."
+
+  SourceSystems:
+    - sds_drg: [DRG.DIAGNOSER, DRGPSYK.Psyk_Diagnose]
+
+  Columns:
+    dw_ek_DRGDiagnoseGruppe: { Type: PK, DataType: INT, Description: "Del af sammensat PK. Gruppenøgle mintet i map.DRGDiagnoseGruppe over kontaktens distinkte diagnosesæt; refereres af fct.DRGKontakt (ingen egen dimension)." }
+    dw_ek_DRGDiagnose: { Type: FK, DataType: INT, FK-Target: dim.DRGDiagnose, Source: [sds_drg.DRG.DIAGNOSER.DIAGNOSE, sds_drg.DRGPSYK.Psyk_Diagnose.Diagnose], Description: "Del af sammensat PK. Opslag via map.DRGDiagnose på kodekombinationens clean_code." }
+    dw_is_deleted: { DataType: BIT, Expr: "Altid 0 — medlemskab er append-only og immutabelt pr. gruppe." }
