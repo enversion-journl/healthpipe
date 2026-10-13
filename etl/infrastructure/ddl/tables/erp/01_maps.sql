@@ -162,8 +162,8 @@ BEGIN
 END
 GO
 
--- map.AftaleVarePris - grain: aftalelinje (lnr, aftale, vnr)
--- CleanCode format: AFTALE_{lnr}_{aftalenr}_VARE_{vnr}
+-- map.AftaleVarePris - grain: aftalelinje x lvnr (lnr, aftale, vnr, lvnr)
+-- CleanCode format: AFTALE_{lnr}_{aftale}_VARE_{vnr}[_LEVVARE_{lvnr}]
 IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[map].[AftaleVarePris]') AND type = 'U')
 BEGIN
     CREATE TABLE [map].[AftaleVarePris](

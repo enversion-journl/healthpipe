@@ -130,9 +130,9 @@ def stg_dim_Rekvirent(
                     if sgh:
                         parts.append(f"SGH_{sgh}")
                     if rnr:
-                        rnr_padded = str(rnr).zfill(4) if rnr else None
-                        if rnr_padded:
-                            parts.append(f"RNR_{rnr_padded}")
+                        # Raw, never zero-padded: padding made a blank rnr
+                        # collide with the genuine requisitioner 00.
+                        parts.append(f"RNR_{rnr}")
                     if parts and len(parts) == 1 and parts[0].startswith("SGH_"):
                         return code
                     return "_".join(parts) if parts else code

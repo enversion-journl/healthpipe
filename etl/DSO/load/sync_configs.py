@@ -42,11 +42,15 @@ ERP_DIM_CONFIGS = {
         mode="watermark",
         watermark_column="dw_timestamp_update",
     ),
+    # Type 1 since the SCD2 rewrite: the DSA MERGE maintains dw_timestamp_update
+    # only on real attribute changes and never deletes rows, so a delta sync on
+    # that watermark is both correct and far cheaper than a full refresh.
     "dim_Aftale": SyncTableConfig(
         schema="dim",
         table="Aftale",
-        primary_key=["dw_ek_Aftale", "dw_valid_from"],
-        mode="truncate_insert",
+        primary_key="dw_ek_Aftale",
+        mode="watermark",
+        watermark_column="dw_timestamp_update",
     ),
     "dim_Kontoplan": SyncTableConfig(
         schema="dim",
@@ -160,6 +164,16 @@ ERP_DIM_CONFIGS = {
         table="LeverandoervareILSVare",
         primary_key=["dw_ek_Leverandoervare", "dw_ek_ILSVare"],
         mode="watermark",
+        watermark_column="dw_timestamp_update",
+    ),
+    # IDENTITY PK (dw_sk_AftaleLager) — kraever identity_insert for at bevare
+    # vaerdierne fra staging (samme moenster som fct_AftaleVarePris).
+    "bridge_AftaleLager": SyncTableConfig(
+        schema="bridge",
+        table="AftaleLager",
+        primary_key="dw_sk_AftaleLager",
+        mode="watermark",
+        identity_insert=True,
         watermark_column="dw_timestamp_update",
     ),
 }
@@ -292,7 +306,7 @@ SHARED_DIMS_REF_CONFIGS = {
         exclude_columns=["dw_ek_Organisation"],
     ),
     # Manual ILS exclusion list for reelt forbrug. Full snapshot; PK is the
-    # pad-only CleanCode. Orphans keep dw_ek_Rekvirent NULL.
+    # raw CleanCode. Orphans keep dw_ek_Rekvirent NULL.
     "ref_RekvirentUndtagelse": SyncTableConfig(
         schema="ref",
         table="RekvirentUndtagelse",

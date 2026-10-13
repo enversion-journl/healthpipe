@@ -11,7 +11,10 @@ Extracts CHANGED ENTITIES (not pairs, not attributes) from the archive since
 the relevant consumer checkpoints:
   - Vare entities (kreditor + leverandoervarenummer): from the five ILS bridge
     tables and MySupply, filtered by checkpoint_Vare =
-    MIN(CP dim.Leverandoervare, CP bridge.LeverandoervareILSVare). dim.Leverandoervare carries no copy of
+    MIN(CP dim.Leverandoervare, CP bridge.LeverandoervareILSVare). laftdstam
+    and laftd contribute ALL of their lvnr-slots (##1 the primary plus the
+    alternates ##2-4/##2-3, spec 2026-08-27-alternate-lvnr-rows), not just
+    lvnr##1. dim.Leverandoervare carries no copy of
     ILS item-master attributes (names live on dim.ILSVare, reached via the
     bridge), so ils_vare changes only flow through the ILSVare axis.
   - ILSVare entities (vnr): from ils_vare (incl. its lookup tables — vareart,
@@ -41,12 +44,42 @@ from dagster import (
     RetryPolicy,
     asset,
 )
+from utils.sql.leverandoervare_ilsvare_sql import (
+    LAFTD_ALT_LVNR_SLOTS,
+    LAFTDSTAM_ALT_LVNR_SLOTS,
+    sql_lev_current_cte,
+)
 from utils.sql.leverandoervare_ilsvare_sql import LVNR_CC as _LVNR_CC
 from utils.sql.leverandoervare_ilsvare_sql import VNR_CC as _VNR_CC
-from utils.sql.leverandoervare_ilsvare_sql import sql_lev_current_cte
 from utils.sql.tax_id_sql import sql_cvr_cleancode_from_column
 
 BEGINNING_OF_TIME = "0001-01-01"
+
+
+def _alt_lvnr_hub_branches() -> str:
+    """UNION ALL-branches for de alternative lvnr-slots (spec 2026-08-27).
+
+    Samme form som laftdstam/laftd-branches for lvnr##1: normaliseret via
+    LVNR_CC, tom/NULL filtreret. Et alternativ identisk med lvnr##1 kollapser
+    til samme CleanCode og dedupliceres af hub'ens GROUP BY.
+    """
+    branches = []
+    for table, alias, slots in (
+        ("ils_laftdstam", "alt_s", LAFTDSTAM_ALT_LVNR_SLOTS),
+        ("ils_laftd", "alt_d", LAFTD_ALT_LVNR_SLOTS),
+    ):
+        for slot in slots:
+            col = f"{alias}.[{slot}]"
+            branches.append(
+                f"""
+                        UNION ALL
+                        SELECT lev.clean_code_Kreditor, {_LVNR_CC.format(col=col)},
+                               {alias}.dw_timestamp_update, lev.lev_dw_timestamp_update
+                        FROM [arc].[{table}] {alias}
+                        INNER JOIN lev_current lev ON lev.lnr = {alias}.lnr
+                        WHERE {col} IS NOT NULL AND LTRIM(RTRIM({col})) <> ''"""
+            )
+    return "".join(branches)
 
 
 def get_checkpoints(dfm: DfmManager, context: AssetExecutionContext) -> tuple[str, str]:
@@ -132,7 +165,7 @@ def _build_hub_sql(checkpoint_Vare: str, checkpoint_ILSVare: str) -> str:
                                p.dw_timestamp_update, lev.lev_dw_timestamp_update
                         FROM [arc].[ils_pmdm] p
                         INNER JOIN lev_current lev ON lev.lnr = p.lnr
-                        WHERE p.lvnr IS NOT NULL AND LTRIM(RTRIM(p.lvnr)) <> ''
+                        WHERE p.lvnr IS NOT NULL AND LTRIM(RTRIM(p.lvnr)) <> ''{_alt_lvnr_hub_branches()}
                     ),
                     vare_entities AS (
                         -- ILS: par-raekken ELLER leverandoeren aendret (et lev-skift,

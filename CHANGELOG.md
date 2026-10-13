@@ -7,6 +7,36 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-10-13
+
+### Added
+
+- Agreement steering bridge `bridge.AftaleLager` from ILS. It tells which hospitals and
+  storage locations can buy on an agreement.
+
+### Changed
+
+- **Breaking:** `dim.Aftale` changes from SCD type 2 to type 1. The history columns
+  `dw_valid_from` and `dw_valid_to` and the column `dw_is_deleted` are removed. The
+  primary key is `dw_ek_Aftale`. Expired and deleted agreements stay as rows. The new
+  column `alle_maa_benytte` comes from ILS.
+- **Breaking:** `fct.AftaleVarePris` changes its grain. The old grain was one row for
+  each price version of an agreement line. The new grain is one row for each price
+  version, or for each agreement line without a price, and for each supplier item
+  number. The columns `kreditorvarenummer1` to `kreditorvarenummer3` are removed. The
+  new columns are `kilder` and `har_prisversion`. `dw_valid_to` is now the start of the
+  next price version of the agreement line.
+- **Breaking:** `dim.Dato` renames `kvartals_startdato` to `kvartal_startdato` and
+  `kvartals_slutdato` to `kvartal_slutdato`.
+- `dim.Leverandoervare` and `bridge.LeverandoervareILSVare` also load the alternative
+  supplier item numbers from ILS.
+- `fct.Vareudlevering`, `fct.Lagerbeholdning` and `fct.AfdelingLagerbeholdning` find
+  more storage locations and requesters. A row without a storage location or a
+  requester links to its hospital. A migration resets the load checkpoints, so the next
+  run loads the ILS history again.
+- The daily `dim.Dato` schedule starts automatically in the development, production and
+  release deployments.
+
 ## [1.0.2] - 2026-10-07
 
 ### Added
@@ -72,7 +102,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - First public release.
 
-[Unreleased]: https://github.com/enversion-journl/healthpipe/compare/v1.0.2...HEAD
+[Unreleased]: https://github.com/enversion-journl/healthpipe/compare/v1.0.3...HEAD
+[1.0.3]: https://github.com/enversion-journl/healthpipe/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/enversion-journl/healthpipe/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/enversion-journl/healthpipe/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/enversion-journl/healthpipe/releases/tag/v1.0.0

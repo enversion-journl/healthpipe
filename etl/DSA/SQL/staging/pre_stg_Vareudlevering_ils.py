@@ -29,6 +29,15 @@ from dagster import (
     RetryPolicy,
     asset,
 )
+from DSA.SQL.common.ils_clean_code_shared import (
+    sql_clean_code_lager,
+    sql_clean_code_rekvirent,
+)
+
+# Both keys are raw, as the maps hold them.
+# Module-level so the contract is testable without running the asset.
+LAGER_CLEAN_CODE_SQL = sql_clean_code_lager()
+REKVIRENT_CLEAN_CODE_SQL = sql_clean_code_rekvirent()
 
 
 @asset(
@@ -242,24 +251,8 @@ def pre_stg_Vareudlevering_ils(
                                 THEN 'UDLEV_' + UPPER(LTRIM(RTRIM(REPLACE(CAST(prrowid AS NVARCHAR(100)), ' ', ''))))
                                 ELSE NULL
                             END AS clean_code_Vareudlevering,
-                            CASE
-                                WHEN sgh IS NOT NULL AND lgr IS NOT NULL
-                                THEN 'SGH_' + UPPER(LTRIM(RTRIM(REPLACE(CAST(sgh AS NVARCHAR(50)), ' ', '')))) + '_LGR_' + RIGHT('0000' + UPPER(LTRIM(RTRIM(REPLACE(CAST(lgr AS NVARCHAR(50)), ' ', '')))), 4)
-                                WHEN sgh IS NOT NULL
-                                THEN 'SGH_' + UPPER(LTRIM(RTRIM(REPLACE(CAST(sgh AS NVARCHAR(50)), ' ', ''))))
-                                WHEN lgr IS NOT NULL
-                                THEN 'LGR_' + RIGHT('0000' + UPPER(LTRIM(RTRIM(REPLACE(CAST(lgr AS NVARCHAR(50)), ' ', '')))), 4)
-                                ELSE NULL
-                            END AS clean_code_Lager,
-                            CASE
-                                WHEN sgh IS NOT NULL AND rnr IS NOT NULL
-                                THEN 'SGH_' + UPPER(LTRIM(RTRIM(REPLACE(CAST(sgh AS NVARCHAR(50)), ' ', '')))) + '_RNR_' + RIGHT('0000' + UPPER(LTRIM(RTRIM(REPLACE(CAST(rnr AS NVARCHAR(50)), ' ', '')))), 4)
-                                WHEN sgh IS NOT NULL
-                                THEN 'SGH_' + UPPER(LTRIM(RTRIM(REPLACE(CAST(sgh AS NVARCHAR(50)), ' ', ''))))
-                                WHEN rnr IS NOT NULL
-                                THEN 'RNR_' + RIGHT('0000' + UPPER(LTRIM(RTRIM(REPLACE(CAST(rnr AS NVARCHAR(50)), ' ', '')))), 4)
-                                ELSE NULL
-                            END AS clean_code_Rekvirent,
+                            {LAGER_CLEAN_CODE_SQL} AS clean_code_Lager,
+                            {REKVIRENT_CLEAN_CODE_SQL} AS clean_code_Rekvirent,
                             CASE WHEN vnr IS NOT NULL AND LTRIM(RTRIM(CAST(vnr AS NVARCHAR(100)))) <> ''
                                 THEN 'VARE_' + UPPER(LTRIM(RTRIM(REPLACE(CAST(vnr AS NVARCHAR(100)), ' ', ''))))
                                 ELSE NULL

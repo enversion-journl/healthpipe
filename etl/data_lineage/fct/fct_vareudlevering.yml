@@ -48,8 +48,22 @@ dso_lineage:
       Description: >
         Direkte FK på fact via map.UNSPSC; CleanCode fra dim.ILSVare UNSPSC/UNSPSC_Intern
         (unspc prioriteres over unspsc2 med '.0'-strip). Ikke via dim.ILSVare.dw_ek_UNSPSC.
-    dw_ek_Lager:                    { Type: FK, DataType: BIGINT, Source: [ils_udlev.dbo.udlev.sgh, ils_udlev.dbo.udlev.lgr] }
-    dw_ek_Rekvirent:                { Type: FK, DataType: INT, Source: [ils_udlev.dbo.udlev.sgh, ils_udlev.dbo.udlev.rnr] }
+    dw_ek_Lager:
+      Type: FK
+      DataType: BIGINT
+      Source: [ils_udlev.dbo.udlev.sgh, ils_udlev.dbo.udlev.lgr]
+      Description: >
+        Oploeses via map.Lager paa noeglen SGH_{sgh}_LGR_{lgr}. Er lgr ikke
+        oplyst, oploeses noeglen til sygehus-medlemmet SGH_{sgh}; uden sgh er
+        noeglen NULL -> -1.
+    dw_ek_Rekvirent:
+      Type: FK
+      DataType: INT
+      Source: [ils_udlev.dbo.udlev.sgh, ils_udlev.dbo.udlev.rnr]
+      Description: >
+        Oploeses via map.Rekvirent paa noeglen SGH_{sgh}_RNR_{rnr}. Er rnr ikke
+        oplyst, oploeses noeglen til sygehus-medlemmet SGH_{sgh}; uden sgh er
+        noeglen NULL -> -1.
     dw_ek_Leverandoervare:
       Type: FK
       DataType: BIGINT

@@ -56,7 +56,8 @@ def pre_stg_Vareaftaler_ils(
     Base staging for ILS contract/agreement data.
 
     Performs all heavy joins ONCE:
-    - lafth_ils: Contract headers
+    - lafth_ils: Contract headers (deduped to one row per (lnr, aftale); the
+      newest archive row wins, since arc upserts on prrowid alone)
     - laftd_ils: Contract lines with maerke (brand)
     - laftdstam_ils: Supplier item numbers (Leverandoer_Varenummer_CleanCode)
     - laftdpris_ils: Pricing and package sizes
@@ -117,9 +118,6 @@ def pre_stg_Vareaftaler_ils(
                         END AS clean_code_LeverandoerVarenummer,
                         'AFTALE_' + UPPER(LTRIM(RTRIM(CAST(laftd.lnr AS NVARCHAR(100))))) + '_'
                             + UPPER(LTRIM(RTRIM(REPLACE(lafth.aftale, ' ', '')))) AS clean_code_Aftale,
-                        'AFTALE_' + UPPER(LTRIM(RTRIM(CAST(laftd.lnr AS NVARCHAR(100))))) + '_'
-                            + UPPER(LTRIM(RTRIM(REPLACE(lafth.aftale, ' ', ''))))
-                            + '_VARE_' + UPPER(LTRIM(RTRIM(REPLACE(CAST(laftd.vnr AS NVARCHAR(100)), ' ', '')))) AS clean_code_AftaleVarePris,
 
                         -- Vare attributes (for dim_Leverandoervare_ils)
                         stam.[lvnr##1] AS lvnr1,
@@ -166,7 +164,27 @@ def pre_stg_Vareaftaler_ils(
                     INTO [stg].[pre_vareaftaler_ils]
                     FROM [arc].[ils_laftd] laftd
 
-                    INNER JOIN [arc].[ils_lafth] lafth
+                    -- arc.ils_lafth upserts on prrowid, so several rowids can sit on
+                    -- the same (lnr, aftale) — notably when Progress recreates a
+                    -- record under a new rowid and the old row is left behind
+                    -- (detect_deletes=False). The dimension's business key is
+                    -- (lnr, aftale), and here the header's VALUES matter (unlike the
+                    -- fct chain, where only its existence counts), so the newest
+                    -- archive row wins. prrowid DESC is only a deterministic
+                    -- tiebreaker for when the timestamps are equal.
+                    INNER JOIN (
+                        SELECT *
+                        FROM (
+                            SELECT
+                                h.*,
+                                ROW_NUMBER() OVER (
+                                    PARTITION BY h.lnr, h.aftale
+                                    ORDER BY h.dw_timestamp_update DESC, h.prrowid DESC
+                                ) AS rn
+                            FROM [arc].[ils_lafth] h
+                        ) ranked
+                        WHERE rn = 1
+                    ) lafth
                         ON lafth.aftale = laftd.aftale
                        AND lafth.lnr = laftd.lnr
 
@@ -274,7 +292,6 @@ def pre_stg_Vareaftaler_ils(
                         ean_vnr,
                         vareart,
                         varegrp,
-                        clean_code_AftaleVarePris,
                         clean_code_Aftale
                     );
                 """
@@ -291,7 +308,6 @@ def pre_stg_Vareaftaler_ils(
                         COUNT(*) AS total,
                         COUNT(clean_code_Kreditor) AS has_cvr_clean,
                         COUNT(clean_code_LeverandoerVarenummer) AS has_vare_clean,
-                        COUNT(clean_code_AftaleVarePris) AS has_aftale_clean,
                         COUNT(DISTINCT clean_code_Kreditor) AS unique_cvrs,
                         COUNT(DISTINCT clean_code_LeverandoerVarenummer) AS unique_varer
                     FROM [stg].[pre_vareaftaler_ils]
@@ -300,9 +316,8 @@ def pre_stg_Vareaftaler_ils(
                 stats = cursor.fetchone()
                 context.log.info(
                     f"Coverage: {stats[1]}/{stats[0]} with clean_code_Kreditor, "
-                    f"{stats[2]}/{stats[0]} with clean_code_LeverandoerVarenummer, "
-                    f"{stats[3]}/{stats[0]} with clean_code_AftaleVarePris. "
-                    f"Unique CVRs: {stats[4]}, unique varer: {stats[5]}"
+                    f"{stats[2]}/{stats[0]} with clean_code_LeverandoerVarenummer. "
+                    f"Unique CVRs: {stats[3]}, unique varer: {stats[4]}"
                 )
             finally:
                 cursor.close()
@@ -318,9 +333,8 @@ def pre_stg_Vareaftaler_ils(
             "row_count": row_count,
             "source_tables": "arc.ils_lafth + arc.ils_laftd + arc.ils_laftdstam + arc.ils_laftdpris + arc.ils_lev + arc.ils_vare + arc.ils_vareart + arc.ils_varegrp",
             "grain": "aftale + lnr + vnr",
-            "unique_cvrs": stats[4],
-            "unique_varer": stats[5],
-            "has_aftale_clean": stats[3],
+            "unique_cvrs": stats[3],
+            "unique_varer": stats[4],
             "layer": "stg_fct (Layer 0)",
             "mode": config.mode,
         }

@@ -16,6 +16,9 @@ REPO = Path(__file__).resolve().parents[2]
 DDL = REPO / "infrastructure" / "ddl" / "tables" / "shared_dimensions" / "02_dims.sql"
 MIG = REPO / "infrastructure" / "ddl" / "migrations" / "20260819_dim_dato_calendar_expansion.sql"
 REL = REPO / "infrastructure" / "ddl" / "tables" / "shared_dimensions" / "05_dato_relativ.sql"
+RENAME_MIG = (
+    REPO / "infrastructure" / "ddl" / "migrations" / "20260904_02_dim_dato_kvartal_kolonnenavne.sql"
+)
 
 
 def test_create_ddl_includes_new_dim_dato_columns():
@@ -24,7 +27,8 @@ def test_create_ddl_includes_new_dim_dato_columns():
         "[dato]",
         "[aar_startdato]",
         "[aar_afsluttet]",
-        "[kvartals_startdato]",
+        "[kvartal_startdato]",
+        "[kvartal_slutdato]",
         "[kvartal_afsluttet]",
         "[maaned_lang]",
         "[maaned]",
@@ -98,3 +102,23 @@ def test_relative_refresh_contract():
         "[dag_relativ]",
     ]:
         assert col in text
+
+
+def test_no_legacy_kvartals_prefix_in_create_ddl():
+    """The quarter columns must follow <periode>_startdato like aar/maaned/uge."""
+    text = DDL.read_text(encoding="utf-8")
+    assert "kvartals_startdato" not in text
+    assert "kvartals_slutdato" not in text
+
+
+def test_rename_migration_is_guarded_and_idempotent():
+    text = RENAME_MIG.read_text(encoding="utf-8")
+    for old, new in (
+        ("kvartals_startdato", "kvartal_startdato"),
+        ("kvartals_slutdato", "kvartal_slutdato"),
+    ):
+        # Renames only when the old name is still present ...
+        assert f"AND name = '{old}'" in text
+        # ... and the new name is not already taken (re-run safety).
+        assert f"AND name = '{new}'" in text
+        assert f"EXEC sp_rename '[dim].[Dato].[{old}]', '{new}', 'COLUMN';" in text

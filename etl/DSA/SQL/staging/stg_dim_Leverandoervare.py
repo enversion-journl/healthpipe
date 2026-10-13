@@ -24,9 +24,33 @@ from core.dfm_config import RunModeConfig
 from core.dfm_manager import DfmManager
 from core.resources import MSSQLResource
 from dagster import AssetExecutionContext, AssetKey, MaterializeResult, asset
+from utils.sql.leverandoervare_ilsvare_sql import (
+    LAFTD_ALT_LVNR_SLOTS,
+    LAFTDSTAM_ALT_LVNR_SLOTS,
+    sql_lev_current_cte,
+)
 from utils.sql.leverandoervare_ilsvare_sql import LVNR_CC as _LVNR_CC
-from utils.sql.leverandoervare_ilsvare_sql import sql_lev_current_cte
 from utils.sql.tax_id_sql import sql_cvr_cleancode_from_column
+
+
+def _alt_lvnr_dim_branches() -> str:
+    """ILS-eksistens-branches for alternative lvnr-slots (spec 2026-08-27)."""
+    branches = []
+    for table, alias, slots in (
+        ("ils_laftdstam", "alt_s", LAFTDSTAM_ALT_LVNR_SLOTS),
+        ("ils_laftd", "alt_d", LAFTD_ALT_LVNR_SLOTS),
+    ):
+        for slot in slots:
+            col = f"{alias}.[{slot}]"
+            branches.append(
+                f"""
+        UNION ALL
+        SELECT lev.clean_code_Kreditor, {_LVNR_CC.format(col=col)}
+        FROM [arc].[{table}] {alias}
+        INNER JOIN lev_current lev ON lev.lnr = {alias}.lnr
+        WHERE {col} IS NOT NULL AND LTRIM(RTRIM({col})) <> ''"""
+            )
+    return "".join(branches)
 
 
 def _build_stg_sql(checkpoint: str | None) -> str:
@@ -134,7 +158,7 @@ def _build_stg_sql(checkpoint: str | None) -> str:
         SELECT lev.clean_code_Kreditor, {_LVNR_CC.format(col="p.lvnr")}
         FROM [arc].[ils_pmdm] p
         INNER JOIN lev_current lev ON lev.lnr = p.lnr
-        WHERE p.lvnr IS NOT NULL AND LTRIM(RTRIM(p.lvnr)) <> ''
+        WHERE p.lvnr IS NOT NULL AND LTRIM(RTRIM(p.lvnr)) <> ''{_alt_lvnr_dim_branches()}
     )
     SELECT DISTINCT ip.clean_code_Kreditor, ip.clean_code_LeverandoerVarenummer
     INTO #ils_pairs

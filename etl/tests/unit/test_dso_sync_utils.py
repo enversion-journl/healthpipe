@@ -320,12 +320,12 @@ class TestBuildTruncateInsertStatement:
         """Test basic truncate and insert statement generation."""
         config = SyncTableConfig(
             schema="dim",
-            table="Aftale",
-            primary_key=["dw_ek_Aftale", "dw_valid_from"],
+            table="Test",
+            primary_key=["dw_ek_Test", "dw_valid_from"],
             mode="truncate_insert",
         )
         columns = [
-            "dw_ek_Aftale",
+            "dw_ek_Test",
             "dw_valid_from",
             "dw_valid_to",
             "dw_timestamp_insert",
@@ -338,12 +338,12 @@ class TestBuildTruncateInsertStatement:
         )
 
         # Verify truncate
-        assert "TRUNCATE TABLE [dim].[Aftale]" in truncate_sql
+        assert "TRUNCATE TABLE [dim].[Test]" in truncate_sql
 
         # Verify insert
-        assert "INSERT INTO [dim].[Aftale]" in insert_sql
+        assert "INSERT INTO [dim].[Test]" in insert_sql
         assert "SELECT" in insert_sql
-        assert "FROM [STAGING_LINK].[TestDB].[dim].[Aftale]" in insert_sql
+        assert "FROM [STAGING_LINK].[TestDB].[dim].[Test]" in insert_sql
 
         # All columns should be in select
         for col in columns:
@@ -1084,12 +1084,12 @@ class TestPythonFallbackTruncateInsert:
     def test_truncate_insert_allows_missing_pk_column(self):
         """truncate_insert must not require primary_key to exist in staging columns."""
         schema_cursor = _DummyCursor(
-            fetchall_queue=[[("dw_ek_Aftale",), ("Navn",), ("dw_timestamp_insert",)]]
+            fetchall_queue=[[("dw_ek_Test",), ("Navn",), ("dw_timestamp_insert",)]]
         )
         schema_conn = _DummyConnection(schema_cursor)
 
         data_cursor = _DummyCursor(
-            fetchmany_queue=[[(1, "aftale A", datetime(2026, 2, 10, 10, 0, 0))], []]
+            fetchmany_queue=[[(1, "row A", datetime(2026, 2, 10, 10, 0, 0))], []]
         )
         data_conn = _DummyConnection(data_cursor)
 
@@ -1106,15 +1106,15 @@ class TestPythonFallbackTruncateInsert:
         # truncate_insert mode does not depend on PK matching.
         config = SyncTableConfig(
             schema="dim",
-            table="Aftale",
-            primary_key="aftale",
+            table="Test",
+            primary_key="mismatched_pk",
             mode="truncate_insert",
         )
 
         result = sync_utils._sync_via_python(context, staging_resource, dso_resource, config)
 
         assert result["mode"] == "python_truncate_insert"
-        assert any("TRUNCATE TABLE [dim].[Aftale]" in sql for sql, _ in dso_cursor.execute_calls)
+        assert any("TRUNCATE TABLE [dim].[Test]" in sql for sql, _ in dso_cursor.execute_calls)
         assert dso_cursor.executemany_calls, "Expected INSERT executemany call"
 
     def test_mssql_python_sets_chunk_input_sizes_from_longest_string(self):

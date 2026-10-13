@@ -63,8 +63,8 @@ WHERE d.[dw_ek_Dato] > 0;
 UPDATE dim.[Dato]
 SET [kvartal_id]          = CAST(DATEPART(QUARTER, [dato]) AS TINYINT),
     [kvartal]             = N'K' + CAST(DATEPART(QUARTER, [dato]) AS NVARCHAR(1)),
-    [kvartals_startdato]  = CAST(DATEADD(QUARTER, DATEDIFF(QUARTER, 0, [dato]), 0) AS DATE),
-    [kvartals_slutdato]   = CAST(
+    [kvartal_startdato]   = CAST(DATEADD(QUARTER, DATEDIFF(QUARTER, 0, [dato]), 0) AS DATE),
+    [kvartal_slutdato]    = CAST(
         DATEADD(DAY, -1, DATEADD(QUARTER, DATEDIFF(QUARTER, 0, [dato]) + 1, 0)) AS DATE
     ),
     [kvartal_aar_id]      = YEAR([dato]) * 100 + DATEPART(QUARTER, [dato]),

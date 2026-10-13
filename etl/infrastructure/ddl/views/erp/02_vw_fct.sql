@@ -89,7 +89,10 @@ LEFT JOIN [conceptmap].[RekvirentToSOR] cm_rekvirent
 GO
 
 -- vw_fct.Vareudlevering_ReeltForbrug
--- Anti-join ref.RekvirentUndtagelse on pad-only clean_code_Rekvirent (via dim.sgh/rnr).
+-- Anti-join ref.RekvirentUndtagelse on raw clean_code_Rekvirent (via dim.sgh/rnr).
+-- Trim-only, mirroring DSA/SQL/common/ils_clean_code_shared.sql_norm_code: the
+-- key must be spelled the way map.Rekvirent minted it. A view cannot import, so
+-- this is a documented mirror — keep the two in step.
 CREATE OR ALTER VIEW [vw_fct].[Vareudlevering_ReeltForbrug]
 AS
 SELECT
@@ -101,17 +104,9 @@ WHERE NOT EXISTS (
     INNER JOIN [ref].[RekvirentUndtagelse] u
         ON u.[clean_code_Rekvirent] =
             'SGH_'
-            + UPPER(LTRIM(RTRIM(REPLACE(CAST(d.[sgh] AS NVARCHAR(50)), ' ', ''))))
+            + LTRIM(RTRIM(CAST(d.[sgh] AS NVARCHAR(50))))
             + '_RNR_'
-            + CASE
-                WHEN LEN(UPPER(LTRIM(RTRIM(REPLACE(CAST(d.[rnr] AS NVARCHAR(50)), ' ', ''))))) < 4
-                THEN RIGHT(
-                    REPLICATE('0', 4)
-                    + UPPER(LTRIM(RTRIM(REPLACE(CAST(d.[rnr] AS NVARCHAR(50)), ' ', '')))),
-                    4
-                )
-                ELSE UPPER(LTRIM(RTRIM(REPLACE(CAST(d.[rnr] AS NVARCHAR(50)), ' ', ''))))
-              END
+            + LTRIM(RTRIM(CAST(d.[rnr] AS NVARCHAR(50))))
     WHERE d.[dw_ek_Rekvirent] = v.[dw_ek_Rekvirent]
       AND d.[dw_ek_Rekvirent] <> -1
       AND d.[sgh] IS NOT NULL
@@ -157,7 +152,15 @@ FROM [fct].[Budget];
 GO
 
 -- vw_fct.AftaleVarePris
--- Prisversioner pr. aftalelinje. dw_is_current = 1 giver nyeste ikrafttraadte pris.
+-- Prisversioner (+ syntetiske daekningsraekker for prisloese aftalelinjer,
+-- spec 2026-08-31-prisloese-linjer-og-aftalelager) pr. aftalelinje x lvnr:
+-- én raekke pr. prisversion-ELLER-syntetisk-linje pr. lvnr — alternative
+-- leverandoervarenumre (lvnr) fanner ud som egne raekker.
+-- dw_is_current = 1 giver nyeste ikrafttraadte pris ELLER en prisloes linje
+-- (som altid er dw_is_current = 1, jf. har_prisversion = 0) — view-paritet
+-- med ILS-referencen (som ikke kender prisloese linjer) kraever derfor
+-- filteret har_prisversion = 1 AND dw_is_current = 1, ikke dw_is_current
+-- alene.
 CREATE OR ALTER VIEW [vw_fct].[AftaleVarePris]
 AS
 SELECT *

@@ -21,6 +21,14 @@ from utils.sql.tax_id_sql import sql_cvr_cleancode_from_se_nr
 LVNR_CC = "CAST('LEVVARE_' + UPPER(LTRIM(RTRIM(REPLACE({col}, ' ', '')))) AS NVARCHAR(500))"
 VNR_CC = "CAST('ILSVARE_' + UPPER(LTRIM(RTRIM(REPLACE(CAST({col} AS NVARCHAR(100)), ' ', '')))) AS NVARCHAR(120))"
 
+# Alternative leverandoervarenummer-slots (spec: 2026-08-27-alternate-lvnr-rows).
+# laftdstam har lvnr##1-4, laftd har lvnr##1-3. Slot ##1 er den primaere og
+# haandteres af de eksisterende branches — listerne her er KUN alternativerne.
+# Single-sourced saa hub, bridge, dim og fct-staging aldrig kan desynce paa
+# hvilke slots der fanner ud.
+LAFTDSTAM_ALT_LVNR_SLOTS = ["lvnr##2", "lvnr##3", "lvnr##4"]
+LAFTD_ALT_LVNR_SLOTS = ["lvnr##2", "lvnr##3"]
+
 
 def sql_lev_current_cte() -> str:
     """Named CTE ``lev_current``: one current row per supplier (lnr) with its

@@ -152,7 +152,14 @@ END
 GO
 
 
--- dim.Aftale (Type 2 SCD)
+-- dim.Aftale (Type 1 SCD)
+-- Carries active, expired AND deleted agreements. The source removes an
+-- agreement once it expires, and the archive keeps it (detect_deletes=False)
+-- because historical purchases reference it. Hence no dw_is_deleted: an expired
+-- agreement is simply an agreement whose hoved_slut lies in the past.
+-- alle_maa_benytte (spec 2026-08-31-prisloese-linjer-og-aftalelager): 1 = no
+-- lafthsgh steering (ILS "Benyttes af" blank) = every hospital/warehouse may
+-- buy on the agreement; 0 = steering exists in bridge.AftaleLager.
 IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dim].[Aftale]') AND type = 'U')
 BEGIN
     CREATE TABLE [dim].[Aftale](
@@ -167,40 +174,33 @@ BEGIN
         [aftaletekst] NVARCHAR(MAX) NULL,
         [hoved_start] DATETIME2 NULL,
         [hoved_slut] DATETIME2 NULL,
-        [dw_valid_from] DATETIME2(0) NOT NULL,
-        [dw_valid_to] DATETIME2(0) NOT NULL CONSTRAINT [DF_Aftale_dw_valid_to] DEFAULT '9999-12-31',
-        [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_Aftale_dw_is_deleted] DEFAULT 0,
+        [alle_maa_benytte] BIT NOT NULL CONSTRAINT [DF_Aftale_alle_maa_benytte] DEFAULT 1,
         [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Aftale_dw_timestamp_insert] DEFAULT SYSDATETIME(),
         [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Aftale_dw_timestamp_update] DEFAULT SYSDATETIME(),
-        CONSTRAINT [PK_Dim_Aftale] PRIMARY KEY CLUSTERED ([dw_ek_Aftale] ASC, [dw_valid_from] ASC)
+        CONSTRAINT [PK_Dim_Aftale] PRIMARY KEY CLUSTERED ([dw_ek_Aftale] ASC)
     ) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY];
 END
 GO
 
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'[dim].[Aftale]') AND name = 'IX_Dim_Aftale_Current')
+-- Covering index for lookups on agreement attributes. Not filtered: the PK is
+-- dw_ek_Aftale alone, and there is no version or delete marker to filter on.
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'[dim].[Aftale]') AND name = 'IX_Dim_Aftale_Nummer')
    AND EXISTS (SELECT 1 FROM sys.objects WHERE object_id = OBJECT_ID(N'[dim].[Aftale]') AND type = 'U')
 BEGIN
-    CREATE NONCLUSTERED INDEX [IX_Dim_Aftale_Current] ON [dim].[Aftale]
-    ([dw_ek_Aftale] ASC)
-    INCLUDE ([aftale_nummer], [aftaletype], [aftaletekst])
-    WHERE [dw_is_deleted] = 0 AND [dw_valid_to] = '9999-12-31';
+    CREATE NONCLUSTERED INDEX [IX_Dim_Aftale_Nummer] ON [dim].[Aftale]
+    ([aftale_nummer] ASC)
+    INCLUDE ([aftaletype], [hoved_start], [hoved_slut]);
 END
 GO
 
 -- Insert UNKNOWN row if not exists - dynamic SQL avoids compile-time column resolution
-IF NOT EXISTS (
-    SELECT 1
-    FROM [dim].[Aftale]
-    WHERE [dw_ek_Aftale] = -1 AND [dw_valid_from] = '1900-01-01' AND [dw_valid_to] = '9999-12-31'
-)
+IF NOT EXISTS (SELECT 1 FROM [dim].[Aftale] WHERE [dw_ek_Aftale] = -1)
 BEGIN
     EXEC('
         INSERT INTO [dim].[Aftale] (
-            [dw_ek_Aftale], [clean_code_Aftale], [aftale_nummer],
-            [dw_valid_from], [dw_valid_to], [dw_is_deleted], [dw_timestamp_insert]
+            [dw_ek_Aftale], [clean_code_Aftale], [aftale_nummer], [dw_timestamp_insert]
         ) VALUES (
-            -1, N''UNKNOWN'', N''UNKNOWN'',
-            ''1900-01-01'', ''9999-12-31'', 0, CAST(SYSDATETIME() AS DATETIME2)
+            -1, N''UNKNOWN'', N''UNKNOWN'', CAST(SYSDATETIME() AS DATETIME2)
         )
     ');
 END

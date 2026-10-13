@@ -9,7 +9,7 @@ ref.RekvirentUndtagelse — ILS exclusion list for reelt forbrug.
 
 Full rebuild each run from arc.ils_rekvundtagne (manual list, ~130 rows).
 Preserves orphans (no match in arc.ils_rekv / map.Rekvirent) with
-dw_ek_Rekvirent NULL. CleanCode is pad-only SGH_{sgh}_RNR_{rnr}.
+dw_ek_Rekvirent NULL. CleanCode is SGH_{sgh}_RNR_{rnr} with a raw rnr.
 """
 
 import dagster as dg
@@ -30,7 +30,7 @@ from DSA.SQL.ref.rekvirent_undtagelse_sql import REBUILD_SQL, REF_TABLE
     tags={"domain": "erp", "layer": "ref", "entity": "RekvirentUndtagelse"},
     description=(
         "ref.RekvirentUndtagelse — full rebuild of ILS rekvUndtagne exclusion "
-        "list with pad-only CleanCode, navn COALESCE(rekv, undtagne), and "
+        "list with raw CleanCode, navn COALESCE(rekv, undtagne), and "
         "nullable dw_ek_Rekvirent for orphans."
     ),
 )

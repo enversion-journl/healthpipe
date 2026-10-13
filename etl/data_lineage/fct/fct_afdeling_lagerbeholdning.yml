@@ -16,8 +16,22 @@ dso_lineage:
 
   Columns:
     dw_ek_AfdelingLagerbeholdning:              { Type: PK, DataType: BIGINT }
-    dw_ek_Lager:                                { Type: FK, DataType: BIGINT, Source: [ils.dbo.afdlgrbeh.sgh, ils.dbo.afdlgrbeh.lgr] }
-    dw_ek_Rekvirent:                            { Type: FK, DataType: INT, Source: [ils.dbo.afdlgrbeh.sgh, ils.dbo.afdlgrbeh.rnr] }
+    dw_ek_Lager:
+      Type: FK
+      DataType: BIGINT
+      Source: [ils.dbo.afdlgrbeh.sgh, ils.dbo.afdlgrbeh.lgr]
+      Description: >
+        Oploeses via map.Lager paa noeglen SGH_{sgh}_LGR_{lgr}. Er lgr ikke
+        oplyst, oploeses noeglen til sygehus-medlemmet SGH_{sgh}; uden sgh er
+        noeglen NULL -> -1.
+    dw_ek_Rekvirent:
+      Type: FK
+      DataType: INT
+      Source: [ils.dbo.afdlgrbeh.sgh, ils.dbo.afdlgrbeh.rnr]
+      Description: >
+        Oploeses via map.Rekvirent paa noeglen SGH_{sgh}_RNR_{rnr}. Er rnr ikke
+        oplyst, oploeses noeglen til sygehus-medlemmet SGH_{sgh}; uden sgh er
+        noeglen NULL -> -1.
     dw_ek_ILSVare:                              { Type: FK, DataType: INT, Source: [ils.dbo.afdlgrbeh.vnr] }
     dw_ek_UNSPSC:
       Type: FK

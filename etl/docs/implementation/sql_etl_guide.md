@@ -121,7 +121,7 @@ Multi-table enrichment joins do **not** belong in DSI. They live as SQL in `pre_
 - Responsible for: CleanCode generation, cross-source joins, deduplication, bk_* column creation
 - Asset keys: `pre_stg_*`, `stg_dim_*`, `stg_fct_*`
 - Code location: `DSA/SQL/staging/`
-- CleanCode builders: `DSA/SQL/staging/clean_codes.py`
+- Shared CleanCode SQL expressions: `DSA/SQL/common/` (e.g. `ils_clean_code_shared.py`)
 
 #### DSA map/dim/fct
 - Owns **all** map, dim, and fct update assets
@@ -165,7 +165,9 @@ END AS clean_code_Kreditor
     AS clean_code_Kontoplan
 ```
 
-The CleanCode builder definitions in `DSA/SQL/staging/clean_codes.py` document the canonical business rules. When writing pre_stg SQL, replicate these rules as SQL CASE expressions.
+Where several assets resolve against the same map, put the CleanCode expression in a shared builder under `DSA/SQL/common/` and import it, rather than hand-copying the CASE into each pre_stg asset. Assign it to a module-level constant so the contract can be unit-tested without running the asset. Hand-mirrored copies drift; a shared expression cannot.
+
+Sharing the expression is necessary but not sufficient — **the expression must normalise exactly as much as the side that mints the map member, and no more.** A key is only reachable if it is spelled the way it was minted, so any extra normalisation on the lookup side fabricates a key the map cannot hold. For the ILS keys the minting side is the codesystem builder, which only does `str(value).strip()`; adding `REPLACE(v, ' ', '')` there made the genuine `map.Rekvirent` member `SGH_6000_RNR_SLB TELE` permanently unresolvable. Before adding a normalisation step, check what the `stg_dim_*` / codesystem asset that seeds the map actually does. Note also that case-folding is redundant: the databases collate `Danish_Norwegian_CI_AS`, so `=` already ignores case.
 
 ## Extract Layer: DFM (Checkpoint-Based Delta Extraction)
 

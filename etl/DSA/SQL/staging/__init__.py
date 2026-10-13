@@ -23,6 +23,7 @@ from .pre_stg_Leverandoervare_ILSVare_delta_entiteter import (
 from .pre_stg_Postering_sydax import pre_stg_Postering_sydax
 from .pre_stg_Vareaftaler_ils import pre_stg_Vareaftaler_ils
 from .pre_stg_Vareudlevering_ils import pre_stg_Vareudlevering_ils
+from .stg_bridge_AftaleLager import stg_bridge_AftaleLager
 from .stg_bridge_DRGKontaktDiagnose import stg_bridge_DRGKontaktDiagnose
 from .stg_bridge_DRGKontaktProcedure import stg_bridge_DRGKontaktProcedure
 from .stg_bridge_Leverandoervare_ILSVare import stg_bridge_Leverandoervare_ILSVare
@@ -82,6 +83,7 @@ staging_assets = [
     pre_stg_Lagerbeholdning_ils,
     pre_stg_AfdelingLagerbeholdning_ils,
     stg_bridge_Leverandoervare_ILSVare,
+    stg_bridge_AftaleLager,
     # Dimension staging
     stg_dim_Aftale_ils,
     stg_dim_Faktura_mysupply,
@@ -133,6 +135,7 @@ __all__ = [
     "pre_stg_AfdelingLagerbeholdning_ils",
     "pre_stg_Vareaftaler_ils",
     "stg_bridge_Leverandoervare_ILSVare",
+    "stg_bridge_AftaleLager",
     "stg_bridge_DRGKontaktDiagnose",
     "stg_bridge_DRGKontaktProcedure",
     "stg_DRGDiagnoseGruppe",
