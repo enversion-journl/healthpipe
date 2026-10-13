@@ -7,16 +7,34 @@
 """
 Fact Update: AftaleVarePris
 
-Prisversioner pr. aftalelinje. Grain: én række pr.
-(lnr, aftale, vnr, start_, startklk) — unikt via bk_prrowid (laftdpris.prrowid).
+Price versions — plus synthetic coverage rows for agreement lines that have
+no price versions — per agreement line x supplier item number (lvnr).
+Grain: (bk_prrowid, clean_code_AftaleVarePris). bk_prrowid carries a source
+prefix ('LAFTDPRIS_<prrowid>' for real price versions, 'LAFTD_<prrowid>' for
+synthetic rows), and clean_code_AftaleVarePris carries a _LEVVARE_{lvnr}
+suffix so fanned-out lvnr rows of the same price version stay distinct.
 
-Kildeleveret historik: dw_valid_from/dw_valid_to kommer fra kildens
-start_/startklk/slut. dw_is_current beregnes i staging (nyeste ikrafttraadte
-prisversion pr. aftalelinje; staging leverer alle versioner af beroerte linjer).
+Validity: dw_valid_from comes from the source (start_/startklk on price
+versions; the line's own start on synthetic rows). dw_valid_to is LEAD-chained
+per agreement line in staging — the source's slut only serves as fallback on a
+line's last version — and synthetic rows are open-ended. dw_is_current is also
+computed in staging (newest effective price version per line; synthetic rows
+are always current). har_prisversion tells the two row kinds apart
+(1 = real price version, 0 = synthetic coverage row).
 
-Ingen soft delete: ILS-arkiverne koerer detect_deletes=False (upsert-only),
-saa raekker forsvinder aldrig fra arc.ils_laftdpris og en sletning kan ikke
-observeres. Genindfoer delete-detektion her hvis arc-laget faar det.
+Delete handling is a line-scoped pre-delete sweep: BEFORE the MERGE, every
+live row belonging to a line represented in staging (#AftaleVarePris_Facts)
+is marked deleted, whether or not the row itself reappears. The MERGE then
+resurrects everything still present (WHEN MATCHED sets dw_is_deleted = 0).
+One uniform mechanism covers shrinking lvnr sets, synthetic-to-real price
+version transitions, and any other disappearance within a line. The scope is
+deliberately the LINE (bk_leverandoernummer, bk_aftale_nummer,
+bk_ils_varenummer), never the agreement: sibling lines on the same agreement
+are not necessarily restaged in the same run and must not be swept. This is
+safe because staging always carries the FULL history for an affected line
+(delta_join gates on the line keys, never on price-version/timestamp level) —
+pinned by test_aftalevarepris_delta_contract.py. The arc layer itself never
+deletes (detect_deletes=False on all ILS archives).
 """
 
 from core.dfm_config import RunModeConfig
@@ -33,6 +51,7 @@ SELECT
     src.bk_aftale_nummer,
     src.bk_ils_varenummer,
     src.clean_code_AftaleVarePris,
+    src.har_prisversion,
 
     av_map.dw_ek_AftaleVarePris,
     COALESCE(aftale_map.dw_ek_Aftale, -1) AS dw_ek_Aftale,
@@ -49,9 +68,7 @@ SELECT
     src.pakkestoerrelse3,
     src.pakkestoerrelse4,
     src.momskode,
-    src.kreditorvarenummer1,
-    src.kreditorvarenummer2,
-    src.kreditorvarenummer3,
+    src.kilder,
     src.maerke,
     src.linje_start,
     src.linje_slut,
@@ -87,6 +104,7 @@ MERGE_SQL = """
 MERGE [fct].[AftaleVarePris] AS tgt
 USING #AftaleVarePris_Facts AS src
 ON tgt.bk_prrowid = src.bk_prrowid
+AND tgt.clean_code_AftaleVarePris = src.clean_code_AftaleVarePris
 
 WHEN MATCHED THEN
     UPDATE SET
@@ -95,7 +113,6 @@ WHEN MATCHED THEN
         tgt.dw_ek_Leverandoervare = src.dw_ek_Leverandoervare,
         tgt.dw_ek_ILSVare = src.dw_ek_ILSVare,
         tgt.dw_ek_Kreditor = src.dw_ek_Kreditor,
-        tgt.clean_code_AftaleVarePris = src.clean_code_AftaleVarePris,
         tgt.bk_leverandoernummer = src.bk_leverandoernummer,
         tgt.bk_aftale_nummer = src.bk_aftale_nummer,
         tgt.bk_ils_varenummer = src.bk_ils_varenummer,
@@ -108,9 +125,8 @@ WHEN MATCHED THEN
         tgt.pakkestoerrelse3 = src.pakkestoerrelse3,
         tgt.pakkestoerrelse4 = src.pakkestoerrelse4,
         tgt.momskode = src.momskode,
-        tgt.kreditorvarenummer1 = src.kreditorvarenummer1,
-        tgt.kreditorvarenummer2 = src.kreditorvarenummer2,
-        tgt.kreditorvarenummer3 = src.kreditorvarenummer3,
+        tgt.kilder = src.kilder,
+        tgt.har_prisversion = src.har_prisversion,
         tgt.maerke = src.maerke,
         tgt.linje_start = src.linje_start,
         tgt.linje_slut = src.linje_slut,
@@ -127,7 +143,7 @@ WHEN NOT MATCHED BY TARGET THEN
         clean_code_AftaleVarePris, bk_prrowid, bk_leverandoernummer, bk_aftale_nummer, bk_ils_varenummer,
         pris1, pris2, pris3, pris4,
         pakkestoerrelse1, pakkestoerrelse2, pakkestoerrelse3, pakkestoerrelse4,
-        momskode, kreditorvarenummer1, kreditorvarenummer2, kreditorvarenummer3, maerke,
+        momskode, kilder, har_prisversion, maerke,
         linje_start, linje_slut, dw_valid_from, dw_valid_to, dw_is_current, source_aktiv,
         dw_is_deleted, dw_timestamp_insert, dw_timestamp_update
     )
@@ -136,12 +152,41 @@ WHEN NOT MATCHED BY TARGET THEN
         src.clean_code_AftaleVarePris, src.bk_prrowid, src.bk_leverandoernummer, src.bk_aftale_nummer, src.bk_ils_varenummer,
         src.pris1, src.pris2, src.pris3, src.pris4,
         src.pakkestoerrelse1, src.pakkestoerrelse2, src.pakkestoerrelse3, src.pakkestoerrelse4,
-        src.momskode, src.kreditorvarenummer1, src.kreditorvarenummer2, src.kreditorvarenummer3, src.maerke,
+        src.momskode, src.kilder, src.har_prisversion, src.maerke,
         src.linje_start, src.linje_slut, src.dw_valid_from, src.dw_valid_to, src.dw_is_current, src.source_aktiv,
         0,
         CAST(SYSDATETIME() AS datetime2(0)),
         CAST(SYSDATETIME() AS datetime2(0))
     );
+"""
+
+# Line-scoped pre-delete sweep, run BEFORE the MERGE. Scope: the agreement
+# lines (bk_leverandoernummer, bk_aftale_nummer, bk_ils_varenummer) that are
+# represented in #AftaleVarePris_Facts — every live row for such a line is
+# marked deleted, including rows whose (bk_prrowid, clean_code_AftaleVarePris)
+# does not itself reappear in staging. The MERGE resurrects everything still
+# present (WHEN MATCHED sets dw_is_deleted = 0), so the net result is correct
+# for shrinking lvnr sets, synthetic-to-real price version transitions, and
+# any other disappearance within a line. The scope is deliberately the line,
+# never the agreement: sibling lines are not necessarily restaged in the same
+# run and must not be swept. Safe because staging always carries the FULL
+# history for an affected line (delta_join gates on the line keys —
+# contract-tested, load-bearing for this sweep). Swept-then-resurrected rows
+# get two timestamp bumps in one run — accepted churn. The arc layer itself
+# never deletes (detect_deletes=False on all ILS archives).
+PRE_DELETE_SQL = """
+UPDATE tgt
+SET tgt.dw_is_deleted = 1,
+    tgt.dw_is_current = 0,
+    tgt.dw_timestamp_update = CAST(SYSDATETIME() AS datetime2(0))
+FROM [fct].[AftaleVarePris] tgt
+WHERE tgt.dw_is_deleted = 0
+  AND EXISTS (
+      SELECT 1 FROM #AftaleVarePris_Facts src
+      WHERE src.bk_leverandoernummer = tgt.bk_leverandoernummer
+        AND src.bk_aftale_nummer = tgt.bk_aftale_nummer
+        AND src.bk_ils_varenummer = tgt.bk_ils_varenummer
+  );
 """
 
 
@@ -160,11 +205,13 @@ WHEN NOT MATCHED BY TARGET THEN
         "domain": "erp",
         "layer": "facts",
         "module": "datawarehouse",
-        "grain": "price_version_per_agreement_line",
+        "grain": "price_version_per_agreement_line_per_lvnr",
     },
     description=(
-        "Prisversioner pr. aftalelinje — kildeleveret historik "
-        "fra ILS laftdpris, MERGE paa bk_prrowid (ingen soft delete — arc er upsert-only)"
+        "Prisversioner (+ syntetiske daekningsraekker for prisloese linjer) pr. "
+        "aftalelinje x lvnr — kildeleveret historik fra ILS laftd/laftdpris, "
+        "MERGE paa (bk_prrowid, clean_code_AftaleVarePris) med linje-skopet "
+        "pre-delete-sweep FOER MERGE"
     ),
 )
 def fct_AftaleVarePris(
@@ -215,7 +262,7 @@ def fct_AftaleVarePris(
 
                 cursor.execute(
                     """
-                    SELECT COUNT(*) - COUNT(DISTINCT bk_prrowid)
+                    SELECT COUNT(*) - COUNT(DISTINCT CONCAT(bk_prrowid, '|', clean_code_AftaleVarePris))
                     FROM #AftaleVarePris_Facts
                 """
                 )
@@ -223,8 +270,17 @@ def fct_AftaleVarePris(
                 if duplicate_source_rows > 0:
                     raise ValueError(
                         "Duplicate grain violation in fct_AftaleVarePris: "
-                        f"{duplicate_source_rows} duplicate bk_prrowid rows in #AftaleVarePris_Facts."
+                        f"{duplicate_source_rows} duplicate (bk_prrowid, clean_code_AftaleVarePris) "
+                        "rows in #AftaleVarePris_Facts."
                     )
+
+                # Pre-delete-sweep FOER MERGE (spec 2026-08-31): linje-skopet,
+                # se PRE_DELETE_SQL-kommentaren for begrundelsen.
+                cursor.execute(PRE_DELETE_SQL)
+                swept_rows = cursor.rowcount
+                context.log.info(
+                    f"Pre-delete-sweep: {swept_rows} raekker soft-deleted (linje-skopet, foer MERGE)"
+                )
 
                 cursor.execute(MERGE_SQL)
                 rows_affected = cursor.rowcount
@@ -277,8 +333,9 @@ def fct_AftaleVarePris(
     return MaterializeResult(
         metadata={
             "rows_affected": rows_affected,
+            "swept_rows": swept_rows,
             "table": "fct.AftaleVarePris",
-            "grain": "bk_prrowid (lnr + aftale + vnr + start_ + startklk)",
+            "grain": "bk_prrowid x clean_code_AftaleVarePris (prisversion-eller-syntetisk-linje x lvnr)",
             "staging_source": "stg.fct_AftaleVarePris_ils (Layer 1)",
             "dw_ek_lookups": "AftaleVarePris, Aftale, Vare, ILSVare, Kreditor",
             "missing_aftale_fk": diag[1],

@@ -101,6 +101,28 @@ def dso_sync_bridge_leverandoervareilsvare(
 
 
 @dg.asset(
+    name="dso_sync_bridge_aftalelager",
+    group_name="erp_dso_sync",
+    compute_kind="mssql",
+    deps=["bridge_AftaleLager"],
+    tags={"domain": "erp", "layer": "dso_sync", "type": "bridge"},
+    description="Sync bridge.AftaleLager from staging to DSO database",
+)
+def dso_sync_bridge_aftalelager(
+    context: dg.AssetExecutionContext,
+    mssql_target_dso: MSSQLResource,
+    mssql_source_staging: MSSQLResource,
+) -> dg.MaterializeResult:
+    return _materialize_sync_result(
+        context,
+        mssql_target_dso,
+        mssql_source_staging,
+        "bridge_AftaleLager",
+        ERP_DIM_CONFIGS,
+    )
+
+
+@dg.asset(
     name="dso_sync_dim_kreditor",
     group_name="erp_dso_sync",
     compute_kind="mssql",
@@ -530,6 +552,7 @@ def dso_sync_dim_shak(
 all_dso_sync_dim_assets = [
     dso_sync_dim_aftale,
     dso_sync_bridge_leverandoervareilsvare,
+    dso_sync_bridge_aftalelager,
     dso_sync_dim_kreditor,
     dso_sync_dim_leverandoervare,
     dso_sync_dim_kontoplan,

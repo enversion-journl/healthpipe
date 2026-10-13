@@ -8,7 +8,8 @@
 Map Update: AftaleVarePris
 
 Assign dw_ek_AftaleVarePris via IDENTITY using clean_code_AftaleVarePris as natural key.
-Grain: aftalelinje (lnr, aftale, vnr) — stabil paa tvaers af prisversioner.
+Grain: aftalelinje x lvnr — CleanCode-format AFTALE_{lnr}_{aftale}_VARE_{vnr}[_LEVVARE_{lvnr}]
+— stabil paa tvaers af prisversioner.
 """
 
 from core.dfm_config import RunModeConfig

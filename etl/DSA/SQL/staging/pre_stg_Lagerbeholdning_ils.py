@@ -14,6 +14,11 @@ from core.dfm_manager import DfmManager
 from core.resources import MSSQLResource
 
 from etl.DSA.SQL.common.dato_dimension import dato_key
+from etl.DSA.SQL.common.ils_clean_code_shared import sql_clean_code_lager
+
+# Raw key, as map.Lager holds it. Module-level so the contract is testable
+# without running the asset.
+LAGER_CLEAN_CODE_SQL = sql_clean_code_lager("src.sgh", "src.lgr")
 
 
 @dg.asset(
@@ -61,17 +66,7 @@ def pre_stg_Lagerbeholdning_ils(
                     WITH ranked AS (
                         SELECT
                             src.*,
-                            CASE
-                                WHEN src.sgh IS NOT NULL AND src.lgr IS NOT NULL
-                                THEN 'SGH_' + LTRIM(RTRIM(REPLACE(CAST(src.sgh AS NVARCHAR(50)), ' ', '')))
-                                     + '_LGR_'
-                                     + LTRIM(RTRIM(REPLACE(CAST(src.lgr AS NVARCHAR(50)), ' ', '')))
-                                WHEN src.sgh IS NOT NULL
-                                THEN 'SGH_' + LTRIM(RTRIM(REPLACE(CAST(src.sgh AS NVARCHAR(50)), ' ', '')))
-                                WHEN src.lgr IS NOT NULL
-                                THEN 'LGR_' + LTRIM(RTRIM(REPLACE(CAST(src.lgr AS NVARCHAR(50)), ' ', '')))
-                                ELSE NULL
-                            END AS clean_code_Lager,
+                            {LAGER_CLEAN_CODE_SQL} AS clean_code_Lager,
                             src.dw_timestamp_update AS snapshot_date_time,
                             {dato_key('src.dw_timestamp_update')} AS snapshot_datekey,
                             DENSE_RANK() OVER (

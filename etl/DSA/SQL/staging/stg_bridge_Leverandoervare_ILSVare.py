@@ -12,7 +12,10 @@ Builds two tables from the entity-delta hub (stg.pre_Leverandoervare_ILSVare_del
      pair history for delta-affected entities, WITHOUT pair dedup (a
      rn=1 winner-selection here would recreate the information loss the
      bridge exists to fix). bridge_kilder is a priority-ordered STRING_AGG
-     over DISTINCT (source, priority) pairs.
+     over DISTINCT (source, priority) pairs. laftdstam/laftd contribute their
+     alternate lvnr-slots (##2-4/##2-3) too, as own-priority
+     'laftdstam_alt'/'laftd_alt' sources after the five primary sources
+     (spec 2026-08-27-alternate-lvnr-rows).
   2. stg.bridge_Leverandoervare_ILSVare_delta_entiteter — the scope list: hub entities
      changed since CP_Bridge, read directly from the hub (never from pair-set
      counterparts, which would incorrectly widen the soft-delete scope).
@@ -30,15 +33,49 @@ from dagster import (
     RetryPolicy,
     asset,
 )
+from utils.sql.leverandoervare_ilsvare_sql import (
+    LAFTD_ALT_LVNR_SLOTS,
+    LAFTDSTAM_ALT_LVNR_SLOTS,
+    sql_lev_current_cte,
+)
 from utils.sql.leverandoervare_ilsvare_sql import LVNR_CC as _LVNR_CC
 from utils.sql.leverandoervare_ilsvare_sql import VNR_CC as _VNR_CC
-from utils.sql.leverandoervare_ilsvare_sql import sql_lev_current_cte
 
 
 def _cp_filter(checkpoint: str | None, expr: str = "dw_timestamp_update") -> str:
     if checkpoint is None:
         return ""
     return f" AND {expr} > '{checkpoint}'"
+
+
+def _alt_lvnr_pair_branches() -> str:
+    """Par-branches for alternative lvnr-slots (spec 2026-08-27).
+
+    Egne bridge_source-labels med prioritet EFTER de fem eksisterende kilder,
+    saa STRING_AGG-ordenen i bridge_kilder stadig raekker primaerkilderne
+    foerst. Ingen dedup her — pair-set'et er bevidst uden dedup, og et
+    alternativ identisk med lvnr##1 kollapser i den afsluttende DISTINCT.
+    """
+    branches = []
+    for table, alias, source_label, priority, slots in (
+        ("ils_laftdstam", "alt_s", "laftdstam_alt", 6, LAFTDSTAM_ALT_LVNR_SLOTS),
+        ("ils_laftd", "alt_d", "laftd_alt", 7, LAFTD_ALT_LVNR_SLOTS),
+    ):
+        for slot in slots:
+            col = f"{alias}.[{slot}]"
+            branches.append(
+                f"""
+        UNION ALL
+        SELECT lev.clean_code_Kreditor, {_LVNR_CC.format(col=col)},
+               {_VNR_CC.format(col=f"{alias}.vnr")},
+               CAST({alias}.vnr AS NVARCHAR(100)),
+               '{source_label}', {priority}
+        FROM [arc].[{table}] {alias}
+        INNER JOIN lev_current lev ON lev.lnr = {alias}.lnr
+        WHERE {col} IS NOT NULL AND LTRIM(RTRIM({col})) <> ''
+          AND NULLIF(LTRIM(RTRIM(CAST({alias}.vnr AS NVARCHAR(100)))), '') IS NOT NULL"""
+            )
+    return "".join(branches)
 
 
 def _build_scope_sql(cp: str | None) -> str:
@@ -112,7 +149,7 @@ def _build_pairs_sql(cp: str | None) -> str:
         FROM [arc].[ils_pmdm] p
         INNER JOIN lev_current lev ON lev.lnr = p.lnr
         WHERE p.lvnr IS NOT NULL AND LTRIM(RTRIM(p.lvnr)) <> ''
-          AND NULLIF(LTRIM(RTRIM(CAST(p.vnr AS NVARCHAR(100)))), '') IS NOT NULL
+          AND NULLIF(LTRIM(RTRIM(CAST(p.vnr AS NVARCHAR(100)))), '') IS NOT NULL{_alt_lvnr_pair_branches()}
     ),
     scope AS (
         SELECT clean_code_Kreditor, clean_code_LeverandoerVarenummer, clean_code_ILSVare, vnr

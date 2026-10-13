@@ -471,10 +471,19 @@ END
 GO
 
 -- fct.AftaleVarePris
--- Source: ILS dbo.laftdpris + dbo.laftd + dbo.lafth + dbo.laftdstam
--- Grain: one row per price version per agreement line (lnr, aftale, vnr, start_, startklk).
--- bk_prrowid (dbo.laftdpris.prrowid) is the unique merge key.
--- dw_valid_from/dw_valid_to come from SOURCE validity (laftdpris.start_/slut), not DW observation.
+-- Source: ILS dbo.laftd (backbone, spec 2026-08-31-prisloese-linjer-og-aftalelager)
+--   LEFT JOIN dbo.laftdpris + dbo.lafth + dbo.laftdstam.
+-- Grain: one row per price version (OR synthetic line-coverage row for price-less
+--   lines) per agreement line per lvnr (bk_prrowid x clean_code_AftaleVarePris).
+-- bk_prrowid carries a source prefix so the two row types never collide:
+--   'LAFTDPRIS_<prrowid>' (real price version, dbo.laftdpris.prrowid) /
+--   'LAFTD_<prrowid>' (synthetic row, dbo.laftd.prrowid) — both varchar(36).
+-- har_prisversion: 1 = real price version, 0 = synthetic line-coverage row
+--   (agreement line has items/alternates but zero laftdpris rows).
+-- dw_valid_from = source start_/startklk (real) / linje_start (synthetic);
+--   dw_valid_to = LEAD-chained per line (source slut only as last-version
+--   fallback) / '9999-12-31' (synthetic, always dw_is_current = 1).
+-- clean_code_AftaleVarePris format: AFTALE_{lnr}_{aftale}_VARE_{vnr}[_LEVVARE_{lvnr}] — basisform uden lvnr paa no-lvnr-raekken.
 
 IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[fct].[AftaleVarePris]') AND type = 'U')
 BEGIN
@@ -499,9 +508,8 @@ BEGIN
         [pakkestoerrelse3] DECIMAL(18,4) NULL,
         [pakkestoerrelse4] DECIMAL(18,4) NULL,
         [momskode] NVARCHAR(50) NULL,
-        [kreditorvarenummer1] NVARCHAR(100) NULL,
-        [kreditorvarenummer2] NVARCHAR(100) NULL,
-        [kreditorvarenummer3] NVARCHAR(100) NULL,
+        [kilder] NVARCHAR(100) NULL,
+        [har_prisversion] BIT NOT NULL CONSTRAINT [DF_AftaleVarePris_har_prisversion] DEFAULT 1,
         [maerke] NVARCHAR(255) NULL,
         [linje_start] DATETIME2 NULL,
         [linje_slut] DATETIME2 NULL,
@@ -515,8 +523,8 @@ BEGIN
         CONSTRAINT [PK_Fct_AftaleVarePris] PRIMARY KEY CLUSTERED ([dw_sk_AftaleVarePris] ASC)
     ) ON [PRIMARY];
 
-    CREATE UNIQUE NONCLUSTERED INDEX [IX_Fct_AftaleVarePris_bk_prrowid] ON [fct].[AftaleVarePris]
-    ([bk_prrowid] ASC) ON [PRIMARY];
+    CREATE UNIQUE NONCLUSTERED INDEX [IX_Fct_AftaleVarePris_grain] ON [fct].[AftaleVarePris]
+    ([bk_prrowid] ASC, [clean_code_AftaleVarePris] ASC) ON [PRIMARY];
 
     CREATE NONCLUSTERED INDEX [IX_Fct_AftaleVarePris_AftaleVarePris] ON [fct].[AftaleVarePris]
     ([dw_ek_AftaleVarePris] ASC) ON [PRIMARY];
@@ -532,5 +540,12 @@ BEGIN
 
     CREATE NONCLUSTERED INDEX [IX_Fct_AftaleVarePris_dw_is_current] ON [fct].[AftaleVarePris]
     ([dw_ek_AftaleVarePris] ASC) WHERE [dw_is_current] = 1 ON [PRIMARY];
+
+    -- Understoetter pre-delete-sweepen (spec 2026-08-31): sweepen skopes paa
+    -- linjenoeglen (bk_leverandoernummer, bk_aftale_nummer, bk_ils_varenummer),
+    -- ikke bk_prrowid — uden dette indeks scanner sweepen hele tabellen hver
+    -- koersel. (Review-ruling: spec's "No index changes" veg for dette.)
+    CREATE NONCLUSTERED INDEX [IX_Fct_AftaleVarePris_linjenoegle] ON [fct].[AftaleVarePris]
+    ([bk_leverandoernummer] ASC, [bk_aftale_nummer] ASC, [bk_ils_varenummer] ASC) ON [PRIMARY];
 END
 GO

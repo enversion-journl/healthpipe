@@ -6,11 +6,15 @@
 
 """Contract tests for the delta-driven stg_dim_Leverandoervare."""
 
+from pathlib import Path
+
 import pytest
 
 pytestmark = pytest.mark.unit
 
 from DSA.SQL.staging.stg_dim_Leverandoervare import _build_stg_sql
+
+DSA_SQL = Path(__file__).resolve().parents[2] / "DSA" / "SQL"
 
 
 def test_null_checkpoint_reads_whole_hub():
@@ -80,3 +84,12 @@ def test_no_vnr_denormalization_in_map_and_fct():
     assert "vnr" not in inspect.getsource(map_vare_module)
     assert "vare_vnr_fallback" not in RESOLVE_SQL
     assert "vnr_normalized" not in RESOLVE_SQL
+
+
+def test_dim_ils_pairs_include_alternate_lvnr_slots():
+    """Spec 2026-08-27: dw_source_ils-flagget skal ogsaa vaere sandt for
+    entiteter der KUN findes som alternative lvnr-slots."""
+    src = (DSA_SQL / "staging" / "stg_dim_Leverandoervare.py").read_text(encoding="utf-8")
+    assert "LAFTDSTAM_ALT_LVNR_SLOTS" in src
+    assert "LAFTD_ALT_LVNR_SLOTS" in src
+    assert "_alt_lvnr_dim_branches" in src

@@ -8,12 +8,12 @@ dso_lineage:
   Type: dimension
   TableName: dim.Aftale
   Domain: [ERP]
-  Description: "Aftale-/kontraktdimension fra ILS — SCD Type 2. Noegle: (lnr, aftale)"
-  Grain: "Én række pr. (leverandoer, aftale) fra ILS"
-  SCD: type2
+  Description: "Aftale-/kontraktdimension fra ILS — SCD Type 1. Noegle: (lnr, aftale). Baerer aktive, udloebne og slettede aftaler; kilden fjerner aftaler naar de udloeber, og de bevares her fordi historiske koeb refererer til dem. Udloebet = hoved_slut i fortiden."
+  Grain: "Én række pr. (leverandoer, aftale) fra ILS. Ved flere arkivraekker pr. noegle vinder den nyeste (stoerste dw_timestamp_update i arc.ils_lafth)"
+  SCD: type1
 
   SourceSystems:
-    - ils: [dbo.lafth, dbo.laftd, dbo.lev]
+    - ils: [dbo.lafth, dbo.laftd, dbo.lev, dbo.lafthsgh]
 
   Columns:
     dw_ek_Aftale:        { Type: PK, DataType: INT }
@@ -27,6 +27,4 @@ dso_lineage:
     aftaletekst:         { DataType: NVARCHAR(MAX), Source: [ils.dbo.lafth.txt] }
     hoved_start:         { DataType: DATETIME2, Source: [ils.dbo.lafth.start_] }
     hoved_slut:          { DataType: DATETIME2, Source: [ils.dbo.lafth.slut] }
-    dw_valid_from:       { DataType: DATETIME2(0), Expr: "SYSDATETIME() ved ændring, 1900-01-01 for initial" }
-    dw_valid_to:         { DataType: DATETIME2(0), Expr: "9999-12-31 (åben) indtil afløst" }
-    dw_is_deleted:       { DataType: BIT, Expr: "1 når kilderækken forsvinder (blød sletning)" }
+    alle_maa_benytte:    { DataType: BIT, Source: [ils.dbo.lafthsgh.lnr, ils.dbo.lafthsgh.aftale], Expr: "1 = ingen lafthsgh-styringsraekker for aftalen (ILS \"Benyttes af\" blank) = alle sygehuse/lagre maa koebe ind; 0 = steering findes i bridge.AftaleLager. Spec 2026-08-31-prisloese-linjer-og-aftalelager.", Description: "Kendt begraensning: arc.ils_lafthsgh er upsert-only (detect_deletes=False) — ophaevet styring i ILS forsvinder ikke af sig selv; kraever manuel arc-oprydning eller delete-detektion paa arkivet." }

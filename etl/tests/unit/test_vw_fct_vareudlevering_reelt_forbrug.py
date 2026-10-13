@@ -46,11 +46,17 @@ def test_reelt_forbrug_filters_via_ref_not_exists():
 
 
 @pytest.mark.unit
-def test_reelt_forbrug_uses_pad_only_not_right_truncate():
+def test_reelt_forbrug_uses_raw_rnr_never_padded_or_truncated():
+    """The anti-join key is raw SGH_{sgh}_RNR_{rnr}."""
     sql = _DDL.read_text(encoding="utf-8")
     view_sql = sql.split("[Vareudlevering_ReeltForbrug]")[1].split("GO")[0]
-    assert "REPLICATE('0', 4)" in view_sql
-    assert "RIGHT('0000'" not in view_sql
+    assert "'_RNR_'" in view_sql
+    assert "REPLICATE" not in view_sql
+    assert "RIGHT(" not in view_sql
+    # The view cannot import, so it mirrors sql_norm_code by hand: trim-only.
+    # De-spacing made the genuine SGH_6000_RNR_SLB TELE member unreachable.
+    assert "REPLACE(" not in view_sql
+    assert "UPPER(" not in view_sql
 
 
 @pytest.mark.unit

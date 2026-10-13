@@ -14,6 +14,15 @@ from core.dfm_manager import DfmManager
 from core.resources import MSSQLResource
 
 from etl.DSA.SQL.common.dato_dimension import dato_key
+from etl.DSA.SQL.common.ils_clean_code_shared import (
+    sql_clean_code_lager,
+    sql_clean_code_rekvirent,
+)
+
+# Raw keys, as the maps hold them. Module-level so the contract is testable
+# without running the asset.
+LAGER_CLEAN_CODE_SQL = sql_clean_code_lager("src.sgh", "src.lgr")
+REKVIRENT_CLEAN_CODE_SQL = sql_clean_code_rekvirent("src.sgh", "src.rnr")
 
 
 @dg.asset(
@@ -61,26 +70,8 @@ def pre_stg_AfdelingLagerbeholdning_ils(
                     WITH ranked AS (
                         SELECT
                             src.*,
-                            CASE
-                                WHEN src.sgh IS NOT NULL AND src.lgr IS NOT NULL
-                                THEN 'SGH_' + LTRIM(RTRIM(REPLACE(CAST(src.sgh AS NVARCHAR(50)), ' ', '')))
-                                     + '_LGR_'
-                                     + LTRIM(RTRIM(REPLACE(CAST(src.lgr AS NVARCHAR(50)), ' ', '')))
-                                WHEN src.sgh IS NOT NULL
-                                THEN 'SGH_' + LTRIM(RTRIM(REPLACE(CAST(src.sgh AS NVARCHAR(50)), ' ', '')))
-                                WHEN src.lgr IS NOT NULL
-                                THEN 'LGR_' + LTRIM(RTRIM(REPLACE(CAST(src.lgr AS NVARCHAR(50)), ' ', '')))
-                                ELSE NULL
-                            END AS clean_code_Lager,
-                            CASE
-                                WHEN src.sgh IS NOT NULL AND src.rnr IS NOT NULL
-                                THEN 'RNR_' + LTRIM(RTRIM(REPLACE(CAST(src.sgh AS NVARCHAR(50)), ' ', '')))
-                                     + '_'
-                                     + LTRIM(RTRIM(REPLACE(CAST(src.rnr AS NVARCHAR(50)), ' ', '')))
-                                WHEN src.rnr IS NOT NULL
-                                THEN 'RNR__' + LTRIM(RTRIM(REPLACE(CAST(src.rnr AS NVARCHAR(50)), ' ', '')))
-                                ELSE NULL
-                            END AS clean_code_Rekvirent,
+                            {LAGER_CLEAN_CODE_SQL} AS clean_code_Lager,
+                            {REKVIRENT_CLEAN_CODE_SQL} AS clean_code_Rekvirent,
                             src.dw_timestamp_update AS snapshot_date_time,
                             {dato_key('src.dw_timestamp_update')} AS snapshot_datekey,
                             DENSE_RANK() OVER (

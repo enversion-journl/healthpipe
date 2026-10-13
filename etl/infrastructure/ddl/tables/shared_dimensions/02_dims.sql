@@ -208,8 +208,8 @@ BEGIN
         -- Quarter
         [kvartal_id]              TINYINT NULL,
         [kvartal]                 NVARCHAR(50) NULL,
-        [kvartals_startdato]      DATE NULL,
-        [kvartals_slutdato]       DATE NULL,
+        [kvartal_startdato]       DATE NULL,
+        [kvartal_slutdato]        DATE NULL,
         [kvartal_afsluttet]       BIT NULL,
         [kvartal_aar_id]          INT NULL,
         [kvartal_aar]             NVARCHAR(50) NULL,

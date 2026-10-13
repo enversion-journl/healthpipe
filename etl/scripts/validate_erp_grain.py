@@ -145,7 +145,7 @@ DIM_SPECS: list[GrainSpec] = [
         "Aftale",
         "dim",
         "Aftale",
-        ["dw_ek_Aftale", "dw_valid_from"],
+        ["dw_ek_Aftale"],
         "clean_code_Aftale",
         map_table="map.Aftale",
         map_grain_column="dw_ek_Aftale",
@@ -280,9 +280,20 @@ FCT_SPECS: list[GrainSpec] = [
         "AftaleVarePris",
         "fct",
         "AftaleVarePris",
-        ["bk_prrowid"],
+        ["bk_prrowid", "clean_code_AftaleVarePris"],
         staging_table="stg.fct_AftaleVarePris_ils",
-        staging_grain_columns=["bk_prrowid"],
+        staging_grain_columns=["bk_prrowid", "clean_code_AftaleVarePris"],
+    ),
+    # bridge.AftaleLager: grain haandhaeves af et unikt indeks (ikke PK'en,
+    # som er dw_sk-identity) — valideres derfor her ligesom fakta-grains.
+    # bridge.LeverandoervareILSVare behoever ingen spec: dens grain ER PK'en.
+    GrainSpec(
+        "AftaleLager",
+        "bridge",
+        "AftaleLager",
+        ["clean_code_Aftale", "sgh_raw"],
+        staging_table="stg.bridge_AftaleLager",
+        staging_grain_columns=["clean_code_Aftale", "sgh_raw"],
     ),
 ]
 
@@ -377,6 +388,14 @@ def _table_exists(cursor, schema: str, table: str) -> bool:
     cursor.execute(
         "SELECT OBJECT_ID(%s, 'U')",
         (f"[{schema}].[{table}]",),
+    )
+    return cursor.fetchone()[0] is not None
+
+
+def _column_exists(cursor, schema: str, table: str, column: str) -> bool:
+    cursor.execute(
+        "SELECT COL_LENGTH(%s, %s)",
+        (f"[{schema}].[{table}]", column),
     )
     return cursor.fetchone()[0] is not None
 
@@ -681,17 +700,40 @@ def _run_fct_stg_coverage(
             detail=f"Staging table {spec.staging_table} does not exist (skipped)",
         )
 
-    stg_grain = ", ".join(f"[{c}]" for c in spec.staging_grain_columns)
+    # COUNT DISTINCT tager kun EET udtryk i T-SQL — for et fler-kolonne grain
+    # (fx AftaleVarePris' bk_prrowid + clean_code_AftaleVarePris) skal
+    # kolonnerne CONCAT'es i stedet for at staa som en kommasepareret liste
+    # (som ville vaere ugyldig T-SQL: "COUNT(DISTINCT [a], [b])"). Samme
+    # argument for WHERE-NULL-filteret: "WHERE [a], [b] IS NOT NULL" er
+    # ugyldig syntaks — hver kolonne skal have sit eget IS NOT NULL, AND'et
+    # sammen.
+    if len(spec.staging_grain_columns) > 1:
+        stg_distinct_expr = (
+            "CONCAT(" + ", '|', ".join(f"[{c}]" for c in spec.staging_grain_columns) + ")"
+        )
+    else:
+        stg_distinct_expr = f"[{spec.staging_grain_columns[0]}]"
+    stg_not_null_where = " AND ".join(f"[{c}] IS NOT NULL" for c in spec.staging_grain_columns)
 
     cursor.execute(
-        f"SELECT COUNT(DISTINCT {stg_grain}) FROM [{stg_schema}].[{stg_tbl}] "
-        f"WHERE {stg_grain} IS NOT NULL"
+        f"SELECT COUNT(DISTINCT {stg_distinct_expr}) FROM [{stg_schema}].[{stg_tbl}] "
+        f"WHERE {stg_not_null_where}"
     )
     stg_distinct = cursor.fetchone()[0]
 
-    fct_exclude = ""
+    fct_exclude_predicates = []
     if spec.grain_columns[0].startswith("DW_EK_"):
-        fct_exclude = f" WHERE [{spec.grain_columns[0]}] <> -1"
+        fct_exclude_predicates.append(f"[{spec.grain_columns[0]}] <> -1")
+    # Soft-delete-eksklusion: ingen af scriptets andre (enkelt-kolonne)
+    # coverage-tjek filtrerer dw_is_deleted i dag, saa denne tilfoejes KUN
+    # her, betinget paa at kolonnen rent faktisk findes paa fact-tabellen.
+    # Uden filteret ville post-re-key dw_is_deleted=1-residue (fx
+    # AftaleVarePris's bk_prrowid-kildepraefiks-aendring, spec 2026-08-31, som
+    # efterlader gamle raekker soft-deleted under det gamle noegleformat)
+    # garantere et mismatch mod staging, der kun baerer det NYE format.
+    if _column_exists(cursor, spec.schema, spec.table, "dw_is_deleted"):
+        fct_exclude_predicates.append("[dw_is_deleted] = 0")
+    fct_exclude = f" WHERE {' AND '.join(fct_exclude_predicates)}" if fct_exclude_predicates else ""
     cursor.execute(f"SELECT COUNT(*) FROM {fq_target}{fct_exclude}")
     fct_count = cursor.fetchone()[0]
 

@@ -1,0 +1,38 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: bridge
+  TableName: bridge.AftaleLager
+  Domain: [ERP]
+  Description: >
+    Aftale <-> lager/sygehus-styring fra ILS lafthsgh ("Benyttes af", spec
+    2026-08-31-prisloese-linjer-og-aftalelager). Rows kun for STEEREDE aftaler
+    (dim.Aftale.alle_maa_benytte = 0 <=> aftalen har rows her); ingen rows for
+    en aftale betyder at alle sygehuse/lagre maa koebe ind paa den. sgh er
+    kildens sammensatte sygehus+lager-noegle og splittes i staging: 2 tegn
+    naar praefiks '55', ellers 4 tegn = sygehus; resten = lager (NULL = helt
+    sygehus deltager, ingen lager-specifik raekke).
+
+    Kendt begraensning: arc.ils_lafthsgh er upsert-only (detect_deletes=False)
+    — ophaevet styring i ILS forsvinder ikke af sig selv; kraever manuel
+    arc-oprydning eller delete-detektion paa arkivet.
+  Grain: "Én række pr. (clean_code_Aftale, sgh_raw) — aftale x lager/sygehus-styringsraekke fra ILS lafthsgh"
+
+  SourceSystems:
+    - ils: [dbo.lafthsgh]
+
+  Columns:
+    dw_sk_AftaleLager:   { Type: PK, DataType: BIGINT, Expr: "IDENTITY — én pr. styringsraekke" }
+    dw_ek_Aftale:        { Type: FK, DataType: INT, FK-Target: dim.Aftale, Source: [ils.dbo.lafthsgh.lnr, ils.dbo.lafthsgh.aftale] }
+    dw_ek_Lager:         { Type: FK, DataType: BIGINT, FK-Target: dim.Lager, Source: [ils.dbo.lafthsgh.sgh], Expr: "Opslag via map.Lager paa den KANONISKE composite-noegle 'SGH_{sygehus}_LGR_{lager}' (samme format som stg_dim_Lager saetter som clean_code_Lager) — IKKE pre_stg_Vareudlevering_ils's bare 'LGR_'-udtryk, som er dead code og altid ville miss'e", Description: "Sygehus-only raekker (lager IS NULL) falder tilbage til SGH_{sygehus}-konceptet (blandet granularitet; lager IS NULL markerer niveauet) — -1 betyder altid aegte map-miss" }
+    clean_code_Aftale:   { DataType: NVARCHAR(200), Source: [ils.dbo.lafthsgh.lnr, ils.dbo.lafthsgh.aftale], Expr: "AFTALE_{lnr}_{aftale} — samme udtryk som fct.AftaleVarePris" }
+    sgh_raw:              { DataType: NVARCHAR(20), Source: [ils.dbo.lafthsgh.sgh], Description: "Kildens sammensatte sygehus+lager-noegle, ikke splittet" }
+    sygehus:              { DataType: NVARCHAR(10), Source: [ils.dbo.lafthsgh.sgh], Expr: "LEFT(sgh, 2) naar praefiks '55', ellers LEFT(sgh, 4)" }
+    lager:                { DataType: NVARCHAR(10), Source: [ils.dbo.lafthsgh.sgh], Expr: "Rest af sgh efter sygehus-delen; NULL = raekken daekker hele sygehuset" }
+    maa_benyttes:         { DataType: BIT, Source: [ils.dbo.lafthsgh.sw_benyt] }
+    foerste_prioritet:    { DataType: BIT, Source: [ils.dbo.lafthsgh.sw_prioritet] }
+    dw_is_deleted:        { DataType: BIT, Expr: "Pre-delete-sweep over hele tabellen (full staging => full scope) + MERGE, se bridge_AftaleLager" }

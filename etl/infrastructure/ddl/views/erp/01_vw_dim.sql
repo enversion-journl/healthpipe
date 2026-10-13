@@ -28,12 +28,13 @@ GO
 -- vw_dim.Leverandoervare is defined in views/security/01_vw_dim_security.sql
 -- (free-text/PII-risk columns are column-restricted, not a SELECT * pass-through).
 
--- vw_dim.Aftale (active rows only)
+-- vw_dim.Aftale (Type 1 — one row per agreement)
+-- No filtering: the dimension carries active, expired and deleted agreements,
+-- because historical purchases reference them. Expired = hoved_slut in the past.
 CREATE OR ALTER VIEW [vw_dim].[Aftale]
 AS
 SELECT *
-FROM [dim].[Aftale]
-WHERE dw_is_deleted = 0;
+FROM [dim].[Aftale];
 GO
 
 -- vw_dim.Vareudlevering
@@ -104,8 +105,8 @@ SELECT
     [aar_afsluttet] AS [År afsluttet],
     [kvartal_id] AS [Kvartal ID],
     [kvartal] AS [Kvartal],
-    [kvartals_startdato] AS [Kvartals startdato],
-    [kvartals_slutdato] AS [Kvartals slutdato],
+    [kvartal_startdato] AS [Kvartals startdato],
+    [kvartal_slutdato] AS [Kvartals slutdato],
     [kvartal_afsluttet] AS [Kvartal afsluttet],
     [kvartal_aar_id] AS [Kvartal og år ID],
     [kvartal_aar] AS [Kvartal og år],

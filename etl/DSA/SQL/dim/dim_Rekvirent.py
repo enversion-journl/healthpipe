@@ -21,10 +21,13 @@ from core.dfm_config import RunModeConfig
 from core.dfm_manager import DfmManager
 from core.resources import MSSQLResource
 from dagster import AssetExecutionContext, AssetKey, MaterializeResult, asset
+from DSA.SQL.common.ils_clean_code_shared import sql_norm_code
 
-# Normalize dim property values the same way ref.RekvirentUndtagelse builds sgh/rnr.
-_SGH_NORM = "UPPER(LTRIM(RTRIM(REPLACE(CAST({alias}.[sgh] AS NVARCHAR(50)), ' ', ''))))"
-_RNR_NORM = "UPPER(LTRIM(RTRIM(REPLACE(CAST({alias}.[rnr] AS NVARCHAR(50)), ' ', ''))))"
+# Normalize dim property values the same way ref.RekvirentUndtagelse builds
+# sgh/rnr — shared expression, not a hand-copy: the two sides of this join must
+# move together, and hand-copying is what let the ILS keys drift apart before.
+_SGH_NORM = sql_norm_code("{alias}.[sgh]")
+_RNR_NORM = sql_norm_code("{alias}.[rnr]")
 
 
 @asset(

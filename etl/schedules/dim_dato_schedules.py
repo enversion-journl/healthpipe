@@ -8,10 +8,11 @@
 
 import dagster as dg
 from jobs.dim_dato_jobs import dim_dato_daily_job
+from schedules.schedule_default_status import get_schedule_default_status
 
 dim_dato_daily_schedule = dg.ScheduleDefinition(
     job=dim_dato_daily_job,
     cron_schedule="0 0 * * *",
     execution_timezone="Europe/Copenhagen",
-    default_status=dg.DefaultScheduleStatus.STOPPED,
+    default_status=get_schedule_default_status(),
 )

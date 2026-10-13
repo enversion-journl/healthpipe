@@ -22,8 +22,8 @@ dso_lineage:
     aar_relativ:            { DataType: SMALLINT, Expr: "Antal år fra i dag (Europe/Copenhagen)" }
     kvartal_id:             { DataType: TINYINT, Expr: "DATEPART(QUARTER, dato)" }
     kvartal:                { DataType: NVARCHAR(50), Expr: "K1-K4" }
-    kvartals_startdato:     { DataType: DATE, Expr: "Første dato i kvartalet" }
-    kvartals_slutdato:      { DataType: DATE, Expr: "Sidste dato i kvartalet" }
+    kvartal_startdato:      { DataType: DATE, Expr: "Første dato i kvartalet" }
+    kvartal_slutdato:       { DataType: DATE, Expr: "Sidste dato i kvartalet" }
     kvartal_afsluttet:      { DataType: BIT, Expr: "1 når kvartal ligger før indeværende kvartal" }
     kvartal_aar_id:         { DataType: INT, Expr: "YYYYQQ (fx 202001 for Q1 2020)" }
     kvartal_aar:            { DataType: NVARCHAR(50), Expr: "K<kvartal> <år>, fx K1 2020" }

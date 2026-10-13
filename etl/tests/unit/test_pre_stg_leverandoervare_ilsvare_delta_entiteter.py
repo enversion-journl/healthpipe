@@ -136,3 +136,17 @@ class TestHubSql:
         assert (
             "ROW_NUMBER" not in output_select
         ), "hub er en entitetsliste — ingen dedup-vinder-logik i output-selectet"
+
+
+def test_hub_includes_alternate_lvnr_slots():
+    """Spec 2026-08-27: laftdstam lvnr##2-4 og laftd lvnr##2-3 skal generere
+    Vare-entiteter, ellers kan fct.AftaleVarePris-fanout'en referere
+    dw_ek_Leverandoervare = -1 for alternativerne."""
+    from DSA.SQL.staging.pre_stg_Leverandoervare_ILSVare_delta_entiteter import _build_hub_sql
+
+    sql = _build_hub_sql("0001-01-01", "0001-01-01")
+    for slot in ("lvnr##2", "lvnr##3", "lvnr##4"):
+        assert f"alt_s.[{slot}]" in sql, f"laftdstam-alternativ {slot} mangler i hub'en"
+    for slot in ("lvnr##2", "lvnr##3"):
+        assert f"alt_d.[{slot}]" in sql, f"laftd-alternativ {slot} mangler i hub'en"
+    assert "alt_d.[lvnr##4]" not in sql, "laftd har ingen lvnr##4-kolonne"

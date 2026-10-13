@@ -6,22 +6,28 @@
 
 """SQL fragments for ref.RekvirentUndtagelse full rebuild.
 
-CleanCode is pad-only SGH_{sgh}_RNR_{rnr} (same as stg_dim_Rekvirent /
-clean_codes.udlev_rekvirent_clean_code) — never RIGHT(...,4) truncation.
+CleanCode is raw SGH_{sgh}_RNR_{rnr}, as stg_dim_Rekvirent and map.Rekvirent
+hold it — never zero-padded, never RIGHT(...,4)-truncated. See
+DSA/SQL/common/ils_clean_code_shared.
+
+sql_norm_code serves two jobs here, and one trim-only definition is right for
+both: it builds the key that has to match map.Rekvirent, and it joins the
+exclusion list to the arc.ils_rekv master for navn. Measured against the dev
+archive, the master join keeps all 115 of its 134 matches under trim-only —
+identical to the previous de-spacing form — and no rekvundtagne value diverges
+between the two forms at all, so the master join needs no separate, stricter
+normalisation. The 19 non-matches are the genuine orphans the list preserves
+with dw_ek_Rekvirent NULL.
 """
+
+from DSA.SQL.common.ils_clean_code_shared import sql_norm_code
 
 REF_TABLE = "[ref].[RekvirentUndtagelse]"
 
-# Pad-only rnr: left-pad with zeros to length 4 when shorter; keep longer values.
-_RNR_PADDED = """
-CASE
-    WHEN LEN(rnr_n) < 4 THEN RIGHT(REPLICATE('0', 4) + rnr_n, 4)
-    ELSE rnr_n
-END
-""".strip()
-
-CLEAN_CODE_EXPR = f"""
-'SGH_' + sgh_n + '_RNR_' + {_RNR_PADDED}
+# sgh_n/rnr_n are the already-normalised aliases from the inner SELECT below,
+# which filters out NULL and blank sgh/rnr — so both segments are always set.
+CLEAN_CODE_EXPR = """
+'SGH_' + sgh_n + '_RNR_' + rnr_n
 """.strip()
 
 BUILD_SOURCE_SQL = f"""
@@ -34,8 +40,8 @@ SELECT
     m.dw_ek_Rekvirent
 FROM (
     SELECT
-        UPPER(LTRIM(RTRIM(REPLACE(CAST(u0.[sgh] AS NVARCHAR(50)), ' ', '')))) AS sgh_n,
-        UPPER(LTRIM(RTRIM(REPLACE(CAST(u0.[rnr] AS NVARCHAR(50)), ' ', '')))) AS rnr_n,
+        {sql_norm_code('u0.[sgh]')} AS sgh_n,
+        {sql_norm_code('u0.[rnr]')} AS rnr_n,
         u0.[navn]
     FROM [arc].[ils_rekvundtagne] u0
     WHERE u0.[sgh] IS NOT NULL
@@ -44,8 +50,8 @@ FROM (
       AND LTRIM(RTRIM(CAST(u0.[rnr] AS NVARCHAR(50)))) <> ''
 ) u
 LEFT JOIN [arc].[ils_rekv] r
-    ON UPPER(LTRIM(RTRIM(REPLACE(CAST(r.[sgh] AS NVARCHAR(50)), ' ', '')))) = u.sgh_n
-   AND UPPER(LTRIM(RTRIM(REPLACE(CAST(r.[rnr] AS NVARCHAR(50)), ' ', '')))) = u.rnr_n
+    ON {sql_norm_code('r.[sgh]')} = u.sgh_n
+   AND {sql_norm_code('r.[rnr]')} = u.rnr_n
 LEFT JOIN [map].[Rekvirent] m
     ON m.[clean_code_Rekvirent] = {CLEAN_CODE_EXPR}
 """.strip()

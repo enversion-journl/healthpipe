@@ -9,6 +9,15 @@ Staging Asset: Aftale from ILS (Dimension Layer)
 
 Aggregate ILS agreement data at aftale grain.
 Derived from pre_stg_Vareaftaler_ils with deterministic deduplication.
+alle_maa_benytte er en korreleret EXISTS mod arc.ils_lafthsgh (lnr+aftale) —
+pre_stg_Vareaftaler_ils og denne stager begge det FULDE billede hver koersel
+(ingen checkpoint-filter), saa flagget forbliver friskt uden eget delta-signal.
+
+Kendt begraensning: arc.ils_lafthsgh er upsert-only (detect_deletes=False,
+se DSI/mssql/archive/ils_archive_configs.py's _full_load_config). En raekke
+der fjernes i ILS forsvinder derfor IKKE af sig selv fra arc — EXISTS'en
+forbliver sand, og alle_maa_benytte forbliver 0 for ophaevet styring.
+Kraever manuel arc-oprydning eller delete-detektion paa arkivet.
 """
 
 from core.dfm_config import RunModeConfig
@@ -21,7 +30,10 @@ from dagster import AssetExecutionContext, AssetKey, MaterializeResult, asset
     key=AssetKey(["erp", "stg_dim_Aftale_ils"]),
     group_name="erp_staging",
     compute_kind="mssql",
-    deps=[AssetKey(["erp", "pre_stg_Vareaftaler_ils"])],
+    deps=[
+        AssetKey(["erp", "pre_stg_Vareaftaler_ils"]),
+        AssetKey(["arc_ils_lafthsgh"]),
+    ],
     tags={
         "domain": "erp",
         "layer": "dim",
@@ -70,30 +82,54 @@ def stg_dim_Aftale_ils(
                         ansvar AS aftale_ansvarlig,
                         hoved_start AS hoved_start,
                         hoved_slut AS hoved_slut,
+                        alle_maa_benytte,
                         dw_timestamp_update
                     INTO [stg].[dim_Aftale_ils]
                     FROM (
                         SELECT
-                            clean_code_Aftale,
-                            aftale,
-                            lnr,
-                            clean_code_Kreditor,
-                            afttype,
-                            aftaletekst,
-                            aftdto,
-                            ansvar,
-                            hoved_start,
-                            hoved_slut,
-                            dw_timestamp_update,
+                            pva.clean_code_Aftale,
+                            pva.aftale,
+                            pva.lnr,
+                            pva.clean_code_Kreditor,
+                            pva.afttype,
+                            pva.aftaletekst,
+                            pva.aftdto,
+                            pva.ansvar,
+                            pva.hoved_start,
+                            pva.hoved_slut,
+                            -- 1 = ingen lafthsgh-styring ("Benyttes af" blank i ILS) = alle
+                            -- maa koebe ind; 0 = styret, se bridge.AftaleLager
+                            -- Kendt begraensning: arc.ils_lafthsgh er upsert-only
+                            -- (detect_deletes=False) — en ophaevet styringsraekke i
+                            -- ILS forsvinder ikke af sig selv fra arc, saa flaget
+                            -- forbliver 0 indtil manuel arc-oprydning/delete-detektion.
+                            -- lhs/pva SKAL vaere kvalificeret i korrelationen: begge
+                            -- tabeller har lnr/aftale-kolonner, saa et ukvalificeret
+                            -- lnr/aftale binder til det INDERSTE scope (lhs) og goer
+                            -- praedikatet til en tautologi (altid sand => flaget 0 for
+                            -- ALLE aftaler).
+                            CASE WHEN EXISTS (
+                                SELECT 1 FROM [arc].[ils_lafthsgh] lhs
+                                WHERE LTRIM(RTRIM(lhs.lnr)) = LTRIM(RTRIM(pva.lnr))
+                                  AND LTRIM(RTRIM(lhs.aftale)) = LTRIM(RTRIM(pva.aftale))
+                            ) THEN 0 ELSE 1 END AS alle_maa_benytte,
+                            pva.dw_timestamp_update,
+                            -- The base layer is at (aftale, lnr, vnr) grain, so the
+                            -- ROW_NUMBER below collapses the agreement's LINES into
+                            -- one row per agreement. The header attributes are
+                            -- identical across the candidates because pre_stg has
+                            -- already picked one lafth row per (lnr, aftale) — the
+                            -- ordering therefore only decides which line lends its
+                            -- clean_code_Kreditor, not the agreement's own values.
                             ROW_NUMBER() OVER (
-                                PARTITION BY clean_code_Aftale
+                                PARTITION BY pva.clean_code_Aftale
                                 ORDER BY
-                                    COALESCE(hoved_start, linje_start) DESC,
-                                    dw_timestamp_update DESC
+                                    COALESCE(pva.hoved_start, pva.linje_start) DESC,
+                                    pva.dw_timestamp_update DESC
                             ) AS rn
-                        FROM [stg].[pre_vareaftaler_ils]
-                        WHERE aftale IS NOT NULL
-                          AND LTRIM(RTRIM(aftale)) <> ''
+                        FROM [stg].[pre_vareaftaler_ils] pva
+                        WHERE pva.aftale IS NOT NULL
+                          AND LTRIM(RTRIM(pva.aftale)) <> ''
                     ) ranked
                     WHERE rn = 1;
                 """
@@ -142,9 +178,9 @@ def stg_dim_Aftale_ils(
         metadata={
             "table": "stg.dim_Aftale_ils",
             "row_count": row_count,
-            "source_table": "stg.pre_vareaftaler_ils",
+            "source_table": "stg.pre_vareaftaler_ils + arc.ils_lafthsgh (alle_maa_benytte)",
             "grain": "lnr + aftale (clean_code_Aftale)",
-            "deduplication": "ROW_NUMBER() by clean_code_Aftale ordered on COALESCE(hoved_start, linje_start) DESC",
+            "deduplication": "ROW_NUMBER() by clean_code_Aftale collapses the aftale's lines; the lafth header is already one row per (lnr, aftale) from pre_stg",
             "inconsistent_aftaletekst_aftaler": inconsistent_txt_aftaler,
             "layer": "dim (Layer 1)",
             "mode": config.mode,

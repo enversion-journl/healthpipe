@@ -18,7 +18,7 @@
 --   * ref.Organisation           — entity-mapping (dw_ek_Organisation ↔
 --                                  organization_id), replaces map.Organisation.
 --   * ref.RekvirentUndtagelse    — ILS rekvUndtagne exclusion list for reelt
---                                  forbrug (pad-only CleanCode PK).
+--                                  forbrug (rå CleanCode PK).
 --
 -- See data_lineage/dim/dim_borger.yml notes for the full architecture.
 -- ============================================================================
@@ -438,8 +438,9 @@ GO
 -- Source: arc.ils_rekvundtagne LEFT JOIN arc.ils_rekv (navn) + map.Rekvirent
 -- (dw_ek when present). Orphans stay on the list with dw_ek_Rekvirent NULL.
 --
--- PK is clean_code_Rekvirent (pad-only SGH_{sgh}_RNR_{rnr}), matching
--- stg_dim_Rekvirent / clean_codes.py — not RIGHT(...,4) in vareudlevering.
+-- PK is clean_code_Rekvirent (SGH_{sgh}_RNR_{rnr} with a raw rnr), matching
+-- stg_dim_Rekvirent / DSA/SQL/common/ils_clean_code_shared — never padded,
+-- never RIGHT(...,4)-truncated.
 -- ============================================================================
 IF NOT EXISTS (
     SELECT * FROM sys.objects
