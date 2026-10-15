@@ -17,6 +17,7 @@ from .lager_to_sor.lager_to_sor import cm_lager_to_sor
 from .okosted_to_sor.okosted_to_sor import cm_okosted_to_sor
 from .rekvirent_to_sor.rekvirent_to_sor import cm_rekvirent_to_sor
 from .shak_to_sor.shak_to_sor import cm_shak_to_sor
+from .shakalike_to_sor.shakalike_to_sor import cm_shakalike_to_sor
 
 conceptmap_dsa_assets = [
     cm_rekvirent_to_sor,
@@ -24,6 +25,7 @@ conceptmap_dsa_assets = [
     cm_ean_to_sor,
     cm_okosted_to_sor,
     cm_shak_to_sor,
+    cm_shakalike_to_sor,
 ]
 
 all_assets = [*conceptmap_dsa_assets]
@@ -36,4 +38,5 @@ __all__ = [
     "cm_ean_to_sor",
     "cm_okosted_to_sor",
     "cm_shak_to_sor",
+    "cm_shakalike_to_sor",
 ]

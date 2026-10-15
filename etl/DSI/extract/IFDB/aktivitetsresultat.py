@@ -5,15 +5,16 @@
 # root for the full AGPL-3.0 license text.
 
 """
-DSI Extraction Layer: Aktivitetsresultat data from IFDB Oracle.
+Column contract for IFDB.AKTIVITETSRESULTAT.
 
-Extracts clinical activity results from IFDB.AKTIVITETSRESULTAT table,
-including the XML CLOB column containing structured form data.
-The XML column is read as a string via LOB handling in fetch_rows_as_dicts().
+Extraction itself runs through the DFM archive layer (Oracle -> ext.* -> arc.*,
+see ``DSI/oracle/ifdb_extract.py``). What remains here is the
+``TableExtractionConfig``, which the Oracle schema-verification integration
+tests assert against — the partitioned extract assets this module used to
+generate were never registered in ``definitions.py`` and are gone.
 """
 
 from core.extract import ExtractBatchingPolicy
-from DSI.connectors.oracle.asset_factory import create_extraction_assets
 from DSI.connectors.oracle.models import TableExtractionConfig
 
 AKTIVITETSRESULTAT_CONFIG = TableExtractionConfig(
@@ -66,19 +67,4 @@ AKTIVITETSRESULTAT_CONFIG = TableExtractionConfig(
     ),
 )
 
-(
-    extract_aktivitetsresultat_daily,
-    extract_aktivitetsresultat_monthly,
-    extract_aktivitetsresultat_bulk,
-) = create_extraction_assets(
-    entity_name="aktivitetsresultat",
-    config=AKTIVITETSRESULTAT_CONFIG,
-    source_deps=[],
-)
-
-__all__ = [
-    "extract_aktivitetsresultat_daily",
-    "extract_aktivitetsresultat_monthly",
-    "extract_aktivitetsresultat_bulk",
-    "AKTIVITETSRESULTAT_CONFIG",
-]
+__all__ = ["AKTIVITETSRESULTAT_CONFIG"]

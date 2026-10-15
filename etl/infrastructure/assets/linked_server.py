@@ -261,6 +261,39 @@ def dso_infra_linked_server(
                             f"(requires sysadmin or setupadmin on DSO): {e}"
                         ) from e
 
+                    try:
+                        cursor.execute(
+                            f"""
+                            DECLARE @plan_handle varbinary(64), @free_stmt nvarchar(300);
+                            DECLARE stale_plans CURSOR LOCAL FAST_FORWARD FOR
+                                SELECT DISTINCT cp.plan_handle
+                                FROM sys.dm_exec_cached_plans cp
+                                CROSS APPLY sys.dm_exec_sql_text(cp.plan_handle) st
+                                WHERE CHARINDEX('{linked_server_name_sql}', st.text) > 0;
+                            OPEN stale_plans;
+                            FETCH NEXT FROM stale_plans INTO @plan_handle;
+                            WHILE @@FETCH_STATUS = 0
+                            BEGIN
+                                SET @free_stmt = N'DBCC FREEPROCCACHE ('
+                                    + CONVERT(nvarchar(200), @plan_handle, 1)
+                                    + N') WITH NO_INFOMSGS';
+                                EXEC sp_executesql @free_stmt;
+                                FETCH NEXT FROM stale_plans INTO @plan_handle;
+                            END
+                            CLOSE stale_plans;
+                            DEALLOCATE stale_plans;
+                            """
+                        )
+                        if hasattr(cursor, "nextset"):
+                            while cursor.nextset():
+                                pass
+                        context.log.info(f"Freed cached plans referencing '{linked_server_name}'")
+                    except Exception as e:
+                        context.log.warning(
+                            f"Could not free cached plans for '{linked_server_name}': {e}. "
+                            "Distributed queries may keep using the previous data source."
+                        )
+
                     # Test connectivity
                     cursor.execute(
                         f"EXEC sp_testlinkedserver @servername = N'{linked_server_name_sql}'"

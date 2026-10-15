@@ -739,6 +739,35 @@ AKTIVITETSUDFOERELSE_SPECIALE_COLUMN_TYPES: dict[str, str] = {
     "SPECIALE_KODETEKST": "NVARCHAR(512) NULL",
 }
 
+# ---------------------------------------------------------------------------
+# EVENTMARKER (CarePlan "alle markører")
+#
+# All 17 source columns are archived, including the ones the CarePlan transform
+# does not read (RESPONSIBLE_STAFF_PERSNAME/_ROLE, ADMINISTRATIVE_UNIT_NAME/
+# _ORGCODE): the archive is a 1:1 reflection of the source, so a later consumer
+# does not need a re-extract to reach them.
+# ---------------------------------------------------------------------------
+
+EVENTMARKER_COLUMN_TYPES: dict[str, str] = {
+    "OBJECT_ID": "NVARCHAR(50) NOT NULL",
+    "PATIENT_ID": "NVARCHAR(50) NULL",
+    "EPISODE_OF_CARE_ID": "NVARCHAR(50) NULL",
+    "EVENT_CODE": "NVARCHAR(512) NULL",
+    "EVENT_TEXT": "NVARCHAR(100) NULL",
+    "TIME": "NVARCHAR(100) NULL",
+    "EPJI_CREATED_DATETIME": "NVARCHAR(100) NULL",
+    "EPJI_MODIFICATION_DATETIME": "NVARCHAR(100) NULL",
+    "IFDB_MODIFICATION_DATETIME": "NVARCHAR(100) NULL",
+    "DELETED": "NVARCHAR(22) NULL",
+    "ADMINISTRATIVE_UNIT_CODE": "NVARCHAR(512) NULL",
+    "ADMINISTRATIVE_UNIT_NAME": "NVARCHAR(512) NULL",
+    "ADMINISTRATIVE_UNIT_ORGCODE": "NVARCHAR(512) NULL",
+    "ADMINISTRATIVE_UNIT_SORCODE": "NVARCHAR(512) NULL",
+    "RESPONSIBLE_STAFF_PERSID": "NVARCHAR(512) NULL",
+    "RESPONSIBLE_STAFF_PERSNAME": "NVARCHAR(512) NULL",
+    "RESPONSIBLE_STAFF_ROLE": "NVARCHAR(512) NULL",
+}
+
 ENCOUNTER_COLUMNS: tuple[str, ...] = tuple(ENCOUNTER_COLUMN_TYPES.keys())
 LOCATION_COLUMNS: tuple[str, ...] = tuple(LOCATION_COLUMN_TYPES.keys())
 PATIENT_COLUMNS: tuple[str, ...] = tuple(PATIENT_COLUMN_TYPES.keys())
@@ -774,6 +803,7 @@ ADM_PROCEDURE_SUPPL_CODES_COLUMNS: tuple[str, ...] = tuple(
     ADM_PROCEDURE_SUPPL_CODES_COLUMN_TYPES.keys()
 )
 RIS_YDELSE_COLUMNS: tuple[str, ...] = tuple(RIS_YDELSE_COLUMN_TYPES.keys())
+EVENTMARKER_COLUMNS: tuple[str, ...] = tuple(EVENTMARKER_COLUMN_TYPES.keys())
 AKTIVITETSRESULTAT_COLUMNS: tuple[str, ...] = tuple(AKTIVITETSRESULTAT_COLUMN_TYPES.keys())
 AKTIVITETSUDFOERELSE_COLUMNS: tuple[str, ...] = tuple(AKTIVITETSUDFOERELSE_COLUMN_TYPES.keys())
 AKTIVITETSUDFOERELSE_SPECIALE_COLUMNS: tuple[str, ...] = tuple(
@@ -1317,6 +1347,24 @@ AKTIVITETSUDFOERELSE_EXTRACT_CONFIG = DfmExtractConfig(
     description="IFDB Aktivitetsudførelse (delta on OPDATERET_TID; lookup archive).",
 )
 
+EVENTMARKER_EXTRACT_CONFIG = DfmExtractConfig(
+    source_schema="IFDB",
+    source_table="EVENTMARKER",
+    target_table="ifdb_eventmarker",
+    delta_column="IFDB_MODIFICATION_DATETIME",
+    checkpoint_type="datetime",
+    checkpoint_from=("arc", "ifdb_eventmarker"),
+    columns=EVENTMARKER_COLUMNS,
+    column_types=EVENTMARKER_COLUMN_TYPES,
+    index_keys=("OBJECT_ID",),
+    upper_bound_column="EPJI_MODIFICATION_DATETIME",
+    flow_start_from=("dfm", "ifdb_flow_start"),
+    description=(
+        "IFDB Eventmarker (delta on IFDB_MODIFICATION_DATETIME, upper bound on "
+        "EPJI_MODIFICATION_DATETIME)."
+    ),
+)
+
 AKTIVITETSUDFOERELSE_SPECIALE_EXTRACT_CONFIG = DfmExtractConfig(
     source_schema="IFDB",
     source_table="AKTIVITETSUDFOERELSE_SPECIALE",
@@ -1801,6 +1849,8 @@ IFDB_EXTRACT_CONFIGS = [
     AKTIVITETSRESULTAT_EXTRACT_CONFIG,
     AKTIVITETSUDFOERELSE_EXTRACT_CONFIG,
     AKTIVITETSUDFOERELSE_SPECIALE_EXTRACT_CONFIG,
+    # CarePlan "alle markører"
+    EVENTMARKER_EXTRACT_CONFIG,
 ]
 
 _ifdb_factory_extract_assets = create_dfm_extraction_assets(

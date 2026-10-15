@@ -1100,6 +1100,51 @@ BEGIN
 END
 GO
 
+-- dim.SHAKAlike
+-- Analytics-ready SHAK-a-like (EPJI location.external_id) dimension
+IF NOT EXISTS (
+    SELECT * FROM sys.objects
+    WHERE object_id = OBJECT_ID(N'[dim].[SHAKAlike]') AND type = 'U'
+)
+BEGIN
+    CREATE TABLE [dim].[SHAKAlike] (
+        [dw_ek_SHAKAlike] [int] PRIMARY KEY,
+        [code_shakalike] [varchar](50) NOT NULL,
+        [name] [nvarchar](500),
+        [level] [int],
+        [dw_ek_SHAKAlike_parent] [int],
+        [parent_code] [varchar](50),
+        [active] [bit] CONSTRAINT [DF_SHAKAlike_active] DEFAULT 1,
+        [dw_timestamp_insert] [datetime2](7) NOT NULL CONSTRAINT [DF_SHAKAlike_dw_timestamp_insert] DEFAULT GETDATE(),
+        [dw_timestamp_update] [datetime2](7) NOT NULL CONSTRAINT [DF_SHAKAlike_dw_timestamp_update] DEFAULT GETDATE()
+    ) ON [PRIMARY];
+
+    CREATE INDEX IX_dim_SHAKAlike_code_shakalike
+        ON [dim].[SHAKAlike] ([code_shakalike]);
+
+    CREATE INDEX IX_dim_SHAKAlike_Parent
+        ON [dim].[SHAKAlike] ([dw_ek_SHAKAlike_parent])
+        WHERE [dw_ek_SHAKAlike_parent] IS NOT NULL;
+END
+GO
+
+IF NOT EXISTS (SELECT 1 FROM [dim].[SHAKAlike] WHERE dw_ek_SHAKAlike = -1)
+BEGIN
+    EXEC('
+        INSERT INTO [dim].[SHAKAlike] (
+            dw_ek_SHAKAlike, code_shakalike, name, [level],
+            dw_ek_SHAKAlike_parent, parent_code, active,
+            dw_timestamp_insert, dw_timestamp_update
+        )
+        VALUES (
+            -1, ''UNKNOWN'', ''Unknown SHAK-a-like'', NULL,
+            NULL, NULL, 1,
+            GETDATE(), GETDATE()
+        )
+    ');
+END
+GO
+
 -- ============================================================================
 -- Pre-deploy validation: ensure no NULL DW_EK values exist
 -- ============================================================================

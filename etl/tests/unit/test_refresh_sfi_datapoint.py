@@ -464,31 +464,27 @@ def test_incremental_batch_size_custom(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.unit
-def test_daily_sfi_refresh_runs_in_sof_dso_job_not_partitioned_daily() -> None:
+def test_daily_sfi_refresh_shares_a_job_with_its_upstreams() -> None:
     """Refresh must wait for today's Observation/QR DSO sync.
 
-    The success sensor launches fhir_etl_ifdb_daily_job and
-    fhir_ifdb_dfm_sof_dso_job in parallel. A dep on an asset that is not in
-    the same job is treated as external — the ordering edge disappears.
+    A dep on an asset that is not in the same job is treated as external — the
+    ordering edge disappears — so the refresh and everything it waits for have
+    to be selected by the same job.
     """
     from definitions import defs
 
-    sof_dso_nodes = {node.name for node in defs.resolve_job_def("fhir_ifdb_dfm_sof_dso_job").nodes}
-    daily_nodes = {node.name for node in defs.resolve_job_def("fhir_etl_ifdb_daily_job").nodes}
-    monthly_nodes = {node.name for node in defs.resolve_job_def("fhir_etl_ifdb_monthly_job").nodes}
+    pipeline_nodes = {node.name for node in defs.resolve_job_def("ifdb_dfm_daily_job").nodes}
     recon_nodes = {
         node.name for node in defs.resolve_job_def("sfi_datapoint_reconciliation_job").nodes
     }
 
-    assert "dso_refresh_sfi_datapoint_daily" in sof_dso_nodes
-    assert "dso_sync_fhir_observation_dfm" in sof_dso_nodes
-    assert "dso_sync_codesystem_sfi_concept" in sof_dso_nodes
-    assert "cs_sfi" in sof_dso_nodes
+    assert "dso_refresh_sfi_datapoint_daily" in pipeline_nodes
+    assert "dso_sync_fhir_observation_dfm" in pipeline_nodes
+    assert "dso_sync_codesystem_sfi_concept" in pipeline_nodes
+    assert "cs_sfi" in pipeline_nodes
 
-    assert "dso_refresh_sfi_datapoint_daily" not in daily_nodes
-    assert "dso_sync_codesystem_sfi_concept" not in daily_nodes
-    assert "dso_refresh_sfi_datapoint_monthly" not in monthly_nodes
-    assert "dso_refresh_sfi_datapoint_monthly" not in sof_dso_nodes
+    # The monthly variant is ad-hoc only — DFM SFI has no monthly cadence.
+    assert "dso_refresh_sfi_datapoint_monthly" not in pipeline_nodes
     assert "dso_refresh_sfi_datapoint_monthly" not in recon_nodes
     assert "dso_reconcile_sfi_datapoint_store" in recon_nodes
 
@@ -518,3 +514,34 @@ def test_upstream_deps_exist_in_asset_graph() -> None:
 
     missing = {d for d in declared if not graph.has(AssetKey.from_user_string(d))}
     assert not missing, f"Dangling upstream deps (not in asset graph): {sorted(missing)}"
+
+
+@pytest.mark.unit
+def test_inline_batch_apply_routed_variant_splits_by_empty_partition() -> None:
+    """SWITCH-tilstand: byggeforespørgslen materialiseres én gang og deles mellem
+    arbejdstabel (tomme partitioner) og store (fyldte); fire tællere returneres."""
+    plain = _build_inline_batch_apply_sql(1, 100)
+    routed = _build_inline_batch_apply_sql(1, 100, routed=True)
+    assert "SFI_datapoint_store_backfill" not in plain
+    assert "$PARTITION" not in plain
+    assert "@deleted_rows AS deleted_rows, @inserted_rows AS inserted_rows" in plain
+    assert "INTO #batch_rows" in routed
+    assert "INSERT INTO [fhir].[SFI_datapoint_store_backfill]" in routed
+    assert "INSERT INTO [fhir].[SFI_datapoint_store]" in routed
+    assert "$PARTITION.pf_SFI_datapoint_store_Maaned(r.[occurred_at_dt])" in routed
+    assert "#empty_partitions" in routed
+    assert "@work_rows AS work_rows" in routed and "@store_rows AS store_rows" in routed
+    # DELETE-trinnet er uændret i begge varianter — det er stadig ét seek pr. ressource.
+    for sql in (plain, routed):
+        assert "DELETE tgt" in sql
+        assert "MERGE" not in sql
+
+
+@pytest.mark.unit
+def test_reconciliation_batch_routed_variant_reads_build_view_once() -> None:
+    plain = _build_reconciliation_batch_sql(1, 10)
+    routed = _build_reconciliation_batch_sql(1, 10, routed=True)
+    assert plain.count("[fhir].[SFI_datapoint_build]") == 1
+    assert routed.count("[fhir].[SFI_datapoint_build]") == 1
+    assert "INTO #batch_rows" in routed and "INTO #batch_rows" not in plain
+    assert "SFI_datapoint_store_backfill" in routed and "SFI_datapoint_store_backfill" not in plain

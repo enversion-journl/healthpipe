@@ -648,3 +648,165 @@ def test_ris_posting_posts_referral_conditions_before_service_requests():
     cond_prepare = mock_prepare.call_args_list[0].kwargs
     assert cond_prepare["resource_type"] == "Condition"
     assert cond_prepare["preferred_id_systems"] == [SYSTEM_IFDB_RIS_YDELSE_DIAGNOSE]
+
+
+# ---------------------------------------------------------------------------
+# Manglende patient: opret fra arkivet i DFM-stien, og tag uløselige ud i stedet for at
+# vælte portionen
+# ---------------------------------------------------------------------------
+
+
+def _sr(patient_id: str | None, source_id: str):
+    from fhir.resources.R4B.identifier import Identifier
+    from fhir.resources.R4B.reference import Reference
+    from fhir.resources.R4B.servicerequest import ServiceRequest
+    from utils.fhir.identifier_systems import SYSTEM_IFDB_HENVISNING_ID, SYSTEM_IFDB_PATIENT_ID
+
+    subject = (
+        Reference.construct(
+            identifier=Identifier.construct(system=SYSTEM_IFDB_PATIENT_ID, value=patient_id)
+        )
+        if patient_id
+        else None
+    )
+    return ServiceRequest.construct(
+        status="active",
+        intent="order",
+        subject=subject,
+        encounter=None,
+        extension=None,
+        identifier=[Identifier.construct(system=SYSTEM_IFDB_HENVISNING_ID, value=source_id)],
+    )
+
+
+def test_dfm_batches_create_missing_patients_from_archive():
+    """Begge DFM-portionsstier løser manglende patienter fra arkivet (som aktivitetsresultat)."""
+    from unittest.mock import MagicMock, patch
+
+    import dagster as dg
+    from DSA.FHIR.ServiceRequest import ServiceRequest_IFDB_dfm as m
+
+    result = dg.MaterializeResult(
+        metadata={"posted_count": dg.MetadataValue.int(1), "failed_count": dg.MetadataValue.int(0)}
+    )
+    mssql, fhir_db, ctx = MagicMock(), MagicMock(), MagicMock()
+    with (
+        patch.object(m, "_build_enrichment_for_batch", return_value=({}, {})),
+        patch.object(
+            m, "_transform_henvisning_to_service_requests", return_value=[_sr("p1", "h1")]
+        ),
+        patch.object(
+            m, "_transform_ris_ydelse_to_service_requests", return_value=([_sr("p1", "r1")], [])
+        ),
+        patch.object(m, "_post_service_requests_to_fhir", return_value=result) as post,
+    ):
+        assert m._process_henvisning_batch(ctx, [{"OBJEKT_ID": 1}], mssql, fhir_db, None) == (1, 0)
+        assert m._process_ris_batch(ctx, [{"OBJEKT_ID": 2}], mssql, fhir_db, None) == (1, 0)
+    for call in post.call_args_list:
+        assert call.kwargs["mssql"] is mssql
+        assert call.kwargs["resolve_missing_dependencies"] is True
+
+
+def test_unresolved_patient_drops_only_the_affected_requests_and_counts_them_failed():
+    from unittest.mock import MagicMock, patch
+
+    import dagster as dg
+    from DSA.FHIR.ServiceRequest import ServiceRequest_IFDB_dfm as m
+
+    requests = [_sr("p1", "h1"), _sr("p2", "h2"), _sr("p3", "h3")]
+    prepared: list = []
+
+    def prepare(*, resources, **kwargs):
+        prepared.extend(resources)
+        return resources
+
+    def fallback(*, resource_type, identifier_system, values):
+        # CPR-fallback'en kan løse p3, men ikke p1
+        return {"p3": "uuid-3"} if "p3" in values else {}
+
+    posted = dg.MaterializeResult(
+        metadata={"posted_count": dg.MetadataValue.int(2), "failed_count": dg.MetadataValue.int(0)}
+    )
+    ctx = MagicMock()
+    with (
+        patch.object(m, "batch_resolve_references", return_value={"p2": "uuid-2"}),
+        patch.object(m, "prepare_resources_for_upsert", side_effect=prepare),
+        patch.object(m, "post_resources_direct", return_value=posted),
+    ):
+        result = m._post_service_requests_to_fhir(
+            context=ctx,
+            service_requests=requests,
+            fhir_database=MagicMock(),
+            extracted_count=3,
+            resolve_missing_dependencies=False,
+            reference_fallback_fn=fallback,
+        )
+    assert [m._source_id(r) for r in prepared] == ["h2", "h3"], "kun p1's henvisning tages ud"
+    assert m._read_result_int(result, "posted_count") == 2
+    assert m._read_result_int(result, "failed_count") == 1, "udtagne tælles som fejlede"
+    assert m._read_result_int(result, "unresolved_patient_skipped") == 1
+
+
+def test_unresolved_patient_also_drops_the_referral_condition_and_handles_empty_batch():
+    from unittest.mock import MagicMock, patch
+
+    from DSA.FHIR.ServiceRequest import ServiceRequest_IFDB_dfm as m
+    from fhir.resources.R4B.condition import Condition
+    from fhir.resources.R4B.identifier import Identifier
+    from fhir.resources.R4B.reference import Reference
+    from utils.fhir.identifier_systems import SYSTEM_IFDB_PATIENT_ID
+
+    cond = Condition.construct(
+        subject=Reference.construct(
+            identifier=Identifier.construct(system=SYSTEM_IFDB_PATIENT_ID, value="p1")
+        )
+    )
+    kept_r, kept_c, dropped = m._drop_resources_without_patient([_sr("p1", "r1")], [cond], {"p1"})
+    assert kept_r == [] and kept_c == [] and dropped == ["r1"]
+
+    # hele portionen uden patient: intet postes, men fejlen tælles, så kørslen fejler til sidst
+    with (
+        patch.object(m, "batch_resolve_references", return_value={}),
+        patch.object(m, "prepare_resources_for_upsert") as prepare,
+        patch.object(m, "post_resources_direct") as post,
+    ):
+        result = m._post_service_requests_to_fhir(
+            context=MagicMock(),
+            service_requests=[_sr("p1", "r1")],
+            fhir_database=MagicMock(),
+            extracted_count=1,
+            resolve_missing_dependencies=False,
+            referral_conditions=[cond],
+        )
+    prepare.assert_not_called()
+    post.assert_not_called()
+    assert m._read_result_int(result, "failed_count") == 1
+    assert m._read_result_int(result, "posted_count") == 0
+
+
+def test_all_patients_resolved_changes_nothing():
+    from unittest.mock import MagicMock, patch
+
+    import dagster as dg
+    from DSA.FHIR.ServiceRequest import ServiceRequest_IFDB_dfm as m
+
+    posted = dg.MaterializeResult(
+        metadata={"posted_count": dg.MetadataValue.int(1), "failed_count": dg.MetadataValue.int(0)}
+    )
+    with (
+        patch.object(m, "batch_resolve_references", return_value={"p1": "uuid-1"}),
+        patch.object(
+            m, "prepare_resources_for_upsert", side_effect=lambda *, resources, **k: resources
+        ),
+        patch.object(m, "post_resources_direct", return_value=posted) as post,
+    ):
+        result = m._post_service_requests_to_fhir(
+            context=MagicMock(),
+            service_requests=[_sr("p1", "h1")],
+            fhir_database=MagicMock(),
+            extracted_count=1,
+            resolve_missing_dependencies=False,
+        )
+    assert post.call_count == 1
+    assert result is posted, "ingen udtagne: resultatet går uændret igennem"
+    assert "unresolved_patient_skipped" not in (result.metadata or {})

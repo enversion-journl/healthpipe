@@ -9,20 +9,22 @@ DFM-based job definitions for IFDB archive and FHIR pipelines.
 
 These jobs use DFM checkpoint tracking instead of Dagster partitions.
 
-Job hierarchy:
-  - fhir_ifdb_dfm_base_job: Oracle → ext → arc → FHIR server (all DFM FHIR producers)
-  - fhir_ifdb_dfm_sof_dso_job: SOF + DSO + Borger chain + SFI_datapoint refresh
-    (triggered by sensor)
-  - ifdb_dfm_daily_job: Full end-to-end DFM pipeline (base + SOF + DSO + Borger + SFI refresh)
+``ifdb_dfm_daily_job`` is the whole nightly pipeline in one job. It replaced the
+three-job sensor chain (base -> partitioned daily + SOF/DSO) once CarePlan — the
+last partitioned producer — moved to the DFM path: with nothing partitioned left,
+there is no partition key to hand a downstream run and therefore no reason to
+split the pipeline across jobs and sensors.
+
+The rest are stage-scoped operator jobs for re-running one layer on its own
+(archive, FHIR transform, SOF), plus the DFM reset and period orchestrator.
 """
 
 import dagster as dg
 from jobs.fhir_ifdb_jobs import _max_concurrent
-from jobs.fhir_sof_jobs import codesystem_sfi_sync_assets
+from jobs.fhir_sof_jobs import codesystem_sfi_sync_assets, fhir_sof_infrastructure_assets
 
 # Cap per-run asset concurrency. SFI's XML ProcessPool multiplies each asset's
 # footprint, so the Definitions default of 8 exceeds the pod's memory; 4 fits.
-# Same default as fhir_etl_ifdb_daily_job.
 _dfm_multiprocess_executor = dg.multiprocess_executor.configured(
     {"max_concurrent": _max_concurrent("FHIR_IFDB_DFM_MAX_CONCURRENT", 4)}
 )
@@ -33,14 +35,20 @@ _dfm_multiprocess_executor = dg.multiprocess_executor.configured(
 
 ifdb_archive_assets = dg.AssetSelection.groups("ifdb_archive")
 fhir_ifdb_dfm_assets = dg.AssetSelection.groups("fhir_ifdb_dfm")
-fhir_sof_dfm_assets = dg.AssetSelection.groups("fhir_sof_dfm")
+
+# SOF extraction reads Aidbox views that Aidbox materializes from the deployed
+# ViewDefinitions, so every job that reads them must first apply the current
+# ones (fhir_sof_infrastructure) and the staging fhir.* DDL they MERGE into
+# (staging_infra_fhir) — otherwise a deploy with a changed ViewDefinition is
+# never picked up, and the MERGE runs against a stale target schema.
+fhir_sof_dfm_assets = fhir_sof_infrastructure_assets | dg.AssetSelection.groups("fhir_sof_dfm")
 fhir_dso_sync_dfm_assets = dg.AssetSelection.groups("fhir_dso_sync_dfm")
 fhir_quality_dfm_assets = dg.AssetSelection.groups("fhir_quality_dfm")
 dfm_operations_assets = dg.AssetSelection.groups("dfm_operations")
 
-_DFM_MIGRATED_RESOURCES = (
+_IFDB_RESOURCES = (
     "Patient, EpisodeOfCare, Encounter, Location, Location_SOR, DocumentReference, "
-    "Condition, Procedure, ServiceRequest, Aktivitetsresultat/SFI, Appointment"
+    "Condition, Procedure, ServiceRequest, Aktivitetsresultat/SFI, Appointment, CarePlan"
 )
 
 # Borger chain after Patient SOF — explicit keys so `ref` / shared_dimensions_dso_sync
@@ -60,7 +68,7 @@ ifdb_archive_job = dg.define_asset_job(
     name="ifdb_archive_job",
     selection=ifdb_archive_assets,
     description=(
-        f"Extract IFDB {_DFM_MIGRATED_RESOURCES} from Oracle to ext.*, "
+        f"Extract IFDB {_IFDB_RESOURCES} from Oracle to ext.*, "
         "then MERGE into arc.*. Uses DFM checkpoint tracking."
     ),
 )
@@ -74,7 +82,7 @@ fhir_ifdb_dfm_job = dg.define_asset_job(
     selection=fhir_ifdb_dfm_assets,
     executor_def=_dfm_multiprocess_executor,
     description=(
-        f"Transform {_DFM_MIGRATED_RESOURCES} from arc.* archive tables "
+        f"Transform {_IFDB_RESOURCES} from arc.* archive tables "
         "to FHIR resources and post to FHIR server. DFM checkpoint-based."
     ),
 )
@@ -91,7 +99,7 @@ ifdb_dfm_full_job = dg.define_asset_job(
 )
 
 # ---------------------------------------------------------------------------
-# Full pipeline + DSO sync (daily-job equivalent for DFM IFDB resources)
+# The nightly IFDB → FHIR pipeline, end to end, in one job
 # ---------------------------------------------------------------------------
 
 ifdb_dfm_daily_job = dg.define_asset_job(
@@ -107,49 +115,11 @@ ifdb_dfm_daily_job = dg.define_asset_job(
     ),
     executor_def=_dfm_multiprocess_executor,
     description=(
-        f"DFM daily equivalent for {_DFM_MIGRATED_RESOURCES}: "
-        "Oracle → ext → arc → FHIR server → SOF fhir.* → DSO sync, "
-        "then Borger ref/dim + dso_sync_dim_borger og SFI_datapoint refresh. "
-        "Replaces the partition-based fhir_etl_ifdb_daily_job for these resources."
-    ),
-)
-
-# ---------------------------------------------------------------------------
-# DFM FHIR base job — Oracle → ext → arc → FHIR server
-# Sensor triggers remaining partitioned daily (CarePlan) + DFM SOF+DSO.
-# ---------------------------------------------------------------------------
-
-fhir_ifdb_dfm_base_job = dg.define_asset_job(
-    name="fhir_ifdb_dfm_base_job",
-    selection=ifdb_archive_assets | fhir_ifdb_dfm_assets,
-    executor_def=_dfm_multiprocess_executor,
-    description=(
-        f"DFM FHIR base: Oracle → ext → arc → FHIR server for {_DFM_MIGRATED_RESOURCES}. "
-        "On success, a sensor triggers the remaining daily partitioned job (CarePlan) "
-        "and the DFM SOF+DSO job (incl. SFI_datapoint refresh)."
-    ),
-)
-
-# ---------------------------------------------------------------------------
-# DFM SOF+DSO job — SOF extraction + DSO sync + SFI_datapoint refresh
-# (triggered by sensor after base job completes)
-# ---------------------------------------------------------------------------
-
-fhir_ifdb_dfm_sof_dso_job = dg.define_asset_job(
-    name="fhir_ifdb_dfm_sof_dso_job",
-    selection=(
-        fhir_sof_dfm_assets
-        | fhir_dso_sync_dfm_assets
-        | fhir_quality_dfm_assets
-        | codesystem_sfi_sync_assets
-        | borger_dim_assets
-    ),
-    description=(
-        "SOF extraction + DSO sync for DFM FHIR resources, then the Borger chain "
-        "(ref_patient_borger → ref_patient_address_borger → dim_Borger → "
-        "dso_sync_dim_borger) and the SFI_datapoint refresh (waits for "
-        "Observation/QR DSO sync and codesystem.sfi_*). "
-        "Triggered by sensor on fhir_ifdb_dfm_base_job success."
+        f"The nightly IFDB → FHIR pipeline for {_IFDB_RESOURCES}: "
+        "Oracle → ext → arc → FHIR server → SOF fhir.* → DSO sync, then the "
+        "Borger chain (ref_patient_borger → ref_patient_address_borger → "
+        "dim_Borger → dso_sync_dim_borger) and the SFI_datapoint refresh. "
+        "Triggered by ifdb_dfm_daily_schedule at 06:00 CET."
     ),
 )
 

@@ -35,16 +35,16 @@ etl/
 │   │   ├── protocol.py        # ExtractionConfig protocol (shared interface)
 │   │   ├── types.py           # PartitionType, TableType enums
 │   │   ├── extract_config.py  # DfmExtractConfig dataclass
-│   │   ├── factory.py         # create_extraction_assets() + create_dfm_extraction_assets()
+│   │   ├── factory.py         # create_dfm_extraction_assets()
 │   │   ├── base.py            # SqlExtractor base class, ExtractResult
-│   │   ├── mssql/             # MSSQL extractor, asset_factory, models, bulk_copy, sql_builders
-│   │   ├── oracle/            # Oracle extractor, asset_factory, models
+│   │   ├── mssql/             # MSSQL extractor, models, bulk_copy, sql_builders, parallel_extract
+│   │   ├── oracle/            # Oracle extractor, models
 │   │   └── csv_files/         # CSV extractor
 │   ├── mssql/                 # MSSQL DFM configs per source
 │   │   ├── extract/           # ext.* extract configs (ils, sydax, mysupply, kmd_uddata)
 │   │   └── archive/           # arc.* archive configs (same sources)
 │   ├── oracle/                # Oracle source configs + DFM extract/archive (ifdb.py, ifdb_extract.py, ifdb_archive.py)
-│   ├── extract/               # Per-table extraction configs for the classic partitioned factory (IFDB/, BOM_IFDB/)
+│   ├── extract/               # Column contracts asserted by the Oracle schema-verification tests (IFDB/)
 │   ├── csv_files/             # CSV-based sources (os2mo.py, shaksor_map.py)
 │   └── organisation/          # Organisation codesystems and concept maps
 ├── DSA/                        # Data Staging Area (staging + transforms)
@@ -153,26 +153,29 @@ more than any other piece of terminology here.
   "where it left off" in `meta.DFMState` and reads the delta itself. Re-running a
   period or a set of IDs is a launch-time config change, not a backfill. See
   [dfm_design.md](../architecture/dfm_design.md).
-- **Dagster partitions** — the classic FHIR pattern. Assets are defined with
-  `daily_partitions` / `monthly_partitions` / `full_load_partitions` from
-  `core/partitions.py`, and re-running means backfilling partitions.
+- **Dagster partitions** — the classic FHIR pattern, now **retired**. Assets were
+  defined with `daily_partitions` / `monthly_partitions` / `full_load_partitions`
+  from `core/partitions.py`, and re-running meant backfilling partitions. Those
+  definitions are gone along with the last partitioned producer; no asset or job
+  in the deployment carries a `partitions_def` any more. You will still meet this
+  in older commits, and `core/partitions.py` keeps two key-format helpers the SQL
+  extractors call with a `partition_key` that is always None on the DFM path.
 
-FHIR resources tagged `"dfm_migrated": "true"` are excluded from the classic daily job;
-the `_dfm` suffix on files and assets exists only to disambiguate during the migration.
+The `_dfm` suffix on files and assets exists only to disambiguate during the
+migration; it is now redundant.
 
 ### Assets
 
 ```python
 @dg.asset(
-    name="fhir_encounter_daily_ifdb",
-    ins={"extracted_data": dg.AssetIn(key=dg.AssetKey(["ifdb_extract", "encounter_daily"]))},
-    group_name="fhir_ifdb_daily",
-    partitions_def=daily_partitions,
+    name="fhir_server_encounter_dfm",
+    group_name="fhir_ifdb_dfm",
+    deps=["arc_encounter_ifdb", "fhir_server_patient_dfm"],
 )
-def fhir_encounter_daily_ifdb(
+def fhir_server_encounter_dfm(
     context: dg.AssetExecutionContext,
-    extracted_data: list[dict[str, Any]],
-    ifdb_oracle: IFDBOracleResource,
+    mssql_target_staging: MSSQLResource,
+    config: RunModeConfig,
     fhir_server: FHIRServerResource,
 ) -> dg.MaterializeResult:
     """Transform and post Encounter resources for daily partition."""
@@ -204,14 +207,16 @@ Defined in `core/resources.py`, composed in `definitions.py`:
 ### Jobs and schedules
 
 ```python
-fhir_etl_ifdb_daily_job = dg.define_asset_job(
-    name="fhir_etl_ifdb_daily_job",
-    selection=fhir_infrastructure_assets | ifdb_extraction_daily_assets | fhir_ifdb_daily_assets,
+ifdb_dfm_daily_job = dg.define_asset_job(
+    name="ifdb_dfm_daily_job",
+    selection=ifdb_archive_assets | fhir_ifdb_dfm_assets | fhir_sof_dfm_assets | ...,
 )
 
-@dg.schedule(cron_schedule="0 2 * * *", job=fhir_etl_ifdb_daily_job)
-def daily_fhir_schedule():
-    return {}
+ifdb_dfm_daily_schedule = dg.ScheduleDefinition(
+    job=ifdb_dfm_daily_job,
+    cron_schedule="0 6 * * *",
+    execution_timezone="Europe/Copenhagen",
+)
 ```
 
 ## Asset groups
@@ -247,7 +252,7 @@ from DSA.SQL.map import all_assets as map_assets
 from DSA.SQL.fct import all_assets as fct_assets
 from DSO.load import all_dso_sync_dim_assets, all_dso_sync_fct_assets
 from DSI.mssql import all_archive_assets, all_factory_extract_assets
-from DSI.oracle import all_extraction_assets as ifdb_extract_assets
+from DSI.oracle import all_epji_archive_assets, all_ifdb_archive_assets
 ```
 
 ## Conventions that apply everywhere

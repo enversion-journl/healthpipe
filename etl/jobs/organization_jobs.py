@@ -20,6 +20,8 @@ organisation_cs_job = dg.define_asset_job(
         # same arc.ils_* assets are also maintained by erp_daily_dfm — a harmless
         # redundant refresh. ---
         "extract_ean_nemhandel",  # cs_ean source (NemHandel)
+        "ext_epji_location",  # cs_shakalike source (EPJI location)
+        "arc_epji_shakalike",  # cs_shakalike source (EPJI archive)
         "ext_ils_sgh",
         "arc_ils_sgh",  # cs_lager + cs_rekvirent source (ILS)
         "ext_ils_lgr",
@@ -46,12 +48,14 @@ organisation_cs_job = dg.define_asset_job(
         "cs_rekvirent",
         "cs_okosted",
         "cs_shak",
-        # --- ConceptMaps: ean/Lager/Rekvirent/Okosted/SHAK -> SOR ---
+        "cs_shakalike",
+        # --- ConceptMaps: ean/Lager/Rekvirent/Okosted/SHAK/SHAK-a-like -> SOR ---
         "cm_ean_to_sor",
         "cm_lager_to_sor",
         "cm_rekvirent_to_sor",
         "cm_okosted_to_sor",
         "cm_shak_to_sor",
+        "cm_shakalike_to_sor",
         # --- Codesystem + ConceptMap DSO sync (staging -> DSO) ---
         "dso_sync_codesystem_ean_concept",
         "dso_sync_codesystem_ean_properties",
@@ -68,11 +72,15 @@ organisation_cs_job = dg.define_asset_job(
         "dso_sync_codesystem_shak_concept",
         "dso_sync_codesystem_shak_properties",
         "dso_sync_codesystem_shak_hierarchy",
+        "dso_sync_codesystem_shakalike_concept",
+        "dso_sync_codesystem_shakalike_properties",
+        "dso_sync_codesystem_shakalike_hierarchy",
         "dso_sync_conceptmap_ean_to_sor",
         "dso_sync_conceptmap_lager_to_sor",
         "dso_sync_conceptmap_rekvirent_to_sor",
         "dso_sync_conceptmap_okosted_to_sor",
         "dso_sync_conceptmap_shak_to_sor",
+        "dso_sync_conceptmap_shakalike_to_sor",
         # --- Okosted DWH pipeline (codesystem -> staging -> map -> dim -> DSO) ---
         "stg_Okosted",
         "staging_infra_erp",
@@ -83,6 +91,10 @@ organisation_cs_job = dg.define_asset_job(
         "map_SHAK",
         "dim_SHAK",
         "dso_sync_dim_shak",
+        "stg_SHAKAlike",
+        "map_SHAKAlike",
+        "dim_SHAKAlike",
+        "dso_sync_dim_shakalike",
         # --- SOR: single source extract -> version archive -> codesystem
         #     (feeds the FHIR Organization build below). extract_sor_register
         #     is the ONLY SOR download; default mode "current" pulls the daily
@@ -119,8 +131,9 @@ organisation_cs_job = dg.define_asset_job(
     ),
     description=(
         "Daily Organisation + ERP->SOR terminology ETL. "
-        "Builds the ean/Lager/Rekvirent/Okosted codesystems and their *-to-SOR "
-        "conceptmaps from fresh source extracts (NemHandel / ILS / SYDAX / OS2MO) "
+        "Builds the ean/Lager/Rekvirent/Okosted/SHAK/SHAK-a-like codesystems and "
+        "their *-to-SOR conceptmaps from fresh source extracts "
+        "(NemHandel / ILS / SYDAX / OS2MO / EPJI) "
         "and syncs codesystem.* + conceptmap.* to DSO. "
         "Downloads SOR once (extract -> arc.sor_register archive -> cs_sor), "
         "posts FHIR Organizations from codesystem.SOR* (DFM delta), extracts "

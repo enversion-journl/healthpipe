@@ -1,0 +1,14 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+resourceType: CodeSystem
+url: "https://example.org/epji/shakalike"
+name: "SHAKAlike"
+description: "SHAK-a-like organisationskoder fra EPJI location.external_id. Hierarki udledt af kodens egne punktum-separerede niveauer (01.02.01.4.1 -> 01.02.01.4)."
+status: active
+hierarchyMeaning: is-a
+publisher: Example Region
+content: not-present

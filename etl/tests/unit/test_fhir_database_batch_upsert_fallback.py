@@ -770,3 +770,153 @@ class TestFailureReportingCarriesNoErrorText:
         assert "matched 2 rows" in logged
         assert "urn:dk:cpr" in logged
         assert _CPR not in logged
+
+
+class TestUniqueViolationRecoveryPolicy:
+    """Én genoprettelsespolitik for objekt- og dict-stien — og nettet er synligt som tæller.
+
+    Genoprettelse tælles som succes (idempotent slutresultat), men rapporteres
+    i ``UpsertResult.recovered``: på en sti, der pre-resolver sine id'er, skal
+    tallet være 0, så et tal over 0 afslører en manglende pre-resolve i stedet
+    for at gemme sig som en langsom succes.
+    """
+
+    class _FakeDiag:
+        constraint_name = "idx_uniq"
+
+    def _unique_violation(self, text: str = "duplicate key value violates unique constraint"):
+        diag = self._FakeDiag()
+
+        class FakeUniqueViolation(Exception):
+            sqlstate = "23505"
+
+        exc = FakeUniqueViolation(text)
+        exc.diag = diag  # type: ignore[attr-defined]
+        return exc
+
+    def _patches(self, connection: MagicMock, logger: MagicMock | None = None):
+        return (
+            patch("core.resources.BATCH_UPSERT_FALLBACK_ERROR", RuntimeError),
+            patch.object(
+                FHIRDatabaseResource,
+                "get_connection",
+                return_value=_connection_ctx(connection),
+            ),
+            patch("core.resources.dg.get_dagster_logger", return_value=logger or MagicMock()),
+            patch("core.fhir.direct_upsert.time.sleep"),
+        )
+
+    def test_object_path_counts_recovered_row(self) -> None:
+        resource = _build_resource()
+        connection, cursor = _build_connection_and_cursor()
+        cursor.executemany.side_effect = RuntimeError("simulated db batch failure")
+        # SELECT max(txid); insert kolliderer; opslag finder én række; re-upsert lykkes.
+        cursor.execute.side_effect = [None, self._unique_violation(), None, None]
+        cursor.fetchall.return_value = [("existing-pat",)]
+
+        p1, p2, p3, p4 = self._patches(connection)
+        with p1, p2, p3, p4:
+            result = resource.batch_upsert_resources(
+                resources=[_sample_patient_with_identifier()],
+                resource_type="Patient",
+                batch_size=500,
+            )
+
+        assert tuple(result) == (1, 0, [])
+        assert result.recovered == 1
+
+    def test_dict_path_counts_recovered_row(self) -> None:
+        resource = _build_resource()
+        connection, cursor = _build_connection_and_cursor()
+        cursor.executemany.side_effect = RuntimeError("simulated db batch failure")
+        cursor.execute.side_effect = [None, self._unique_violation(), None, None]
+        cursor.fetchall.return_value = [("existing-obs",)]
+        rows = [
+            (
+                "incoming-obs",
+                {
+                    "resourceType": "Observation",
+                    "id": "incoming-obs",
+                    "identifier": [{"system": "urn:source:ifdb:observation_id", "value": "OBS-1"}],
+                },
+            )
+        ]
+
+        p1, p2, p3, p4 = self._patches(connection)
+        with p1, p2, p3, p4:
+            result = resource.batch_upsert_resource_dicts(
+                resource_dicts=rows,
+                resource_type="Observation",
+                batch_size=500,
+            )
+
+        assert tuple(result) == (1, 0, [])
+        assert result.recovered == 1
+        assert rows[0][1]["id"] == "existing-obs"
+
+    def test_recovered_is_zero_when_nothing_collides(self) -> None:
+        resource = _build_resource()
+        connection, cursor = _build_connection_and_cursor()
+
+        p1, p2, p3, p4 = self._patches(connection)
+        with p1, p2, p3, p4:
+            result = resource.batch_upsert_resource_dicts(
+                resource_dicts=_sample_dict_resources(),
+                resource_type="Observation",
+                batch_size=500,
+            )
+
+        # Stadig en almindelig tupel for de kaldesteder, der pakker tre værdier ud.
+        successes, failures, failed_ids = result
+        assert (successes, failures, failed_ids) == (2, 0, [])
+        assert result == (2, 0, [])
+        assert result.recovered == 0
+
+    def test_dict_path_logs_generic_row_failure(self) -> None:
+        """Dict-stien manglede den generiske fejl-warning; nu deler begge stier den."""
+        resource = _build_resource()
+        connection, cursor = _build_connection_and_cursor()
+        cursor.executemany.side_effect = RuntimeError("simulated db batch failure")
+        # SELECT max(txid); første række fejler af en anden grund end unique; anden lykkes.
+        cursor.execute.side_effect = [None, RuntimeError("row exploded"), None]
+
+        logger = MagicMock()
+        p1, p2, p3, p4 = self._patches(connection, logger)
+        with p1, p2, p3, p4:
+            result = resource.batch_upsert_resource_dicts(
+                resource_dicts=_sample_dict_resources(),
+                resource_type="Observation",
+                batch_size=500,
+            )
+
+        assert tuple(result) == (1, 1, ["obs-1: row exploded"])
+        assert result.recovered == 0
+        assert "Failed to insert into observation (id=obs-1): row exploded" in _all_logged_text(
+            logger
+        )
+
+    def test_reupsert_failure_label_carries_no_error_text_for_patient(self) -> None:
+        """Fejler re-upserten, må dens fejltekst (der kan bære CPR) heller ikke nå failed_ids."""
+        resource = _build_resource()
+        connection, cursor = _build_connection_and_cursor()
+        cursor.executemany.side_effect = RuntimeError("simulated db batch failure")
+        cursor.execute.side_effect = [
+            None,
+            self._unique_violation(_UNIQUE_VIOLATION_TEXT),
+            None,
+            RuntimeError(_UNIQUE_VIOLATION_TEXT),
+        ]
+        cursor.fetchall.return_value = [("existing-pat",)]
+
+        logger = MagicMock()
+        p1, p2, p3, p4 = self._patches(connection, logger)
+        with p1, p2, p3, p4:
+            result = resource.batch_upsert_resources(
+                resources=[_sample_patient_with_identifier()],
+                resource_type="Patient",
+                batch_size=500,
+            )
+
+        assert tuple(result) == (0, 1, ["incoming-pat: RuntimeError"])
+        assert result.recovered == 0
+        assert _CPR not in _all_logged_text(logger)

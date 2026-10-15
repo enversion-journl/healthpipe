@@ -54,3 +54,13 @@ LEFT JOIN [map].[SHAK] AS shak
     ON shak.[clean_code_SHAK] = cm.[source_code]
 LEFT JOIN [ref].[Organisation] AS org_tgt
     ON org_tgt.[sor_code] = cm.[target_code] AND org_tgt.[dw_is_deleted] = 0
+
+-- conceptmap_table: SHAKAlikeToSOR
+UPDATE cm
+SET cm.[dw_ek_SHAKAlike] = src.[dw_ek_SHAKAlike],
+    cm.[dw_ek_Organisation_target] = org_tgt.[dw_ek_Organisation]
+FROM [conceptmap].[SHAKAlikeToSOR] AS cm
+LEFT JOIN [map].[SHAKAlike] AS src
+    ON src.[clean_code_SHAKAlike] = cm.[source_code]
+LEFT JOIN [ref].[Organisation] AS org_tgt
+    ON org_tgt.[sor_code] = cm.[target_code] AND org_tgt.[dw_is_deleted] = 0

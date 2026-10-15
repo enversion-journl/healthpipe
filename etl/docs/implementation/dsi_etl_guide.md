@@ -120,8 +120,9 @@ MYSOURCE_PROD_MSSQL_PASSWORD=tempPassword1!
 MYSOURCE_PROD_MSSQL_SCHEMA=dbo
 ```
 
-Then put the real values in your local `.env`. **Never commit real credentials** —
-the gitleaks pre-commit hook scans the staged diff and CI runs the same check.
+`.env.template` is the list of variables the resource requires; the real values come
+from the deployment's environment. **Never commit real credentials** — the gitleaks
+pre-commit hook scans the staged diff and CI scans the history.
 
 ### 2. Document the source schema
 
@@ -394,7 +395,7 @@ connection.
 ### New-source checklist
 
 - [ ] Read-only credentials obtained; connectivity from the Dagster runtime verified
-- [ ] `.env.template` updated with placeholders; real values only in local `.env`
+- [ ] `.env.template` updated with placeholders for the variables the resource requires
 - [ ] `docs/source_systems/{source}/` created
 - [ ] Resource class added to `core/resources.py`
 - [ ] Resource registered in `definitions.py`
@@ -404,7 +405,7 @@ connection.
 - [ ] `jobs/{source}_jobs.py` added and registered; schedule or daily-job membership decided
 - [ ] `dqa/config/arc_{source}_subjects.py` created and added to `ALL_SUBJECTS`
 - [ ] Test fixtures added to `tests/conftest.py`
-- [ ] `dagster definitions validate` passes
+- [ ] The code location loads and the assets appear in the Dagster UI after the push
 
 ---
 
@@ -608,7 +609,8 @@ Full flag reference: [archive_merge_options.md](archive_merge_options.md).
 ### 6. Register and validate
 
 - Config in the list → asset generated → already exported if the source was onboarded
-  per chapter 1. Verify with `dagster definitions validate`.
+  per chapter 1. Verify that the asset appears in your branch's code location after
+  the push.
 - If you added the table to a **new** group, add that group to a job selection.
 - Add the table to the source's DQA subject list (`dqa/config/arc_{source}_subjects.py`).
   Take `key_columns` from the `ArchiveMergeConfig` object, not a retyped copy.
@@ -618,13 +620,12 @@ Full flag reference: [archive_merge_options.md](archive_merge_options.md).
 
 ### 7. Run and verify
 
-```bash
-dagster asset materialize --select staging_infra_mysource   # create the arc table
-dagster asset materialize --select ext_mysource_orders
-dagster asset materialize --select arc_mysource_orders
-```
+Push the branch, then materialize in the Dagster UI on Dev — in your own code
+location, where asset names carry the branch postfix. In order:
+`staging_infra_{source}` (creates the arc table) → `ext_{source}_{table}` →
+`arc_{source}_{table}`, or materialize the whole `{source}_archive` group at once.
 
-Or materialize the group from the Dagster UI. Then check five things:
+Then check five things:
 
 1. **Row counts.** `arc` count matches the source count for a full load; for a delta,
    the first run should have loaded everything (checkpoint was empty).
@@ -665,7 +666,7 @@ whose SQL you want pinned, a non-obvious delta expression, or a pre-merge hook.
 - [ ] `ArchiveMergeConfig` added; `merge_keys` + `non_key_columns` cover every column
 - [ ] `checkpoint_query` uses `CONVERT(..., 121)`, or is omitted for full load
 - [ ] Delete behaviour chosen deliberately
-- [ ] `dagster definitions validate` passes
+- [ ] The code location loads and the assets appear in the Dagster UI after the push
 - [ ] First run loads, second run is a no-op, grain check passes, replay leaves the checkpoint alone
 - [ ] DQA subject added
 

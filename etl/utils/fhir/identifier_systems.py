@@ -10,7 +10,7 @@ Centralized identifier system URIs for FHIR Identifier and Reference.identifier 
 This module consolidates all identifier systems used across the codebase:
 - Shared Danish healthcare identifiers (CPR, SOR, SHAK)
 - IFDB-derived identifiers for source system linkage
-- Domain-specific identifiers (Kræftpakker, etc.)
+- Domain-specific identifiers (patient rights, DRG, terminology)
 
 Keep these stable to ensure consistent matching across transformations and loaders.
 """
@@ -131,25 +131,23 @@ SYSTEM_COLUMNA_BOOKING_ACTIVITY_ID = (
 # =============================================================================
 # Patient Rights CarePlan identifiers
 # =============================================================================
+# Alle markører is the only patient-rights CarePlan this repository produces.
+# The systems for kræftpakker, udredningsret, behandlingsret and maksimale
+# ventetider were removed with the transform code behind them: that kind of
+# business logic belongs in the datamart repository, which consumes the base
+# tables published here.
+#
 # Common code system for patient rights type (category)
 SYSTEM_PATIENT_RIGHTS_TYPE = "http://example.org/fhir/CodeSystem/patient-rights-type"
 
-# Kræftpakker (Cancer Pathways)
-SYSTEM_CAREPLAN_KRAEFTPAKKE = "urn:dk:sundhed:kraeftpakke:careplan"
-
-# Udredningsret (Diagnostic Investigation Right)
-SYSTEM_CAREPLAN_UDREDNINGSRET = "urn:dk:sundhed:udredningsret:careplan"
-
-# Behandlingsret (Treatment Right) - for future use
-SYSTEM_CAREPLAN_BEHANDLINGSRET = "urn:dk:sundhed:behandlingsret:careplan"
-
-# Maksimale ventetider (Maximum Waiting Times) - for future use
-SYSTEM_CAREPLAN_MAKSIMALE_VENTETIDER = "urn:dk:sundhed:maksimale-ventetider:careplan"
-
-# Alle markører (All Markers)
+# Alle markører (All Markers) — one living CarePlan per PERSON, keyed on the
+# FHIR patient id (see DSA/FHIR/CarePlan/CarePlan_IFDB_dfm.py).
 SYSTEM_CAREPLAN_ALLE_MARKOERER = "urn:dk:sundhed:alle-markoerer:careplan"
 
-# Helbredsforløb (Health Journey) - derived identifier for grouping
+# Helbredsforløb (Health Journey) — kept deliberately although nothing writes it
+# today. It names a national grouping concept (episodes linked via
+# EPISODE_OF_CARE.PREVIOUS_EOC_ID) that a consumer may need to reference, so the
+# URI stays stable here rather than being re-invented downstream.
 SYSTEM_HELBREDSFORLOEB = "urn:dk:sundhed:helbredsforloeb"
 
 # =============================================================================

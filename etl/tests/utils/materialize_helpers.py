@@ -94,10 +94,10 @@ def _ensure_partition_exists(
     partition: str,
 ) -> None:
     """
-    Ensure a partition exists in the Dagster instance.
+    Validate the partition key and register it in the dynamic partition set.
 
-    For DynamicPartitionsDefinition, creates the partition if it doesn't exist.
-    For MonthlyPartitionsDefinition, validates the partition format.
+    No asset is partitioned any more, so the registration is inert — it stays
+    because ``dg.materialize(partition_key=...)`` still wants a known key.
 
     Args:
         instance: Dagster instance
@@ -106,45 +106,15 @@ def _ensure_partition_exists(
     Raises:
         ValueError: If partition format is invalid
     """
-    from core.partitions import (
-        _validate_partition_key,
-        monthly_partitions,
-        unified_partitions,
-    )
+    from core.partitions import _validate_partition_key, unified_partitions
 
-    # Handle DynamicPartitionsDefinition
-    if hasattr(unified_partitions, "name") and isinstance(
-        unified_partitions, dg.DynamicPartitionsDefinition
-    ):
-        if not _validate_partition_key(partition):
-            raise ValueError(
-                f"Invalid partition key format: {partition}. "
-                "Must be 'full_load', 'YYYY-MM-DD' (daily), or 'YYYY-MM' (monthly)"
-            )
-        if not instance.has_dynamic_partition(unified_partitions.name, partition):
-            instance.add_dynamic_partitions(unified_partitions.name, [partition])
-
-    # Handle MonthlyPartitionsDefinition
-    elif isinstance(monthly_partitions, dg.MonthlyPartitionsDefinition):
-        if not _validate_partition_key(partition):
-            raise ValueError(
-                f"Invalid partition key format: {partition}. "
-                "Must be 'full_load', 'YYYY-MM-DD' (daily), or 'YYYY-MM' (monthly)"
-            )
-        # Validate the partition is within valid range
-        try:
-            from datetime import datetime
-
-            partition_date = datetime.strptime(partition, "%Y-%m")
-            start_date = datetime.strptime("2015-01", "%Y-%m")
-            if partition_date < start_date:
-                raise ValueError(f"Partition {partition} is before the start date 2015-01")
-        except ValueError as e:
-            if "time data" in str(e):
-                raise ValueError(
-                    f"Invalid monthly partition format: {partition}. Expected YYYY-MM"
-                ) from e
-            raise
+    if not _validate_partition_key(partition):
+        raise ValueError(
+            f"Invalid partition key format: {partition}. "
+            "Must be 'full_load', 'YYYY-MM-DD' (daily), or 'YYYY-MM' (monthly)"
+        )
+    if not instance.has_dynamic_partition(unified_partitions.name, partition):
+        instance.add_dynamic_partitions(unified_partitions.name, [partition])
 
 
 # =============================================================================
@@ -271,11 +241,6 @@ def materialize_patient_pipeline(
     Returns:
         Dictionary mapping asset keys to materialization results
     """
-    from core.partitions import (
-        _validate_partition_key,
-        monthly_partitions,
-        unified_partitions,
-    )
     from definitions import defs
 
     # Default assets for patient pipeline based on datasource
@@ -296,45 +261,9 @@ def materialize_patient_pipeline(
     assets_to_materialize_defs = _find_asset_definitions(defs, assets_to_materialize)
 
     try:
+        # Validates the key and registers it; the duplicate inline copy of this
+        # that used to follow did the same work twice.
         _ensure_partition_exists(instance, partition)
-
-        # Handle DynamicPartitionsDefinition
-        if hasattr(unified_partitions, "name") and isinstance(
-            unified_partitions, dg.DynamicPartitionsDefinition
-        ):
-            # Validate partition key format
-            if not _validate_partition_key(partition):
-                raise ValueError(
-                    f"Invalid partition key format: {partition}. "
-                    "Must be 'full_load', 'YYYY-MM-DD' (daily), or 'YYYY-MM' (monthly)"
-                )
-            # Check if partition exists, if not add it
-            if not instance.has_dynamic_partition(unified_partitions.name, partition):
-                instance.add_dynamic_partitions(unified_partitions.name, [partition])
-
-        # Handle MonthlyPartitionsDefinition - validate that the partition key exists
-        elif isinstance(monthly_partitions, dg.MonthlyPartitionsDefinition):
-            # Validate partition key format
-            if not _validate_partition_key(partition):
-                raise ValueError(
-                    f"Invalid partition key format: {partition}. "
-                    "Must be 'full_load', 'YYYY-MM-DD' (daily), or 'YYYY-MM' (monthly)"
-                )
-            # For MonthlyPartitionsDefinition, Dagster automatically handles partition existence
-            # But we should validate the partition is within the valid range
-            try:
-                from datetime import datetime
-
-                partition_date = datetime.strptime(partition, "%Y-%m")
-                start_date = datetime.strptime("2021-01", "%Y-%m")
-                if partition_date < start_date:
-                    raise ValueError(f"Partition {partition} is before the start date 2021-01")
-            except ValueError as e:
-                if "time data" in str(e):
-                    raise ValueError(
-                        f"Invalid monthly partition format: {partition}. Expected YYYY-MM"
-                    ) from e
-                raise
 
         # Materialize all assets together to handle dependencies properly
         result = dg.materialize(

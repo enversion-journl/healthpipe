@@ -191,7 +191,7 @@ def _append_questionnaire_outputs_for_row(
 
 
 def _metadata_int(result: dg.MaterializeResult, key: str) -> int:
-    value = result.metadata.get(key)
+    value = (result.metadata or {}).get(key)
     return int(getattr(value, "value", 0))
 
 
@@ -203,12 +203,16 @@ def _sfi_side_output_result(
     chunk_count: int,
     chunk_size: int,
     method: str,
+    unique_violation_recovered_count: int = 0,
 ) -> dg.MaterializeResult:
     partition_key = context.partition_key if context.has_partition_key else "N/A"
     return dg.MaterializeResult(
         metadata={
             "posted_count": dg.MetadataValue.int(posted_count),
             "failed_count": dg.MetadataValue.int(failed_count),
+            "unique_violation_recovered_count": dg.MetadataValue.int(
+                unique_violation_recovered_count
+            ),
             "chunk_count": dg.MetadataValue.int(chunk_count),
             "chunk_size": dg.MetadataValue.int(chunk_size),
             "partition_key": dg.MetadataValue.text(partition_key),
@@ -223,11 +227,16 @@ def _post_dirty_questionnaires(
     questionnaires_by_id: dict[str, dict],
     dirty_questionnaire_ids: list[str],
     fhir_database: FHIRDatabaseResource,
-) -> tuple[int, int, list[str]]:
+) -> tuple[int, int, list[str], int]:
+    """Post de Questionnaires, chunken ændrede.
+
+    Returnerer ``(postede, fejlede, postede id'er, genoprettede efter
+    unique-violation)`` — det sidste er recovery-tælleren fra posten.
+    """
     from DSA.FHIR.utils.ifdb.fhir_posting import post_resource_dicts_direct
 
     if not dirty_questionnaire_ids:
-        return 0, 0, []
+        return 0, 0, [], 0
 
     seen: set[str] = set()
     qids: list[str] = []
@@ -237,7 +246,7 @@ def _post_dirty_questionnaires(
             qids.append(qid)
 
     if not qids:
-        return 0, 0, []
+        return 0, 0, [], 0
 
     existing_by_id = _load_existing_questionnaires_by_id(fhir_database, qids)
     merged_existing_count = 0
@@ -265,4 +274,5 @@ def _post_dirty_questionnaires(
         _metadata_int(result, "posted_count"),
         _metadata_int(result, "failed_count"),
         qids,
+        _metadata_int(result, "unique_violation_recovered_count"),
     )

@@ -14,14 +14,11 @@ This guide describes the standard architecture and implementation patterns for F
 
 A FHIR ETL pipeline transforms data from source systems into FHIR resources and loads them into a FHIR server. One ETL pipeline typically updates one FHIR resource type.
 
-Two architectures coexist:
+**DFM (checkpoint-based delta) is the only architecture.** A single unpartitioned asset per entity (`fhir_server_{entity}_dfm`, group `fhir_ifdb_dfm`) reads deltas from an archive table (`arc.*`, asset `arc_{entity}_ifdb`, group `ifdb_archive`) using checkpoints in `meta.dfm_state`, then batches transform+post. Run modes (`delta`, `full_load`, `period`, `ids`) are overridable at launch time via `RunModeConfig`. See `dfm_operations_guide.md` (operations) and `dfm_extract_factory_guide.md` (configs).
 
-1. **DFM (checkpoint-based delta)** — the standard path for the core IFDB resources (**Patient, EpisodeOfCare, Encounter, Location**), which exist only as DFM assets. A single unpartitioned asset per entity (`fhir_server_{entity}_dfm`, group `fhir_ifdb_dfm`) reads deltas from an archive table (`arc.*`, asset `arc_{entity}_ifdb`, group `ifdb_archive`) using checkpoints in `meta.dfm_state`, then batches transform+post. Run modes (`delta`, `full_load`, `period`, `ids`) are overridable at launch time via `RunModeConfig`. See `dfm_operations_guide.md` (operations) and `dfm_extract_factory_guide.md` (configs).
-2. **Partitioned two-asset pattern (classic)** — the remaining resources (Condition, Observation, Procedure, CarePlan, Appointment, ServiceRequest, Questionnaire, ...) use one extract asset + one transform+post asset, each in daily/monthly/full_load partition variants. Resources tagged `"dfm_migrated": "true"` are excluded from the classic daily job.
+The classic partitioned two-asset pattern is **retired** — CarePlan was the last resource on it, and no asset or job in the deployment carries a `partitions_def` any more. The sections below that describe it are kept as background for reading older code and commits; do not build new flows that way. Everything else in this guide (reference resolution, missing-dependency resolution, naming, SoF, indexes) applies to the DFM path unchanged.
 
-**For a NEW FHIR resource**: prefer the DFM pattern when the source table can be archived and delta-tracked (this is where the pipeline is heading); use the classic partitioned pattern when date-partitioned batch processing fits better. The rest of this guide documents the classic pattern in detail — the shared transform/post/reference-resolution utilities apply to both.
-
-DFM is the target end-state: the `_dfm` suffix on files/assets only exists to disambiguate during the migration. Once the classic pattern is fully retired, the suffix is redundant and can be dropped in a rename pass.
+The `_dfm` suffix on files/assets only existed to disambiguate during the migration; it is now redundant and can be dropped in a rename pass.
 
 ## Data Lineage Documentation (Required)
 
@@ -34,7 +31,13 @@ For FHIR flows that populate DSO-synced `fhir.*` tables, lineage documentation i
 
 Reference: `etl/docs/implementation/data_lineage_guide.md`.
 
-## ETL Architecture: Two-Asset Pattern (Classic, Partitioned)
+## ETL Architecture: Two-Asset Pattern (RETIRED — background only)
+
+> The factories and partition definitions in this section no longer exist:
+> `DSI/connectors/oracle/asset_factory.py`, `DSI/connectors/csv_files/asset_factory.py`
+> and `create_extraction_assets()` were removed with the last partitioned producer,
+> as were `daily_partitions` / `monthly_partitions` / `full_load_partitions`. Read
+> on only to understand older code and commits.
 
 ### Pattern Overview
 
@@ -199,7 +202,7 @@ SYSTEM_IFDB_PATIENT_ID = "urn:source:ifdb:patient_id"
 SYSTEM_IFDB_EPISODE_OF_CARE_ID = "urn:source:ifdb:episode_of_care_id"
 
 # Domain-specific identifiers
-SYSTEM_CAREPLAN_KRAEFTPAKKE = "urn:dk:sundhed:kraeftpakke:careplan"
+SYSTEM_CAREPLAN_ALLE_MARKOERER = "urn:dk:sundhed:alle-markoerer:careplan"
 ```
 
 ### Configuration-Based Resolution
@@ -243,7 +246,7 @@ def _post_resources_to_fhir(resources, fhir_database):
         resources=resources,
         fhir_database=fhir_database,
         resource_type="CarePlan",
-        preferred_id_systems=[SYSTEM_CAREPLAN_KRAEFTPAKKE],
+        preferred_id_systems=[SYSTEM_CAREPLAN_ALLE_MARKOERER],
     )
 
     # Step 2: Resolve all references (top-level + nested)
@@ -318,9 +321,11 @@ connections, and invalidation.
 - `resolve_missing_episodes_of_care()` — Check and create missing EpisodeOfCare (also resolves patient deps)
 - `resolve_careplan_dependencies()` — Resolve both Patient and EpisodeOfCare dependencies for CarePlan resources
 
-## Partition Strategies
+## Partition Strategies (RETIRED — background only)
 
-All ETL flows must support three partition strategies:
+Historically, all ETL flows had to support three partition strategies. On the DFM
+path a single unpartitioned asset covers all three via `RunModeConfig`
+(`delta` / `full_load` / `period`), so none of this applies to new work.
 
 | Partition | Group Suffix | Use Case |
 |-----------|--------------|----------|
@@ -367,12 +372,13 @@ All jobs are centralized in `etl/jobs/`:
 
 | File | Jobs | Purpose |
 |------|------|---------|
-| `ifdb_dfm_jobs.py` | `ifdb_archive_job`, `fhir_ifdb_dfm_job`, `ifdb_dfm_daily_job`, `ifdb_dfm_full_job`, `fhir_ifdb_dfm_base_job`, `fhir_ifdb_dfm_sof_dso_job`, `fhir_sof_dfm_job`, `dfm_reset_job`, `period_orchestrator_job` | DFM checkpoint-based flow: archive → FHIR transform+post → SoF → DSO sync, plus checkpoint reset and period orchestration |
-| `fhir_ifdb_jobs.py` | `fhir_etl_ifdb_daily_job`, `fhir_etl_ifdb_monthly_job`, `fhir_etl_ifdb_full_load_job` | Classic partitioned jobs (exclude DFM-migrated resources) |
-| `fhir_careplan_jobs.py` | `fhir_careplan_full_load_job`, `fhir_careplan_daily_job`, `fhir_careplan_monthly_job` | CarePlan-specific runs |
-| `fhir_sof_jobs.py` | `fhir_sof_daily_job`, `fhir_sof_monthly_job`, `fhir_dso_sync_job`, `codesystem_sfi_sync_job` | SoF extraction + DSO sync (classic) |
+| `ifdb_dfm_jobs.py` | `ifdb_dfm_daily_job` | **The nightly pipeline**: archive → FHIR transform+post → SoF → DSO sync → Borger + SFI refresh |
+| `ifdb_dfm_jobs.py` | `ifdb_archive_job`, `fhir_ifdb_dfm_job`, `fhir_sof_dfm_job`, `ifdb_dfm_full_job` | Stage-scoped operator jobs for re-running one layer |
+| `ifdb_dfm_jobs.py` | `dfm_reset_job`, `period_orchestrator_job` | Checkpoint reset and chunked historical reload |
+| `fhir_ifdb_jobs.py` | `sfi_datapoint_reconciliation_job` | Manual/periodic SFI_datapoint rebuild |
+| `fhir_sof_jobs.py` | `codesystem_sfi_sync_job` | Operator-triggered `codesystem.sfi_*` rebuild + DSO sync |
 
-Schedules live in `schedules/fhir_schedules.py` (classic) and `schedules/ifdb_dfm_schedules.py` (`ifdb_dfm_base_schedule`, daily 06:00; downstream DFM assets are sensor-triggered from the base job).
+Schedules live in `schedules/ifdb_dfm_schedules.py` (`ifdb_dfm_daily_schedule`, daily 06:00) and `schedules/fhir_schedules.py` (the weekly CodeSystem refresh).
 
 ## Implementation Checklist
 
@@ -434,7 +440,6 @@ etl/
 ├── jobs/                      # Centralized job definitions
 │   ├── fhir_ifdb_jobs.py      # Classic partitioned FHIR IFDB jobs
 │   ├── ifdb_dfm_jobs.py       # DFM checkpoint-based jobs (archive, FHIR, SoF, DSO sync)
-│   ├── fhir_careplan_jobs.py  # CarePlan jobs
 │   └── fhir_sof_jobs.py       # SoF + DSO sync jobs (classic)
 ├── schedules/
 │   ├── fhir_schedules.py      # Classic FHIR schedules
@@ -446,10 +451,10 @@ etl/
 │   ├── connectors/            # Shared extraction abstractions + per-connector factories
 │   │   ├── protocol.py        # ExtractionConfig protocol
 │   │   ├── types.py           # PartitionType, TableType enums
-│   │   ├── factory.py         # Generic create_extraction_assets()
+│   │   ├── factory.py         # create_dfm_extraction_assets()
 │   │   ├── base.py            # SqlExtractor base class
-│   │   ├── oracle/            # Oracle extractor + asset_factory + models
-│   │   └── mssql/             # MSSQL extractor + asset_factory + models + bulk_copy + sql_builders
+│   │   ├── oracle/            # Oracle extractor + models
+│   │   └── mssql/             # MSSQL extractor + models + bulk_copy + sql_builders
 │   └── oracle/                # IFDB configs (ifdb.py)
 ├── DSA/
 │   └── FHIR/
@@ -508,22 +513,29 @@ One extension URL is used across **Patient**, **Encounter**, **EpisodeOfCare**, 
 
 **Code**: `EXTENSION_FHIR_IS_DELETED`, `build_is_deleted_extension()` in `utils/fhir/is_deleted_extension.py`.
 
-## Example Implementation: CarePlan Kræftpakker
+## Example Implementation: CarePlan Alle Markoerer
 
-The CarePlan kræftpakker implementation demonstrates:
+Alle Markoerer is the only CarePlan the repo produces. The patient-rights
+CarePlans (kræftpakke, udredningsret, behandlingsret, maksimale ventetider) were
+constants without a producer and have been removed — that business logic belongs
+in the datamart repo.
+
+The implementation demonstrates:
 - Custom extract with patient-based delta logic
-- Journey formation (business logic) integrated in transform+post asset
-- Nested reference resolution for `activity.detail.performer`
-- Mixed-type references (Organization + Practitioner)
+- Grain formation (one resource per person, all their markers) in the transform+post asset
+- Nested reference resolution for `activity.detail.performer` (Organization via SOR;
+  the IFDB staff identifier is carried unresolved — see the config comment for why)
 
-**Extract Asset** (`DSI/oracle/ifdb.py` for eventmarker assets; `utils/eventmarker_utils.py` for shared EVENTMARKER SQL/delta logic):
-- Uses patient-based delta: finds changed patients, extracts ALL their markers
-- This ensures correct journey formation calculation
+**Archive** (`ext.ifdb_eventmarker` → `arc.ifdb_eventmarker`, configs in `DSI/oracle/ifdb_extract.py` + `ifdb_archive.py`):
+- Delta on `IFDB_MODIFICATION_DATETIME` with the flow-start ceiling on `EPJI_MODIFICATION_DATETIME`
 
-**Transform + Post Asset** (`DSA/FHIR/CarePlan/CarePlan_AlleMarkoerer_IFDB.py`):
-- Includes journey formation logic (moved from separate staging asset)
+**Transform + Post Asset** (`DSA/FHIR/CarePlan/CarePlan_IFDB_dfm.py`):
+- Patient-scoped delta: DISTINCT `PATIENT_ID` over the archive window, then ALL of
+  that patient's markers — the resource spans every marker a patient has, so "the
+  changed rows" is not a usable delta
 - Defines reference configurations for top-level and nested references
-- Uses `resolve_and_apply_all_references()` for reference resolution
+- Re-posts a patient with an empty activity list when all their markers are retired,
+  which is what lets the SoF child-grain reconcile retire the stale activity rows
 
 ## SQL on FHIR (SoF) -- Flattened Views for Analytics
 

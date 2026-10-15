@@ -22,6 +22,7 @@ _CONCEPTMAP_SYNC_SPECS: list[tuple[str, str, str]] = [
     ("conceptmap_ean_to_sor", "cm_ean_to_sor", "ean_to_sor"),
     ("conceptmap_okosted_to_sor", "cm_okosted_to_sor", "okosted_to_sor"),
     ("conceptmap_shak_to_sor", "cm_shak_to_sor", "shak_to_sor"),
+    ("conceptmap_shakalike_to_sor", "cm_shakalike_to_sor", "shakalike_to_sor"),
 ]
 
 
@@ -109,3 +110,4 @@ dso_sync_conceptmap_lager_to_sor = all_conceptmap_dso_sync_assets[1]
 dso_sync_conceptmap_ean_to_sor = all_conceptmap_dso_sync_assets[2]
 dso_sync_conceptmap_okosted_to_sor = all_conceptmap_dso_sync_assets[3]
 dso_sync_conceptmap_shak_to_sor = all_conceptmap_dso_sync_assets[4]
+dso_sync_conceptmap_shakalike_to_sor = all_conceptmap_dso_sync_assets[5]

@@ -22,6 +22,10 @@ SOFT_DELETE_THRESHOLDS: dict[str, int] = {
     "dim.Borger": 1000,
     "ref.Organisation": 1000,
     "fhir.Organization": 1000,
+    # SDS' udredningsret-snapshot sletter reelt ~4.500 markoerer/md (0,06 %);
+    # loftet giver plads til et kvartals hul paa sharet. Ratio-guarden (1 %)
+    # ligger i DSI/csv_files/udredningsret_archive.py.
+    "arc_udredningsret_mont": 25000,
 }
 
 # Marked / live ratio. Fires on a small table where the absolute cap is

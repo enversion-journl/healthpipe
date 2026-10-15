@@ -11,8 +11,8 @@ DSI - Data Staging In Layer
 No business logic, no CleanCodes, no JOINs.
 
 Structure:
-- extract/erp/: ERP source system extraction (ILS, SydAX, MySupply)
-- extract/IFDB/: Oracle IFDB extraction for FHIR ETL
-- extract/FHIR/: FHIR patient rights extraction
-- organisation/: organisation assets (e.g. NemHandel ean extract) and static FHIR JSON
+- mssql/: MSSQL sources (ILS, SydAX, MySupply, KMD)
+- oracle/: Oracle sources (IFDB extraction for FHIR ETL, EPJI SHAK-a-like)
+- csv_files/: CSV/HTTP extracts (SOR, SKS, SHAK, DRG, HAIBA, OS2MO)
+- organisation/: NemHandel ean extract and static FHIR JSON
 """

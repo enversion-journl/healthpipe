@@ -61,6 +61,7 @@ from DSA.FHIR.utils.ifdb.transforms import (
 from DSA.FHIR.utils.reference_resolver import (
     NestedReferenceFieldConfig,
     ReferenceFieldConfig,
+    batch_resolve_references,
 )
 from fhir.resources.R4B.codeableconcept import CodeableConcept
 from fhir.resources.R4B.coding import Coding
@@ -1067,6 +1068,29 @@ def _post_service_requests_to_fhir(
                 context=context,
             )
 
+    # Patienter, der hverken findes i FHIR, kan oprettes fra arkivet eller nås via CPR,
+    # kan ikke bære en ServiceRequest (subject er påkrævet). I stedet for at lade den
+    # delte reference-resolver vælte hele portionen på den første, tages de berørte
+    # ServiceRequests (og deres henvisningsdiagnoser) ud, logges med kildens id og
+    # tælles som fejlede: resten af portionen postes, og kørslen fejler først til
+    # sidst, så checkpointet ikke rykker, og rækkerne tages igen, når patienten findes.
+    dropped_source_ids: list[str] = []
+    unresolved_patients = _unresolved_patient_ids(
+        patient_ids_needed, fhir_database, reference_fallback_fn
+    )
+    if unresolved_patients:
+        service_requests, referral_conditions, dropped_source_ids = _drop_resources_without_patient(
+            service_requests, referral_conditions or [], unresolved_patients
+        )
+        referral_conditions = referral_conditions or None
+        logger.warning(
+            "%d ServiceRequest(s) uden gyldig patient taget ud af portionen (%d patient-id'er "
+            "findes hverken i FHIR, arkivet eller via CPR). Kilde-id'er: %s",
+            len(dropped_source_ids),
+            len(unresolved_patients),
+            ", ".join(dropped_source_ids[:20]) + (" …" if len(dropped_source_ids) > 20 else ""),
+        )
+
     if referral_conditions:
         referral_conditions = prepare_resources_for_upsert(
             resources=referral_conditions,
@@ -1086,7 +1110,18 @@ def _post_service_requests_to_fhir(
             extracted_count=extracted_count,
         )
         if _read_result_int(condition_result, "failed_count") > 0:
-            return condition_result
+            return _with_dropped_count(condition_result, dropped_source_ids)
+
+    if not service_requests:
+        return _with_dropped_count(
+            dg.MaterializeResult(
+                metadata={
+                    "posted_count": dg.MetadataValue.int(0),
+                    "failed_count": dg.MetadataValue.int(0),
+                }
+            ),
+            dropped_source_ids,
+        )
 
     service_requests = prepare_resources_for_upsert(
         resources=service_requests,
@@ -1099,7 +1134,7 @@ def _post_service_requests_to_fhir(
         logger=logger,
     )
 
-    return post_resources_direct(
+    result = post_resources_direct(
         context=context,
         resources=service_requests,
         fhir_database=fhir_database,
@@ -1107,6 +1142,81 @@ def _post_service_requests_to_fhir(
         source_name="ifdb_oracle",
         extracted_count=extracted_count,
     )
+    return _with_dropped_count(result, dropped_source_ids)
+
+
+def _unresolved_patient_ids(
+    patient_ids: set[str],
+    fhir_database: FHIRDatabaseResource,
+    reference_fallback_fn: Any | None,
+) -> set[str]:
+    """Patient-id'er, der ikke kan løses til en FHIR Patient — hverken direkte
+    (efter eventuel oprettelse fra arkivet) eller via CPR-fallback'en."""
+    if not patient_ids:
+        return set()
+    resolved = batch_resolve_references(
+        identifiers={pid: "" for pid in patient_ids},
+        resource_type="Patient",
+        identifier_system=SYSTEM_IFDB_PATIENT_ID,
+        fhir_database=fhir_database,
+    )
+    unresolved = {pid for pid in patient_ids if pid not in resolved}
+    if unresolved and reference_fallback_fn is not None:
+        supplemental = reference_fallback_fn(
+            resource_type="Patient",
+            identifier_system=SYSTEM_IFDB_PATIENT_ID,
+            values=sorted(unresolved),
+        )
+        unresolved -= set(supplemental or {})
+    return unresolved
+
+
+def _subject_patient_id(resource: Any) -> str | None:
+    subject = getattr(resource, "subject", None)
+    identifier = getattr(subject, "identifier", None) if subject is not None else None
+    value = getattr(identifier, "value", None) if identifier is not None else None
+    return str(value) if value is not None else None
+
+
+def _source_id(resource: Any) -> str:
+    for identifier in getattr(resource, "identifier", None) or []:
+        value = getattr(identifier, "value", None)
+        if value:
+            return str(value)
+    return "?"
+
+
+def _drop_resources_without_patient(
+    service_requests: list[ServiceRequest],
+    referral_conditions: list[Condition],
+    unresolved_patients: set[str],
+) -> tuple[list[ServiceRequest], list[Condition], list[str]]:
+    """Tag ServiceRequests (og henvisningsdiagnoser) med uløselig patient ud.
+    Returnerer (beholdte requests, beholdte conditions, kilde-id'er for de udtagne)."""
+    kept_requests = [
+        r for r in service_requests if _subject_patient_id(r) not in unresolved_patients
+    ]
+    dropped_ids = [
+        _source_id(r) for r in service_requests if _subject_patient_id(r) in unresolved_patients
+    ]
+    kept_conditions = [
+        c for c in referral_conditions if _subject_patient_id(c) not in unresolved_patients
+    ]
+    return kept_requests, kept_conditions, dropped_ids
+
+
+def _with_dropped_count(
+    result: dg.MaterializeResult, dropped_source_ids: list[str]
+) -> dg.MaterializeResult:
+    """Læg de udtagne ServiceRequests til failed_count, så kørslen fejler og checkpointet
+    ikke rykker (samme princip som ved fejlede posts)."""
+    if not dropped_source_ids:
+        return result
+    metadata = dict(result.metadata or {})
+    failed = _read_result_int(result, "failed_count") + len(dropped_source_ids)
+    metadata["failed_count"] = dg.MetadataValue.int(failed)
+    metadata["unresolved_patient_skipped"] = dg.MetadataValue.int(len(dropped_source_ids))
+    return dg.MaterializeResult(metadata=metadata)
 
 
 def _read_result_int(result: dg.MaterializeResult, key: str) -> int:
@@ -1160,13 +1270,16 @@ def _process_henvisning_batch(
     )
     if not service_requests:
         return 0, 0
+    # Manglende patienter oprettes fra arc.ifdb_patient, før referencerne løses —
+    # samme adfærd som aktivitetsresultat-kæden. Uden dette væltede én henvisning til
+    # en patient, der endnu ikke var postet, hele natkæden (subject er påkrævet).
     result = _post_service_requests_to_fhir(
         context=context,
         service_requests=service_requests,
         fhir_database=fhir_database,
         extracted_count=len(batch),
-        mssql=None,
-        resolve_missing_dependencies=False,
+        mssql=mssql,
+        resolve_missing_dependencies=True,
         reference_fallback_fn=reference_fallback_fn,
     )
     return _read_result_int(result, "posted_count"), _read_result_int(result, "failed_count")
@@ -1175,6 +1288,7 @@ def _process_henvisning_batch(
 def _process_ris_batch(
     context: dg.AssetExecutionContext,
     batch: list[dict[str, Any]],
+    mssql: MSSQLResource,
     fhir_database: FHIRDatabaseResource,
     reference_fallback_fn: Any | None,
 ) -> tuple[int, int]:
@@ -1195,8 +1309,8 @@ def _process_ris_batch(
         service_requests=service_requests,
         fhir_database=fhir_database,
         extracted_count=len(batch),
-        mssql=None,
-        resolve_missing_dependencies=False,
+        mssql=mssql,
+        resolve_missing_dependencies=True,
         referral_conditions=referral_conditions or None,
         reference_fallback_fn=reference_fallback_fn,
     )
@@ -1321,7 +1435,9 @@ def fhir_server_service_request_dfm(
             "arc.ifdb_ris_ydelse",
             run_ctx.checkpoint,
             config,
-            lambda batch: _process_ris_batch(context, batch, fhir_database, patient_cpr_fallback),
+            lambda batch: _process_ris_batch(
+                context, batch, mssql_target_staging, fhir_database, patient_cpr_fallback
+            ),
             label="ris_ydelse",
         )
 
@@ -1341,7 +1457,8 @@ def fhir_server_service_request_dfm(
             raise RuntimeError(
                 f"{total_failed} resources failed to post "
                 f"(henvisning={henvisning_failed}, ris={ris_failed}) — "
-                "checkpoint not advanced; rerun after fixing the cause"
+                "checkpoint not advanced; rerun after fixing the cause. ServiceRequests "
+                "uden gyldig patient står med kilde-id i WARNING-linjerne ovenfor."
             )
 
         new_checkpoint: str | None = None

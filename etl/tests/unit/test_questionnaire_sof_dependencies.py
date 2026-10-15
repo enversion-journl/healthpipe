@@ -39,10 +39,9 @@ def test_sof_infrastructure_waits_for_staging_fhir_tables() -> None:
 @pytest.mark.parametrize(
     "job_name",
     [
-        "fhir_sof_daily_job",
-        "fhir_sof_monthly_job",
-        "fhir_etl_ifdb_daily_job",
-        "fhir_etl_ifdb_monthly_job",
+        "ifdb_dfm_daily_job",
+        "ifdb_dfm_full_job",
+        "fhir_sof_dfm_job",
     ],
 )
 def test_operational_sof_jobs_select_view_definition_infrastructure(job_name: str) -> None:

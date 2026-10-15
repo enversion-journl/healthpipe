@@ -15,6 +15,7 @@ from DSO.load.refresh_sfi_datapoint import (
     all_sfi_datapoint_refresh_assets,
     dso_reconcile_sfi_datapoint_store,
     dso_refresh_sfi_datapoint_daily,
+    dso_sfi_datapoint_watermark_reset,
     dso_refresh_sfi_datapoint_monthly,
 )
 from DSO.load.sync_codesystem import (
@@ -31,6 +32,7 @@ from DSO.load.sync_conceptmap import (
     dso_sync_conceptmap_okosted_to_sor,
     dso_sync_conceptmap_rekvirent_to_sor,
     dso_sync_conceptmap_shak_to_sor,
+    dso_sync_conceptmap_shakalike_to_sor,
 )
 from DSO.load.sync_configs import (
     ALL_SYNC_CONFIGS,
@@ -64,6 +66,7 @@ from DSO.load.sync_dim import (
     dso_sync_dim_postering,
     dso_sync_dim_rekvirent,
     dso_sync_dim_shak,
+    dso_sync_dim_shakalike,
     dso_sync_dim_UNSPSC,
     dso_sync_dim_vareudlevering,
 )
@@ -191,6 +194,7 @@ __all__ = [
     "dso_sync_dim_UNSPSC",
     "dso_sync_dim_okosted",
     "dso_sync_dim_shak",
+    "dso_sync_dim_shakalike",
     # Fact sync assets
     "all_dso_sync_fct_assets",
     "dso_sync_dm_haiba_agg_infektion",
@@ -218,6 +222,7 @@ __all__ = [
     "dso_sync_conceptmap_ean_to_sor",
     "dso_sync_conceptmap_okosted_to_sor",
     "dso_sync_conceptmap_shak_to_sor",
+    "dso_sync_conceptmap_shakalike_to_sor",
     # Security sync assets (DPA model, [internal ticket])
     "all_dso_sync_sec_assets",
     "dso_sync_sec_rolledomaene",
@@ -235,6 +240,7 @@ __all__ = [
     "all_sfi_datapoint_refresh_assets",
     "dso_reconcile_sfi_datapoint_store",
     "dso_refresh_sfi_datapoint_daily",
+    "dso_sfi_datapoint_watermark_reset",
     "dso_refresh_sfi_datapoint_monthly",
     # Combined
     "all_dso_sync_assets",

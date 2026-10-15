@@ -664,3 +664,24 @@ BEGIN
         ON [map].[SHAK] ([clean_code_SHAK]);
 END
 GO
+
+-- map.SHAKAlike
+-- clean_code_SHAKAlike -> DW_EK resolution for EPJI SHAK-a-like codes
+IF NOT EXISTS (
+    SELECT * FROM sys.objects
+    WHERE object_id = OBJECT_ID(N'[map].[SHAKAlike]') AND type = 'U'
+)
+BEGIN
+    CREATE TABLE [map].[SHAKAlike] (
+        [dw_ek_SHAKAlike] [int] IDENTITY(1, 1) NOT NULL,
+        [clean_code_SHAKAlike] [varchar](100) UNIQUE NOT NULL,
+        [bk_code] [varchar](50) NOT NULL,
+        [dw_timestamp_insert] [datetime2](7) NOT NULL CONSTRAINT [DF_SHAKAlike_map_dw_timestamp_insert] DEFAULT GETDATE(),
+        [dw_timestamp_update] [datetime2](7) NOT NULL CONSTRAINT [DF_SHAKAlike_map_dw_timestamp_update] DEFAULT GETDATE(),
+        CONSTRAINT [PK_Map_SHAKAlike] PRIMARY KEY CLUSTERED ([dw_ek_SHAKAlike] ASC)
+    ) ON [PRIMARY];
+
+    CREATE INDEX IX_map_SHAKAlike_clean_code_SHAKAlike
+        ON [map].[SHAKAlike] ([clean_code_SHAKAlike]);
+END
+GO

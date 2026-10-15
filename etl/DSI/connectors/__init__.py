@@ -9,12 +9,13 @@
 Provides:
 - ExtractionConfig protocol
 - SqlExtractor base class + ExtractResult
-- Shared factory utilities
-- Connector packages: mssql/, oracle/
+- Connector packages: mssql/, oracle/, csv_files/
+
+The DFM extraction factory lives in ``DSI.connectors.factory``; import
+``create_dfm_extraction_assets`` from there directly.
 """
 
 from DSI.connectors.base import ExtractResult, SqlExtractor
-from DSI.connectors.factory import create_extraction_assets
 from DSI.connectors.protocol import ExtractionConfig
 from DSI.connectors.types import PartitionType, TableType
 
@@ -24,5 +25,4 @@ __all__ = [
     "PartitionType",
     "SqlExtractor",
     "TableType",
-    "create_extraction_assets",
 ]

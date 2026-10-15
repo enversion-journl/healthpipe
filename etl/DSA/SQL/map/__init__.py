@@ -38,6 +38,7 @@ from .map_Okosted import map_Okosted
 from .map_Postering import map_Postering
 from .map_Rekvirent import map_Rekvirent
 from .map_SHAK import map_SHAK
+from .map_SHAKAlike import map_SHAKAlike
 from .map_UNSPSC import map_UNSPSC
 from .map_Vareudlevering import map_Vareudlevering
 
@@ -71,6 +72,7 @@ all_assets = [
     map_AfdelingLagerbeholdning,
     map_Okosted,
     map_SHAK,
+    map_SHAKAlike,
     map_UNSPSC,
 ]
 
@@ -105,5 +107,6 @@ __all__ = [
     "map_AfdelingLagerbeholdning",
     "map_Okosted",
     "map_SHAK",
+    "map_SHAKAlike",
     "map_UNSPSC",
 ]

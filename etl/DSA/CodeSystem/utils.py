@@ -20,6 +20,7 @@ CODESYSTEM_PASCAL = {
     "sfi": "SFI",
     "ean": "EAN",
     "shak": "SHAK",
+    "shakalike": "SHAKAlike",
     "rekvirent": "Rekvirent",
     "lager": "Lager",
     "okosted": "Okosted",

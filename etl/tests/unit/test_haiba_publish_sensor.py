@@ -120,9 +120,7 @@ class _FakeContext:
     def __init__(self, instance, run_id="run-abc"):
         self.instance = instance
         self.log = dg.get_dagster_logger()
-        self.dagster_run = type(
-            "Run", (), {"run_id": run_id, "job_name": "fhir_ifdb_dfm_sof_dso_job"}
-        )()
+        self.dagster_run = type("Run", (), {"run_id": run_id, "job_name": "ifdb_dfm_daily_job"})()
 
 
 def _leverancer(dato="2026-08-15"):
@@ -316,26 +314,26 @@ def test_sensor_is_registered_and_requests_the_publish_job():
     assert haiba_publish_sensor.required_resource_keys == frozenset({"mssql_target_staging"})
 
 
-def test_sensor_waits_for_the_borger_chain_not_the_dfm_base_job():
+def test_sensor_waits_for_the_borger_chain():
     """It must trigger off the job that runs sof_patient_dfm ->
-    ref_patient_borger -> dim_Borger -> dso_sync_dim_borger. Hanging it on the
-    base job instead would publish before the citizen keys exist.
+    ref_patient_borger -> dim_Borger -> dso_sync_dim_borger. Hanging it on a job
+    that stops earlier would publish before the citizen keys exist.
 
     The monitored job is not exposed on the definition, so this pins the
-    description the factory builds from ``sof_dso_job.name``."""
+    description the factory builds from ``borger_chain_job.name``."""
     from definitions import haiba_publish_sensor
 
-    assert "fhir_ifdb_dfm_sof_dso_job SUCCESS" in haiba_publish_sensor.description
+    assert "ifdb_dfm_daily_job SUCCESS" in haiba_publish_sensor.description
 
 
-def test_ingest_is_scheduled_before_the_dfm_base_job():
+def test_ingest_is_scheduled_before_the_ifdb_pipeline():
     """05:00 vs 06:00 is the whole point of the time: stubs must be in Aidbox
     before the chain that projects them into ref.PatientToBorger runs."""
     from schedules import all_schedules
     from schedules.haiba_schedules import haiba_ingest_daily_schedule
-    from schedules.ifdb_dfm_schedules import ifdb_dfm_base_schedule
+    from schedules.ifdb_dfm_schedules import ifdb_dfm_daily_schedule
 
     assert haiba_ingest_daily_schedule in all_schedules
     ingest_hour = int(haiba_ingest_daily_schedule.cron_schedule.split()[1])
-    base_hour = int(ifdb_dfm_base_schedule.cron_schedule.split()[1])
-    assert ingest_hour < base_hour, (ingest_hour, base_hour)
+    pipeline_hour = int(ifdb_dfm_daily_schedule.cron_schedule.split()[1])
+    assert ingest_hour < pipeline_hour, (ingest_hour, pipeline_hour)

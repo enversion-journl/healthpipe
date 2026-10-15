@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+resourceType: ConceptMap
+id: "shakalike-to-sor"
+url: "https://example.org/fhir/ConceptMap/shakalike-to-sor"
+status: active
+name: "SHAKAlikeToSor"
+title: "SHAK-a-like to SOR"
+description: "Authoritative mapping from EPJI SHAK-a-like (location.external_id) to SOR (location_identifier.value where System like '%SorIdentifier')."
+sourceUri: "https://example.org/epji/shakalike"
+targetUri: "https://sundhedsdatastyrelsen.dk/sor"

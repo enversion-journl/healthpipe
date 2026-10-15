@@ -209,7 +209,7 @@ class ResolvedRefLookup:
           SFI-observation, XML-diagnose) — de sikrer kun, at gentagne forekomster
           af samme kildenøgle inden for chunken får samme uuid;
         - opslag flettet ind for *eksisterende* ressourcer via
-          ``merge_*_identifiers`` — næste chunk slår sine egne identifikatorer op
+          ``merge_identifiers`` — næste chunk slår sine egne identifikatorer op
           i databasen først, så de gamle behøves ikke.
 
         Kildenøglen (OBJEKT_ID, evt. med elementnummer) er arkivets flettenøgle og
@@ -239,76 +239,35 @@ class ResolvedRefLookup:
         self._chunk_merged_keys.clear()
         return released
 
-    def merge_observation_identifiers(
+    def merge_identifiers(
         self,
+        resource_type: str,
         identifier_system: str,
         values_to_ids: dict[str, str],
     ) -> int:
-        """Merge resolved Observation identifiers into the shared partition cache.
+        """Flet opløste identifiers for ``resource_type`` ind i partitionens opslag.
 
-        Returns how many new entries were added.
+        Én metode for alle familier (Observation, Condition, Procedure, …), så
+        fletningen ikke kan drifte mellem dem. Kun rene dict-opslag kan flettes;
+        de delte caches er skrivebeskyttede her og giver 0. Nøgler, opslaget
+        allerede kender, røres ikke. De tilføjede nøgler huskes, så
+        ``release_chunk_scoped_ids`` kan frigive dem igen efter chunken.
+        Returnerer antal nye poster.
         """
         if not values_to_ids:
             return 0
 
-        if not isinstance(self._observation, dict):
+        lookup = self.lookups_by_resource_type()[resource_type]
+        if not isinstance(lookup, dict):
             return 0
 
         added = 0
         for source_value, fhir_id in values_to_ids.items():
             key = (identifier_system, str(source_value))
-            if key not in self._observation:
-                self._observation[key] = fhir_id
-                self._chunk_merged_keys.append((self._observation, key))
-                added = added + 1
-        return added
-
-    def merge_condition_identifiers(
-        self,
-        identifier_system: str,
-        values_to_ids: dict[str, str],
-    ) -> int:
-        """Merge resolved Condition identifiers into the shared partition cache.
-
-        Returns how many new entries were added.
-        """
-        if not values_to_ids:
-            return 0
-
-        if not isinstance(self._condition, dict):
-            return 0
-
-        added = 0
-        for source_value, fhir_id in values_to_ids.items():
-            key = (identifier_system, str(source_value))
-            if key not in self._condition:
-                self._condition[key] = fhir_id
-                self._chunk_merged_keys.append((self._condition, key))
-                added = added + 1
-        return added
-
-    def merge_procedure_identifiers(
-        self,
-        identifier_system: str,
-        values_to_ids: dict[str, str],
-    ) -> int:
-        """Merge resolved Procedure identifiers into the shared partition cache.
-
-        Returns how many new entries were added.
-        """
-        if not values_to_ids:
-            return 0
-
-        if not isinstance(self._procedure, dict):
-            return 0
-
-        added = 0
-        for source_value, fhir_id in values_to_ids.items():
-            key = (identifier_system, str(source_value))
-            if key not in self._procedure:
-                self._procedure[key] = fhir_id
-                self._chunk_merged_keys.append((self._procedure, key))
-                added = added + 1
+            if key not in lookup:
+                lookup[key] = fhir_id
+                self._chunk_merged_keys.append((lookup, key))
+                added += 1
         return added
 
     def procedure_id(self, objekt_id: Any) -> str:

@@ -45,6 +45,7 @@ from contextlib import contextmanager
 from typing import NamedTuple
 
 import dagster as dg
+from core.dfm_delivery import DELIVERY_SCHEMA, MAX_IDENTITY_LENGTH
 from core.resources import MSSQLResource
 from DSA.FHIR.utils.gdpr_masking import mask_cpr_numbers
 
@@ -313,6 +314,52 @@ class DfmManager:
                 conn.commit()
             finally:
                 cursor.close()
+
+    def get_delivery_checkpoint(
+        self,
+        unit: str,
+        *,
+        scope: str = "staging",
+    ) -> str | None:
+        """Which delivery this file-source unit last ingested, or None.
+
+        ``unit`` is built by :mod:`core.dfm_delivery` (``drg_delivery_unit`` /
+        ``haiba_delivery_unit``). Like :meth:`get_checkpoint` this is a
+        read-only peek — it creates no DFMRunLog entry and no DFMState row, so
+        a unit that has never run reads as None ("everything is new") without
+        leaving a trace behind.
+        """
+        return self.get_checkpoint(DELIVERY_SCHEMA, unit, scope=scope)
+
+    def set_delivery_checkpoint(
+        self,
+        unit: str,
+        identity: str,
+        *,
+        mode: str = "delta",
+        scope: str = "staging",
+    ) -> None:
+        """Record that ``unit`` has ingested the delivery named by ``identity``.
+
+        Call only once the delivery is actually reflected in the archive — the
+        checkpoint is what stops the next run from re-reading the file.
+
+        An empty identity is refused rather than forwarded: :meth:`set_checkpoint`
+        substitutes SYSDATETIME() for a None value, which would stamp "now" as
+        the delivery identity and make every later comparison meaningless.
+        """
+        if not isinstance(identity, str) or not identity:
+            raise ValueError(
+                f"delivery checkpoint for {unit!r} needs a non-empty identity "
+                f"string, got {identity!r}. A missing identity must fail here — "
+                f"set_checkpoint() would otherwise stamp SYSDATETIME()."
+            )
+        if len(identity) > MAX_IDENTITY_LENGTH:
+            raise ValueError(
+                f"delivery identity {identity!r} is {len(identity)} chars — "
+                f"meta.DFMState.checkpoint_value holds {MAX_IDENTITY_LENGTH}"
+            )
+        self.set_checkpoint(DELIVERY_SCHEMA, unit, value=identity, mode=mode, scope=scope)
 
     def complete_dfm_run(
         self,

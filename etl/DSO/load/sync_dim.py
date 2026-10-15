@@ -549,6 +549,28 @@ def dso_sync_dim_shak(
     )
 
 
+@dg.asset(
+    name="dso_sync_dim_shakalike",
+    group_name="shared_dimensions_dso_sync",
+    compute_kind="mssql",
+    deps=["dim_SHAKAlike", "dso_infra_erp"],
+    tags={"domain": "shared_dimensions", "layer": "dso_sync", "type": "dimension"},
+    description="Sync dim.SHAKAlike from staging to DSO database",
+)
+def dso_sync_dim_shakalike(
+    context: dg.AssetExecutionContext,
+    mssql_target_dso: MSSQLResource,
+    mssql_source_staging: MSSQLResource,
+) -> dg.MaterializeResult:
+    return _materialize_sync_result(
+        context,
+        mssql_target_dso,
+        mssql_source_staging,
+        "dim_SHAKAlike",
+        SHARED_DIMS_DIM_CONFIGS,
+    )
+
+
 all_dso_sync_dim_assets = [
     dso_sync_dim_aftale,
     dso_sync_bridge_leverandoervareilsvare,
@@ -574,4 +596,5 @@ all_dso_sync_dim_assets = [
     dso_sync_dim_organisation,
     dso_sync_dim_okosted,
     dso_sync_dim_shak,
+    dso_sync_dim_shakalike,
 ]

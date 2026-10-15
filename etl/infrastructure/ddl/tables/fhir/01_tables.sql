@@ -401,21 +401,23 @@ BEGIN
         [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Condition_dw_timestamp_insert] DEFAULT SYSDATETIME(),
         [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Condition_dw_timestamp_update] DEFAULT SYSDATETIME(),
         CONSTRAINT [PK_FHIR_Condition] PRIMARY KEY CLUSTERED ([condition_id])
-    ) ON [PRIMARY];
+    ) ON [PRIMARY] WITH (DATA_COMPRESSION = PAGE);
 
+    -- PAGE-komprimering på tabel og indeks: indlæsningerne er disk-bundne, og de brede
+    -- Unicode-kolonner komprimerer godt. Hvis CPU bliver flaskehalsen i stedet: ROW.
     CREATE NONCLUSTERED INDEX [IX_FHIR_Condition_PatientId]
-        ON [fhir].[Condition] ([patient_id] ASC) ON [PRIMARY];
+        ON [fhir].[Condition] ([patient_id] ASC) WITH (DATA_COMPRESSION = PAGE) ON [PRIMARY];
 
     CREATE NONCLUSTERED INDEX [IX_FHIR_Condition_EncounterId]
-        ON [fhir].[Condition] ([encounter_id] ASC) ON [PRIMARY];
+        ON [fhir].[Condition] ([encounter_id] ASC) WITH (DATA_COMPRESSION = PAGE) ON [PRIMARY];
 
     CREATE NONCLUSTERED INDEX [IX_FHIR_Condition_LastUpdated]
-        ON [fhir].[Condition] ([last_updated] ASC) ON [PRIMARY];
+        ON [fhir].[Condition] ([last_updated] ASC) WITH (DATA_COMPRESSION = PAGE) ON [PRIMARY];
 
     -- Kept in sync with migrations/05_condition_add_source_identifier_value.sql
     CREATE NONCLUSTERED INDEX [IX_FHIR_Condition_SourceIdentifierValue]
         ON [fhir].[Condition] ([source_system] ASC, [source_identifier_value] ASC)
-        ON [PRIMARY];
+        WITH (DATA_COMPRESSION = PAGE) ON [PRIMARY];
 END
 GO
 
@@ -525,25 +527,29 @@ CREATE TABLE [fhir].[Observation] (
     -- (kept in sync with migrations/08_delta_discovery_effective_timestamp.sql)
     [dw_timestamp_effective] AS ISNULL([dw_timestamp_update], [dw_timestamp_insert]) PERSISTED,
     CONSTRAINT [PK_FHIR_Observation] PRIMARY KEY CLUSTERED ([observation_id])
-) ON [PRIMARY];
+) ON [PRIMARY] WITH (DATA_COMPRESSION = PAGE);
 
 CREATE NONCLUSTERED
-INDEX [IX_FHIR_Observation_PatientId] ON [fhir].[Observation] ([patient_id] ASC) ON [PRIMARY];
+INDEX [IX_FHIR_Observation_PatientId] ON [fhir].[Observation] ([patient_id] ASC)
+    WITH (DATA_COMPRESSION = PAGE) ON [PRIMARY];
 
 CREATE NONCLUSTERED
-INDEX [IX_FHIR_Observation_LastUpdated] ON [fhir].[Observation] ([last_updated] ASC) ON [PRIMARY];
+INDEX [IX_FHIR_Observation_LastUpdated] ON [fhir].[Observation] ([last_updated] ASC)
+    WITH (DATA_COMPRESSION = PAGE) ON [PRIMARY];
 
 CREATE NONCLUSTERED
 INDEX [IX_FHIR_Observation_Sfi]
-    ON [fhir].[Observation] ([element_system] ASC, [element_code] ASC, [patient_id] ASC, [effective_date] ASC) ON [PRIMARY];
+    ON [fhir].[Observation] ([element_system] ASC, [element_code] ASC, [patient_id] ASC, [effective_date] ASC)
+    WITH (DATA_COMPRESSION = PAGE) ON [PRIMARY];
 
 CREATE NONCLUSTERED
-INDEX [IX_FHIR_Observation_IfdbAktivitet] ON [fhir].[Observation] ([ifdb_aktivitet_id] ASC) ON [PRIMARY];
+INDEX [IX_FHIR_Observation_IfdbAktivitet] ON [fhir].[Observation] ([ifdb_aktivitet_id] ASC)
+    WITH (DATA_COMPRESSION = PAGE) ON [PRIMARY];
 
 CREATE NONCLUSTERED
 INDEX [IX_FHIR_Observation_SystemDWEffective]
     ON [fhir].[Observation] ([element_system] ASC, [dw_timestamp_effective] ASC)
-    INCLUDE ([observation_id]) ON [PRIMARY];
+    INCLUDE ([observation_id]) WITH (DATA_COMPRESSION = PAGE) ON [PRIMARY];
 
 END
 GO
@@ -651,7 +657,8 @@ BEGIN
     )
     AND EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'[fhir].[Observation]') AND name = N'element_system')
         CREATE NONCLUSTERED INDEX [IX_FHIR_Observation_Sfi]
-            ON [fhir].[Observation] ([element_system] ASC, [element_code] ASC, [patient_id] ASC, [effective_date] ASC) ON [PRIMARY];
+            ON [fhir].[Observation] ([element_system] ASC, [element_code] ASC, [patient_id] ASC, [effective_date] ASC)
+            WITH (DATA_COMPRESSION = PAGE) ON [PRIMARY];
 
     IF NOT EXISTS (
         SELECT 1 FROM sys.indexes
@@ -659,7 +666,7 @@ BEGIN
     )
     AND EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'[fhir].[Observation]') AND name = N'ifdb_aktivitet_id')
         CREATE NONCLUSTERED INDEX [IX_FHIR_Observation_IfdbAktivitet]
-            ON [fhir].[Observation] ([ifdb_aktivitet_id] ASC) ON [PRIMARY];
+            ON [fhir].[Observation] ([ifdb_aktivitet_id] ASC) WITH (DATA_COMPRESSION = PAGE) ON [PRIMARY];
 END
 GO
 
@@ -870,13 +877,11 @@ BEGIN
         [last_updated] DATETIME2 NULL,
         [created_at] DATETIME2 NULL,
         -- Soft-delete flag (0 = live, 1 = deleted). Warehouse-managed: set to 1
-        -- only by dqa_fhir_server_cleanup when the parent is hard-deleted in
-        -- Aidbox; cleared to 0 on MERGE match (resurrect_soft_deleted).
-        -- NOT NULL DEFAULT 0.
-        -- NOTE the limit: this is a child-grain table, so `= 0` means "not
-        -- marked by cleanup" -- NOT "still exists under the parent". A row
-        -- that disappears from a still-live parent stays at 0. Child-grain
-        -- reconcile (see Patient_Address) is not enabled here.
+        -- by dqa_fhir_server_cleanup when the parent is hard-deleted in Aidbox,
+        -- and by the child-grain reconcile when a marker disappears from a
+        -- still-live CarePlan; cleared to 0 on MERGE match
+        -- (resurrect_soft_deleted). NOT NULL DEFAULT 0, so `= 0` means "still
+        -- present under the parent".
         [dw_is_deleted] INT NOT NULL CONSTRAINT [DF_CarePlan_Activity_dw_is_deleted] DEFAULT 0,
         [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_CarePlan_Activity_dw_timestamp_insert] DEFAULT SYSDATETIME(),
         [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_CarePlan_Activity_dw_timestamp_update] DEFAULT SYSDATETIME(),
@@ -1114,22 +1119,22 @@ CREATE TABLE [fhir].[Procedure] (
     [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Procedure_dw_timestamp_insert] DEFAULT SYSDATETIME(),
     [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Procedure_dw_timestamp_update] DEFAULT SYSDATETIME(),
     CONSTRAINT [PK_FHIR_Procedure] PRIMARY KEY CLUSTERED ([procedure_id])
-) ON [PRIMARY];
+) ON [PRIMARY] WITH (DATA_COMPRESSION = PAGE);
 
 CREATE NONCLUSTERED INDEX [IX_FHIR_Procedure_PatientId]
-        ON [fhir].[Procedure] ([patient_id] ASC) ON [PRIMARY];
+        ON [fhir].[Procedure] ([patient_id] ASC) WITH (DATA_COMPRESSION = PAGE) ON [PRIMARY];
 
 CREATE NONCLUSTERED INDEX [IX_FHIR_Procedure_EncounterId]
-        ON [fhir].[Procedure] ([encounter_id] ASC) ON [PRIMARY];
+        ON [fhir].[Procedure] ([encounter_id] ASC) WITH (DATA_COMPRESSION = PAGE) ON [PRIMARY];
 
 CREATE NONCLUSTERED INDEX [IX_FHIR_Procedure_code]
-        ON [fhir].[Procedure] ([code] ASC) ON [PRIMARY];
+        ON [fhir].[Procedure] ([code] ASC) WITH (DATA_COMPRESSION = PAGE) ON [PRIMARY];
 
 CREATE NONCLUSTERED INDEX [IX_FHIR_Procedure_LastUpdated]
-        ON [fhir].[Procedure] ([last_updated] ASC) ON [PRIMARY];
+        ON [fhir].[Procedure] ([last_updated] ASC) WITH (DATA_COMPRESSION = PAGE) ON [PRIMARY];
 
 CREATE NONCLUSTERED INDEX [IX_FHIR_Procedure_IfdbAktivitet]
-        ON [fhir].[Procedure] ([ifdb_aktivitet_id] ASC) ON [PRIMARY];
+        ON [fhir].[Procedure] ([ifdb_aktivitet_id] ASC) WITH (DATA_COMPRESSION = PAGE) ON [PRIMARY];
 
 END
 
@@ -1201,7 +1206,7 @@ IF NOT EXISTS (
         AND name = N'IX_FHIR_Procedure_IfdbAktivitet'
 )
 CREATE NONCLUSTERED INDEX [IX_FHIR_Procedure_IfdbAktivitet]
-    ON [fhir].[Procedure] ([ifdb_aktivitet_id] ASC) ON [PRIMARY];
+    ON [fhir].[Procedure] ([ifdb_aktivitet_id] ASC) WITH (DATA_COMPRESSION = PAGE) ON [PRIMARY];
 
 IF NOT EXISTS (
     SELECT 1
@@ -1386,19 +1391,25 @@ CREATE TABLE [fhir].[QuestionnaireResponse] (
     -- (kept in sync with migrations/08_delta_discovery_effective_timestamp.sql)
     [dw_timestamp_effective] AS ISNULL([dw_timestamp_update], [dw_timestamp_insert]) PERSISTED,
     CONSTRAINT [PK_FHIR_QuestionnaireResponse] PRIMARY KEY CLUSTERED ([qr_id])
-) ON [PRIMARY];
+) ON [PRIMARY] WITH (DATA_COMPRESSION = PAGE);
 
+-- Fem sekundære indeks vedligeholdes pr. indsat række; under backfill-vinduer slås de
+-- fra og genopbygges (sof_utils.resolve_sof_backfill_plan). Hvis LastUpdated aldrig
+-- læses (sys.dm_db_index_usage_stats), kan det droppes.
 CREATE NONCLUSTERED
 INDEX [IX_FHIR_QR_PatientAuthored]
-    ON [fhir].[QuestionnaireResponse] ([patient_id] ASC, [authored] ASC) ON [PRIMARY];
+    ON [fhir].[QuestionnaireResponse] ([patient_id] ASC, [authored] ASC)
+    WITH (DATA_COMPRESSION = PAGE) ON [PRIMARY];
 
 CREATE NONCLUSTERED
 INDEX [IX_FHIR_QR_SourceAktivitet]
-    ON [fhir].[QuestionnaireResponse] ([source_aktivitet_id] ASC) ON [PRIMARY];
+    ON [fhir].[QuestionnaireResponse] ([source_aktivitet_id] ASC)
+    WITH (DATA_COMPRESSION = PAGE) ON [PRIMARY];
 
 CREATE NONCLUSTERED
 INDEX [IX_FHIR_QR_LastUpdated]
-    ON [fhir].[QuestionnaireResponse] ([last_updated] ASC) ON [PRIMARY];
+    ON [fhir].[QuestionnaireResponse] ([last_updated] ASC)
+    WITH (DATA_COMPRESSION = PAGE) ON [PRIMARY];
 
 CREATE NONCLUSTERED
 INDEX [IX_FHIR_QR_CanonicalVersion]
@@ -1406,12 +1417,13 @@ INDEX [IX_FHIR_QR_CanonicalVersion]
         [questionnaire_canonical] ASC,
         [questionnaire_version] ASC
     )
-    INCLUDE ([patient_id], [authored], [source_model_name]) ON [PRIMARY];
+    INCLUDE ([patient_id], [authored], [source_model_name])
+    WITH (DATA_COMPRESSION = PAGE) ON [PRIMARY];
 
 CREATE NONCLUSTERED
 INDEX [IX_FHIR_QR_DWEffective]
     ON [fhir].[QuestionnaireResponse] ([dw_timestamp_effective] ASC)
-    INCLUDE ([qr_id]) ON [PRIMARY];
+    INCLUDE ([qr_id]) WITH (DATA_COMPRESSION = PAGE) ON [PRIMARY];
 
 END
 GO
@@ -1471,7 +1483,8 @@ IF EXISTS (
                 [questionnaire_canonical] ASC,
                 [questionnaire_version] ASC
             )
-            INCLUDE ([patient_id], [authored], [source_model_name]) ON [PRIMARY];
+            INCLUDE ([patient_id], [authored], [source_model_name])
+            WITH (DATA_COMPRESSION = PAGE) ON [PRIMARY];
 END
 GO
 
@@ -1543,24 +1556,25 @@ CREATE TABLE [fhir].[QuestionnaireResponse_item] (
     [dw_timestamp_effective] AS ISNULL([dw_timestamp_update], [dw_timestamp_insert]) PERSISTED,
     CONSTRAINT [PK_FHIR_QuestionnaireResponse_item]
         PRIMARY KEY CLUSTERED ([qr_id], [link_id], [item_key], [answer_index])
-) ON [PRIMARY];
+) ON [PRIMARY] WITH (DATA_COMPRESSION = PAGE);
 
-CREATE NONCLUSTERED
-INDEX [IX_FHIR_QRItem_QrId]
-    ON [fhir].[QuestionnaireResponse_item] ([qr_id] ASC) ON [PRIMARY];
-
+-- Intet indeks på qr_id alene: det er PK'ens første kolonne, og opslag pr. forælder
+-- seeker på PK-præfikset. Et sådant indeks kostede en tilfældig skrivning pr. række
+-- uden at give noget.
 CREATE NONCLUSTERED
 INDEX [IX_FHIR_QRItem_LinkId]
-    ON [fhir].[QuestionnaireResponse_item] ([link_id] ASC) ON [PRIMARY];
+    ON [fhir].[QuestionnaireResponse_item] ([link_id] ASC)
+    WITH (DATA_COMPRESSION = PAGE) ON [PRIMARY];
 
 CREATE NONCLUSTERED
 INDEX [IX_FHIR_QRItem_LastUpdated]
-    ON [fhir].[QuestionnaireResponse_item] ([last_updated] ASC) ON [PRIMARY];
+    ON [fhir].[QuestionnaireResponse_item] ([last_updated] ASC)
+    WITH (DATA_COMPRESSION = PAGE) ON [PRIMARY];
 
 CREATE NONCLUSTERED
 INDEX [IX_FHIR_QRI_DWEffective]
     ON [fhir].[QuestionnaireResponse_item] ([dw_timestamp_effective] ASC)
-    INCLUDE ([qr_id]) ON [PRIMARY];
+    INCLUDE ([qr_id]) WITH (DATA_COMPRESSION = PAGE) ON [PRIMARY];
 
 END
 GO

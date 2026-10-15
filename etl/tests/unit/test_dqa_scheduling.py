@@ -67,11 +67,20 @@ def test_specs_reference_real_dqa_jobs_and_no_legacy_etl():
     assert "fhir_sof_daily_job" not in monitored_all
 
 
-def test_fhir_spec_and_joins_both_downstream_jobs_incl_dso_fhir():
+def test_fhir_spec_monitors_the_unified_pipeline_job_incl_dso_fhir():
     fhir = next(s for s in DQA_AFTER_ETL_SENSOR_SPECS if s["name"] == "dqa_fhir_after_etl")
-    assert set(fhir["monitored"]) == {"fhir_ifdb_dfm_sof_dso_job", "fhir_etl_ifdb_daily_job"}
+    # One job produces the flat fhir.* tables and their DSO copies, so there is
+    # nothing left to AND-join on.
+    assert set(fhir["monitored"]) == {"ifdb_dfm_daily_job"}
     assert fhir["daily_job"] == "dqa_fhir_daily_job"
     assert set(fhir["weekly_jobs"]) == {"dqa_fhir_weekly_job", "dqa_dso_fhir_job"}
+
+
+def test_arc_spec_monitors_the_unified_pipeline_job():
+    arc = next(s for s in DQA_AFTER_ETL_SENSOR_SPECS if s["name"] == "dqa_arc_ifdb_after_archive")
+    assert arc["monitored"] == ["ifdb_dfm_daily_job"]
+    assert arc["daily_job"] is None
+    assert arc["weekly_jobs"] == ["dqa_arc_ifdb_weekly_job"]
 
 
 def test_erp_spec_uses_dfm_job():
@@ -94,9 +103,11 @@ def test_drg_spec_runs_dwh_dqa_after_publish_and_starts_stopped():
 
 # --- _evaluate: AND-join + daily/weekly gating -----------------------------------
 
+# The deployed FHIR spec monitors one job today, but the AND-join must keep
+# working for any spec that lists several — so exercise it with a pair.
 _FHIR_ARGS = dict(
     name="dqa_fhir_after_etl",
-    monitored_names=["fhir_ifdb_dfm_sof_dso_job", "fhir_etl_ifdb_daily_job"],
+    monitored_names=["ifdb_dfm_daily_job", "erp_daily_dfm_job"],
     daily_name="dqa_fhir_daily_job",
     weekly_names=["dqa_fhir_weekly_job", "dqa_dso_fhir_job"],
 )
@@ -104,13 +115,13 @@ _FHIR_ARGS = dict(
 
 def test_evaluate_skips_until_both_monitored_jobs_succeed():
     # Only one of the two downstream jobs has succeeded today -> wait.
-    ctx = _ctx(_SAT, {"fhir_ifdb_dfm_sof_dso_job"})
+    ctx = _ctx(_SAT, {"ifdb_dfm_daily_job"})
     result = _evaluate(ctx, **_FHIR_ARGS)
     assert isinstance(result, dg.SkipReason)
 
 
 def test_evaluate_saturday_requests_daily_and_weekly():
-    ctx = _ctx(_SAT, {"fhir_ifdb_dfm_sof_dso_job", "fhir_etl_ifdb_daily_job"})
+    ctx = _ctx(_SAT, {"ifdb_dfm_daily_job", "erp_daily_dfm_job"})
     result = _evaluate(ctx, **_FHIR_ARGS)
     assert isinstance(result, list)
     jobs = {r.job_name for r in result}
@@ -120,7 +131,7 @@ def test_evaluate_saturday_requests_daily_and_weekly():
 
 
 def test_evaluate_weekday_requests_daily_only():
-    ctx = _ctx(_TUE, {"fhir_ifdb_dfm_sof_dso_job", "fhir_etl_ifdb_daily_job"})
+    ctx = _ctx(_TUE, {"ifdb_dfm_daily_job", "erp_daily_dfm_job"})
     result = _evaluate(ctx, **_FHIR_ARGS)
     assert isinstance(result, list)
     assert {r.job_name for r in result} == {"dqa_fhir_daily_job"}
@@ -130,14 +141,14 @@ def test_evaluate_arc_style_weekly_only_skips_on_weekday():
     # daily_name=None (arc has no daily); Saturday -> request weekly, weekday -> skip.
     arc = dict(
         name="dqa_arc_ifdb_after_archive",
-        monitored_names=["fhir_ifdb_dfm_base_job"],
+        monitored_names=["ifdb_dfm_daily_job"],
         daily_name=None,
         weekly_names=["dqa_arc_ifdb_weekly_job"],
     )
-    sat = _evaluate(_ctx(_SAT, {"fhir_ifdb_dfm_base_job"}), **arc)
+    sat = _evaluate(_ctx(_SAT, {"ifdb_dfm_daily_job"}), **arc)
     assert isinstance(sat, list) and {r.job_name for r in sat} == {"dqa_arc_ifdb_weekly_job"}
 
-    tue = _evaluate(_ctx(_TUE, {"fhir_ifdb_dfm_base_job"}), **arc)
+    tue = _evaluate(_ctx(_TUE, {"ifdb_dfm_daily_job"}), **arc)
     assert isinstance(tue, dg.SkipReason)
 
 

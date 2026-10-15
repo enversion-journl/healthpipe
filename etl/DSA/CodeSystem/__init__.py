@@ -22,6 +22,7 @@ from .okosted.okosted import cs_okosted
 from .rekvirent.rekvirent import cs_rekvirent
 from .sfi.sfi import cs_sfi
 from .shak.shak import cs_shak
+from .shakalike.shakalike import cs_shakalike
 from .sks.sks import cs_sks
 from .sor.sor import cs_sor
 
@@ -34,6 +35,7 @@ codesystem_dsa_assets = [
     cs_sfi,
     cs_sks,
     cs_shak,
+    cs_shakalike,
 ]
 
 all_assets = [*codesystem_dsa_assets]
@@ -49,4 +51,5 @@ __all__ = [
     "cs_sfi",
     "cs_sks",
     "cs_shak",
+    "cs_shakalike",
 ]

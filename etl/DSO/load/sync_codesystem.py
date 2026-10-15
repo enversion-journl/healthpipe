@@ -131,6 +131,7 @@ _CODESYSTEM_SYNC_SPECS: list[tuple[str, str]] = [
     ("okosted", "cs_okosted"),
     ("rekvirent", "cs_rekvirent"),
     ("shak", "cs_shak"),
+    ("shakalike", "cs_shakalike"),
 ]
 _KINDS = ["concept", "properties", "hierarchy"]
 

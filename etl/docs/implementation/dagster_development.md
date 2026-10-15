@@ -8,42 +8,31 @@
 
 # Dagster Development Guide
 
-The local development loop: getting Dagster running, making a change, verifying it,
-and finding out why it does not work.
+The development loop: making a change, getting it running on the Dev environment,
+verifying it, and finding out why it does not work.
 
+For *how to get set up at all* — VS Code server, cloning, feature branches, the Dev
+code location, dbcode — read [Getting started](../../../docs/onboarding.md) first.
 For *where things live* and *what the words mean*, read the
-[Repository Tour](repo_tour.md) first.
+[Repository Tour](repo_tour.md).
 
-## Prerequisites
+## Where the code runs
 
-Development runs inside the devcontainer — see the
-[devcontainer guide](../../../.devcontainer/README.md) for the full setup (Docker,
-VS Code/Cursor, and the Compose stack: Dagster + MSSQL + Oracle + PostgreSQL +
-Aidbox/FHIR). In short:
+Assets run in the Dagster UI on the **Dev environment**, in the code location that
+belongs to your feature branch. Pushing the branch is what deploys it: the first
+push builds the branch's image, and every push after that is picked up by the
+running code server within seconds. Nothing runs on your own machine.
 
-- **Environment** — copy `.env.template` to `.env` in the repo root before first
-  start. The devcontainer guide explains the two `.env` files and every setting.
-- **Pre-commit hooks** — installed automatically on container create
-  (`.devcontainer/startup_scripts/setup-precommit.sh`): gitleaks (secret/PII scan of
-  the staged diff) plus black, ruff and bandit. CI runs the same checks. Never commit
-  with `--no-verify`.
-
-## Quick start
-
-```bash
-cd etl
-dagster dev
-```
-
-The UI is at http://localhost:3000.
+Asset, job and schedule names in a feature-branch code location carry the branch
+name as a postfix — see [feature_branch_deployments.md](feature_branch_deployments.md).
 
 ## The development loop
 
 ### 1. Decide where the change goes
 
-See [Where a change goes](repo_tour.md#where-a-change-goes) in the Repository Tour, then follow the
-guide for that layer — [DSI](dsi_etl_guide.md), [FHIR](fhir_etl_guide.md) or
-[SQL/DWH](sql_etl_guide.md).
+See [Where a change goes](repo_tour.md#where-a-change-goes) in the Repository Tour,
+then follow the guide for that layer — [DSI](dsi_etl_guide.md),
+[FHIR](fhir_etl_guide.md) or [SQL/DWH](sql_etl_guide.md).
 
 ### 2. Write the asset
 
@@ -54,38 +43,54 @@ new work is a config entry consumed by an existing factory, not a hand-written a
 
 Assets reach `definitions.py` through module `__init__.py` exports. An asset that is
 not in one of those lists does not exist as far as Dagster is concerned — this is the
-single most common reason a new asset "does not show up". See
+most common reason a new asset "does not show up". See
 [How assets reach definitions](repo_tour.md#how-assets-reach-definitions) in the
 Repository Tour.
 
-### 4. Validate
+### 4. Push, and check that the code location loaded
 
-```bash
-dagster definitions validate
-```
+The pipeline's `static-checks` job runs `dagster definitions validate` (along with
+mypy and the lineage check), but that job is **report-only**: it does not fail the
+pipeline. A broken definition therefore shows up as a code location that fails to
+load in the Dagster UI, not as a red pipeline.
 
-This catches import errors, duplicate asset keys and unresolved dependencies without
-starting the UI. Run it before every commit that adds or renames an asset.
+So when your assets are missing or the code location is in error after a push:
+
+1. Read the code location's error in the Dagster UI — it names the failing import.
+2. Read the `static-checks` job log in the pipeline for the same information.
+3. Check that the asset is exported from its module's `__init__.py` **and** included
+   in the aggregate list that `definitions.py` imports.
 
 ### 5. Materialize
 
-From the UI: **Assets** → find the asset → **Materialize**. Or from the CLI:
+In the Dagster UI: **Assets** → find the asset in your code location →
+**Materialize**. Use the asset graph to select an asset together with its upstream
+dependencies.
 
-```bash
-dagster asset materialize --select my_asset_name
-dagster asset materialize --select +my_asset_name        # with upstream dependencies
-```
+Assets that use DFM run modes (`delta`, `full_load`, `period`, `ids`) are launched
+from the **Launchpad** with a `RunModeConfig` — see
+[dfm_operations_guide.md](dfm_operations_guide.md) for the exact YAML per mode.
 
 ### 6. Verify the data
 
 Materializing without errors is not the same as being correct. Check row counts,
 grain and — for anything checkpoint-based — that a second run is a no-op. The layer
-guides list what to verify for each kind of asset.
+guides list what to verify for each kind of asset. Query the databases from VS Code
+with the dbcode extension.
+
+Remember that a feature-branch deployment shares the databases, the FHIR server and
+the DFM checkpoints with everything else on Dev — see
+[What it does not isolate](feature_branch_deployments.md#what-it-does-not-isolate).
 
 ### 7. Test
 
-See [Testing](#testing) below.
-Config-entry, DDL-only and registration changes do not warrant unit tests.
+Unit tests run in the pipeline (`pytest tests/unit/` with coverage) on every push.
+Read the test-value policy and the suite layout in the
+[Testing Guide](../../tests/README.md) before writing a test: config-entry, DDL-only
+and registration changes do not warrant unit tests.
+
+There is a hard safety gate on tests that talk to real resources: they abort if
+`TEST_ENV` or `DAGSTER_ENVIRONMENT` contains `prod`.
 
 ## Common commands
 
@@ -106,11 +111,11 @@ dagster asset materialize --select my_asset_name
 dagster asset materialize --select +my_asset_name
 
 # Run a job
-dagster job execute -j fhir_etl_ifdb_daily_job
-
-# Run a job for a specific partition
-dagster job execute -j fhir_etl_ifdb_daily_job --partition 2024-12-01
+dagster job execute -j ifdb_dfm_daily_job
 ```
+
+No job in this deployment is partitioned — re-running a window is a
+`RunModeConfig` (`mode: period` / `full_load` / `ids`), not `--partition`.
 
 Assets that use DFM run modes (`delta`, `full_load`, `period`, `ids`) are launched
 with a `RunModeConfig` from the UI Launchpad — see
@@ -125,47 +130,23 @@ with a `RunModeConfig` from the UI Launchpad — see
 | **Runs** | Logs, errors, retries |
 | **Launchpad** | Manual runs with config — this is where `RunModeConfig` overrides go |
 | **Checks** | DQA asset-check results with severities |
-
-## Testing
-
-Full documentation in the [Testing Guide](../../tests/README.md): unit tests with
-mocks, integration tests with real resources, patient-specific workflows, markers and
-configuration.
-
-```bash
-pytest tests/unit/ -v                            # unit tests
-pytest tests/integration/ -v                     # integration tests
-pytest tests/integration/datawarehouse/ -v       # one domain
-pytest tests/integration/fhir_ifdb/ -v
-```
-
-Integration tests against real resources require `USE_REAL_DB_FOR_TESTS=true` and
-`TEST_ENV=dev`. There is a hard safety gate: tests abort if `TEST_ENV` or
-`DAGSTER_ENVIRONMENT` contains `prod`.
+| **Deployment → Code locations** | Whether your branch's code location loaded, and its error if not |
 
 ## Troubleshooting
 
 ### Assets not loading
 
-1. Run `dagster definitions validate` — it names the failing import.
-2. Check that the asset is exported from its module's `__init__.py` **and** included
-   in the aggregate list that `definitions.py` imports.
-3. Look for Python errors in the Dagster logs.
+See [step 4](#4-push-and-check-that-the-code-location-loaded) above: the code
+location's error and the `static-checks` log name the cause, and an asset missing
+from an `__init__.py` export chain is the usual one.
 
 ### Resource connection errors
 
-1. Check `.env` — a missing variable usually surfaces as a resource construction
-   error at import time, not at run time.
-2. Verify network access to the database from inside the container.
-3. Test the connection directly:
-
-```python
-from core.resources import IFDBOracleResource
-
-resource = IFDBOracleResource()
-with resource.get_connection() as conn:
-    print("Connected!")
-```
+A missing environment variable usually surfaces as a resource construction error at
+import time rather than at run time — so it presents as a code location that will
+not load. Resource classes read their settings with `dg.EnvVar`; the required
+variables per source are listed in [`.env.template`](../../../.env.template), and
+the values come from the deployment's environment.
 
 ### Import errors
 
@@ -173,19 +154,10 @@ Imports must be absolute from the package root (`core.*`, `DSA.*`, `DSI.*`, `DSO
 `utils.*`). Relative imports break depending on how Dagster loads the module.
 
 Because those are *top-level* modules, `etl/` has to be the source root on
-`sys.path` — that is what `PYTHONPATH` is for. Run the Dagster CLI from the repo
-root, where the `[tool.dagster] module_name = "definitions"` block lives:
-
-```bash
-cd /workspaces/healthpipe && echo "$PYTHONPATH"
-```
-
-It must print `/workspaces/healthpipe/etl`. If it is empty or names another
-path, the CLI fails with `ModuleNotFoundError: No module named 'definitions'`. The
-devcontainer supplies the value from `.devcontainer/docker-compose.yml`, where
-`environment:` overrides anything `env_file: ../.env` sets — so a stale `PYTHONPATH`
-line in your own root `.env` is inert. A wrong value means the container predates
-that change: rebuild it.
+`sys.path` — that is what `PYTHONPATH` is for, and the root pyproject's
+`[tool.dagster] module_name = "definitions"` then resolves. A `PYTHONPATH` that does
+not point at the repository's `etl/` directory fails with
+`ModuleNotFoundError: No module named 'definitions'`.
 
 ### Partition issues
 
@@ -198,18 +170,16 @@ debugging "missing data" on a DFM asset, the checkpoint in `meta.DFMState` is th
 thing to inspect, not partitions. See
 [dfm_operations_guide.md](dfm_operations_guide.md).
 
-## Deploying a feature branch
-
-Multiple feature branches can run against the same Dagster instance —
-see [Feature-branch deployments](feature_branch_deployments.md).
-
 ## Related documentation
 
+- [Getting started](../../../docs/onboarding.md) — VS Code server, feature-branch
+  code locations, dbcode
 - [Repository Tour](repo_tour.md) — structure, terminology, asset groups
 - [Docs index & glossary](../README.md)
 - [DSI ETL Guide](dsi_etl_guide.md) — source system → archive table
 - [FHIR ETL Guide](fhir_etl_guide.md) — FHIR pipeline patterns
 - [SQL ETL Guide](sql_etl_guide.md) — DWH architecture and ETL patterns
 - [DFM Operations Guide](dfm_operations_guide.md) — running, replaying, resetting
+- [Feature-branch deployments](feature_branch_deployments.md)
 - [Testing Guide](../../tests/README.md)
 - [Dagster documentation](https://docs.dagster.io/)

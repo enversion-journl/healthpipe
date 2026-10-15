@@ -73,12 +73,14 @@ from infrastructure.assets.staging_infrastructure import (
     staging_infra_dfm,
     staging_infra_dqa,
     staging_infra_drg,
+    staging_infra_udredningsret,
     staging_infra_erp,
     staging_infra_etl_routing,
     staging_infra_etl_routing_seed,
     staging_infra_haiba,
     staging_infra_fhir,
     staging_infra_functions,
+    staging_infra_epji_archive,
     staging_infra_ifdb_archive,
     staging_infra_kmd_uddata,
     staging_infra_linked_server_user,
@@ -119,6 +121,7 @@ __all__ = [
     "staging_infra_conceptmap",
     "staging_infra_views_conceptmap",
     "staging_infra_drg",
+    "staging_infra_udredningsret",
     "staging_infra_etl_routing",
     "staging_infra_etl_routing_seed",
     "staging_infra_haiba",
@@ -136,6 +139,8 @@ __all__ = [
     "migrate_dso_sync_watermarks_to_dfm",
     # IFDB Archive
     "staging_infra_ifdb_archive",
+    # EPJI Archive
+    "staging_infra_epji_archive",
     "staging_infra_dqa",
     # DSO
     "dso_infra_db_settings",

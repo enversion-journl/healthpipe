@@ -527,11 +527,13 @@ class TestSfiDatapointView:
         assert "[fhir].[SFI_datapoint_store]" in store_ddl
         assert "[datapoint_key] NVARCHAR(64) NOT NULL" in store_ddl
         assert "UX_FHIR_SFI_datapoint_store_DatapointKey" in store_ddl
-        assert "IX_FHIR_SFI_datapoint_store_ElementPatientDate" in store_ddl
+        assert "CREATE CLUSTERED COLUMNSTORE INDEX [CCI_FHIR_SFI_datapoint_store]" in store_ddl
         assert "occurred_at_dt" in store_ddl
         assert "IX_FHIR_SFI_datapoint_store_PatientOccurredDt" in store_ddl
-        assert "ftc_SFI_datapoint" in store_ddl
-        assert "FULLTEXT INDEX" in store_ddl.upper()
+        # Storen er månedspartitioneret (SWITCH-indlæsning af backfill-vinduer); fritekst
+        # over elementtekster ligger i codesystem-søgedokumentet, ikke her.
+        assert "ps_SFI_datapoint_store_Maaned" in store_ddl
+        assert "FULLTEXT" not in store_ddl.upper()
 
     def test_sfi_datapoint_store_phase3_migration_defined(self):
         migration_path = (

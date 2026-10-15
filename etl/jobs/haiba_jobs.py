@@ -17,8 +17,7 @@ A HAIBA case resolves its dw_ek_Borger through ref.PatientToBorger, and for a
 CPR the FHIR server has never seen that key does not exist yet. The ingest job
 creates a stub Patient in Aidbox for those (DSA/FHIR/Patient/Patient_HAIBA.py),
 but the projection Aidbox -> fhir.Patient -> ref.PatientToBorger is owned by the
-nightly DFM chain: fhir_ifdb_dfm_base_job at 06:00, then
-fhir_ifdb_dfm_sof_dso_job via the base-job success sensor.
+nightly DFM pipeline: ifdb_dfm_daily_job at 06:00.
 
 Running the whole thing as one job would therefore publish the new cases with
 dw_ek_Borger = -1 (and match_kvalitet_* = 'ingen_borger', so no FHIR contact

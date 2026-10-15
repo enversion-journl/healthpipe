@@ -617,7 +617,7 @@ Every test must be able to fail on a plausible bug — no config-assert or exist
 For a new or modified pipeline, the coverage that matters:
 
 - **Unit**: real logic only — CleanCode builder rules, DFM WHERE-clause building for the run modes actually used, tricky dedup/grain logic.
-- **Integration** (devcontainer, `USE_REAL_DB_FOR_TESTS=true`): the full chain materializes — arc → pre_stg → stg → map → dim → fct — with correct EK resolution, verified by direct SQL queries (not metadata alone).
+- **Integration** (`USE_REAL_DB_FOR_TESTS=true`): the full chain materializes — arc → pre_stg → stg → map → dim → fct — with correct EK resolution, verified by direct SQL queries (not metadata alone).
 - **Migrations**: run cleanly against both the staging and DSO databases; run the `staging_migrations` asset TWICE locally — the second run must succeed (skipped by the `[meta].[MigrationHistory]` tracker). Schema changes land in BOTH the migration and the base DDL (see the parity test pattern in `test_ilsvare_columns_migration.py`).
 
 DDL-only, config-entry, and registration changes need no accompanying unit test.

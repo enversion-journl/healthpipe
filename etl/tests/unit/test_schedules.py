@@ -5,95 +5,36 @@
 # root for the full AGPL-3.0 license text.
 
 """
-Unit tests for schedule definitions.
+Unit tests for the schedule definitions.
 
-Tests validate that:
-- Schedules return RunRequest objects with correct partition_key format
-- Schedules include expected tags
-- Partition key format matches job partition definitions
+The IFDB → FHIR pipeline is one unpartitioned job on one schedule, so what is
+worth pinning is the trigger contract: which job, when, in which timezone. The
+partitioned ``fhir_etl_schedule`` helper these tests used to exercise is gone
+along with the partitioned daily job.
 """
 
-from datetime import UTC, datetime
-
 import pytest
-from dagster import build_schedule_context
-from schedules.fhir_schedules import fhir_etl_schedule
+from schedules import all_schedules
+from schedules.ifdb_dfm_schedules import ifdb_dfm_daily_schedule
 
 
-class TestFhirEtlSchedule:
-    """Unit tests for fhir_etl_schedule (IFDB FHIR ETL)."""
+@pytest.mark.unit
+class TestIfdbDfmDailySchedule:
+    """The nightly IFDB → FHIR trigger."""
 
-    @pytest.mark.unit
-    def test_returns_run_request_with_partition_key(self):
-        """Test schedule returns RunRequest with partition_key in YYYY-MM-DD format."""
-        scheduled_time = datetime(2025, 1, 30, 6, 0, 0, tzinfo=UTC)
-        context = build_schedule_context(scheduled_execution_time=scheduled_time)
+    def test_targets_the_unified_pipeline_job(self):
+        assert ifdb_dfm_daily_schedule.job.name == "ifdb_dfm_daily_job"
 
-        run_request = fhir_etl_schedule(context)
+    def test_runs_at_0600_copenhagen(self):
+        # 06:00 CET, after haiba_ingest_job at 05:00 — the stub patients it posts
+        # must be in Aidbox before the Borger chain projects them.
+        assert ifdb_dfm_daily_schedule.cron_schedule == "0 6 * * *"
+        assert ifdb_dfm_daily_schedule.execution_timezone == "Europe/Copenhagen"
 
-        assert run_request is not None
-        assert run_request.partition_key == "2025-01-30"
+    def test_is_registered(self):
+        assert ifdb_dfm_daily_schedule in all_schedules
 
-    @pytest.mark.unit
-    def test_partition_key_format_matches_daily_partitions(self):
-        """Test partition_key format is compatible with daily_partitions definition."""
-        scheduled_time = datetime(2025, 12, 25, 6, 0, 0, tzinfo=UTC)
-        context = build_schedule_context(scheduled_execution_time=scheduled_time)
-
-        run_request = fhir_etl_schedule(context)
-
-        partition_key = run_request.partition_key
-        assert len(partition_key) == 10
-        assert partition_key.count("-") == 2
-        parsed_date = datetime.strptime(partition_key, "%Y-%m-%d")
-        assert parsed_date.year == 2025
-        assert parsed_date.month == 12
-        assert parsed_date.day == 25
-
-    @pytest.mark.unit
-    def test_includes_extraction_mode_tag(self):
-        """Test schedule includes ifdb_extraction_mode=scheduled_catchup tag."""
-        scheduled_time = datetime(2025, 1, 30, 6, 0, 0, tzinfo=UTC)
-        context = build_schedule_context(scheduled_execution_time=scheduled_time)
-
-        run_request = fhir_etl_schedule(context)
-
-        assert run_request.tags is not None
-        assert "ifdb_extraction_mode" in run_request.tags
-        assert run_request.tags["ifdb_extraction_mode"] == "scheduled_catchup"
-
-
-class TestSchedulePartitionKeyEdgeCases:
-    """Test partition key edge cases across all schedules."""
-
-    @pytest.mark.unit
-    @pytest.mark.parametrize(
-        "schedule_fn,scheduled_time,expected_partition_key",
-        [
-            # Test first day of year
-            (
-                fhir_etl_schedule,
-                datetime(2025, 1, 1, 6, 0, 0, tzinfo=UTC),
-                "2025-01-01",
-            ),
-            # Test last day of year
-            (
-                fhir_etl_schedule,
-                datetime(2025, 12, 31, 6, 0, 0, tzinfo=UTC),
-                "2025-12-31",
-            ),
-            # Test leap year (Feb 29)
-            (
-                fhir_etl_schedule,
-                datetime(2024, 2, 29, 6, 0, 0, tzinfo=UTC),
-                "2024-02-29",
-            ),
-        ],
-    )
-    def test_partition_key_edge_cases(self, schedule_fn, scheduled_time, expected_partition_key):
-        """Test partition key is correct for edge case dates."""
-        context = build_schedule_context(scheduled_execution_time=scheduled_time)
-
-        run_request = schedule_fn(context)
-
-        assert run_request.partition_key == expected_partition_key
+    def test_is_unpartitioned(self):
+        # A partitioned job would need a partition key per run; the whole point
+        # of the DFM migration is that no producer needs one any more.
+        assert ifdb_dfm_daily_schedule.job.partitions_def is None

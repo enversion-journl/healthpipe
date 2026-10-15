@@ -8,7 +8,7 @@
 
 ``haiba_ingest_job`` runs at 05:00 and, for every CPR the FHIR server has never
 seen, posts a stub Patient to Aidbox. Those stubs only become a dw_ek_Borger
-once ``fhir_ifdb_dfm_sof_dso_job`` has run sof_patient_dfm -> ref_patient_borger
+once ``ifdb_dfm_daily_job`` has run sof_patient_dfm -> ref_patient_borger
 -> dim_Borger -> dso_sync_dim_borger. This sensor fires the publish job on that
 job's success, so the dm rebuild resolves the citizen keys on its first attempt
 and DSO never sees dw_ek_Borger = -1 for a fresh case.
@@ -260,7 +260,7 @@ def evaluate(context, *, publish_job_name: str, mssql: MSSQLResource):
 
 
 def build_haiba_publish_sensor(
-    sof_dso_job: UnresolvedAssetJobDefinition,
+    borger_chain_job: UnresolvedAssetJobDefinition,
     publish_job: UnresolvedAssetJobDefinition,
 ) -> dg.SensorDefinition:
     """Build the sensor with concrete job references.
@@ -271,12 +271,12 @@ def build_haiba_publish_sensor(
 
     @dg.run_status_sensor(
         run_status=dg.DagsterRunStatus.SUCCESS,
-        monitored_jobs=[sof_dso_job],
+        monitored_jobs=[borger_chain_job],
         request_jobs=[publish_job],
         name=SENSOR_NAME,
         default_status=get_sensor_default_status(),
         description=(
-            f"On {sof_dso_job.name} SUCCESS: publish the HAIBA dm layer to DSO "
+            f"On {borger_chain_job.name} SUCCESS: publish the HAIBA dm layer to DSO "
             f"when meta.{LEVERANCE_TABLE} shows an unpublished delivery, or "
             f"re-publish while the Borger chain is still resolving cases left "
             f"at dw_ek_Borger = {UNKNOWN_BORGER}. Runs after the chain so stub "

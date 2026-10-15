@@ -6,12 +6,13 @@
 
 """Generic asset factory for the DSI extraction layer.
 
-Provides:
-- `create_extraction_assets()` — partition-based factory (daily/monthly/full_load).
-- `create_dfm_extraction_assets()` — DFM checkpoint-based factory (dialect-aware).
+Provides `create_dfm_extraction_assets()` — the DFM checkpoint-based,
+dialect-aware factory. Domain-specific adapters (IFDB, ERP) call it with their
+own asset_builder and resource parameters.
 
-Domain-specific adapters (IFDB, ERP) call these with their own asset_builder
-and resource parameters.
+The partition-based sibling (`create_extraction_assets`, daily/monthly/full_load)
+is gone: every source is on the DFM path, so nothing built partitioned assets any
+more.
 """
 
 from __future__ import annotations
@@ -22,121 +23,6 @@ from typing import Any
 
 import dagster as dg
 from DSI.connectors.extract_config import DfmExtractConfig
-from DSI.connectors.protocol import ExtractionConfig
-
-_DEFAULT_GROUP_SUFFIXES: dict[str, str] = {
-    "daily": "_daily",
-    "monthly": "_monthly",
-    "full_load": "_full_load",
-}
-
-
-def create_extraction_assets(
-    config: ExtractionConfig,
-    entity_name: str,
-    asset_builder: Callable[..., Callable],
-    include_daily: bool = True,
-    include_monthly: bool = True,
-    include_full_load: bool = False,
-    asset_key_prefix: list[str] | None = None,
-    group_prefix: str = "extract",
-    group_suffixes: dict[str, str] | None = None,
-    partition_defs: dict[str, dg.PartitionsDefinition | None] | None = None,
-    io_manager_key: str | None = None,
-    compute_kind: str | None = None,
-    tags: dict | None = None,
-    append_partition_suffix: bool = True,
-    deps: list[dg.AssetKey] | None = None,
-    retry_policy: dg.RetryPolicy | None = None,
-) -> tuple[Callable, ...]:
-    """Create extraction assets for daily, monthly, and/or full_load partitions.
-
-    The ``asset_builder`` callable receives the computed asset decorator kwargs
-    and the partition_type string, and must return a decorated ``@dg.asset``
-    function with the correct typed resource parameters in its signature.
-
-    Signature: ``asset_builder(asset_kwargs, partition_type) -> Callable``
-
-    Args:
-        config: Domain-specific extraction config (satisfies ExtractionConfig protocol).
-        entity_name: Name of the entity (e.g., "patient", "encounter").
-        asset_builder: Domain-specific callable that builds a @dg.asset function.
-        include_daily: Whether to create a daily-partitioned asset.
-        include_monthly: Whether to create a monthly-partitioned asset.
-        include_full_load: Whether to create a full_load-partitioned asset.
-        asset_key_prefix: Prefix for nested asset keys (e.g., ["ifdb_extract"]).
-            None produces flat keys.
-        group_prefix: Base group name (combined with group_suffixes per partition type).
-        group_suffixes: Override default suffixes per partition type.
-            E.g., ``{"full_load": ""}`` gives ``"erp_extract"`` instead of
-            ``"erp_extract_full_load"``.
-        partition_defs: Mapping of "daily"/"monthly"/"full_load" → PartitionsDefinition.
-        io_manager_key: Optional io_manager_key for asset decorator.
-        compute_kind: Optional compute_kind tag.
-        tags: Base tags dict merged with partition-specific tags.
-        append_partition_suffix: If True, appends ``_{partition_type}`` to entity_name
-            for asset key and __name__. Set to False when entity_name already contains
-            the partition suffix (ERP pattern with generate_partition_configs).
-        deps: Optional list of asset key dependencies.
-
-    Returns:
-        Tuple of generated asset callables (only enabled partition types).
-    """
-    partition_defs = partition_defs or {}
-    base_tags = tags or {}
-    suffixes = {**_DEFAULT_GROUP_SUFFIXES, **(group_suffixes or {})}
-    assets: list[Callable] = []
-
-    variants: list[tuple[str, bool]] = [
-        ("daily", include_daily),
-        ("monthly", include_monthly),
-        ("full_load", include_full_load),
-    ]
-
-    for partition_type, enabled in variants:
-        if not enabled:
-            continue
-
-        if append_partition_suffix:
-            asset_suffix = f"{entity_name}_{partition_type}"
-        else:
-            asset_suffix = entity_name
-
-        if asset_key_prefix:
-            key = dg.AssetKey(asset_key_prefix + [asset_suffix])
-        else:
-            key = dg.AssetKey(asset_suffix)
-
-        group_name = f"{group_prefix}{suffixes[partition_type]}"
-        merged_tags = {**base_tags, "partition": partition_type}
-
-        asset_kwargs: dict[str, Any] = {
-            "key": key,
-            "group_name": group_name,
-            "partitions_def": partition_defs.get(partition_type),
-            "tags": merged_tags,
-            "description": (
-                f"Extract {entity_name} data for {partition_type} partition. "
-                f"{config.description}"
-            ),
-        }
-        if io_manager_key:
-            asset_kwargs["io_manager_key"] = io_manager_key
-        if compute_kind:
-            asset_kwargs["compute_kind"] = compute_kind
-        if deps:
-            asset_kwargs["deps"] = deps
-        if retry_policy:
-            asset_kwargs["retry_policy"] = retry_policy
-
-        asset_fn = asset_builder(asset_kwargs, partition_type)
-        asset_fn.__name__ = f"extract_{asset_suffix}"
-        asset_fn.__qualname__ = f"extract_{asset_suffix}"
-
-        assets.append(asset_fn)
-
-    return tuple(assets)
-
 
 # ---------------------------------------------------------------------------
 # DFM checkpoint-based extraction factory

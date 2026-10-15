@@ -43,20 +43,23 @@ INCREMENTAL_REFRESH_MIGRATION = (
 STORE_INTERNAL_COLUMNS = frozenset({"sfi_datapoint_id", "refreshed_at"})
 STORE_COMPUTED_COLUMNS = frozenset()
 
+# Aftagernes filtre: punktopslag pr. patient via B-træet; perioder, elementkoder og
+# modeller aggregeres fra columnstoren (segment-eliminering på partitionen).
 USER_FILTER_INDEXES = {
-    "patient_id": [
-        "IX_FHIR_SFI_datapoint_store_PatientOccurredDt",
-        "IX_FHIR_SFI_datapoint_store_ElementPatientDate",
-    ],
-    "element_code": [
-        "IX_FHIR_SFI_datapoint_store_ElementPatientDate",
-        "IX_FHIR_SFI_datapoint_store_ModelElement",
-    ],
+    "patient_id": ["IX_FHIR_SFI_datapoint_store_PatientOccurredDt"],
+    "element_code": ["CCI_FHIR_SFI_datapoint_store"],
     "occurred_at_dt": ["IX_FHIR_SFI_datapoint_store_PatientOccurredDt"],
-    "source_model_name": ["IX_FHIR_SFI_datapoint_store_ModelElement"],
-    "element_display": ["FULLTEXT"],
-    "source_element_label": ["FULLTEXT"],
+    "source_model_name": ["CCI_FHIR_SFI_datapoint_store"],
 }
+
+# Fritekstsøgning i elementtekster hører hjemme i codesystem-søgedokumentet (få
+# tusinde distinkte elementer med fuldtekst), ikke i storen: et fuldtekstindeks kræver
+# et unikt én-kolonne-nøgleindeks, og det findes ikke på en partitioneret tabel, hvor
+# enhver unik nøgle skal indeholde partitionskolonnen (SWITCH-kravet).
+CODESYSTEM_SEARCH_COLUMNS = frozenset({"element_display", "source_element_label"})
+CODESYSTEM_SEARCH_DDL = (
+    REPO_ROOT / "infrastructure" / "ddl" / "tables" / "codesystem" / "01_codesystem_tables.sql"
+)
 
 # occurred_at findes kun som INCLUDE-kolonne: patientindekset nøgler på den
 # typede occurred_at_dt, så filtre på strengformen er residual-prædikater og
@@ -80,8 +83,10 @@ def _extract_bracket_columns(sql_block: str) -> list[str]:
 
 
 def _extract_store_table_columns(store_ddl: str) -> set[str]:
+    # Tabellen ligger på et partitionsskema (ON [ps_...]([occurred_at_dt])); arbejdstabellen
+    # i samme fil har sit eget CREATE TABLE og rammes ikke af det navnebundne mønster.
     match = re.search(
-        r"CREATE TABLE \[fhir\]\.\[SFI_datapoint_store\]\s*\((.*?)\)\s*ON \[PRIMARY\]",
+        r"CREATE TABLE \[fhir\]\.\[SFI_datapoint_store\]\s*\((.*?)\)\s*ON \[",
         store_ddl,
         re.DOTALL | re.IGNORECASE,
     )
@@ -191,14 +196,37 @@ class TestSfiDatapointStoreContract:
         combined = store_ddl + phase3 + grain
         for filter_col, index_names in USER_FILTER_INDEXES.items():
             for index_name in index_names:
-                if index_name == "FULLTEXT":
-                    assert (
-                        "FULLTEXT INDEX" in combined.upper()
-                    ), f"Expected full-text index for filter column {filter_col}"
-                else:
-                    assert (
-                        index_name in combined
-                    ), f"Expected index {index_name} for user filter on {filter_col}"
+                assert (
+                    index_name in combined
+                ), f"Expected index {index_name} for user filter on {filter_col}"
+
+    def test_store_has_no_fulltext_but_codesystem_search_has(self, store_ddl: str):
+        """Fritekst over elementtekster ligger i codesystem-søgedokumentet, ikke i storen."""
+        assert "FULLTEXT" not in store_ddl.upper()
+        search_ddl = CODESYSTEM_SEARCH_DDL.read_text(encoding="utf-8")
+        assert "FULLTEXT INDEX" in search_ddl.upper()
+        for column in CODESYSTEM_SEARCH_COLUMNS:
+            assert column in store_ddl, f"{column} skal stadig være en kolonne i storen"
+
+    def test_store_is_month_partitioned_and_sequence_backed(self, store_ddl: str):
+        """Partitionering er forudsætningen for SWITCH-indlæsning af backfill-vinduer."""
+        assert (
+            "CREATE PARTITION FUNCTION [pf_SFI_datapoint_store_Maaned] (DATETIME2(0))" in store_ddl
+        )
+        assert "RANGE RIGHT" in store_ddl
+        assert "CREATE PARTITION SCHEME [ps_SFI_datapoint_store_Maaned]" in store_ddl
+        assert "CREATE SEQUENCE [fhir].[seq_SFI_datapoint_store]" in store_ddl
+        assert (
+            re.search(r"IDENTITY\s*\(", store_ddl, re.IGNORECASE) is None
+        ), "id kommer fra sekvensen, ikke IDENTITY"
+        assert "TEXTIMAGE_ON" not in store_ddl.upper(), "LOB følger partitionen"
+        assert (
+            "CREATE CLUSTERED COLUMNSTORE INDEX [CCI_FHIR_SFI_datapoint_store]" in store_ddl
+        ), "storen er en clustered columnstore"
+        assert (
+            "([datapoint_key] ASC, [occurred_at_dt] ASC)" in store_ddl
+        ), "partitionskolonnen skal indgå i enhver unik nøgle"
+        assert "[fhir].[SFI_datapoint_store_backfill]" in store_ddl
 
     def test_documented_filter_columns_are_indexed_or_ft_or_include(self, store_ddl: str):
         phase3 = PHASE3_MIGRATION.read_text(encoding="utf-8")
@@ -222,9 +250,9 @@ class TestSfiDatapointStoreContract:
             re.IGNORECASE,
         )
         # Keep in sync with infrastructure/ddl/tables/fhir/02_sfi_datapoint_store.sql.
-        # Current set: ElementPatientDate, ModelElement, PatientOccurredDt,
-        # SourceResource.
-        assert len(nc_indexes) == 4, f"Expected 4 NC indexes on store, found {nc_indexes}"
+        # Columnstore + det unikke UX-indeks + PatientOccurredDt. Arbejdstabellen i samme
+        # fil har ingen indeks i DDL'en (de bygges af refreshen lige før et SWITCH).
+        assert len(nc_indexes) == 1, f"Expected 1 NC index on store, found {nc_indexes}"
 
     def test_refresh_uses_singleton_lock_and_no_truncate(self, refresh_py: str):
         assert "TRUNCATE TABLE" not in refresh_py.upper()

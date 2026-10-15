@@ -135,3 +135,28 @@ SELECT [source_code], [source_display], [relationship], [target_code], [target_d
        [dw_ek_SHAK], [dw_ek_Organisation_target], [dw_timestamp_insert], [dw_timestamp_update]
 FROM ranked WHERE _rn = 1;
 GO
+
+CREATE OR ALTER VIEW [conceptmap].[vw_shakalike_to_sor] AS
+WITH ranked AS (
+    SELECT
+        [source_code], [source_display], [relationship], [target_code], [target_display],
+        ISNULL([dw_ek_SHAKAlike], -1) AS [dw_ek_SHAKAlike],
+        ISNULL([dw_ek_Organisation_target], -1) AS [dw_ek_Organisation_target],
+        [dw_timestamp_insert], [dw_timestamp_update],
+        ROW_NUMBER() OVER (
+            PARTITION BY [dw_ek_SHAKAlike]
+            ORDER BY CASE [relationship]
+                        WHEN 'equal' THEN 1 WHEN 'equivalent' THEN 2
+                        WHEN 'narrower' THEN 3 WHEN 'inexact' THEN 4 ELSE 99 END,
+                     [dw_timestamp_update] DESC
+        ) AS _rn
+    FROM [conceptmap].[SHAKAlikeToSOR]
+    -- Keep mappings whose SOR target is closed/absent from ref.Organisation
+    -- (dw_ek_Organisation_target unresolved). Source key must resolve.
+    WHERE [dw_ek_SHAKAlike] IS NOT NULL AND [dw_ek_SHAKAlike] <> -1
+      AND [relationship] <> 'unmatched'
+)
+SELECT [source_code], [source_display], [relationship], [target_code], [target_display],
+       [dw_ek_SHAKAlike], [dw_ek_Organisation_target], [dw_timestamp_insert], [dw_timestamp_update]
+FROM ranked WHERE _rn = 1;
+GO

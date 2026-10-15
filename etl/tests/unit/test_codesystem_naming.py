@@ -27,6 +27,9 @@ pytestmark = pytest.mark.unit
         ("shak", "concept", "SHAKConcept"),
         ("shak", "properties", "SHAKProperties"),
         ("shak", "hierarchy", "SHAKHierarchy"),
+        ("shakalike", "concept", "SHAKAlikeConcept"),
+        ("shakalike", "properties", "SHAKAlikeProperties"),
+        ("shakalike", "hierarchy", "SHAKAlikeHierarchy"),
     ],
 )
 def test_codesystem_table_name(name, kind, expected):
@@ -40,6 +43,7 @@ def test_map_covers_all_codesystems():
         "sfi",
         "ean",
         "shak",
+        "shakalike",
         "rekvirent",
         "lager",
         "okosted",

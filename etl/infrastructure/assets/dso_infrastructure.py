@@ -740,8 +740,9 @@ def dso_infra_conceptmap(
         metadata={
             "files_executed": list(results.keys()),
             "tables": (
-                "conceptmap.rekvirent_to_sor, conceptmap.lager_to_sor, "
-                "conceptmap.ean_to_sor, conceptmap.okosted_to_sor"
+                "conceptmap.RekvirentToSOR, conceptmap.LagerToSOR, "
+                "conceptmap.EANToSOR, conceptmap.OkostedToSOR, "
+                "conceptmap.SHAKToSOR, conceptmap.SHAKAlikeToSOR"
             ),
         }
     )

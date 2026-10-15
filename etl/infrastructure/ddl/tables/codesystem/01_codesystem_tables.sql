@@ -646,3 +646,60 @@ BEGIN
         ON [codesystem].[SKSHierarchy] ([child_code]) INCLUDE ([parent_code]);
 END
 GO
+
+-- ---------------------------------------------------------------------------
+-- shakalike (EPJI location.external_id)
+-- ---------------------------------------------------------------------------
+
+IF NOT EXISTS (
+    SELECT * FROM sys.objects
+    WHERE object_id = OBJECT_ID(N'[codesystem].[SHAKAlikeConcept]') AND type = 'U'
+)
+BEGIN
+    CREATE TABLE [codesystem].[SHAKAlikeConcept] (
+        [code]                NVARCHAR(100)  NOT NULL,
+        [display]             NVARCHAR(500)  NULL,
+        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SHAKAlikeConcept_dw_timestamp_insert] DEFAULT SYSDATETIME(),
+        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SHAKAlikeConcept_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        CONSTRAINT [PK_codesystem_SHAKAlikeConcept] PRIMARY KEY CLUSTERED ([code])
+    );
+END
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM sys.objects
+    WHERE object_id = OBJECT_ID(N'[codesystem].[SHAKAlikeProperties]') AND type = 'U'
+)
+BEGIN
+    CREATE TABLE [codesystem].[SHAKAlikeProperties] (
+        [code]                NVARCHAR(100)  NOT NULL,
+        [property_code]        NVARCHAR(100)  NOT NULL,
+        [value]               NVARCHAR(500)  NULL,
+        [type]                NVARCHAR(50)   NULL,
+        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SHAKAlikeProperties_dw_timestamp_insert] DEFAULT SYSDATETIME(),
+        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SHAKAlikeProperties_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        CONSTRAINT [PK_codesystem_SHAKAlikeProperties] PRIMARY KEY CLUSTERED ([code], [property_code])
+    );
+
+    CREATE NONCLUSTERED INDEX [IX_codesystem_SHAKAlikeProperties_property_code]
+        ON [codesystem].[SHAKAlikeProperties] ([property_code]) INCLUDE ([code], [value]);
+END
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM sys.objects
+    WHERE object_id = OBJECT_ID(N'[codesystem].[SHAKAlikeHierarchy]') AND type = 'U'
+)
+BEGIN
+    CREATE TABLE [codesystem].[SHAKAlikeHierarchy] (
+        [parent_code]          NVARCHAR(100)  NOT NULL,
+        [child_code]           NVARCHAR(100)  NOT NULL,
+        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SHAKAlikeHierarchy_dw_timestamp_insert] DEFAULT SYSDATETIME(),
+        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SHAKAlikeHierarchy_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        CONSTRAINT [PK_codesystem_SHAKAlikeHierarchy] PRIMARY KEY CLUSTERED ([parent_code], [child_code])
+    );
+
+    CREATE NONCLUSTERED INDEX [IX_codesystem_SHAKAlikeHierarchy_child_code]
+        ON [codesystem].[SHAKAlikeHierarchy] ([child_code]) INCLUDE ([parent_code]);
+END
+GO

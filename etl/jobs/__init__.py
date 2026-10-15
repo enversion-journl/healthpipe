@@ -11,7 +11,8 @@ All Dagster job definitions are consolidated here for discoverability and mainta
 Jobs orchestrate asset execution but do not contain business logic.
 
 Structure:
-- fhir_ifdb_jobs.py: FHIR ETL jobs for IFDB Oracle source
+- ifdb_dfm_jobs.py: the nightly IFDB -> FHIR pipeline + stage-scoped operator jobs
+- fhir_ifdb_jobs.py: FHIR maintenance jobs for the IFDB Oracle source
 - erp_jobs.py: Procurement ETL jobs
 - organization_jobs.py: Organization dimension job
 - infrastructure_jobs.py: Database infrastructure setup jobs
@@ -28,6 +29,9 @@ from jobs.drg_jobs import drg_ingest_job, drg_publish_job
 # HAIBA job (weekly SDS deliveries -> ext -> arc)
 from jobs.haiba_jobs import haiba_ingest_job, haiba_publish_job
 
+# Udredningsret job (SDS LPR_Udredningsret weekly snapshot -> ext -> arc)
+from jobs.udredningsret_jobs import udredningsret_ingest_job
+
 # FHIR IFDB jobs
 # Data quality jobs
 from jobs.data_quality_jobs import data_quality_job
@@ -42,33 +46,19 @@ from jobs.erp_jobs import (
     erp_infrastructure_job,
 )
 
-# FHIR CarePlan jobs
-from jobs.fhir_careplan_jobs import (
-    fhir_careplan_daily_job,
-    fhir_careplan_full_load_job,
-    fhir_careplan_monthly_job,
-)
 from jobs.fhir_ifdb_jobs import (
-    fhir_etl_ifdb_daily_job,
-    fhir_etl_ifdb_full_load_job,
-    fhir_etl_ifdb_monthly_job,
     sfi_datapoint_reconciliation_job,
 )
 
-# FHIR SOF jobs (SQL on FHIR extraction + DSO sync)
+# FHIR SOF jobs (SQL on FHIR extraction)
 from jobs.fhir_sof_jobs import (
     codesystem_sfi_sync_job,
-    fhir_dso_sync_job,
-    fhir_sof_daily_job,
-    fhir_sof_monthly_job,
 )
 
 # IFDB DFM jobs (archive + FHIR with DFM checkpoint tracking)
 from jobs.ifdb_dfm_jobs import (
     dfm_reset_job,
-    fhir_ifdb_dfm_base_job,
     fhir_ifdb_dfm_job,
-    fhir_ifdb_dfm_sof_dso_job,
     fhir_sof_dfm_job,
     ifdb_archive_job,
     ifdb_dfm_daily_job,
@@ -116,9 +106,6 @@ from DSA.SQL.dev import all_assets as erp_dev_assets
 # Aggregate all jobs for easy import in definitions.py
 all_jobs = [
     # FHIR Jobs - IFDB
-    fhir_etl_ifdb_daily_job,
-    fhir_etl_ifdb_monthly_job,
-    fhir_etl_ifdb_full_load_job,
     sfi_datapoint_reconciliation_job,
     # DWH Organisation Jobs
     organisation_cs_job,
@@ -128,6 +115,7 @@ all_jobs = [
     drg_publish_job,
     haiba_ingest_job,
     haiba_publish_job,
+    udredningsret_ingest_job,
     # DWH Lager Jobs
     lager_dim_job,
     # ERP Daily DFM Job (lagerbeholdning + KMD archive + dim.UNSPSC)
@@ -140,16 +128,9 @@ all_jobs = [
     mysupply_archive_job,
     # ILS DFM Archive Job
     ils_archive_job,
-    # FHIR CarePlan Jobs
-    fhir_careplan_full_load_job,
-    fhir_careplan_daily_job,
-    fhir_careplan_monthly_job,
     # ERP Jobs
     erp_infrastructure_job,
-    # FHIR SOF Jobs (SQL on FHIR extraction + DSO sync)
-    fhir_sof_daily_job,
-    fhir_sof_monthly_job,
-    fhir_dso_sync_job,
+    # FHIR SOF Jobs (SQL on FHIR extraction)
     codesystem_sfi_sync_job,
     # Centralized Infrastructure Jobs
     staging_infrastructure_job,
@@ -168,8 +149,6 @@ all_jobs = [
     # IFDB DFM Jobs (archive + FHIR with checkpoint tracking)
     ifdb_archive_job,
     fhir_ifdb_dfm_job,
-    fhir_ifdb_dfm_base_job,
-    fhir_ifdb_dfm_sof_dso_job,
     ifdb_dfm_full_job,
     ifdb_dfm_daily_job,
     fhir_sof_dfm_job,
@@ -185,17 +164,10 @@ if erp_dev_assets:
 
 __all__ = [
     # FHIR IFDB jobs
-    "fhir_etl_ifdb_daily_job",
-    "fhir_etl_ifdb_monthly_job",
-    "fhir_etl_ifdb_full_load_job",
     "sfi_datapoint_reconciliation_job",
     # ERP jobs
     "erp_faktura_reset_job",
     "erp_infrastructure_job",
-    # FHIR CarePlan jobs
-    "fhir_careplan_daily_job",
-    "fhir_careplan_full_load_job",
-    "fhir_careplan_monthly_job",
     # Organisation jobs
     "organisation_cs_job",
     # FHIR CodeSystem job
@@ -217,9 +189,6 @@ __all__ = [
     # ILS DFM Archive job
     "ils_archive_job",
     # FHIR SOF jobs
-    "fhir_sof_daily_job",
-    "fhir_sof_monthly_job",
-    "fhir_dso_sync_job",
     "codesystem_sfi_sync_job",
     # Infrastructure jobs
     "staging_infrastructure_job",
@@ -234,8 +203,6 @@ __all__ = [
     # IFDB DFM jobs
     "ifdb_archive_job",
     "fhir_ifdb_dfm_job",
-    "fhir_ifdb_dfm_base_job",
-    "fhir_ifdb_dfm_sof_dso_job",
     "ifdb_dfm_full_job",
     "ifdb_dfm_daily_job",
     "fhir_sof_dfm_job",

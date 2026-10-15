@@ -804,10 +804,37 @@ def staging_infra_ifdb_archive(
     return dg.MaterializeResult(
         metadata={
             "files_executed": len(results),
-            "tables": (
-                "arc.ifdb_patient, arc.ifdb_episode_of_care, "
-                "arc.ifdb_encounter, arc.ifdb_location"
-            ),
+            "tables": "arc.ifdb_patient, arc.ifdb_episode_of_care, arc.ifdb_encounter, arc.ifdb_location",
+        }
+    )
+
+
+# ============================================================================
+# EPJI ARCHIVE
+# ============================================================================
+
+
+@dg.asset(
+    name="staging_infra_epji_archive",
+    group_name="staging_infrastructure",
+    compute_kind="mssql",
+    deps=["staging_infra_schemas", "staging_migrations"],
+    tags={"layer": "staging", "type": "infrastructure"},
+    description="Create the EPJI location archive table (arc.epji_location)",
+)
+def staging_infra_epji_archive(
+    context: dg.AssetExecutionContext,
+    mssql_target_staging: MSSQLResource,
+) -> dg.MaterializeResult:
+    """Deploy arc.epji_location."""
+
+    results = execute_sql_files_from_directory(mssql_target_staging, "tables/epji_archive", context)
+
+    context.log.info("EPJI archive table deployed")
+    return dg.MaterializeResult(
+        metadata={
+            "files_executed": len(results),
+            "tables": "arc.epji_location",
         }
     )
 
@@ -893,4 +920,26 @@ def staging_infra_drg(
     mssql_target_staging: MSSQLResource,
 ) -> dg.MaterializeResult:
     results = execute_sql_files_from_directory(mssql_target_staging, "tables/drg", context)
+    return dg.MaterializeResult(metadata={"files_executed": len(results)})
+
+
+@dg.asset(
+    name="staging_infra_udredningsret",
+    group_name="staging_infrastructure",
+    deps=["staging_infra_schemas", "staging_migrations"],
+    compute_kind="mssql",
+    description=(
+        "Create the udredningsret archive table (arc.udredningsret_mont) and "
+        "meta.UdredningsretLeverance. The ext.udredningsret* landing tables and "
+        "the ext.udredningsret_mont_noegler key table are created by the extract/archive "
+        "assets themselves, as for DRG and HAIBA."
+    ),
+)
+def staging_infra_udredningsret(
+    context: dg.AssetExecutionContext,
+    mssql_target_staging: MSSQLResource,
+) -> dg.MaterializeResult:
+    results = execute_sql_files_from_directory(
+        mssql_target_staging, "tables/udredningsret", context
+    )
     return dg.MaterializeResult(metadata={"files_executed": len(results)})

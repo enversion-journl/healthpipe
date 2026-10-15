@@ -47,6 +47,7 @@ from DSI.oracle.ifdb_extract import (
     EPIKRISE_COLUMNS,
     EPIKRISE_MODTAGER_COLUMNS,
     EPIKRISE_TEKST_COLUMNS,
+    EVENTMARKER_COLUMNS,
     HEALTHISSUE_COLUMNS,
     HENVISNING_COLUMNS,
     HENVISNING_HISTORIK_COLUMNS,
@@ -747,6 +748,32 @@ REFERRALINFORMATION_ARCHIVE_CONFIG = ArchiveMergeConfig(
     update_only_on_change=True,
     detect_deletes=False,
     enable_bulk_insert_on_first_load=True,
+)
+
+
+# ---------------------------------------------------------------------------
+# Eventmarker archive config (delta; soft-delete via DELETED)
+# ---------------------------------------------------------------------------
+
+_EVENTMARKER_MERGE_KEY = ("OBJECT_ID",)
+_EVENTMARKER_NON_KEY = tuple(c for c in EVENTMARKER_COLUMNS if c != "OBJECT_ID")
+
+EVENTMARKER_ARCHIVE_CONFIG = ArchiveMergeConfig(
+    source_schema="ext",
+    source_table="ifdb_eventmarker",
+    target_schema="arc",
+    target_table="ifdb_eventmarker",
+    merge_keys=_EVENTMARKER_MERGE_KEY,
+    non_key_columns=_EVENTMARKER_NON_KEY,
+    flow_start_key=_IFDB_FLOW_START_KEY,
+    strategy="upsert",
+    update_only_on_change=True,
+    # ext holds only the markers inside the delta window, so NOT MATCHED BY
+    # SOURCE would retire the whole archive on every run. IFDB soft-deletes
+    # instead (DELETED flips to 1 and IFDB_MODIFICATION_DATETIME advances), so
+    # the delta carries the retirement and the CarePlan transform reads DELETED.
+    detect_deletes=False,
+    source_delete_column="DELETED",
 )
 
 
@@ -2190,6 +2217,48 @@ def arc_bom_ifdb_patientinfo(
     )
 
 
+@dg.asset(
+    name="arc_eventmarker_ifdb",
+    group_name="ifdb_archive",
+    compute_kind="mssql",
+    deps=[dg.AssetKey(["ext_ifdb_eventmarker"])],
+    tags={
+        "domain": "ifdb",
+        "layer": "archive",
+        "source": "ifdb",
+        "entity": "eventmarker",
+    },
+    description=(
+        "MERGE upsert ext.ifdb_eventmarker → arc.ifdb_eventmarker; "
+        "advance checkpoint to the flow-start timestamp."
+    ),
+)
+def arc_eventmarker_ifdb(
+    context: dg.AssetExecutionContext,
+    mssql_target_staging: MSSQLResource,
+    config: RunModeConfig,
+) -> dg.MaterializeResult:
+    """UPSERT ext → arc for IFDB Eventmarker."""
+    result = execute_archive_merge(
+        context, mssql_target_staging, EVENTMARKER_ARCHIVE_CONFIG, config
+    )
+
+    context.log.info(
+        f"MERGEd {result.row_count} rows into arc.ifdb_eventmarker "
+        f"(inserted: {result.rows_inserted}, updated: {result.rows_updated}); "
+        f"checkpoint → {result.new_checkpoint}"
+    )
+
+    return dg.MaterializeResult(
+        metadata=build_archive_metadata(
+            result,
+            config,
+            source_table="ext.ifdb_eventmarker",
+            target_table="arc.ifdb_eventmarker",
+        )
+    )
+
+
 # ---------------------------------------------------------------------------
 # Asset lists
 # ---------------------------------------------------------------------------
@@ -2227,4 +2296,5 @@ ifdb_archive_assets = [
     arc_aktivitetsresultat_ifdb,
     arc_aktivitetsudfoerelse_ifdb,
     arc_aktivitetsudfoerelse_speciale_ifdb,
+    arc_eventmarker_ifdb,
 ]

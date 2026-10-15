@@ -8,15 +8,34 @@
 
 # Documentation Index
 
-Entry point for all pipeline documentation. New to the project? Read in this
-order: root [README](../../README.md) → [devcontainer
-guide](../../.devcontainer/README.md) (environment setup) → the
+## Start here — primary documentation (Danish)
+
+**[basismodel/](basismodel/)** is the primary documentation for the platform,
+written in Danish, and the place a new team member starts. It walks the whole
+path from a request to a delivered table: [00 overblik](basismodel/00_overblik.md)
+→ [01 afklar behov](basismodel/01_afklar_behov.md) →
+[02 DSI](basismodel/02_DSI_kilde_til_arkiv.md) →
+[03a FHIR](basismodel/03a_DSA_arkiv_til_FHIR.md) /
+[03a1 SQL on FHIR](basismodel/03a1_DSA_FHIR_til_SQLonFHIR.md) /
+[03b dimensionel](basismodel/03b_DSA_arkiv_til_dimensionel_model.md) /
+[03c dm-skema](basismodel/03c_DSA_arkiv_til_dmskema.md) →
+[04 DSO](basismodel/04_DSO_sync_til_DSO.md) →
+[05 dokumentation](basismodel/05_udfyld_dokumentation.md).
+
+Everything below is **reference documentation**: deeper detail per subject, still
+mostly in English, linked from the chapters above where relevant.
+
+## Reference documentation
+
+Read in this order for environment and orientation: root
+[README](../../README.md) → [Getting started](../../docs/onboarding.md)
+(VS Code server, feature-branch code location on Dev, dbcode) → the
 [glossary](#glossary) below → [Repository Tour](implementation/repo_tour.md)
 (structure and terminology) → [Dagster Development
-Guide](implementation/dagster_development.md) (the local run loop).
+Guide](implementation/dagster_development.md) (the development loop).
 
-Then read the guide for the track you are working in: **[DSI](implementation/dsi_etl_guide.md)**
-(source → archive), **[FHIR](implementation/fhir_etl_guide.md)** or
+The per-track reference guides are **[DSI](implementation/dsi_etl_guide.md)**
+(source → archive), **[FHIR](implementation/fhir_etl_guide.md)** and
 **[SQL/DWH](implementation/sql_etl_guide.md)**.
 
 Documents are split into **living guides** (kept current, authoritative) and an
@@ -67,7 +86,6 @@ for history — do not rely on them for current behavior).
 
 | Document | What it covers |
 |---|---|
-| [fhir_careplan_patientrettigheder.md](contracts/fhir_careplan_patientrettigheder.md) | CarePlan data contract (patientrettigheder) |
 | [shared_dimensions.md](shared_dimensions.md) | Shared dimensions across domains |
 | [source_systems/](source_systems/) | Per-source schema references (IFDB, BOM_IFDB, ILS, SydAX, MySupply, KMD, Cosmic) |
 

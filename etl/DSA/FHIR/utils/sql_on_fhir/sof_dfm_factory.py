@@ -13,10 +13,10 @@ differ. The partitioned variants each spelled that out by hand; on the DFM path
 we generate them instead, so migrating the remaining resources is a one-line
 change per view rather than a copied 40-line asset.
 
-The end state this serves: once every producer of a flat table is on the DFM
-path, its SOF (and DSO) assets move into the ``fhir_sof_dfm`` group and the
-partitioned ``fhir_etl_ifdb_daily_job`` can be retired — one FHIR job, not a
-base job plus a follow-up job.
+The end state this serves has arrived: every producer of a flat table is on the
+DFM path, all SOF (and DSO) assets live in the ``fhir_sof_dfm`` group, and the
+partitioned daily job is gone — one FHIR job (``ifdb_dfm_daily_job``), not a
+base job plus a sensor-triggered follow-up.
 """
 
 # NOTE: no ``from __future__ import annotations`` here. Dagster resolves the
