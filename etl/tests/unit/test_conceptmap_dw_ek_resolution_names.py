@@ -12,8 +12,15 @@ from DSA.ConceptMap.utils import _load_conceptmap_dw_ek_update_sql, sql_update_c
 
 pytestmark = pytest.mark.unit
 
-PASCAL = ["RekvirentToSOR", "LagerToSOR", "EANToSOR", "OkostedToSOR", "SHAKToSOR"]
-SNAKE = ["rekvirent_to_sor", "lager_to_sor", "ean_to_sor", "okosted_to_sor", "shak_to_sor"]
+PASCAL = ["RekvirentToSOR", "LagerToSOR", "EANToSOR", "OkostedToSOR", "SHAKToSOR", "SHAKAlikeToSOR"]
+SNAKE = [
+    "rekvirent_to_sor",
+    "lager_to_sor",
+    "ean_to_sor",
+    "okosted_to_sor",
+    "shak_to_sor",
+    "shakalike_to_sor",
+]
 
 
 def test_headers_are_pascalcase():

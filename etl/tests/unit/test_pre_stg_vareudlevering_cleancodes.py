@@ -41,7 +41,7 @@ CHECKPOINT_MIGRATION = (
     / "infrastructure"
     / "ddl"
     / "migrations"
-    / "20260903_01_reset_vareudlevering_checkpoints.sql"
+    / "20260903_02_reset_vareudlevering_checkpoints.sql"
 )
 LAGERBEH_MIGRATION = (
     ROOT

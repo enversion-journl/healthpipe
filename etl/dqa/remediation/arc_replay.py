@@ -71,6 +71,7 @@ _ARC_DFM_ASSETS: dict[str, tuple[str, str]] = {
         "ext_ifdb_aktivitetsudfoerelse",
         "arc_aktivitetsudfoerelse_ifdb",
     ),
+    "arc_ifdb_eventmarker": ("ext_ifdb_eventmarker", "arc_eventmarker_ifdb"),
     # arc_ifdb_location intentionally absent -- see the module docstring.
     # The full-load child/ref tables (tillaegskode + PAS ref tables +
     # aktivitetsudfoerelse_speciale) are likewise absent: composite merge keys

@@ -10,11 +10,11 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from math import ceil
 from time import perf_counter
-from typing import Any
+from typing import Any, NamedTuple
 
 import orjson
 from core.fhir.aidbox_json import (
@@ -35,6 +35,46 @@ def _resources_module():
 
 def _logger():
     return _resources_module().dg.get_dagster_logger()
+
+
+def _orjson_text(payload: dict[str, Any]) -> str:
+    return orjson.dumps(payload).decode("utf-8")
+
+
+class UpsertResult(tuple[int, int, list[str]]):
+    """``(successes, failures, failed_ids)`` — tuplen, alle kaldesteder pakker ud —
+    med én diagnostisk egenskab ved siden af: ``recovered``.
+
+    ``recovered`` er antallet af rækker, der først ramte et unikt
+    identifier-indeks og derefter blev genoprettet ved re-upsert på den
+    eksisterende rækkes id. De tælles som succes, for slutresultatet er
+    idempotent — men de er ikke gratis: hver genoprettelse er et opslag og en
+    ekstra skrivning, og på en sti, der pre-resolver sine id'er, er
+    forventningen nul. Et tal over nul afslører en manglende pre-resolve, som
+    succes-tallet alene ville maskere som en langsom succes. Tuplen er bevaret,
+    så de mange kaldesteder, der pakker tre værdier ud, er uberørte; kun
+    metadata-laget læser egenskaben.
+    """
+
+    recovered: int
+
+    def __new__(
+        cls,
+        successes: int,
+        failures: int,
+        failed_ids: list[str],
+        recovered: int = 0,
+    ) -> UpsertResult:
+        result = tuple.__new__(cls, (successes, failures, failed_ids))
+        result.recovered = recovered
+        return result
+
+
+class _RowRecovery(NamedTuple):
+    """Udfaldet for én fejlet række: genoprettet (``existing_id``) eller fejlet (``failure_label``)."""
+
+    existing_id: str | None
+    failure_label: str | None
 
 
 _BATCH_MAX_RETRIES = 2
@@ -184,13 +224,82 @@ def _reupsert_resolved_row(
         cur.execute(upsert_sql, (resource_id, txid, payload))
 
 
+def _recover_unique_violation_row(
+    *,
+    exc: Exception,
+    conn: Any,
+    cur: Any,
+    upsert_sql: str,
+    table_name: str,
+    resource_id: str,
+    resource_json: dict[str, Any],
+    txid: int,
+    serialize: Callable[[dict[str, Any]], str],
+) -> _RowRecovery:
+    """Den ENESTE politik for en række, der fejler i fallback-løkken — ens for objekt- og dict-stien.
+
+    Er fejlen ikke en unique-violation, logges den, og rækken forbliver fejlet.
+    Er den, forsøges genoprettelse: find den ene eksisterende række med samme
+    identifier (konservativt — præcis ét match, ellers fejl) og skriv rækken
+    igen på dét id. Lykkes det, er rækken en succes, og ``existing_id`` er sat;
+    kaldestedet tæller den som genoprettet, så nettet er synligt i metadata.
+    Ellers er ``failure_label`` teksten til ``failed_ids`` — altid via
+    ``_error_label``, så driverens fejltekst aldrig bærer et personnummer.
+    """
+    if not _is_unique_violation(exc):
+        label = _error_label(exc, table_name)
+        _logger().warning(f"Failed to insert into {table_name} (id={resource_id}): {label}")
+        return _RowRecovery(None, label)
+
+    constraint = _constraint_name(exc)
+    existing_id = _resolve_existing_id_for_identifier_collision(
+        conn=conn,
+        cur=cur,
+        table_name=table_name,
+        resource_json=resource_json,
+    )
+    if not existing_id:
+        _logger().warning(
+            f"Unique-violation inserting into {table_name} (id={resource_id}, "
+            f"constraint={constraint}): could not re-resolve an existing row; "
+            "treating as failure."
+        )
+        return _RowRecovery(None, _error_label(exc, table_name))
+
+    resource_json["id"] = existing_id
+    try:
+        _reupsert_resolved_row(
+            conn=conn,
+            cur=cur,
+            upsert_sql=upsert_sql,
+            resource_id=existing_id,
+            txid=txid,
+            payload=serialize(resource_json),
+        )
+    except Exception as retry_e:  # noqa: BLE001
+        label = _error_label(retry_e, table_name)
+        _logger().warning(
+            f"Unique-violation inserting into {table_name} (id={resource_id}, "
+            f"constraint={constraint}): resolved existing row {existing_id}; "
+            f"re-upsert failed: {label}"
+        )
+        return _RowRecovery(None, label)
+
+    _logger().warning(
+        f"Unique-violation inserting into {table_name} (id={resource_id}, "
+        f"constraint={constraint}): resolved existing row {existing_id}; "
+        "re-executed upsert."
+    )
+    return _RowRecovery(existing_id, None)
+
+
 def batch_upsert_resources(
     self,
     resources: Sequence[Resource],
     resource_type: str,
     batch_size: int = 2000,
     invalidate_cache: bool = True,
-) -> tuple[int, int, list[str]]:
+) -> UpsertResult:
     """
     Directly insert or update FHIR resources into the database.
 
@@ -207,19 +316,21 @@ def batch_upsert_resources(
         batch_size: Number of resources to process per batch (default 500)
 
     Returns:
-        Tuple of (successes, failures, failed_ids). Each failed_ids element
-        is ``"<id>: <exception class [sqlstate=…]>"`` — the error message
-        itself is never carried, since it can embed resource content
-        (for Patient resources the CPR).
+        ``UpsertResult`` — unpacks as (successes, failures, failed_ids) and
+        carries ``recovered`` (rows re-upserted after a unique-violation).
+        Each failed_ids element is ``"<id>: <exception class [sqlstate=…]>"``
+        — the error message itself is never carried, since it can embed
+        resource content (for Patient resources the CPR).
     """
     import uuid
 
     if not resources:
-        return 0, 0, []
+        return UpsertResult(0, 0, [])
 
     table_name = resource_type.lower()
     successes = 0
     failures = 0
+    recovered = 0
     failed_ids: list[str] = []
 
     # Pre-process all resources: assign IDs and serialize to JSON
@@ -246,7 +357,7 @@ def batch_upsert_resources(
             )
 
     if not prepared_resources:
-        return successes, failures, failed_ids
+        return UpsertResult(successes, failures, failed_ids)
 
     with self.get_connection() as conn:
         with conn.cursor() as cur:
@@ -320,66 +431,31 @@ def batch_upsert_resources(
                                     ),
                                 )
                             successes += 1
-                        except Exception as inner_e:
-                            if _is_unique_violation(inner_e):
-                                constraint = _constraint_name(inner_e)
-                                existing_id = _resolve_existing_id_for_identifier_collision(
-                                    conn=conn,
-                                    cur=cur,
-                                    table_name=table_name,
-                                    resource_json=resource_json,
-                                )
-                                if existing_id:
-                                    resource.id = existing_id
-                                    resource_json["id"] = existing_id
-                                    try:
-                                        _reupsert_resolved_row(
-                                            conn=conn,
-                                            cur=cur,
-                                            upsert_sql=upsert_sql,
-                                            resource_id=existing_id,
-                                            txid=next_txid + batch_start + i,
-                                            payload=json.dumps(resource_json),
-                                        )
-                                    except Exception as retry_e:
-                                        failures += 1
-                                        failed_ids.append(f"{resource_id}: {str(retry_e)[:100]}")
-                                        _logger().warning(
-                                            f"Unique-violation inserting {resource_type} "
-                                            f"{resource_id} (constraint={constraint}): "
-                                            f"resolved existing row {existing_id}; "
-                                            f"re-upsert failed: {retry_e}"
-                                        )
-                                        continue
-                                    successes += 1
-                                    _logger().warning(
-                                        f"Unique-violation inserting {resource_type} "
-                                        f"{resource_id} (constraint={constraint}): "
-                                        f"resolved existing row {existing_id}; "
-                                        "re-executing upsert."
-                                    )
-                                    continue
-
-                            failures += 1
-                            failed_ids.append(
-                                f"{resource_id}: {_error_label(inner_e, resource_type)}"
+                        except Exception as inner_e:  # noqa: BLE001
+                            recovery = _recover_unique_violation_row(
+                                exc=inner_e,
+                                conn=conn,
+                                cur=cur,
+                                upsert_sql=upsert_sql,
+                                table_name=table_name,
+                                resource_id=resource_id,
+                                resource_json=resource_json,
+                                txid=next_txid + batch_start + i,
+                                serialize=json.dumps,
                             )
-                            if _is_unique_violation(inner_e):
-                                _logger().warning(
-                                    f"Unique-violation inserting {resource_type} "
-                                    f"{resource_id} (constraint={_constraint_name(inner_e)}): "
-                                    "could not re-resolve an existing row; treating as failure."
-                                )
-                            else:
-                                _logger().warning(
-                                    f"Failed to insert {resource_type} resource "
-                                    f"{resource_id}: {_error_label(inner_e, resource_type)}"
-                                )
+                            if recovery.existing_id is None:
+                                failures += 1
+                                failed_ids.append(f"{resource_id}: {recovery.failure_label}")
+                                continue
+                            resource.id = recovery.existing_id
+                            successes += 1
+                            recovered += 1
 
             conn.commit()
 
     _logger().info(
-        f"[DB Direct] Inserted {successes} {resource_type} resources, " f"{failures} failures"
+        f"[DB Direct] Inserted {successes} {resource_type} resources, {failures} failures, "
+        f"{recovered} recovered after unique-violation"
     )
 
     # The shared identifier cache was (re)built BEFORE this insert —
@@ -401,7 +477,7 @@ def batch_upsert_resources(
                 "may need a cold rebuild"
             )
 
-    return successes, failures, failed_ids
+    return UpsertResult(successes, failures, failed_ids, recovered)
 
 
 def batch_upsert_resource_dicts(
@@ -411,7 +487,7 @@ def batch_upsert_resource_dicts(
     batch_size: int = 2000,
     invalidate_cache: bool = True,
     max_workers: int | None = None,
-) -> tuple[int, int, list[str]]:
+) -> UpsertResult:
     """Upsert pre-built FHIR resource dicts — zero Pydantic overhead.
 
     Accepts ``(resource_id, resource_dict)`` tuples that are already in
@@ -447,9 +523,12 @@ def batch_upsert_resource_dicts(
     When the effective worker count resolves to 1 we fall back to a
     single connection holding one transaction across all batches —
     identical semantics to the pre-sharded implementation.
+
+    Returns ``UpsertResult`` — unpacks as (successes, failures, failed_ids)
+    and carries ``recovered`` (rows re-upserted after a unique-violation).
     """
     if not resource_dicts:
-        return 0, 0, []
+        return UpsertResult(0, 0, [])
 
     total_start = perf_counter()
     prepare_start = perf_counter()
@@ -464,7 +543,7 @@ def batch_upsert_resource_dicts(
             f"prepared=0 prepare={prepare_seconds:.3f}s "
             f"total={perf_counter() - total_start:.3f}s"
         )
-        return 0, failures, failed_ids
+        return UpsertResult(0, failures, failed_ids)
 
     workers = self._resolve_dict_upsert_workers(
         n_rows=len(prepared),
@@ -474,13 +553,13 @@ def batch_upsert_resource_dicts(
 
     upsert_start = perf_counter()
     if workers == 1:
-        successes, shard_failures, shard_failed_ids = self._upsert_dicts_single_connection(
+        written = self._upsert_dicts_single_connection(
             prepared=prepared,
             resource_type=resource_type,
             batch_size=batch_size,
         )
     else:
-        successes, shard_failures, shard_failed_ids = self._upsert_dicts_sharded(
+        written = self._upsert_dicts_sharded(
             prepared=prepared,
             resource_type=resource_type,
             batch_size=batch_size,
@@ -488,13 +567,17 @@ def batch_upsert_resource_dicts(
         )
     upsert_seconds = perf_counter() - upsert_start
 
+    successes, shard_failures, shard_failed_ids = written
+    # getattr: tests erstatter skrivestierne med bare tupler uden tælleren.
+    recovered = getattr(written, "recovered", 0)
     failures += shard_failures
     failed_ids.extend(shard_failed_ids)
 
     n_batches = ceil(len(prepared) / batch_size) if batch_size > 0 else 0
     _logger().info(
         f"[DB Direct Dict] Inserted {successes} {resource_type} dicts, "
-        f"{failures} failures (workers={workers}, batches={n_batches})"
+        f"{failures} failures (workers={workers}, batches={n_batches}, "
+        f"recovered={recovered})"
     )
 
     invalidate_seconds = 0.0
@@ -522,7 +605,7 @@ def batch_upsert_resource_dicts(
         f"total={perf_counter() - total_start:.3f}s"
     )
 
-    return successes, failures, failed_ids
+    return UpsertResult(successes, failures, failed_ids, recovered)
 
 
 def _prepare_resource_dicts_for_upsert(
@@ -588,7 +671,7 @@ def _upsert_dicts_single_connection(
     prepared: list[tuple[str, dict]],
     resource_type: str,
     batch_size: int,
-) -> tuple[int, int, list[str]]:
+) -> UpsertResult:
     """Single-connection, single-transaction path used when sharding is off.
 
     Behaviour matches the pre-sharded implementation byte-for-byte: one
@@ -608,7 +691,7 @@ def _upsert_dicts_single_connection(
             txid_base = cur.fetchone()[0]
             txid_seconds = perf_counter() - txid_start
             write_start = perf_counter()
-            successes, failures, failed_ids = self._run_dict_upsert_batches(
+            written = self._run_dict_upsert_batches(
                 cur=cur,
                 conn=conn,
                 rows=prepared,
@@ -627,7 +710,7 @@ def _upsert_dicts_single_connection(
         f"txid={txid_seconds:.3f}s write={write_seconds:.3f}s "
         f"commit={commit_seconds:.3f}s total={perf_counter() - total_start:.3f}s"
     )
-    return successes, failures, failed_ids
+    return written
 
 
 def _upsert_dicts_sharded(
@@ -637,7 +720,7 @@ def _upsert_dicts_sharded(
     resource_type: str,
     batch_size: int,
     workers: int,
-) -> tuple[int, int, list[str]]:
+) -> UpsertResult:
     """Reserve a contiguous txid range, split rows into shards, write in parallel.
 
     Each shard owns ``rows[shard_start : shard_start + shard_size]`` and
@@ -667,6 +750,7 @@ def _upsert_dicts_sharded(
 
     successes = 0
     failures = 0
+    recovered = 0
     failed_ids: list[str] = []
     shard_exceptions: list[BaseException] = []
 
@@ -687,12 +771,14 @@ def _upsert_dicts_sharded(
         }
         for future in as_completed(future_to_offset):
             try:
-                s, f, fids = future.result()
+                shard_result = future.result()
             except BaseException as exc:  # noqa: BLE001
                 shard_exceptions.append(exc)
                 continue
+            s, f, fids = shard_result
             successes += s
             failures += f
+            recovered += getattr(shard_result, "recovered", 0)
             failed_ids.extend(fids)
     write_seconds = perf_counter() - write_start
 
@@ -709,7 +795,7 @@ def _upsert_dicts_sharded(
         f"total={perf_counter() - total_start:.3f}s"
     )
 
-    return successes, failures, failed_ids
+    return UpsertResult(successes, failures, failed_ids, recovered)
 
 
 def _reserve_txid_base(self, table_name: str) -> int:
@@ -735,7 +821,7 @@ def _upsert_dicts_shard_worker(
     table_name: str,
     batch_size: int,
     txid_base: int,
-) -> tuple[int, int, list[str]]:
+) -> UpsertResult:
     """Run the upsert loop for a single shard on its own connection."""
     total_start = perf_counter()
     write_seconds = 0.0
@@ -743,7 +829,7 @@ def _upsert_dicts_shard_worker(
     with self.get_connection() as conn:
         with conn.cursor() as cur:
             write_start = perf_counter()
-            successes, failures, failed_ids = self._run_dict_upsert_batches(
+            written = self._run_dict_upsert_batches(
                 cur=cur,
                 conn=conn,
                 rows=shard_rows,
@@ -762,7 +848,7 @@ def _upsert_dicts_shard_worker(
         f"write={write_seconds:.3f}s commit={commit_seconds:.3f}s "
         f"total={perf_counter() - total_start:.3f}s"
     )
-    return successes, failures, failed_ids
+    return written
 
 
 def _run_dict_upsert_batches(
@@ -773,7 +859,7 @@ def _run_dict_upsert_batches(
     table_name: str,
     batch_size: int,
     txid_base: int,
-) -> tuple[int, int, list[str]]:
+) -> UpsertResult:
     """Execute the batched ``INSERT ... ON CONFLICT`` loop on an open cursor.
 
     Each batch's ``executemany`` is wrapped in a psycopg pipeline block
@@ -799,6 +885,7 @@ def _run_dict_upsert_batches(
 
     successes = 0
     failures = 0
+    recovered = 0
     failed_ids: list[str] = []
     serialize_seconds = 0.0
     executemany_seconds = 0.0
@@ -813,7 +900,7 @@ def _run_dict_upsert_batches(
             (
                 rid,
                 txid_base + batch_start + i,
-                orjson.dumps(rjson).decode("utf-8"),
+                _orjson_text(rjson),
             )
             for i, (rid, rjson) in enumerate(batch)
         ]
@@ -860,56 +947,29 @@ def _run_dict_upsert_batches(
                             (
                                 rid,
                                 txid_base + batch_start + i,
-                                orjson.dumps(rjson).decode("utf-8"),
+                                _orjson_text(rjson),
                             ),
                         )
                     successes += 1
                 except Exception as inner_e:  # noqa: BLE001
-                    if _is_unique_violation(inner_e):
-                        constraint = _constraint_name(inner_e)
-                        existing_id = _resolve_existing_id_for_identifier_collision(
-                            conn=conn,
-                            cur=cur,
-                            table_name=table_name,
-                            resource_json=rjson,
-                        )
-                        if existing_id:
-                            rjson["id"] = existing_id
-                            try:
-                                _reupsert_resolved_row(
-                                    conn=conn,
-                                    cur=cur,
-                                    upsert_sql=upsert_sql,
-                                    resource_id=existing_id,
-                                    txid=txid_base + batch_start + i,
-                                    payload=orjson.dumps(rjson).decode("utf-8"),
-                                )
-                            except Exception as retry_e:  # noqa: BLE001
-                                failures += 1
-                                failed_ids.append(f"{rid}: {str(retry_e)[:100]}")
-                                _logger().warning(
-                                    f"Unique-violation inserting into {table_name} "
-                                    f"(id={rid}, constraint={constraint}): "
-                                    f"resolved existing row {existing_id}; "
-                                    f"re-upsert failed: {retry_e}"
-                                )
-                                continue
-                            successes += 1
-                            _logger().warning(
-                                f"Unique-violation inserting into {table_name} "
-                                f"(id={rid}, constraint={constraint}): resolved "
-                                f"existing row {existing_id}; re-executing upsert."
-                            )
-                            continue
+                    recovery = _recover_unique_violation_row(
+                        exc=inner_e,
+                        conn=conn,
+                        cur=cur,
+                        upsert_sql=upsert_sql,
+                        table_name=table_name,
+                        resource_id=rid,
+                        resource_json=rjson,
+                        txid=txid_base + batch_start + i,
+                        serialize=_orjson_text,
+                    )
+                    if recovery.existing_id is None:
+                        failures += 1
+                        failed_ids.append(f"{rid}: {recovery.failure_label}")
+                        continue
+                    successes += 1
+                    recovered += 1
 
-                    failures += 1
-                    failed_ids.append(f"{rid}: {_error_label(inner_e, table_name)}")
-                    if _is_unique_violation(inner_e):
-                        _logger().warning(
-                            f"Unique-violation inserting into {table_name} "
-                            f"(id={rid}, constraint={_constraint_name(inner_e)}): "
-                            "could not re-resolve an existing row; treating as failure."
-                        )
             fallback_seconds += perf_counter() - fallback_start
 
     _logger().info(
@@ -919,10 +979,10 @@ def _run_dict_upsert_batches(
         f"serialize={serialize_seconds:.3f}s "
         f"executemany={executemany_seconds:.3f}s "
         f"fallback={fallback_seconds:.3f}s "
-        f"successes={successes} failures={failures}"
+        f"successes={successes} failures={failures} recovered={recovered}"
     )
 
-    return successes, failures, failed_ids
+    return UpsertResult(successes, failures, failed_ids, recovered)
 
 
 # ---------------------------------------------------------------------------

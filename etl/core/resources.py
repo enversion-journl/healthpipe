@@ -305,6 +305,36 @@ def _ifdb_oracle_output_type_handler(cursor, metadata):
     return None
 
 
+def _epji_oracle_output_type_handler(cursor, metadata):
+    """Connection-wide fetch bindings for EPJI Oracle.
+
+    Same two concerns as ``_ifdb_oracle_output_type_handler`` (a cursor-level
+    handler would *replace* it, so everything lives here):
+
+    - Strings decode from WE8ISO8859P1 (EPJI's NLS_CHARACTERSET, confirmed
+      against prod-epjsyd — distinct from IFDB's WE8MSWIN1252, though the two
+      agree on the Danish letters æ/ø/å) with ``encoding_errors="replace"`` so
+      a stray undecodable byte degrades to U+FFFD instead of failing the fetch.
+    - CLOB/NCLOB (and BLOB) fetch inline instead of as LOB locators, avoiding
+      a per-row round trip for ``LOB.read()``.
+    """
+    if metadata.type_code in (
+        oracledb.DB_TYPE_VARCHAR,
+        oracledb.DB_TYPE_CHAR,
+        oracledb.DB_TYPE_LONG,
+        oracledb.DB_TYPE_NVARCHAR,
+        oracledb.DB_TYPE_NCHAR,
+    ):
+        return cursor.var(str, arraysize=cursor.arraysize, encoding_errors="replace")
+    if metadata.type_code in (oracledb.DB_TYPE_CLOB, oracledb.DB_TYPE_NCLOB):
+        return cursor.var(
+            oracledb.DB_TYPE_LONG, arraysize=cursor.arraysize, encoding_errors="replace"
+        )
+    if metadata.type_code is oracledb.DB_TYPE_BLOB:
+        return cursor.var(oracledb.DB_TYPE_LONG_RAW, arraysize=cursor.arraysize)
+    return None
+
+
 class IFDBOracleResource(dg.ConfigurableResource):
     """
     A Dagster resource for connecting to the IFDB Oracle database.
@@ -339,6 +369,43 @@ class IFDBOracleResource(dg.ConfigurableResource):
 
         try:
             # Set the current schema for the session
+            cursor = conn.cursor()
+            try:
+                cursor.execute(f"ALTER SESSION SET CURRENT_SCHEMA = {self.schema_name}")
+            finally:
+                cursor.close()
+            yield conn
+        finally:
+            conn.close()
+
+
+class EPJIOracleResource(dg.ConfigurableResource):
+    """EPJI DWH (location + location_identifier), Oracle. Service accounts: svc-healthpipepov-dwh-*.
+
+    location_identifier has no update timestamp; callers must full-snapshot the
+    mapping each run so in-place SOR identifier changes are picked up.
+    """
+
+    host: str = dg.EnvVar("EPJI_ORACLE_SERVER")
+    port: int = dg.EnvVar.int("EPJI_ORACLE_PORT")
+    database: str = dg.EnvVar("EPJI_ORACLE_DATABASE")
+    user: str = dg.EnvVar("EPJI_ORACLE_USERNAME")
+    password: str = dg.EnvVar("EPJI_ORACLE_PASSWORD")
+    schema_name: str = dg.EnvVar("EPJI_ORACLE_SCHEMA")
+
+    @contextmanager
+    def get_connection(self):
+        """Yield an oracledb connection to the EPJI DWH and close it on exit.
+
+        Encoding: output type handler decodes WE8ISO8859P1 free text (e.g.
+        LOCATION.NAME) so Danish characters (æ, ø, å) survive the fetch.
+        """
+        user = self.user if '"' in self.user else f'"{self.user}"'
+        dsn = oracledb.makedsn(self.host, self.port, service_name=self.database)
+        conn = oracledb.connect(user=user, password=self.password, dsn=dsn)
+        conn.outputtypehandler = _epji_oracle_output_type_handler
+
+        try:
             cursor = conn.cursor()
             try:
                 cursor.execute(f"ALTER SESSION SET CURRENT_SCHEMA = {self.schema_name}")
@@ -2494,7 +2561,7 @@ class FHIRDatabaseResource(dg.ConfigurableResource):
         resource_type: str,
         batch_size: int = 2000,
         invalidate_cache: bool = True,
-    ) -> tuple[int, int, list[str]]:
+    ) -> _direct_upsert.UpsertResult:
         return _direct_upsert.batch_upsert_resources(
             self,
             resources=resources,
@@ -2510,7 +2577,7 @@ class FHIRDatabaseResource(dg.ConfigurableResource):
         batch_size: int = 2000,
         invalidate_cache: bool = True,
         max_workers: int | None = None,
-    ) -> tuple[int, int, list[str]]:
+    ) -> _direct_upsert.UpsertResult:
         return _direct_upsert.batch_upsert_resource_dicts(
             self,
             resource_dicts=resource_dicts,
@@ -2549,7 +2616,7 @@ class FHIRDatabaseResource(dg.ConfigurableResource):
         prepared: list[tuple[str, dict]],
         resource_type: str,
         batch_size: int,
-    ) -> tuple[int, int, list[str]]:
+    ) -> _direct_upsert.UpsertResult:
         return _direct_upsert._upsert_dicts_single_connection(
             self,
             prepared=prepared,
@@ -2564,7 +2631,7 @@ class FHIRDatabaseResource(dg.ConfigurableResource):
         resource_type: str,
         batch_size: int,
         workers: int,
-    ) -> tuple[int, int, list[str]]:
+    ) -> _direct_upsert.UpsertResult:
         return _direct_upsert._upsert_dicts_sharded(
             self,
             prepared=prepared,
@@ -2583,7 +2650,7 @@ class FHIRDatabaseResource(dg.ConfigurableResource):
         table_name: str,
         batch_size: int,
         txid_base: int,
-    ) -> tuple[int, int, list[str]]:
+    ) -> _direct_upsert.UpsertResult:
         return _direct_upsert._upsert_dicts_shard_worker(
             self,
             shard_rows=shard_rows,
@@ -2601,7 +2668,7 @@ class FHIRDatabaseResource(dg.ConfigurableResource):
         table_name: str,
         batch_size: int,
         txid_base: int,
-    ) -> tuple[int, int, list[str]]:
+    ) -> _direct_upsert.UpsertResult:
         return _direct_upsert._run_dict_upsert_batches(
             cur=cur,
             conn=conn,

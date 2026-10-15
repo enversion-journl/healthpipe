@@ -243,6 +243,9 @@ id_rsa*
 # (mcp.json also holds local DB credentials).
 /.cursor/
 gitlab-cicd-verified-project/
+
+# Git Nexus + CRG files
 .gitnexus/
 .gitnexus
 .code-review-graph/
+tmp/*

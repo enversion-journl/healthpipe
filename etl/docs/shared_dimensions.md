@@ -75,7 +75,7 @@ LEFT JOIN dim.Borger db
 
 ## Scheduling
 
-Borger runs as part of `fhir_ifdb_dfm_sof_dso_job` (sensor-triggered after the 06:00 `fhir_ifdb_dfm_base_job`), after `sof_patient_dfm` / `sof_patient_address_dfm` in the same run. Selection is by explicit asset keys so Organisation assets sharing the `ref` / `shared_dimensions_dso_sync` groups are not included.
+Borger runs as part of `ifdb_dfm_daily_job` (06:00 CET), after `sof_patient_dfm` / `sof_patient_address_dfm` in the same run. Selection is by explicit asset keys so Organisation assets sharing the `ref` / `shared_dimensions_dso_sync` groups are not included.
 
 Organisation remains on `organisation_cs_job` (`organization_daily_schedule`, 01:00).
 
@@ -90,7 +90,7 @@ SharedDimensions are "foundational" — Borger is populated daily via the FHIR D
 ## Execution Order
 
 ```
-1. FHIR DFM SOF → Borger (fhir_ifdb_dfm_sof_dso_job)
+1. FHIR DFM SOF → Borger (ifdb_dfm_daily_job)
    sof_patient_dfm / sof_patient_address_dfm
      → ref_patient_borger → ref_patient_address_borger
      → dim_Borger → dso_sync_dim_borger

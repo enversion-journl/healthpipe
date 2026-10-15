@@ -349,6 +349,14 @@ SHARED_DIMS_DIM_CONFIGS = {
         watermark_column="dw_timestamp_update",
         insert_only_columns=["dw_timestamp_insert"],
     ),
+    "dim_SHAKAlike": SyncTableConfig(
+        schema="dim",
+        table="SHAKAlike",
+        primary_key="dw_ek_SHAKAlike",
+        mode="watermark",
+        watermark_column="dw_timestamp_update",
+        insert_only_columns=["dw_timestamp_insert"],
+    ),
 }
 
 # Combined shared dimensions configs
@@ -522,6 +530,25 @@ CODESYSTEM_SYNC_CONFIGS = {
         primary_key=["parent_code", "child_code"],
         mode="truncate_insert",
     ),
+    # SHAK-a-like (EPJI)
+    "codesystem_shakalike_concept": SyncTableConfig(
+        schema="codesystem",
+        table="SHAKAlikeConcept",
+        primary_key="code",
+        mode="truncate_insert",
+    ),
+    "codesystem_shakalike_properties": SyncTableConfig(
+        schema="codesystem",
+        table="SHAKAlikeProperties",
+        primary_key=["code", "property_code"],
+        mode="truncate_insert",
+    ),
+    "codesystem_shakalike_hierarchy": SyncTableConfig(
+        schema="codesystem",
+        table="SHAKAlikeHierarchy",
+        primary_key=["parent_code", "child_code"],
+        mode="truncate_insert",
+    ),
     # Rekvirent
     "codesystem_rekvirent_concept": SyncTableConfig(
         schema="codesystem",
@@ -584,6 +611,7 @@ FHIR_SYNC_CONFIGS = {
         mode="watermark",
         watermark_column="dw_timestamp_update",
         exclude_columns=["dw_timestamp_effective"],
+        watermark_effective_column="dw_timestamp_effective",
     ),
     "fhir_questionnaire": SyncTableConfig(
         schema="fhir",
@@ -599,6 +627,12 @@ FHIR_SYNC_CONFIGS = {
         mode="watermark",
         watermark_column="dw_timestamp_update",
     ),
+    # De to største FHIR-tabeller (20,9 mio. QR / 29,8 mio. items efter to
+    # kvartaler). Under backfill-vinduer er deltaet på størrelse med målet, og
+    # MERGE'ns tid gik 64 % til tilfældige sidelæsninger i de sekundære indeks.
+    # Frakoblingen er portet: kun når deltaet er både stort og stort i forhold
+    # til målet (se _should_disable_target_indexes); den daglige delta beholder
+    # alle indeks.
     "fhir_questionnaire_response": SyncTableConfig(
         schema="fhir",
         table="QuestionnaireResponse",
@@ -606,6 +640,8 @@ FHIR_SYNC_CONFIGS = {
         mode="watermark",
         watermark_column="dw_timestamp_update",
         exclude_columns=["dw_timestamp_effective"],
+        watermark_effective_column="dw_timestamp_effective",
+        disable_target_indexes_during_sync=True,
     ),
     "fhir_questionnaire_response_item": SyncTableConfig(
         schema="fhir",
@@ -614,6 +650,8 @@ FHIR_SYNC_CONFIGS = {
         mode="watermark",
         watermark_column="dw_timestamp_update",
         exclude_columns=["dw_timestamp_effective"],
+        watermark_effective_column="dw_timestamp_effective",
+        disable_target_indexes_during_sync=True,
     ),
     "fhir_procedure": SyncTableConfig(
         schema="fhir",
@@ -772,6 +810,14 @@ CONCEPTMAP_SYNC_CONFIGS = {
         table="SHAKToSOR",
         source_table="vw_shak_to_sor",
         primary_key=["dw_ek_SHAK"],
+        mode="watermark",
+        watermark_column="dw_timestamp_update",
+    ),
+    "conceptmap_shakalike_to_sor": SyncTableConfig(
+        schema="conceptmap",
+        table="SHAKAlikeToSOR",
+        source_table="vw_shakalike_to_sor",
+        primary_key=["dw_ek_SHAKAlike"],
         mode="watermark",
         watermark_column="dw_timestamp_update",
     ),

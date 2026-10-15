@@ -7,17 +7,17 @@
 """IFDB DFM pipeline schedule."""
 
 import dagster as dg
-from jobs.ifdb_dfm_jobs import fhir_ifdb_dfm_base_job
+from jobs.ifdb_dfm_jobs import ifdb_dfm_daily_job
 from schedules.schedule_default_status import get_schedule_default_status
 
-ifdb_dfm_base_schedule = dg.ScheduleDefinition(
-    job=fhir_ifdb_dfm_base_job,
+ifdb_dfm_daily_schedule = dg.ScheduleDefinition(
+    job=ifdb_dfm_daily_job,
     cron_schedule="0 6 * * *",
     execution_timezone="Europe/Copenhagen",
     default_status=get_schedule_default_status(),
     description=(
-        "Trigger the DFM FHIR base job daily at 06:00 CET. "
-        "On success, the run_status_sensor triggers the remaining daily job "
-        "(CarePlan) and the DFM SOF+DSO job (incl. SFI_datapoint refresh)."
+        "Trigger the whole IFDB → FHIR pipeline daily at 06:00 CET: "
+        "Oracle → ext → arc → FHIR server → SOF → DSO, then the Borger chain "
+        "and the SFI_datapoint refresh. One job — no downstream sensor chain."
     ),
 )

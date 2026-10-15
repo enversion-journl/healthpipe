@@ -6,11 +6,13 @@
 
 """Transform, post, and chunk orchestration for AKTIVITETSRESULTAT."""
 
+from collections.abc import Callable
+from dataclasses import dataclass
 from time import perf_counter
 from typing import Any
 
 import dagster as dg
-from core.fhir.child_resource_reconcile import RetireCeiling
+from core.fhir.child_resource_reconcile import ChildFamily, RetireCeiling
 from core.parallel import ParallelCall, run_parallel_calls
 from core.resources import FHIRDatabaseResource, IFDBOracleResource, MSSQLResource
 from DSA.CodeSystem.sfi.catalog import (
@@ -61,7 +63,6 @@ from DSA.FHIR.utils.ifdb.aktivitetsresultat_config import (
     _AKTIVITETSRESULTAT_CHUNK_SIZE,
     _FAST_MODE,
     _OBS_BUILD_STAGE,
-    _SFI_MODE,
 )
 from DSA.FHIR.utils.ifdb.aktivitetsresultat_identifiers import _sfi_identifier_value
 from DSA.FHIR.utils.ifdb.dict_validation import (
@@ -69,7 +70,10 @@ from DSA.FHIR.utils.ifdb.dict_validation import (
     _validate_observation_dicts_sample,
     _validate_procedure_dicts_sample,
 )
-from DSA.FHIR.utils.ifdb.posting_config import retire_ceiling_from_context
+from DSA.FHIR.utils.ifdb.posting_config import (
+    aktivitetsresultat_chunk_size_from_context,
+    retire_ceiling_from_context,
+)
 from DSA.FHIR.utils.ifdb.routing import RoutingResolver
 from DSA.FHIR.utils.ifdb.transforms import normalize_oracle_id as _normalize_oracle_id
 from DSA.FHIR.utils.ifdb.xml_aktivitetsresultat import (
@@ -78,6 +82,7 @@ from DSA.FHIR.utils.ifdb.xml_aktivitetsresultat import (
 )
 from DSA.FHIR.utils.ifdb.xml_child_reconcile import (
     FAMILY_DELOP,
+    FAMILY_SFI_OBS,
     FAMILY_XML_CONDITION,
     reconcile_aktivitetsresultat_xml_children,
 )
@@ -91,9 +96,6 @@ from DSA.FHIR.utils.reference_resolver import (
 )
 from utils.fhir.fhir_extensions import EXTENSION_EPISODE_OF_CARE
 from utils.fhir.identifier_systems import (
-    SYSTEM_IFDB_AKTIVITETSRESULTAT_PROCEDURE,
-    SYSTEM_IFDB_AKTIVITETSRESULTAT_SFI,
-    SYSTEM_IFDB_AKTIVITETSRESULTAT_XML_CONDITION,
     SYSTEM_IFDB_EPISODE_OF_CARE_ID,
     SYSTEM_IFDB_OBJECT_ID,
     SYSTEM_IFDB_PATIENT_ID,
@@ -244,38 +246,82 @@ def _hydrate_lookups_for_rows(
     return udf_lookup, speciale_lookup
 
 
-def _pre_resolve_chunk_sfi_observation_ids(
+@dataclass(frozen=True)
+class ChunkIdSpec:
+    """Chunk-opslaget for én barnefamilie: hvad der samles, og hvor det flettes ind.
+
+    Familien ejer ressourcetype, identifier-system og barne-id-formatet
+    (``ChildFamily.child_value``); ``collect`` ejer, hvilke XML-elementer i
+    chunken der bliver til børn. Det er hele forskellen mellem familierne —
+    selve opslaget er ens og ligger ét sted, i ``_pre_resolve_chunk_ids``.
+    """
+
+    family: ChildFamily
+    collect: Callable[
+        [list[dict[str, Any]], list[list[AktivitetsresultatRow] | None]],
+        list[str],
+    ]
+    label: str
+
+
+_SFI_OBS_ID_SPEC = ChunkIdSpec(FAMILY_SFI_OBS, _collect_chunk_sfi_identifiers, "SFI")
+_XML_CONDITION_ID_SPEC = ChunkIdSpec(
+    FAMILY_XML_CONDITION, _collect_chunk_xml_condition_identifiers, "XMLCondition"
+)
+_DELOP_ID_SPEC = ChunkIdSpec(FAMILY_DELOP, _collect_chunk_delop_procedure_identifiers, "Delop")
+
+# Rækkefølgen er den hidtidige: SFI-observationer, XML-diagnoser, deloperationer.
+_CHUNK_ID_SPECS: tuple[ChunkIdSpec, ...] = (
+    _SFI_OBS_ID_SPEC,
+    _XML_CONDITION_ID_SPEC,
+    _DELOP_ID_SPEC,
+)
+
+
+def _pre_resolve_chunk_ids(
+    spec: ChunkIdSpec,
     *,
     fhir_database: FHIRDatabaseResource,
     resolved: ResolvedRefLookup,
-    chunk_sfi_identifiers: list[str],
+    rows: list[dict[str, Any]],
+    parsed_rows: list[list[AktivitetsresultatRow] | None],
     logger: Any,
 ) -> None:
-    if not chunk_sfi_identifiers:
+    """Slå chunkens eksisterende børn op for én familie og flet dem ind i opslaget.
+
+    Kun værdier, partitionens opslag ikke allerede kender, spørges der efter i
+    databasen. Uden opslaget ville byggeren minte et nyt id til et barn, der
+    allerede findes, og upserten ramme identifier-indekset — dét er den
+    manglende pre-resolve, som recovery-tælleren i materialiserings-metadata
+    afslører.
+    """
+    identifiers = spec.collect(rows, parsed_rows)
+    if not identifiers:
         return
 
-    # Keep existing resolved IDs in-memory; only query for unresolved identifiers.
-    observation_lookup = resolved.lookups_by_resource_type()["Observation"]
+    family = spec.family
+    lookup = resolved.lookups_by_resource_type()[family.resource_type]
     missing = [
-        value
-        for value in chunk_sfi_identifiers
-        if observation_lookup.get((SYSTEM_IFDB_AKTIVITETSRESULTAT_SFI, value)) is None
+        value for value in identifiers if lookup.get((family.identifier_system, value)) is None
     ]
     if not missing:
         return
 
     start = perf_counter()
     resolved_values = fhir_database.resolve_identifier_values(
-        resource_type="Observation",
-        identifier_system=SYSTEM_IFDB_AKTIVITETSRESULTAT_SFI,
+        resource_type=family.resource_type,
+        identifier_system=family.identifier_system,
         values=missing,
     )
-    added = resolved.merge_observation_identifiers(
-        SYSTEM_IFDB_AKTIVITETSRESULTAT_SFI,
+    added = resolved.merge_identifiers(
+        family.resource_type,
+        family.identifier_system,
         resolved_values,
     )
     logger.info(
-        "[SFI] chunk-scope SFI lookup: requested=%d resolved=%d added_to_cache=%d elapsed=%.2fs",
+        "[%s] chunk-scope %s lookup: requested=%d resolved=%d added_to_cache=%d elapsed=%.2fs",
+        spec.label,
+        family.resource_type,
         len(missing),
         len(resolved_values),
         added,
@@ -283,80 +329,24 @@ def _pre_resolve_chunk_sfi_observation_ids(
     )
 
 
-def _pre_resolve_chunk_xml_condition_ids(
+def _pre_resolve_chunk_families(
     *,
     fhir_database: FHIRDatabaseResource,
     resolved: ResolvedRefLookup,
-    chunk_xml_condition_identifiers: list[str],
+    rows: list[dict[str, Any]],
+    parsed_rows: list[list[AktivitetsresultatRow] | None],
     logger: Any,
 ) -> None:
-    if not chunk_xml_condition_identifiers:
-        return
-
-    condition_lookup = resolved.lookups_by_resource_type()["Condition"]
-    missing = [
-        value
-        for value in chunk_xml_condition_identifiers
-        if condition_lookup.get((SYSTEM_IFDB_AKTIVITETSRESULTAT_XML_CONDITION, value)) is None
-    ]
-    if not missing:
-        return
-
-    start = perf_counter()
-    resolved_values = fhir_database.resolve_identifier_values(
-        resource_type="Condition",
-        identifier_system=SYSTEM_IFDB_AKTIVITETSRESULTAT_XML_CONDITION,
-        values=missing,
-    )
-    added = resolved.merge_condition_identifiers(
-        SYSTEM_IFDB_AKTIVITETSRESULTAT_XML_CONDITION,
-        resolved_values,
-    )
-    logger.info(
-        "[XMLCondition] chunk XML Condition lookup: requested=%d resolved=%d added_to_cache=%d elapsed=%.2fs",
-        len(missing),
-        len(resolved_values),
-        added,
-        perf_counter() - start,
-    )
-
-
-def _pre_resolve_chunk_delop_procedure_ids(
-    *,
-    fhir_database: FHIRDatabaseResource,
-    resolved: ResolvedRefLookup,
-    chunk_delop_identifiers: list[str],
-    logger: Any,
-) -> None:
-    if not chunk_delop_identifiers:
-        return
-
-    procedure_lookup = resolved.lookups_by_resource_type()["Procedure"]
-    missing = [
-        value
-        for value in chunk_delop_identifiers
-        if procedure_lookup.get((SYSTEM_IFDB_AKTIVITETSRESULTAT_PROCEDURE, value)) is None
-    ]
-    if not missing:
-        return
-
-    start = perf_counter()
-    resolved_values = fhir_database.resolve_identifier_values(
-        resource_type="Procedure",
-        identifier_system=SYSTEM_IFDB_AKTIVITETSRESULTAT_PROCEDURE,
-        values=missing,
-    )
-    added = resolved.merge_procedure_identifiers(
-        SYSTEM_IFDB_AKTIVITETSRESULTAT_PROCEDURE,
-        resolved_values,
-    )
-    logger.info(
-        "[Delop] chunk Procedure lookup: requested=%d resolved=%d added_to_cache=%d elapsed=%.2fs",
-        len(missing),
-        len(resolved_values),
-        added,
-        perf_counter() - start,
-    )
+    """Alle barnefamilier — samme opslag i samme rækkefølge, uanset sti."""
+    for spec in _CHUNK_ID_SPECS:
+        _pre_resolve_chunk_ids(
+            spec,
+            fhir_database=fhir_database,
+            resolved=resolved,
+            rows=rows,
+            parsed_rows=parsed_rows,
+            logger=logger,
+        )
 
 
 def _dedupe_chunk_families(
@@ -577,47 +567,22 @@ def _transform_aktivitetsresultat_to_fhir_dicts(
     resolved: ResolvedRefLookup | None = None,
     udf_lookup: dict[str, dict[str, Any]] | None = None,
     speciale_lookup: dict[str, list[dict[str, Any]]] | None = None,
-    routing_resolver: RoutingResolver | None = None,
-    routing_decision_sink: list[dict[str, str | None]] | None = None,
     fhir_database: FHIRDatabaseResource | None = None,
 ) -> tuple[list[tuple[str, dict]], list[tuple[str, dict]], list[tuple[str, dict]]]:
-    """Transform AKTIVITETSRESULTAT rows to FHIR Observation + Procedure/Condition dicts.
+    """Legacy-transformen (SFI-mode slået fra): rækker til Observation + Procedure/Condition.
 
     Returns ``(observation_dicts, procedure_dicts, condition_dicts)``.
 
     Rows where ``AKTIVITETTYPE_KODE`` is an SKS procedure or diagnosis code
     additionally produce a Procedure or Condition dict alongside the Observation.
+
+    SFI-sporene bygges ikke her, men i ``_transform_chunk``. Et tidligere
+    SFI-spor i denne funktion var uden kaldere fra orkestreringen og er
+    fjernet, så barnefamiliernes opslag kun findes ét sted.
     """
     logger = dg.get_dagster_logger()
 
-    if _sfi_mode_enabled():
-        # SFI per-element pipeline. The fast (Navn,Vaerdi) parser drops the
-        # metadata the SFI extractor needs, so
-        # the lossless parser is always used in SFI mode regardless of
-        # IFDB_XML_FAST_MODE.
-        logger.info(
-            "AKTIVITETSRESULTAT dict-pipeline mode: SFI per-element (%s)",
-            _SFI_MODE,
-        )
-        parsed_rows, _kontekst_rows, _ = _parse_xml_lossless_for_rows(rows, logger)
-        if resolved is not None and fhir_database is not None:
-            _pre_resolve_chunk_delop_procedure_ids(
-                fhir_database=fhir_database,
-                resolved=resolved,
-                chunk_delop_identifiers=_collect_chunk_delop_procedure_identifiers(
-                    rows, parsed_rows
-                ),
-                logger=logger,
-            )
-        obs_dicts, proc_dicts, cond_dicts, _ = _build_sfi_observation_dicts_for_rows(
-            rows=rows,
-            parsed_data_by_index=parsed_rows,
-            logger=logger,
-            resolved=resolved,
-            routing_resolver=routing_resolver,
-            routing_decision_sink=routing_decision_sink,
-        )
-    elif _FAST_MODE:
+    if _FAST_MODE:
         logger.info("AKTIVITETSRESULTAT dict-pipeline mode: FAST (Navn/Vaerdi projection)")
         parsed_components, _ = _parse_xml_components_for_rows(rows, logger)
         obs_dicts, proc_dicts, cond_dicts, _ = _build_observation_dicts_for_rows(
@@ -632,12 +597,12 @@ def _transform_aktivitetsresultat_to_fhir_dicts(
         logger.info("AKTIVITETSRESULTAT dict-pipeline mode: LOSSLESS (all C# fields)")
         parsed_rows, kontekst_rows, _ = _parse_xml_lossless_for_rows(rows, logger)
         if resolved is not None and fhir_database is not None:
-            _pre_resolve_chunk_delop_procedure_ids(
+            _pre_resolve_chunk_ids(
+                _DELOP_ID_SPEC,
                 fhir_database=fhir_database,
                 resolved=resolved,
-                chunk_delop_identifiers=_collect_chunk_delop_procedure_identifiers(
-                    rows, parsed_rows
-                ),
+                rows=rows,
+                parsed_rows=parsed_rows,
                 logger=logger,
             )
         obs_dicts, proc_dicts, cond_dicts, _ = _build_observation_dicts_for_rows(
@@ -665,6 +630,281 @@ def _transform_aktivitetsresultat_to_fhir_dicts(
     return obs_dicts, proc_dicts, cond_dicts
 
 
+# Chunk-posten: højst én tråd pr. ressourcefamilie (Observation, Procedure,
+# Condition). Cache-politikken står ved kaldet — invalidate_cache=False, fordi
+# partitionens id'er er låst via de forvarmede opslag, og én samlet rydning
+# sker i pipelinens finally.
+_POST_FAMILY_MAX_WORKERS = 3
+_CHUNK_FAMILIES: tuple[str, ...] = ("Observation", "Procedure", "Condition")
+
+
+@dataclass(frozen=True)
+class _PostCounts:
+    """Postede, fejlede og genoprettede rækker for ét post-kald — eller summen af flere."""
+
+    posted: int = 0
+    failed: int = 0
+    recovered: int = 0
+
+    def __add__(self, other: "_PostCounts") -> "_PostCounts":
+        return _PostCounts(
+            self.posted + other.posted,
+            self.failed + other.failed,
+            self.recovered + other.recovered,
+        )
+
+    @classmethod
+    def from_result(cls, result: dg.MaterializeResult | None) -> "_PostCounts":
+        if result is None:
+            return cls()
+        return cls(
+            posted=_metadata_int(result, "posted_count"),
+            failed=_metadata_int(result, "failed_count"),
+            recovered=_metadata_int(result, "unique_violation_recovered_count"),
+        )
+
+
+@dataclass(frozen=True)
+class _ChunkTally:
+    """Det, én chunk efterlader til kaldestedets sammenlægning — og intet andet."""
+
+    families: dict[str, _PostCounts]
+    duplicates_removed: int
+    questionnaire_ids: list[str]
+    questionnaire_failed: int
+    questionnaire_recovered: int
+    questionnaire_responses: _PostCounts
+
+
+def _transform_chunk(
+    *,
+    chunk: list[dict[str, Any]],
+    context: dg.AssetExecutionContext,
+    fhir_database: FHIRDatabaseResource,
+    resolved: ResolvedRefLookup,
+    udf_lookup: dict[str, dict[str, Any]],
+    speciale_lookup: dict[str, list[dict[str, Any]]],
+    routing_resolver: RoutingResolver | None,
+    routing_decisions: list[dict[str, str | None]],
+    sfi_catalog_sink: dict[str, list[SfiElement]] | None,
+    questionnaires_by_id: dict[str, dict],
+    dirty_questionnaire_ids: list[str],
+    unified_sfi_outputs: bool,
+    logger: Any,
+) -> tuple[
+    list[tuple[str, dict]],
+    list[tuple[str, dict]],
+    list[tuple[str, dict]],
+    list[tuple[str, dict]],
+    list[list[AktivitetsresultatRow] | None] | None,
+    int,
+]:
+    """Byg chunkens dicts ad den sti, kørselstilstanden vælger.
+
+    Returnerer ``(observationer, procedurer, conditions, qr'er, parsede rækker,
+    byggefejl)``. De parsede rækker er ``None`` på legacy-sporet — dér findes
+    ingen forventet børnemængde, og reconcile skal derfor ikke køre (se
+    ``_reconcile_posted_xml_children``).
+
+    Sporene:
+    - SFI med skema-output (produktionskaldet): lossless parse, opslag af
+      alle barnefamilier, samlet bygning af Observation/Procedure/Condition/QR.
+    - SFI uden skema-output: samme parse og opslag, kun de tre familier.
+    - Legacy: den hidtidige transform (FAST eller LOSSLESS).
+    """
+    if _sfi_mode_enabled():
+        parsed_rows, kontekst_rows, _ = _parse_xml_lossless_for_rows(chunk, logger)
+        _pre_resolve_chunk_families(
+            fhir_database=fhir_database,
+            resolved=resolved,
+            rows=chunk,
+            parsed_rows=parsed_rows,
+            logger=logger,
+        )
+        if unified_sfi_outputs:
+            obs_dicts, proc_dicts, cond_dicts, qr_dicts, build_errors = (
+                _build_sfi_unified_dicts_for_rows(
+                    rows=chunk,
+                    parsed_data_by_index=parsed_rows,
+                    kontekst_by_index=kontekst_rows,
+                    logger=logger,
+                    resolved=resolved,
+                    routing_resolver=routing_resolver,
+                    routing_decision_sink=routing_decisions,
+                    questionnaires_by_id=questionnaires_by_id,
+                    dirty_questionnaire_ids=dirty_questionnaire_ids,
+                    sfi_catalog_sink=sfi_catalog_sink,
+                )
+            )
+            return obs_dicts, proc_dicts, cond_dicts, qr_dicts, parsed_rows, build_errors
+
+        obs_dicts, proc_dicts, cond_dicts, build_errors = _build_sfi_observation_dicts_for_rows(
+            rows=chunk,
+            parsed_data_by_index=parsed_rows,
+            logger=logger,
+            resolved=resolved,
+            routing_resolver=routing_resolver,
+            routing_decision_sink=routing_decisions,
+            sfi_catalog_sink=sfi_catalog_sink,
+        )
+        return obs_dicts, proc_dicts, cond_dicts, [], parsed_rows, build_errors
+
+    obs_dicts, proc_dicts, cond_dicts = _transform_aktivitetsresultat_to_fhir_dicts(
+        chunk,
+        context,
+        resolved=resolved,
+        udf_lookup=udf_lookup,
+        speciale_lookup=speciale_lookup,
+        fhir_database=fhir_database,
+    )
+    return obs_dicts, proc_dicts, cond_dicts, [], None, 0
+
+
+def _process_chunk(
+    *,
+    chunk: list[dict[str, Any]],
+    chunk_idx: int,
+    n_chunks: int,
+    context: dg.AssetExecutionContext,
+    ifdb_oracle: IFDBOracleResource | None,
+    fhir_database: FHIRDatabaseResource,
+    mssql_target_staging: MSSQLResource | None,
+    resolved: ResolvedRefLookup,
+    routing_resolver: RoutingResolver | None,
+    sfi_catalog_sink: dict[str, list[SfiElement]] | None,
+    questionnaires_by_id: dict[str, dict],
+    unified_sfi_outputs: bool,
+    retire_ceiling: RetireCeiling | None,
+    logger: Any,
+) -> _ChunkTally:
+    """Én chunk fra rækker til postede ressourcer — den ENESTE sti gennem chunk-forløbet.
+
+    Kaldestedet kender kun løkken og sammenlægningen; alt, hvad der sker med
+    en chunk, sker her og i samme rækkefølge, uanset om kørslen har én eller
+    tusind chunks: opslag → parse og byg → dubletfrasortering → post →
+    oprydning af forsvundne XML-børn → skema-sideudgange → frigivelse af
+    chunkens id'er.
+    """
+    from DSA.FHIR.utils.ifdb.fhir_posting import post_resource_dicts_direct
+
+    logger.info("Chunk %d/%d: transforming %d rows", chunk_idx, n_chunks, len(chunk))
+    fhir_database.log_identifier_lookup_status(
+        f"pre-chunk-{chunk_idx}",
+        resolved.lookups_by_resource_type(),
+    )
+    fhir_database.suspend_identifier_caches()
+
+    routing_decisions: list[dict[str, str | None]] = []
+    dirty_questionnaire_ids: list[str] = []
+    # UDF/speciale-opslagene er chunk-lokale: hver række slår kun sin egen
+    # udførelse op, og udførelserne i én chunk går stort set aldrig igen i
+    # de næste. Deles opslagene på tværs af chunks, vokser de med én
+    # arkivrække pr. udførelse i hele perioden (millioner ved backfill),
+    # og barneprocessen dræbes. Start derfor fra tomme opslag pr. chunk.
+    udf_lookup, speciale_lookup = _hydrate_lookups_for_rows(
+        ifdb_oracle=ifdb_oracle,
+        context=context,
+        rows=chunk,
+        udf_lookup={},
+        speciale_lookup={},
+        mssql_target_staging=mssql_target_staging,
+    )
+    obs_dicts, proc_dicts, cond_dicts, qr_dicts, parsed_rows, build_errors = _transform_chunk(
+        chunk=chunk,
+        context=context,
+        fhir_database=fhir_database,
+        resolved=resolved,
+        udf_lookup=udf_lookup,
+        speciale_lookup=speciale_lookup,
+        routing_resolver=routing_resolver,
+        routing_decisions=routing_decisions,
+        sfi_catalog_sink=sfi_catalog_sink,
+        questionnaires_by_id=questionnaires_by_id,
+        dirty_questionnaire_ids=dirty_questionnaire_ids,
+        unified_sfi_outputs=unified_sfi_outputs,
+        logger=logger,
+    )
+    obs_dicts, proc_dicts, cond_dicts, qr_dicts, dup_counts = _dedupe_chunk_families(
+        obs_dicts, proc_dicts, cond_dicts, qr_dicts, logger
+    )
+    _log_sfi_routing_summary(
+        logger,
+        routing_decisions,
+        label=f"chunk {chunk_idx}/{n_chunks}",
+    )
+
+    families = _post_chunk_families(
+        context=context,
+        observation_dicts=obs_dicts,
+        procedure_dicts=proc_dicts,
+        condition_dicts=cond_dicts,
+        fhir_database=fhir_database,
+        extracted_count=len(chunk),
+        stage_id=f"ifdb.observation.post.chunk.{chunk_idx}",
+        thread_name_prefix=f"aktres-post-c{chunk_idx}",
+        max_workers=_POST_FAMILY_MAX_WORKERS,
+        invalidate_cache=False,
+    )
+    _reconcile_posted_xml_children(
+        fhir_database=fhir_database,
+        rows=chunk,
+        parsed_data_by_index=parsed_rows,
+        observation_dicts=obs_dicts,
+        procedure_dicts=proc_dicts,
+        condition_dicts=cond_dicts,
+        build_errors=build_errors,
+        logger=logger,
+        retire_ceiling=retire_ceiling,
+    )
+
+    questionnaire_ids: list[str] = []
+    questionnaire_failed = 0
+    questionnaire_recovered = 0
+    qr_counts = _PostCounts()
+    if unified_sfi_outputs:
+        _, questionnaire_failed, questionnaire_ids, questionnaire_recovered = (
+            _post_dirty_questionnaires(
+                context=context,
+                questionnaires_by_id=questionnaires_by_id,
+                dirty_questionnaire_ids=dirty_questionnaire_ids,
+                fhir_database=fhir_database,
+            )
+        )
+        if qr_dicts:
+            qr_counts = _PostCounts.from_result(
+                post_resource_dicts_direct(
+                    context=context,
+                    resource_dicts=qr_dicts,
+                    fhir_database=fhir_database,
+                    resource_type="QuestionnaireResponse",
+                    source_name="ifdb_oracle",
+                    extracted_count=len(qr_dicts),
+                    invalidate_cache=False,
+                )
+            )
+
+    # Chunken er postet — hverken de mintede id'er (nye rækker) eller de
+    # flettede opslag (genpostede rækker) behøves længere: kildenøglen er
+    # unik pr. række, og næste chunk slår sine identifikatorer op selv.
+    released_ids = resolved.release_chunk_scoped_ids()
+    if released_ids:
+        logger.info(
+            "Chunk %d/%d: frigav %d chunk-lokale id-poster",
+            chunk_idx,
+            n_chunks,
+            released_ids,
+        )
+
+    return _ChunkTally(
+        families=families,
+        duplicates_removed=sum(dup_counts.values()),
+        questionnaire_ids=questionnaire_ids,
+        questionnaire_failed=questionnaire_failed,
+        questionnaire_recovered=questionnaire_recovered,
+        questionnaire_responses=qr_counts,
+    )
+
+
 def _run_aktivitetsresultat_pipeline_chunked(
     *,
     extracted_data: list[dict[str, Any]],
@@ -676,6 +916,10 @@ def _run_aktivitetsresultat_pipeline_chunked(
 ) -> dg.MaterializeResult | tuple[dg.MaterializeResult, dg.MaterializeResult, dg.MaterializeResult]:
     """Transform and post AKTIVITETSRESULTAT Observations + Procedures for a
     single partition using chunked streaming.
+
+    Én sti: hver chunk går gennem ``_process_chunk`` — også når partitionen
+    fylder én chunk. Denne funktion kender kun opsætningen før løkken, løkken
+    selv og sammenlægningen af tællerne bagefter.
 
     Memory semantics:
       - One-time setup outside the chunk loop: dependency resolution + cache
@@ -694,6 +938,8 @@ def _run_aktivitetsresultat_pipeline_chunked(
         chunks, so reference lookups produce the same FHIR UUID for a given
         IFDB identifier regardless of which chunk the row lands in.
       - Output dicts are concatenated in the same order as the input rows.
+      - Materialiserings-metadata har samme form uanset chunk-antal: postede
+        og fejlede pr. familie, dubletter, recovery-tæller og chunk-tal.
 
     Error semantics:
       - A build/post failure in chunk N means chunks 0..N-1 are already
@@ -703,8 +949,6 @@ def _run_aktivitetsresultat_pipeline_chunked(
         is idempotent — the same OBJEKT_ID produces the same FHIR id and
         ON CONFLICT (id) DO UPDATE on the FHIR side.
     """
-    from DSA.FHIR.utils.ifdb.fhir_posting import post_resource_dicts_direct
-
     logger = dg.get_dagster_logger()
     retire_ceiling = retire_ceiling_from_context(context)
     total_rows = len(extracted_data)
@@ -713,10 +957,6 @@ def _run_aktivitetsresultat_pipeline_chunked(
     if unified_sfi_outputs:
         cleanup_resource_types |= {"Questionnaire", "QuestionnaireResponse"}
     questionnaires_by_id: dict[str, dict] = {}
-    q_posted_ids: set[str] = set()
-    q_failed_count = 0
-    qr_posted_count = 0
-    qr_failed_count = 0
 
     # -------- One-time setup (shared across all chunks) --------
     dependency_lookups = _ensure_reference_dependencies(
@@ -736,223 +976,8 @@ def _run_aktivitetsresultat_pipeline_chunked(
         {} if (_sfi_mode_enabled() and mssql_target_staging is not None) else None
     )
 
-    udf_lookup: dict[str, dict[str, Any]] = {}
-    speciale_lookup: dict[str, list[dict[str, Any]]] = {}
-
     # -------- Chunked transform + post --------
-    chunk_size = _AKTIVITETSRESULTAT_CHUNK_SIZE
-    iter_batches = getattr(extracted_data, "iter_batches", None)
-    if total_rows <= chunk_size:
-        if callable(iter_batches):
-            chunk = next(iter_batches(chunk_size), [])
-        else:
-            chunk = extracted_data
-        fhir_database.suspend_identifier_caches()
-        try:
-            routing_decisions: list[dict[str, str | None]] = []
-            qr_dicts: list[tuple[str, dict]] = []
-            dirty_questionnaire_ids: list[str] = []
-            parsed_rows: list[list[AktivitetsresultatRow] | None] | None = None
-            build_errors = 0
-            udf_lookup, speciale_lookup = _hydrate_lookups_for_rows(
-                ifdb_oracle=ifdb_oracle,
-                context=context,
-                rows=chunk,
-                udf_lookup=udf_lookup,
-                speciale_lookup=speciale_lookup,
-                mssql_target_staging=mssql_target_staging,
-            )
-            if unified_sfi_outputs:
-                parsed_rows, kontekst_rows, _ = _parse_xml_lossless_for_rows(
-                    chunk,
-                    logger,
-                )
-                chunk_sfi_identifiers = _collect_chunk_sfi_identifiers(
-                    chunk,
-                    parsed_rows,
-                )
-                _pre_resolve_chunk_sfi_observation_ids(
-                    fhir_database=fhir_database,
-                    resolved=resolved,
-                    chunk_sfi_identifiers=chunk_sfi_identifiers,
-                    logger=logger,
-                )
-                _pre_resolve_chunk_xml_condition_ids(
-                    fhir_database=fhir_database,
-                    resolved=resolved,
-                    chunk_xml_condition_identifiers=_collect_chunk_xml_condition_identifiers(
-                        chunk, parsed_rows
-                    ),
-                    logger=logger,
-                )
-                _pre_resolve_chunk_delop_procedure_ids(
-                    fhir_database=fhir_database,
-                    resolved=resolved,
-                    chunk_delop_identifiers=_collect_chunk_delop_procedure_identifiers(
-                        chunk, parsed_rows
-                    ),
-                    logger=logger,
-                )
-                (
-                    obs_dicts,
-                    proc_dicts,
-                    cond_dicts,
-                    qr_dicts,
-                    build_errors,
-                ) = _build_sfi_unified_dicts_for_rows(
-                    rows=chunk,
-                    parsed_data_by_index=parsed_rows,
-                    kontekst_by_index=kontekst_rows,
-                    logger=logger,
-                    resolved=resolved,
-                    routing_resolver=routing_resolver,
-                    routing_decision_sink=routing_decisions,
-                    questionnaires_by_id=questionnaires_by_id,
-                    dirty_questionnaire_ids=dirty_questionnaire_ids,
-                    sfi_catalog_sink=sfi_catalog_sink,
-                )
-            elif _sfi_mode_enabled():
-                parsed_rows, _kontekst_rows, _ = _parse_xml_lossless_for_rows(
-                    chunk,
-                    logger,
-                )
-                _pre_resolve_chunk_sfi_observation_ids(
-                    fhir_database=fhir_database,
-                    resolved=resolved,
-                    chunk_sfi_identifiers=_collect_chunk_sfi_identifiers(chunk, parsed_rows),
-                    logger=logger,
-                )
-                _pre_resolve_chunk_xml_condition_ids(
-                    fhir_database=fhir_database,
-                    resolved=resolved,
-                    chunk_xml_condition_identifiers=_collect_chunk_xml_condition_identifiers(
-                        chunk, parsed_rows
-                    ),
-                    logger=logger,
-                )
-                _pre_resolve_chunk_delop_procedure_ids(
-                    fhir_database=fhir_database,
-                    resolved=resolved,
-                    chunk_delop_identifiers=_collect_chunk_delop_procedure_identifiers(
-                        chunk, parsed_rows
-                    ),
-                    logger=logger,
-                )
-                (
-                    obs_dicts,
-                    proc_dicts,
-                    cond_dicts,
-                    build_errors,
-                ) = _build_sfi_observation_dicts_for_rows(
-                    rows=chunk,
-                    parsed_data_by_index=parsed_rows,
-                    logger=logger,
-                    resolved=resolved,
-                    routing_resolver=routing_resolver,
-                    routing_decision_sink=routing_decisions,
-                    sfi_catalog_sink=sfi_catalog_sink,
-                )
-            else:
-                obs_dicts, proc_dicts, cond_dicts = _transform_aktivitetsresultat_to_fhir_dicts(
-                    chunk,
-                    context,
-                    resolved=resolved,
-                    udf_lookup=udf_lookup,
-                    speciale_lookup=speciale_lookup,
-                    routing_resolver=routing_resolver,
-                    routing_decision_sink=routing_decisions,
-                    fhir_database=fhir_database,
-                )
-            obs_dicts, proc_dicts, cond_dicts, qr_dicts, dup_counts = _dedupe_chunk_families(
-                obs_dicts, proc_dicts, cond_dicts, qr_dicts, logger
-            )
-            _log_sfi_routing_summary(
-                logger,
-                routing_decisions,
-                label="single chunk",
-            )
-
-            if sfi_catalog_sink and mssql_target_staging is not None:
-                merge_sfi_catalog_from_datapoints(
-                    sfi_catalog_sink,
-                    mssql_target_staging,
-                    logger,
-                )
-                post_sfi_codesystem_to_aidbox(sfi_catalog_sink, fhir_database, logger)
-
-            obs_result, _family_counts = _post_chunk_families(
-                context=context,
-                observation_dicts=obs_dicts,
-                procedure_dicts=proc_dicts,
-                condition_dicts=cond_dicts,
-                fhir_database=fhir_database,
-                extracted_count=total_rows,
-                stage_id="ifdb.observation.post.chunk.1",
-                thread_name_prefix="aktres-post-c1",
-                duplicate_counts=dup_counts,
-            )
-            _reconcile_posted_xml_children(
-                fhir_database=fhir_database,
-                rows=chunk,
-                parsed_data_by_index=parsed_rows,
-                observation_dicts=obs_dicts,
-                procedure_dicts=proc_dicts,
-                condition_dicts=cond_dicts,
-                build_errors=build_errors,
-                logger=logger,
-                retire_ceiling=retire_ceiling,
-            )
-            if not unified_sfi_outputs:
-                return obs_result
-
-            _, q_failed_now, qids = _post_dirty_questionnaires(
-                context=context,
-                questionnaires_by_id=questionnaires_by_id,
-                dirty_questionnaire_ids=dirty_questionnaire_ids,
-                fhir_database=fhir_database,
-            )
-            q_posted_ids.update(qids)
-            q_failed_count += q_failed_now
-
-            if qr_dicts:
-                qr_result = post_resource_dicts_direct(
-                    context=context,
-                    resource_dicts=qr_dicts,
-                    fhir_database=fhir_database,
-                    resource_type="QuestionnaireResponse",
-                    source_name="ifdb_oracle",
-                    extracted_count=len(qr_dicts),
-                    invalidate_cache=False,
-                )
-                qr_posted_count += _metadata_int(qr_result, "posted_count")
-                qr_failed_count += _metadata_int(qr_result, "failed_count")
-
-            return (
-                obs_result,
-                _sfi_side_output_result(
-                    context=context,
-                    posted_count=len(q_posted_ids),
-                    failed_count=q_failed_count,
-                    chunk_count=1 if total_rows else 0,
-                    chunk_size=chunk_size,
-                    method="direct_postgres_dict_chunked",
-                ),
-                _sfi_side_output_result(
-                    context=context,
-                    posted_count=qr_posted_count,
-                    failed_count=qr_failed_count,
-                    chunk_count=1 if total_rows else 0,
-                    chunk_size=chunk_size,
-                    method="direct_postgres_dict_chunked",
-                ),
-            )
-        finally:
-            del resolved
-            fhir_database.safe_clear_identifier_caches_for_resources(
-                cleanup_resource_types,
-                reason="post-partition cleanup",
-            )
-
+    chunk_size = aktivitetsresultat_chunk_size_from_context(context, _AKTIVITETSRESULTAT_CHUNK_SIZE)
     n_chunks = (total_rows + chunk_size - 1) // chunk_size
     logger.info(
         "AKTIVITETSRESULTAT chunked transform+post: %d rows in %d chunks of %d",
@@ -960,235 +985,49 @@ def _run_aktivitetsresultat_pipeline_chunked(
         n_chunks,
         chunk_size,
     )
+    iter_batches = getattr(extracted_data, "iter_batches", None)
+    if callable(iter_batches):
+        chunks_iter = iter_batches(chunk_size)
+    else:
+        chunks_iter = (
+            extracted_data[start : start + chunk_size] for start in range(0, total_rows, chunk_size)
+        )
 
-    total_obs_posted = 0
-    total_proc_posted = 0
-    total_cond_posted = 0
-    total_obs_failed = 0
-    total_proc_failed = 0
-    total_cond_failed = 0
+    family_totals = {family: _PostCounts() for family in _CHUNK_FAMILIES}
     total_duplicates = 0
+    q_posted_ids: set[str] = set()
+    q_failed_count = 0
+    q_recovered_count = 0
+    qr_totals = _PostCounts()
 
     try:
-        if callable(iter_batches):
-            chunks_iter = iter_batches(chunk_size)
-        else:
-            chunks_iter = (
-                extracted_data[start : start + chunk_size]
-                for start in range(0, total_rows, chunk_size)
-            )
-
         for chunk_idx, chunk in enumerate(chunks_iter, start=1):
-            logger.info("Chunk %d/%d: transforming %d rows", chunk_idx, n_chunks, len(chunk))
-
-            fhir_database.log_identifier_lookup_status(
-                f"pre-chunk-{chunk_idx}",
-                resolved.lookups_by_resource_type(),
-            )
-
-            fhir_database.suspend_identifier_caches()
-
-            routing_decisions: list[dict[str, str | None]] = []
-            qr_dicts: list[tuple[str, dict]] = []
-            dirty_questionnaire_ids: list[str] = []
-            parsed_rows: list[list[AktivitetsresultatRow] | None] | None = None
-            build_errors = 0
-            # UDF/speciale-opslagene er chunk-lokale: hver række slår kun sin egen
-            # udførelse op, og udførelserne i én chunk går stort set aldrig igen i
-            # de næste. Deles opslagene på tværs af chunks, vokser de med én
-            # arkivrække pr. udførelse i hele perioden (millioner ved backfill),
-            # og barneprocessen dræbes. Start derfor fra tomme opslag pr. chunk.
-            udf_lookup, speciale_lookup = _hydrate_lookups_for_rows(
+            tally = _process_chunk(
+                chunk=chunk,
+                chunk_idx=chunk_idx,
+                n_chunks=n_chunks,
+                context=context,
                 ifdb_oracle=ifdb_oracle,
-                context=context,
-                rows=chunk,
-                udf_lookup={},
-                speciale_lookup={},
+                fhir_database=fhir_database,
                 mssql_target_staging=mssql_target_staging,
-            )
-            if unified_sfi_outputs:
-                parsed_rows, kontekst_rows, _ = _parse_xml_lossless_for_rows(
-                    chunk,
-                    logger,
-                )
-                chunk_sfi_identifiers = _collect_chunk_sfi_identifiers(
-                    chunk,
-                    parsed_rows,
-                )
-                _pre_resolve_chunk_sfi_observation_ids(
-                    fhir_database=fhir_database,
-                    resolved=resolved,
-                    chunk_sfi_identifiers=chunk_sfi_identifiers,
-                    logger=logger,
-                )
-                _pre_resolve_chunk_xml_condition_ids(
-                    fhir_database=fhir_database,
-                    resolved=resolved,
-                    chunk_xml_condition_identifiers=_collect_chunk_xml_condition_identifiers(
-                        chunk, parsed_rows
-                    ),
-                    logger=logger,
-                )
-                _pre_resolve_chunk_delop_procedure_ids(
-                    fhir_database=fhir_database,
-                    resolved=resolved,
-                    chunk_delop_identifiers=_collect_chunk_delop_procedure_identifiers(
-                        chunk, parsed_rows
-                    ),
-                    logger=logger,
-                )
-                (
-                    obs_dicts,
-                    proc_dicts,
-                    cond_dicts,
-                    qr_dicts,
-                    build_errors,
-                ) = _build_sfi_unified_dicts_for_rows(
-                    rows=chunk,
-                    parsed_data_by_index=parsed_rows,
-                    kontekst_by_index=kontekst_rows,
-                    logger=logger,
-                    resolved=resolved,
-                    routing_resolver=routing_resolver,
-                    routing_decision_sink=routing_decisions,
-                    questionnaires_by_id=questionnaires_by_id,
-                    dirty_questionnaire_ids=dirty_questionnaire_ids,
-                    sfi_catalog_sink=sfi_catalog_sink,
-                )
-            elif _sfi_mode_enabled():
-                parsed_rows, _kontekst_rows, _ = _parse_xml_lossless_for_rows(
-                    chunk,
-                    logger,
-                )
-                chunk_sfi_identifiers = _collect_chunk_sfi_identifiers(
-                    chunk,
-                    parsed_rows,
-                )
-                _pre_resolve_chunk_sfi_observation_ids(
-                    fhir_database=fhir_database,
-                    resolved=resolved,
-                    chunk_sfi_identifiers=chunk_sfi_identifiers,
-                    logger=logger,
-                )
-                _pre_resolve_chunk_xml_condition_ids(
-                    fhir_database=fhir_database,
-                    resolved=resolved,
-                    chunk_xml_condition_identifiers=_collect_chunk_xml_condition_identifiers(
-                        chunk, parsed_rows
-                    ),
-                    logger=logger,
-                )
-                _pre_resolve_chunk_delop_procedure_ids(
-                    fhir_database=fhir_database,
-                    resolved=resolved,
-                    chunk_delop_identifiers=_collect_chunk_delop_procedure_identifiers(
-                        chunk, parsed_rows
-                    ),
-                    logger=logger,
-                )
-                (
-                    obs_dicts,
-                    proc_dicts,
-                    cond_dicts,
-                    build_errors,
-                ) = _build_sfi_observation_dicts_for_rows(
-                    rows=chunk,
-                    parsed_data_by_index=parsed_rows,
-                    logger=logger,
-                    resolved=resolved,
-                    routing_resolver=routing_resolver,
-                    routing_decision_sink=routing_decisions,
-                    sfi_catalog_sink=sfi_catalog_sink,
-                )
-            else:
-                obs_dicts, proc_dicts, cond_dicts = _transform_aktivitetsresultat_to_fhir_dicts(
-                    chunk,
-                    context,
-                    resolved=resolved,
-                    udf_lookup=udf_lookup,
-                    speciale_lookup=speciale_lookup,
-                    routing_resolver=routing_resolver,
-                    routing_decision_sink=routing_decisions,
-                    fhir_database=fhir_database,
-                )
-            obs_dicts, proc_dicts, cond_dicts, qr_dicts, dup_counts = _dedupe_chunk_families(
-                obs_dicts, proc_dicts, cond_dicts, qr_dicts, logger
-            )
-            _log_sfi_routing_summary(
-                logger,
-                routing_decisions,
-                label=f"chunk {chunk_idx}/{n_chunks}",
-            )
-
-            _chunk_result, family_counts = _post_chunk_families(
-                context=context,
-                observation_dicts=obs_dicts,
-                procedure_dicts=proc_dicts,
-                condition_dicts=cond_dicts,
-                fhir_database=fhir_database,
-                extracted_count=len(chunk),
-                stage_id=f"ifdb.observation.post.chunk.{chunk_idx}",
-                thread_name_prefix=f"aktres-post-c{chunk_idx}",
-                duplicate_counts=dup_counts,
-            )
-            total_obs_posted += family_counts["Observation"][0]
-            total_obs_failed += family_counts["Observation"][1]
-            total_proc_posted += family_counts["Procedure"][0]
-            total_proc_failed += family_counts["Procedure"][1]
-            total_cond_posted += family_counts["Condition"][0]
-            total_cond_failed += family_counts["Condition"][1]
-            total_duplicates += sum(dup_counts.values())
-            _reconcile_posted_xml_children(
-                fhir_database=fhir_database,
-                rows=chunk,
-                parsed_data_by_index=parsed_rows,
-                observation_dicts=obs_dicts,
-                procedure_dicts=proc_dicts,
-                condition_dicts=cond_dicts,
-                build_errors=build_errors,
-                logger=logger,
+                resolved=resolved,
+                routing_resolver=routing_resolver,
+                sfi_catalog_sink=sfi_catalog_sink,
+                questionnaires_by_id=questionnaires_by_id,
+                unified_sfi_outputs=unified_sfi_outputs,
                 retire_ceiling=retire_ceiling,
+                logger=logger,
             )
-
-            if unified_sfi_outputs:
-                _, q_failed_now, qids = _post_dirty_questionnaires(
-                    context=context,
-                    questionnaires_by_id=questionnaires_by_id,
-                    dirty_questionnaire_ids=dirty_questionnaire_ids,
-                    fhir_database=fhir_database,
-                )
-                q_posted_ids.update(qids)
-                q_failed_count += q_failed_now
-
-                if qr_dicts:
-                    qr_result = post_resource_dicts_direct(
-                        context=context,
-                        resource_dicts=qr_dicts,
-                        fhir_database=fhir_database,
-                        resource_type="QuestionnaireResponse",
-                        source_name="ifdb_oracle",
-                        extracted_count=len(qr_dicts),
-                        invalidate_cache=False,
-                    )
-                    qr_posted_count += _metadata_int(qr_result, "posted_count")
-                    qr_failed_count += _metadata_int(qr_result, "failed_count")
-
-            del obs_dicts
-            del proc_dicts
-            del cond_dicts
-            del qr_dicts
+            # Rækkerne frigives, før næste batch bygges — ellers ligger to
+            # chunks i hukommelsen på én gang.
             del chunk
-            # Chunken er postet — hverken de mintede id'er (nye rækker) eller de
-            # flettede opslag (genpostede rækker) behøves længere: kildenøglen er
-            # unik pr. række, og næste chunk slår sine identifikatorer op selv.
-            released_ids = resolved.release_chunk_scoped_ids()
-            if released_ids:
-                logger.info(
-                    "Chunk %d/%d: frigav %d chunk-lokale id-poster",
-                    chunk_idx,
-                    n_chunks,
-                    released_ids,
-                )
+            for family, counts in tally.families.items():
+                family_totals[family] = family_totals[family] + counts
+            total_duplicates += tally.duplicates_removed
+            q_posted_ids.update(tally.questionnaire_ids)
+            q_failed_count += tally.questionnaire_failed
+            q_recovered_count += tally.questionnaire_recovered
+            qr_totals = qr_totals + tally.questionnaire_responses
 
         if sfi_catalog_sink and mssql_target_staging is not None:
             merge_sfi_catalog_from_datapoints(
@@ -1204,26 +1043,32 @@ def _run_aktivitetsresultat_pipeline_chunked(
             reason="post-partition cleanup",
         )
 
+    obs = family_totals["Observation"]
+    proc = family_totals["Procedure"]
+    cond = family_totals["Condition"]
     partition_key = context.partition_key if context.has_partition_key else "N/A"
     logger.info(
         "AKTIVITETSRESULTAT chunked complete: %d Observations + %d Procedures + "
         "%d Conditions posted across %d chunks (partition=%s)",
-        total_obs_posted,
-        total_proc_posted,
-        total_cond_posted,
+        obs.posted,
+        proc.posted,
+        cond.posted,
         n_chunks,
         partition_key,
     )
 
-    obs_result = dg.MaterializeResult(
+    obs_result: dg.MaterializeResult = dg.MaterializeResult(
         metadata={
-            "posted_count": dg.MetadataValue.int(total_obs_posted),
-            "procedure_posted_count": dg.MetadataValue.int(total_proc_posted),
-            "condition_posted_count": dg.MetadataValue.int(total_cond_posted),
-            "failed_count": dg.MetadataValue.int(
-                total_obs_failed + total_proc_failed + total_cond_failed
-            ),
+            "posted_count": dg.MetadataValue.int(obs.posted),
+            "procedure_posted_count": dg.MetadataValue.int(proc.posted),
+            "condition_posted_count": dg.MetadataValue.int(cond.posted),
+            "failed_count": dg.MetadataValue.int(obs.failed + proc.failed + cond.failed),
+            "procedure_failed_count": dg.MetadataValue.int(proc.failed),
+            "condition_failed_count": dg.MetadataValue.int(cond.failed),
             "duplicates_removed": dg.MetadataValue.int(total_duplicates),
+            "unique_violation_recovered_count": dg.MetadataValue.int(
+                obs.recovered + proc.recovered + cond.recovered
+            ),
             "chunk_count": dg.MetadataValue.int(n_chunks),
             "chunk_size": dg.MetadataValue.int(chunk_size),
             "extracted_count": dg.MetadataValue.int(total_rows),
@@ -1244,14 +1089,16 @@ def _run_aktivitetsresultat_pipeline_chunked(
             chunk_count=n_chunks,
             chunk_size=chunk_size,
             method="direct_postgres_dict_chunked",
+            unique_violation_recovered_count=q_recovered_count,
         ),
         _sfi_side_output_result(
             context=context,
-            posted_count=qr_posted_count,
-            failed_count=qr_failed_count,
+            posted_count=qr_totals.posted,
+            failed_count=qr_totals.failed,
             chunk_count=n_chunks,
             chunk_size=chunk_size,
             method="direct_postgres_dict_chunked",
+            unique_violation_recovered_count=qr_totals.recovered,
         ),
     )
 
@@ -1266,21 +1113,16 @@ def _post_chunk_families(
     extracted_count: int,
     stage_id: str,
     thread_name_prefix: str,
-    duplicate_counts: dict[str, int] | None = None,
-) -> tuple[dg.MaterializeResult, dict[str, tuple[int, int]]]:
-    """Post een chunks tre ressourcefamilier — den ENESTE post-politik.
+    max_workers: int,
+    invalidate_cache: bool,
+) -> dict[str, _PostCounts]:
+    """Post én chunks tre ressourcefamilier — den ENESTE post-politik.
 
-    Politikken er den chunkede stis eftervist robuste: familierne postes
-    parallelt (hoejst tre samtidige), invalidate_cache=False fordi de opløste
-    id'er er fastlaast for partitionen via de forvarmede caches — een samlet
-    rydning sker i kaldestedets finally. Tidligere havde de to stier hver sin
-    politik (sekventielt med cache-invalidering mod parallelt uden), og
-    tallene var indsendte frem for postede; nu er tallene FAKTISK postede og
-    fejlede fra resultaterne, og dubletfrasorteringen surfaces i metadata, saa
-    politikken er synlig og ens.
-
-    Returnerer Observation-resultatet beriget med familie- og dublettaellere
-    samt ``{familie: (postede, fejlede)}`` til kaldestedets akkumulering.
+    Parallelitet (``max_workers``) og cache-politik (``invalidate_cache``) er
+    parametre, så politikken står ved kaldestedet i stedet for gemt i
+    hjælperen. Observation postes altid (også tom, så tallene findes);
+    Procedure og Condition kun når chunken har nogen. Tallene er FAKTISK
+    postede, fejlede og genoprettede rækker fra resultaterne — ikke indsendte.
     """
     from DSA.FHIR.utils.ifdb.fhir_posting import post_resource_dicts_direct
 
@@ -1297,7 +1139,7 @@ def _post_chunk_families(
                 "resource_type": "Observation",
                 "source_name": "ifdb_oracle",
                 "extracted_count": extracted_count,
-                "invalidate_cache": False,
+                "invalidate_cache": invalidate_cache,
             },
         )
     ]
@@ -1314,7 +1156,7 @@ def _post_chunk_families(
                         "resource_type": family,
                         "source_name": "ifdb_oracle",
                         "extracted_count": len(dicts),
-                        "invalidate_cache": False,
+                        "invalidate_cache": invalidate_cache,
                     },
                 )
             )
@@ -1323,32 +1165,10 @@ def _post_chunk_families(
         stage_id=stage_id,
         calls=calls,
         logger=logger,
-        max_workers=3,
+        max_workers=max_workers,
         thread_name_prefix=thread_name_prefix,
     )
-
-    family_counts: dict[str, tuple[int, int]] = {}
-    for family in ("Observation", "Procedure", "Condition"):
-        result = results.get(family)
-        family_counts[family] = (
-            (_metadata_int(result, "posted_count"), _metadata_int(result, "failed_count"))
-            if result is not None
-            else (0, 0)
-        )
-
-    duplicates = duplicate_counts or {}
-    obs_result = results["Observation"]
-    metadata = dict(obs_result.metadata or {})
-    metadata.update(
-        {
-            "procedure_posted_count": dg.MetadataValue.int(family_counts["Procedure"][0]),
-            "procedure_failed_count": dg.MetadataValue.int(family_counts["Procedure"][1]),
-            "condition_posted_count": dg.MetadataValue.int(family_counts["Condition"][0]),
-            "condition_failed_count": dg.MetadataValue.int(family_counts["Condition"][1]),
-            "duplicates_removed": dg.MetadataValue.int(sum(duplicates.values())),
-        }
-    )
-    return dg.MaterializeResult(metadata=metadata), family_counts
+    return {family: _PostCounts.from_result(results.get(family)) for family in _CHUNK_FAMILIES}
 
 
 AKTIVITETSRESULTAT_REFERENCE_CONFIGS = [

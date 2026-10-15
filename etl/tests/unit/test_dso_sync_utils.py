@@ -2685,3 +2685,118 @@ class TestBatchedSyncIndexDisable:
         assert cursor.did_merge is True
         assert cursor.tablock_insert is False
         assert result["rows_affected"] == 3
+
+    class _RatioAwareCursor(_IndexAwareCursor):
+        """Adds the sys.partitions target-row estimate and the composite keyset
+        advance so the backfill gate can be exercised on both batched paths."""
+
+        def __init__(self, target_populated, index_names, target_rows):
+            super().__init__(target_populated, index_names)
+            self._target_rows = target_rows
+            self.partition_lookups = 0
+
+        def execute(self, sql, params=None):
+            if "sys.partitions" in sql:
+                self.execute_calls.append((sql, params))
+                self.partition_lookups += 1
+                self._fetch.append((self._target_rows,))
+                return
+            if "TOP(1)" in sql and "DESC" in sql:  # composite keyset advance
+                self.execute_calls.append((sql, params))
+                self._fetch.append(self._next_pks.pop(0) if self._next_pks else None)
+                return
+            super().execute(sql, params)
+
+    def _run_ratio(self, target_rows, monkeypatch, *, composite=False, min_rows="1", ratio="0.1"):
+        monkeypatch.setenv(sync_utils._INDEX_DISABLE_MIN_ROWS_ENV, min_rows)
+        monkeypatch.setenv(sync_utils._INDEX_DISABLE_MIN_RATIO_ENV, ratio)
+        cursor = self._RatioAwareCursor(True, ["IX_a", "IX_b"], target_rows)
+        conn = _MssqlPythonDummyConnection(cursor)
+        resource = _RawConnResource([conn])
+        context = MagicMock()
+        context.log = MagicMock()
+        if composite:
+            config = SyncTableConfig(
+                schema="fhir",
+                table="QuestionnaireResponse_item",
+                primary_key=["qr_id", "link_id"],
+                mode="watermark",
+                watermark_column="dw_timestamp_update",
+                disable_target_indexes_during_sync=True,
+            )
+            cursor._next_pks = [("qr-1", "l-1")]
+            result = sync_utils._sync_via_linked_server_batched_composite(
+                context=context,
+                mssql_target_dso=resource,
+                config=config,
+                last_sync_checkpoint=None,
+                columns=["qr_id", "link_id", "dw_timestamp_insert", "dw_timestamp_update"],
+                string_pk_cols=set(),
+            )
+        else:
+            result = sync_utils._sync_via_linked_server_batched(
+                context=context,
+                mssql_target_dso=resource,
+                config=self._config(),
+                last_sync_checkpoint=None,
+                columns=self._columns(),
+                string_pk_cols=set(),
+            )
+        return cursor, result
+
+    def test_backfill_sized_delta_into_populated_target_disables_and_rebuilds(self, monkeypatch):
+        # 5 indkommende rækker mod 10 i målet = ratio 0,5 >= 0,1 -> bulk-vej for indeks, MERGE for data
+        cursor, result = self._run_ratio(target_rows=10, monkeypatch=monkeypatch)
+        assert cursor.partition_lookups == 1
+        assert cursor.index_lookup_calls == 1
+        assert len(cursor.disabled) == 2 and len(cursor.rebuilt) == 2
+        assert cursor.did_merge is True and cursor.tablock_insert is False
+        assert result["rows_affected"] == 3
+
+    def test_small_relative_delta_keeps_indexes(self, monkeypatch):
+        # 5 mod 1.000 = ratio 0,005 < 0,1 -> ingen frakobling (den daglige delta)
+        cursor, _ = self._run_ratio(target_rows=1000, monkeypatch=monkeypatch)
+        assert cursor.partition_lookups == 1
+        assert cursor.index_lookup_calls == 0
+        assert cursor.disabled == [] and cursor.rebuilt == []
+        assert cursor.did_merge is True
+
+    def test_min_rows_floor_short_circuits_before_any_lookup(self, monkeypatch):
+        # under den absolutte grænse slås intet op — samme adfærd som før for små deltaer
+        cursor, _ = self._run_ratio(target_rows=1, monkeypatch=monkeypatch, min_rows="1000000")
+        assert cursor.partition_lookups == 0
+        assert cursor.index_lookup_calls == 0
+        assert cursor.disabled == []
+
+    def test_composite_path_gets_the_same_gate(self, monkeypatch):
+        cursor, result = self._run_ratio(target_rows=10, monkeypatch=monkeypatch, composite=True)
+        assert cursor.partition_lookups == 1
+        assert cursor.index_lookup_calls == 1
+        assert len(cursor.disabled) == 2 and len(cursor.rebuilt) == 2
+        assert cursor.did_merge is True and cursor.tablock_insert is False
+        assert result["rows_affected"] == 3
+
+    def test_composite_small_delta_keeps_indexes(self, monkeypatch):
+        cursor, _ = self._run_ratio(target_rows=1000, monkeypatch=monkeypatch, composite=True)
+        assert cursor.index_lookup_calls == 0
+        assert cursor.disabled == [] and cursor.rebuilt == []
+        assert cursor.did_merge is True
+
+
+def test_index_disable_thresholds_run_tags_overstyrer_miljoe(monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setenv(sync_utils._INDEX_DISABLE_MIN_ROWS_ENV, "500")
+    monkeypatch.setenv(sync_utils._INDEX_DISABLE_MIN_RATIO_ENV, "0.5")
+    assert sync_utils._index_disable_thresholds() == (500, 0.5)
+    ctx = SimpleNamespace(
+        run=SimpleNamespace(
+            tags={
+                sync_utils._INDEX_DISABLE_MIN_ROWS_TAG: "1000",
+                sync_utils._INDEX_DISABLE_MIN_RATIO_TAG: "0",
+            }
+        )
+    )
+    assert sync_utils._index_disable_thresholds(ctx) == (1000, 0.0)
+    # MagicMock-kontekst (som i de øvrige tests) har ingen dict-tags -> miljøet gælder
+    assert sync_utils._index_disable_thresholds(MagicMock()) == (500, 0.5)

@@ -31,6 +31,22 @@ from DSA.FHIR.utils.reference_resolver import (
 from fhir.resources.R4B.resource import Resource
 
 
+def _recovered_count(upsert: Any) -> int:
+    """Rækker genoprettet efter unique-violation; 0 for attrapper, der returnerer en bar tupel."""
+    return int(getattr(upsert, "recovered", 0))
+
+
+def _warn_if_recovered(logger: Any, recovered: int, total: int, resource_type: str) -> None:
+    # Genoprettelse tælles som succes, men er et net under en manglende
+    # pre-resolve: hver genoprettet række kostede et opslag og en ekstra
+    # skrivning. På en sti, der pre-resolver sine id'er, skal tallet være 0.
+    if recovered:
+        logger.warning(
+            f"{recovered} of {total} {resource_type} rows were recovered after a "
+            "unique-violation (re-upsert on the existing id); expected 0 when ids are pre-resolved"
+        )
+
+
 def post_resources_direct(
     context: dg.AssetExecutionContext,
     resources: list[Resource],
@@ -75,6 +91,7 @@ def post_resources_direct(
             metadata={
                 "posted_count": dg.MetadataValue.int(0),
                 "failed_count": dg.MetadataValue.int(0),
+                "unique_violation_recovered_count": dg.MetadataValue.int(0),
                 "source": dg.MetadataValue.text(source_name),
                 "partition_key": dg.MetadataValue.text(partition_key),
                 "method": dg.MetadataValue.text("direct_postgres"),
@@ -86,11 +103,13 @@ def post_resources_direct(
     when = datetime.now(UTC)
 
     # Use batch_upsert_resources which uses executemany() internally
-    successes, failures, failed_ids = fhir_database.batch_upsert_resources(
+    upsert = fhir_database.batch_upsert_resources(
         resources=resources,
         resource_type=resource_type,
         invalidate_cache=invalidate_cache,
     )
+    successes, failures, failed_ids = upsert
+    recovered = _recovered_count(upsert)
 
     # Strict mode - any failure raises
     total = len(resources)
@@ -104,11 +123,13 @@ def post_resources_direct(
     logger.info(
         f"Summary[{partition_key}]: {ext_info}{total} trans -> {successes} posted ({failures} failed)"
     )
+    _warn_if_recovered(logger, recovered, total, resource_type)
 
     return dg.MaterializeResult(
         metadata={
             "posted_count": dg.MetadataValue.int(successes),
             "failed_count": dg.MetadataValue.int(failures),
+            "unique_violation_recovered_count": dg.MetadataValue.int(recovered),
             "failed_ids": dg.MetadataValue.json(failed_ids[:100]),
             "partition_key": dg.MetadataValue.text(partition_key),
             "source": dg.MetadataValue.text(source_name),
@@ -142,6 +163,7 @@ def post_resource_dicts_direct(
             metadata={
                 "posted_count": dg.MetadataValue.int(0),
                 "failed_count": dg.MetadataValue.int(0),
+                "unique_violation_recovered_count": dg.MetadataValue.int(0),
                 "source": dg.MetadataValue.text(source_name),
                 "partition_key": dg.MetadataValue.text(partition_key),
                 "method": dg.MetadataValue.text("direct_postgres_dict"),
@@ -152,11 +174,13 @@ def post_resource_dicts_direct(
 
     when = datetime.now(UTC)
 
-    successes, failures, failed_ids = fhir_database.batch_upsert_resource_dicts(
+    upsert = fhir_database.batch_upsert_resource_dicts(
         resource_dicts=resource_dicts,
         resource_type=resource_type,
         invalidate_cache=invalidate_cache,
     )
+    successes, failures, failed_ids = upsert
+    recovered = _recovered_count(upsert)
 
     if failures > 0:
         raise dg.Failure(
@@ -171,11 +195,13 @@ def post_resource_dicts_direct(
     logger.info(
         f"Summary[{partition_key}]: {ext_info}{total} trans -> {successes} posted ({failures} failed)"
     )
+    _warn_if_recovered(logger, recovered, total, resource_type)
 
     return dg.MaterializeResult(
         metadata={
             "posted_count": dg.MetadataValue.int(successes),
             "failed_count": dg.MetadataValue.int(failures),
+            "unique_violation_recovered_count": dg.MetadataValue.int(recovered),
             "failed_ids": dg.MetadataValue.json(failed_ids[:100]),
             "partition_key": dg.MetadataValue.text(partition_key),
             "source": dg.MetadataValue.text(source_name),

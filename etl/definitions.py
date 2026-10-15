@@ -72,6 +72,7 @@ log_branch_info()
 # Core resources and utilities
 from core.io_managers import BatchAwareFilesystemIOManager
 from core.resources import (
+    EPJIOracleResource,
     IFDBOracleResource,
     ILSMSSQLResource,
     KmdUddataMSSQLResource,
@@ -159,10 +160,7 @@ from DSI.mssql.extract.sydax_extract_configs import (
     sydax_archive_extract_assets,
     sydax_flow_start_assets,
 )
-
-# DSI Extract - IFDB (extraction from Oracle for FHIR ETL)
-from DSI.oracle import all_extraction_assets as ifdb_extract_assets
-from DSI.oracle import all_ifdb_archive_assets
+from DSI.oracle import all_epji_archive_assets, all_ifdb_archive_assets
 
 # DSI Organisation extraction assets (API-based organisation inputs)
 from DSI.organisation import all_extract_assets as organisation_extract_assets
@@ -173,6 +171,12 @@ from DSO.load import (
     all_fhir_dso_sync_assets,
     all_sfi_datapoint_refresh_assets,
     dso_sync_fhir_organization,
+)
+
+# Operatørudløst nulstilling af CarePlan-sporet før genkørsel
+from infrastructure.assets.careplan_genkoersel_nulstilling import (
+    careplan_genkoersel_nulstilling,
+    careplan_genkoersel_nulstilling_job,
 )
 from infrastructure.assets.db_space import all_db_space_checks
 
@@ -191,6 +195,19 @@ from infrastructure.assets.sfi_genkoersel_verifikation import (
     sfi_genkoersel_verifikation_job,
 )
 
+# Målebænk og status for storens fysiske layout (partitionering, columnstore)
+from infrastructure.assets.sfi_store_layout_benchmark import (
+    dso_sfi_store_layout_benchmark,
+    dso_sfi_store_partition_status,
+    sfi_store_layout_benchmark_job,
+)
+
+# Målebænk for SOF-MERGE'n mod en kopi af måltabellen
+from infrastructure.assets.sof_merge_benchmark import (
+    sof_merge_benchmark,
+    sof_merge_benchmark_job,
+)
+
 # =============================================================================
 # CENTRALIZED JOBS AND SCHEDULES
 # =============================================================================
@@ -198,8 +215,6 @@ from jobs import all_jobs
 from schedules import all_schedules
 from sensors import (
     all_sensors,
-    build_dfm_base_job_failure_sensor,
-    build_dfm_base_job_success_sensor,
     build_haiba_publish_sensor,
 )
 
@@ -271,9 +286,10 @@ all_assets = [
     *all_archive_assets,
     *sydax_archive_extract_assets,
     *sydax_flow_start_assets,
-    *ifdb_extract_assets,
     # DSI IFDB archive extract + merge assets (DFM)
     *all_ifdb_archive_assets,
+    # DSI EPJI SHAK-a-like extract + archive merge assets (DFM)
+    *all_epji_archive_assets,
     # DSA SQL — DFM operational assets
     *dfm_assets,
     # DSI CSV extraction assets (manual ConceptMap mappings)
@@ -340,10 +356,17 @@ all_assets = [
     dqa_fhir_server_cleanup,
     # DQA remediation: operator-triggered soft-delete of fully-deleted patients (arc -> fhir)
     dqa_patient_delete_propagation,
+    # Operatørudløst nulstilling af CarePlan-sporet før genkørsel under den nye identitet
+    careplan_genkoersel_nulstilling,
     # Operatørudløst nulstilling af SFI/procedure/diagnose-sporet før genkørsel
     sfi_genkoersel_nulstilling,
     # MIDLERTIDIG: verifikation af genkørslens indlæste data
     sfi_genkoersel_verifikation,
+    # Målebænk og status for storens fysiske layout
+    dso_sfi_store_layout_benchmark,
+    dso_sfi_store_partition_status,
+    # Målebænk for SOF-MERGE'n
+    sof_merge_benchmark,
 ]
 
 # Define resources
@@ -362,6 +385,7 @@ resources = {
     "ils_mssql": ILSMSSQLResource(),
     "kmd_uddata_mssql": KmdUddataMSSQLResource(),
     "ifdb_oracle": IFDBOracleResource(),
+    "epji_oracle": EPJIOracleResource(),
     **fhir_resources,
     "io_manager": dg.FilesystemIOManager(
         base_dir=os.path.join(os.environ.get("DAGSTER_HOME", "."), "storage")
@@ -405,8 +429,11 @@ postfixed_jobs = postfix_jobs(
         dqa_arc_ifdb_vanished_cleanup_job,
         dqa_fhir_server_cleanup_job,
         dqa_patient_delete_propagation_job,
+        careplan_genkoersel_nulstilling_job,
         sfi_genkoersel_nulstilling_job,
         sfi_genkoersel_verifikation_job,
+        sfi_store_layout_benchmark_job,
+        sof_merge_benchmark_job,
     ],
     key_replacements,
 )
@@ -436,23 +463,12 @@ postfixed_checks = postfix_asset_checks(
     key_replacements,
 )
 
-# Step 6: Build the DFM base-job sensor with (postfixed) job references.
-# This must happen after job postfixing so the sensor receives correctly-named
+# Step 6: Resolve (postfixed) job references for the sensors built below.
+# This must happen after job postfixing so the sensors receive correctly-named
 # jobs, and targets display correctly in the Dagster UI.
 _postfixed_job_by_name = {j.name: j for j in postfixed_jobs}
 _pfx = get_postfixed_name
-_dfm_base_job = _postfixed_job_by_name[_pfx("fhir_ifdb_dfm_base_job")]
-_dfm_daily_job = _postfixed_job_by_name[_pfx("fhir_etl_ifdb_daily_job")]
-_dfm_sof_dso_job = _postfixed_job_by_name[_pfx("fhir_ifdb_dfm_sof_dso_job")]
-dfm_sensor = build_dfm_base_job_success_sensor(
-    base_job=_dfm_base_job,
-    daily_job=_dfm_daily_job,
-    sof_dso_job=_dfm_sof_dso_job,
-)
-dfm_failure_sensor = build_dfm_base_job_failure_sensor(
-    base_job=_dfm_base_job,
-    daily_job=_dfm_daily_job,
-)
+_ifdb_dfm_daily_job = _postfixed_job_by_name[_pfx("ifdb_dfm_daily_job")]
 
 # HAIBA publish sensor: the dm rebuild must run AFTER the SOF+Borger chain, so
 # stub patients created by haiba_ingest_job at 05:00 have a dw_ek_Borger by the
@@ -460,13 +476,12 @@ dfm_failure_sensor = build_dfm_base_job_failure_sensor(
 # night without a new SDS delivery does not republish 6.7M rows to DSO.
 _haiba_publish_job = _postfixed_job_by_name[_pfx("haiba_publish_job")]
 haiba_publish_sensor = build_haiba_publish_sensor(
-    sof_dso_job=_dfm_sof_dso_job,
+    borger_chain_job=_ifdb_dfm_daily_job,
     publish_job=_haiba_publish_job,
 )
 
 # DQA post-ETL sensors: run a track's DQA job after the ETL that feeds it
-# succeeds (daily jobs after their ETL; the arc IFDB reconciliation after the DFM
-# base job). Built here so they reference the (postfixed) job objects. Skip a
+# succeeds. Built here so they reference the (postfixed) job objects. Skip a
 # spec whose request/monitored jobs aren't present in this deployment.
 dqa_after_etl_sensors = []
 for _spec in DQA_AFTER_ETL_SENSOR_SPECS:
@@ -505,8 +520,6 @@ for _spec in DQA_AFTER_ETL_SENSOR_SPECS:
 
 postfixed_sensors = [
     *all_sensors,
-    dfm_sensor,
-    dfm_failure_sensor,
     haiba_publish_sensor,
     *dqa_after_etl_sensors,
 ]

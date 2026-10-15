@@ -1,0 +1,26 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: dimension
+  TableName: dim.SHAKAlike
+  Domain: [Shared]
+  Description: "SHAK-a-like (EPJI location.external_id) hierarki — selvrefererende forælder-barn udledt af koderne som SHAK"
+  Grain: "Én række pr. SHAK-a-like-kode"
+
+  SourceSystems:
+    - epji: [EPJI.LOCATION]
+
+  Columns:
+    dw_ek_SHAKAlike:           { Type: PK, DataType: INT }
+    code_shakalike:            { DataType: VARCHAR(50), Source: [epji.EPJI.LOCATION.EXTERNAL_ID] }
+    name:                      { DataType: NVARCHAR(500), Source: [epji.EPJI.LOCATION.NAME], Description: "Falder tilbage til EXTERNAL_ID (koden) når NAME er tom" }
+    level:                     { DataType: INT, Description: "Hierarkidybde (root=1) udledt af kodepræfiks" }
+    dw_ek_SHAKAlike_parent:    { Type: FK, DataType: INT, FK-Target: dim.SHAKAlike, Description: "Forælderens dw_ek_SHAKAlike udledt af kodepræfiks" }
+    parent_code:               { DataType: VARCHAR(50), Description: "Forældrekode i SHAK-a-like-hierarki" }
+    active:                    { DataType: BIT, Description: "aktiv (koder fra seneste EPJI-snapshot)" }
+    dw_timestamp_insert:       { Type: Audit, DataType: DATETIME2(0), Expr: "SYSDATETIME() ved første INSERT" }
+    dw_timestamp_update:       { Type: Audit, DataType: DATETIME2(0), Expr: "SYSDATETIME() ved UPDATE" }

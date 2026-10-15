@@ -66,13 +66,18 @@ def test_flettede_chunk_opslag_frigives_men_partitionens_opslag_bevares():
     )
     lookups = r.lookups_by_resource_type()
     assert (
-        r.merge_observation_identifiers(SYSTEM_IFDB_AKTIVITETSRESULTAT_SFI, {"a#sfi#1": "o1"}) == 1
-    )
-    assert (
-        r.merge_condition_identifiers(SYSTEM_IFDB_AKTIVITETSRESULTAT_XML_CONDITION, {"a/1": "c1"})
+        r.merge_identifiers("Observation", SYSTEM_IFDB_AKTIVITETSRESULTAT_SFI, {"a#sfi#1": "o1"})
         == 1
     )
-    assert r.merge_procedure_identifiers(SYSTEM_IFDB_AKTIVITETSRESULTAT_PROCEDURE, {"a": "p1"}) == 1
+    assert (
+        r.merge_identifiers(
+            "Condition", SYSTEM_IFDB_AKTIVITETSRESULTAT_XML_CONDITION, {"a/1": "c1"}
+        )
+        == 1
+    )
+    assert (
+        r.merge_identifiers("Procedure", SYSTEM_IFDB_AKTIVITETSRESULTAT_PROCEDURE, {"a": "p1"}) == 1
+    )
     # inden for chunken: opslaget virker
     assert lookups["Observation"][(SYSTEM_IFDB_AKTIVITETSRESULTAT_SFI, "a#sfi#1")] == "o1"
 

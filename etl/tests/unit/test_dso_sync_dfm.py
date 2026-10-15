@@ -96,6 +96,50 @@ class TestCheckpointSql:
             in pred
         )
 
+    def test_effective_column_replaces_the_coalesce(self):
+        pred = build_watermark_coalesce_predicate(
+            "dw_timestamp_update",
+            "dw_timestamp_insert",
+            lower_exclusive="2026-01-01 00:00:00.000",
+            upper_inclusive="2026-02-01 12:00:00.000",
+            effective_col="dw_timestamp_effective",
+        )
+        assert "COALESCE" not in pred
+        assert "[dw_timestamp_effective] > '2026-01-01 00:00:00.000'" in pred
+        assert "[dw_timestamp_effective] <= '2026-02-01 12:00:00.000'" in pred
+
+    def test_delta_merge_uses_the_effective_column_when_configured(self):
+        config = SyncTableConfig(
+            schema="fhir",
+            table="QuestionnaireResponse",
+            primary_key="qr_id",
+            mode="watermark",
+            watermark_column="dw_timestamp_update",
+            watermark_effective_column="dw_timestamp_effective",
+        )
+        columns = ["qr_id", "dw_timestamp_insert", "dw_timestamp_update", "dw_timestamp_effective"]
+        sql = build_delta_merge_statement(
+            config,
+            columns,
+            last_sync_checkpoint="2026-01-01 00:00:00.000",
+            checkpoint_upper_bound="2026-02-01 12:00:00.000",
+            staging_db="TestDB",
+        )
+        assert "[dw_timestamp_effective] > '2026-01-01 00:00:00.000'" in sql
+        assert "COALESCE([dw_timestamp_update], [dw_timestamp_insert]) >" not in sql
+
+    def test_the_three_indexed_fhir_tables_filter_on_the_effective_column(self):
+        from DSO.load.sync_configs import FHIR_SYNC_CONFIGS
+
+        for key in (
+            "fhir_observation",
+            "fhir_questionnaire_response",
+            "fhir_questionnaire_response_item",
+        ):
+            assert (
+                FHIR_SYNC_CONFIGS[key].watermark_effective_column == "dw_timestamp_effective"
+            ), key
+
     def test_delta_merge_includes_upper_bound(self):
         config = SyncTableConfig(
             schema="dim",

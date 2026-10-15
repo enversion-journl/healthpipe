@@ -6,7 +6,7 @@
 
 """DSI MSSQL source configs — ILS, SydAX, MySupply, KMD UdData.
 
-Each module defines table configs and generates extraction assets
+Factory modules define table configs and generate extraction assets
 using the shared MSSQL connector.
 """
 

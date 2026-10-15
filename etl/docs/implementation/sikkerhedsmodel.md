@@ -426,10 +426,8 @@ dso_infra_views_security    (Views: views/security/*.sql — vw_dim.Borger, vw_d
                              _reference/ eksekveres bevidst ikke)
 ```
 
-Materialisér hele grafen:
-```bash
-dagster asset materialize --select "dso_infra_schemas dso_infra_security dso_infra_views_security"
-```
+Materialisér hele grafen i Dagster-UI'et: vælg `dso_infra_schemas`,
+`dso_infra_security` og `dso_infra_views_security` i asset-grafen, og kør dem.
 
 ---
 

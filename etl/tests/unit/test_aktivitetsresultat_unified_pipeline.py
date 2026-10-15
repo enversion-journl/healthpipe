@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from unittest.mock import MagicMock, patch
 
 import dagster as dg
@@ -207,14 +208,14 @@ def test_post_dirty_questionnaires_merges_existing_aidbox_items_before_post(monk
         }
     }
 
-    posted_count, failed_count, posted_ids = _post_dirty_questionnaires(
+    posted_count, failed_count, posted_ids, recovered = _post_dirty_questionnaires(
         context=context,
         questionnaires_by_id=questionnaires_by_id,
         dirty_questionnaire_ids=["q-model", "q-model"],
         fhir_database=FakeFHIRDatabase(),
     )
 
-    assert (posted_count, failed_count, posted_ids) == (1, 0, ["q-model"])
+    assert (posted_count, failed_count, posted_ids, recovered) == (1, 0, ["q-model"], 0)
     assert len(posted_resources) == 1
     _, posted = posted_resources[0]
     assert {(item["linkId"], item["id"]) for item in posted["item"]} == {
@@ -966,7 +967,12 @@ def test_hydrate_lookups_for_rows_prefetches_missing_udf_and_speciale_only():
     assert speciale_calls == [["2"]]
 
 
-def test_pre_resolve_chunk_sfi_observation_ids_uses_cached_lookup_and_targets_missing_only():
+def _spec_med_faste_identifiers(spec, identifiers):
+    """Spec'en med samleren erstattet — testen leverer chunkens børn direkte."""
+    return dataclasses.replace(spec, collect=lambda _rows, _parsed: list(identifiers))
+
+
+def test_pre_resolve_chunk_ids_uses_cached_lookup_and_targets_missing_only():
     class FakeFhirDatabase:
         def __init__(self):
             self.calls: list[tuple[str, str, tuple[str, ...]]] = []
@@ -986,10 +992,15 @@ def test_pre_resolve_chunk_sfi_observation_ids_uses_cached_lookup_and_targets_mi
         },
     )
 
-    akt_orchestrator._pre_resolve_chunk_sfi_observation_ids(
+    akt_orchestrator._pre_resolve_chunk_ids(
+        _spec_med_faste_identifiers(
+            akt_orchestrator._SFI_OBS_ID_SPEC,
+            ["100#sfi#1", "100#sfi#2", "100#sfi#3", "100#sfi#1"],
+        ),
         fhir_database=fhir_database,
         resolved=resolved,
-        chunk_sfi_identifiers=["100#sfi#1", "100#sfi#2", "100#sfi#3", "100#sfi#1"],
+        rows=[],
+        parsed_rows=[],
         logger=logger,
     )
 
@@ -1007,7 +1018,7 @@ def test_pre_resolve_chunk_sfi_observation_ids_uses_cached_lookup_and_targets_mi
     ]
 
 
-def test_pre_resolve_chunk_delop_procedure_ids_uses_cached_lookup_and_targets_missing_only():
+def test_pre_resolve_chunk_ids_delop_spec_targets_procedure_lookup():
     class FakeFhirDatabase:
         def __init__(self):
             self.calls: list[tuple[str, str, tuple[str, ...]]] = []
@@ -1028,10 +1039,15 @@ def test_pre_resolve_chunk_delop_procedure_ids_uses_cached_lookup_and_targets_mi
         },
     )
 
-    akt_orchestrator._pre_resolve_chunk_delop_procedure_ids(
+    akt_orchestrator._pre_resolve_chunk_ids(
+        _spec_med_faste_identifiers(
+            akt_orchestrator._DELOP_ID_SPEC,
+            ["100-delop-1", "100-delop-2", "100-delop-3", "100-delop-1"],
+        ),
         fhir_database=fhir_database,
         resolved=resolved,
-        chunk_delop_identifiers=["100-delop-1", "100-delop-2", "100-delop-3", "100-delop-1"],
+        rows=[],
+        parsed_rows=[],
         logger=logger,
     )
 

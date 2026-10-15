@@ -5,7 +5,7 @@
 -- root for the full AGPL-3.0 license text.
 
 -- ============================================================================
--- 20260903_01_reset_vareudlevering_checkpoints
+-- 20260903_02_reset_vareudlevering_checkpoints
 --
 -- pre_stg_Vareudlevering_ils byggede clean_code_Lager med
 -- zero-padding (map.Lager er rå) og clean_code_Rekvirent med

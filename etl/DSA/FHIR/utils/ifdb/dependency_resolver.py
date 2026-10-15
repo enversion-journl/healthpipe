@@ -869,7 +869,7 @@ def resolve_careplan_dependencies(
     mssql: MSSQLResource,
     fhir_database: FHIRDatabaseResource,
     context: dg.AssetExecutionContext,
-) -> None:
+) -> dict[str, str]:
     """
     Resolve missing Patient and EpisodeOfCare dependencies for CarePlan resources.
 
@@ -884,6 +884,14 @@ def resolve_careplan_dependencies(
         mssql: Staging MSSQL resource for fetching missing data from the archive
         fhir_database: FHIR database resource
         context: Dagster asset execution context
+
+    Returns:
+        Mapping of IFDB PATIENT_ID to FHIR Patient id for every patient
+        referenced by *careplans*. Two PATIENT_IDs that belong to the same
+        person map to the same FHIR id, because the CPR bridge above resolves a
+        re-issued record to the patient that already exists. Callers key the
+        CarePlan on that value so a re-issue updates the resource instead of
+        creating a second one.
     """
     logger = dg.get_dagster_logger()
 
@@ -920,15 +928,19 @@ def resolve_careplan_dependencies(
             context=context,
         )
 
-    # Then resolve any remaining patient dependencies
-    if patient_ids:
-        logger.info(f"[DEPENDENCY] Ensuring {len(patient_ids)} patients exist")
-        resolve_missing_patients(
-            patient_ids=patient_ids,
-            mssql=mssql,
-            fhir_database=fhir_database,
-            context=context,
-        )
+    # Then resolve any remaining patient dependencies. The map is returned
+    # rather than discarded: it is what lets the caller give the CarePlan the
+    # person's identity instead of the IFDB patient record's.
+    if not patient_ids:
+        return {}
+
+    logger.info(f"[DEPENDENCY] Ensuring {len(patient_ids)} patients exist")
+    return resolve_missing_patients(
+        patient_ids=patient_ids,
+        mssql=mssql,
+        fhir_database=fhir_database,
+        context=context,
+    )
 
 
 def ensure_patient_dependencies(

@@ -112,3 +112,23 @@ BEGIN
     );
 END
 GO
+
+IF NOT EXISTS (
+    SELECT * FROM sys.objects
+    WHERE object_id = OBJECT_ID(N'[conceptmap].[SHAKAlikeToSOR]') AND type = 'U'
+)
+BEGIN
+    CREATE TABLE [conceptmap].[SHAKAlikeToSOR] (
+        [source_code]                NVARCHAR(100) NOT NULL,
+        [source_display]             NVARCHAR(500) NULL,
+        [relationship]              NVARCHAR(50)  NOT NULL,
+        [target_code]                NVARCHAR(100) NOT NULL,
+        [target_display]             NVARCHAR(500) NULL,
+        [dw_ek_SHAKAlike]           INT           NOT NULL,
+        [dw_ek_Organisation_target] INT           NOT NULL,
+        [dw_timestamp_insert]       DATETIME2(0)  NOT NULL CONSTRAINT [DF_SHAKAlikeToSOR_dw_timestamp_insert] DEFAULT SYSDATETIME(),
+        [dw_timestamp_update]       DATETIME2(0)  NOT NULL CONSTRAINT [DF_SHAKAlikeToSOR_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        CONSTRAINT [PK_conceptmap_SHAKAlikeToSOR] PRIMARY KEY CLUSTERED ([dw_ek_SHAKAlike])
+    );
+END
+GO

@@ -673,6 +673,15 @@ FHIR_SUBJECTS: list[DqaSubject] = [
 #
 # When one of these resources is migrated to DFM: add ReplaySpec + vs_arc checks
 # and move it up to the DFM-backed list above.
+#
+# fhir_careplan and fhir_careplan_activity are the exception in this list: their
+# producer HAS moved to DFM and reads arc.ifdb_eventmarker, so the first two
+# sentences above no longer describe them. They stay here because a vs_arc check
+# for CarePlan is not the same shape as the others: elsewhere one archive row
+# (OBJECT_ID) is one resource, whereas CarePlan is many marker rows collapsed
+# into one resource per PERSON, keyed on the FHIR patient id — a value that does
+# not appear in the archive at all. The reconciliation has to go through the
+# patient bridge, and that is its own piece of work rather than a config entry.
 # ---------------------------------------------------------------------------
 
 _NON_DFM_SUBJECTS: list[DqaSubject] = [
@@ -707,9 +716,49 @@ _NON_DFM_SUBJECTS: list[DqaSubject] = [
                 {"grain": "careplan_id"},
                 name_suffix="resource_id",
             ),
+            # Alle Markoerer is one living document per person, and the CarePlan
+            # is keyed on the FHIR patient id, so the UNIQUE partial index on
+            # the identifier already makes a second live resource per patient
+            # unwritable. This guards the *projection* rather than the server:
+            # two flat rows on one patient would mean a resource whose subject
+            # moved without its identifier following, or a SOF bug — either way
+            # two rows per marker in the next CarePlan_Activity MERGE.
+            #
+            # It does NOT catch the orphan left when a Patient resource is
+            # deleted and re-created: the new resource gets a new id, so the
+            # old CarePlan and the new one carry DIFFERENT patient_ids and
+            # never collide here.
+            #
+            # Nor does anything else today. The weekly referential_integrity
+            # check looks like the natural net, but it is existence-only on the
+            # parent by design (see referential_integrity.py: whether a resolved
+            # parent is itself soft-deleted is delete-propagation, not
+            # referential integrity). A deleted Patient leaves its flat row in
+            # place with dw_is_deleted = 1, so the orphan's parent still
+            # resolves and the check stays green. That hole closes with the
+            # patient-bridged arc reconciliation, not here.
+            #
+            # deleted_column is explicit because the subject does not set one:
+            # this is a business-key grain, where a correctly soft-deleted
+            # duplicate is expected and a strict check would fail forever. The
+            # careplan_id check above stays strict on purpose — a soft-deleted
+            # duplicate resource id would be a projection bug.
+            CheckSpecification(
+                "uniqueness",
+                Severity.ERROR,
+                Cadence.DAILY,
+                {"grain": "patient_id", "deleted_column": "dw_is_deleted"},
+                name_suffix="one_per_patient",
+            ),
         ],
         extra_weekly=[
-            _reconcile_vs_fhir_server("careplan", deleted_column=None, severity=Severity.WARN)
+            # deleted_column is the DEFAULT dw_is_deleted, not None: both CarePlan
+            # tables carry the column, and dqa_fhir_server_cleanup(entity=care_plan)
+            # is what soft-deletes their rows when a CarePlan is hard-deleted in
+            # Aidbox. Scoped to live rows, the check reports exactly what still
+            # needs cleaning and goes green once it has been done — with None it
+            # keeps counting the rows it already asked us to retire.
+            _reconcile_vs_fhir_server("careplan", severity=Severity.WARN)
         ],
     ),
     # Finer-grain projection of the same CarePlan resource (one row per activity),
@@ -721,9 +770,10 @@ _NON_DFM_SUBJECTS: list[DqaSubject] = [
         "careplan_id",
         [],
         extra_weekly=[
+            # Same as the parent: the cleanup retires this table's rows on the
+            # PARENT careplan_id, so the check must not re-count them.
             _reconcile_vs_fhir_server(
                 "careplan",
-                deleted_column=None,
                 severity=Severity.WARN,
                 report_missing_in_flat=False,
             ),

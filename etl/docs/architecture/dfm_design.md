@@ -1696,7 +1696,7 @@ The Borger (citizen/patient) assets have been migrated to `DfmManager`:
 | `dim_Borger` | `dim.Borger` | `MAX(dw_timestamp_update, dw_timestamp_insert)` from both ref tables |
 | `dso_sync_dim_borger` | DSO `dim.Borger` | (sync from staging) |
 
-These are orchestrated by `fhir_ifdb_dfm_sof_dso_job` (and the full `ifdb_dfm_daily_job` equivalent) via explicit asset selection — not group selection — so Organisation assets in `ref` / `shared_dimensions_dso_sync` are not pulled in. The job is triggered by `dfm_base_job_success_sensor` after `fhir_ifdb_dfm_base_job`.
+These are orchestrated by `ifdb_dfm_daily_job` via explicit asset selection — not group selection — so Organisation assets in `ref` / `shared_dimensions_dso_sync` are not pulled in. The job runs on `ifdb_dfm_daily_schedule` at 06:00 CET.
 
 The upstream `fhir.Patient` / `fhir.Patient_Address` tables are populated by DFM SQL-on-FHIR assets (`sof_patient_dfm`, `sof_patient_address_dfm`) in the same job. `sof_patient_address_dfm` runs a child-grain reconcile (mark live address rows deleted for changed patients, then MERGE-resurrect keys still in the view) in one transaction with the MERGE. The DFM borger assets declare these as Dagster lineage dependencies but use independent `last_updated`-based checkpoints — no DFM flow-start is needed at the SOF layer. `ref_patient_address_borger` builds LEAD intervals from active (`dw_is_deleted = 0`) address rows only; retired periods stay in ref/dim with `dw_is_deleted = 1`.
 

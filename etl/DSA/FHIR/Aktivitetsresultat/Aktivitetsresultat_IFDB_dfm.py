@@ -72,15 +72,17 @@ _OBS_COUNT_KEYS = (
     "procedure_posted_count",
     "condition_posted_count",
     "failed_count",
+    "unique_violation_recovered_count",
     "extracted_count",
 )
-_SFI_COUNT_KEYS = ("posted_count", "failed_count")
+_SFI_COUNT_KEYS = ("posted_count", "failed_count", "unique_violation_recovered_count")
 
 
 def _zero_sfi_metadata(context: dg.AssetExecutionContext, method: str) -> dict[str, Any]:
     return {
         "posted_count": dg.MetadataValue.int(0),
         "failed_count": dg.MetadataValue.int(0),
+        "unique_violation_recovered_count": dg.MetadataValue.int(0),
         "partition_key": dg.MetadataValue.text("N/A"),
         "method": dg.MetadataValue.text(method),
     }
@@ -89,10 +91,8 @@ def _zero_sfi_metadata(context: dg.AssetExecutionContext, method: str) -> dict[s
 def _read_counts(result: dg.MaterializeResult | None, keys: tuple[str, ...]) -> dict[str, int]:
     """Read integer metadata keys from a pipeline result (0 when absent/None).
 
-    NB: the orchestrator's single-chunk branch (runs of <= 25k rows) only sets
-    posted_count/failed_count on the Observation result — procedure_/condition_
-    counts stay 0 there (pre-existing orchestrator metadata gap; the multi-chunk
-    branch sets all keys).
+    Orkestreringen sætter alle nøglerne uanset chunk-antal — også ved kørsler
+    på under én chunk — så 0 betyder her kun, at resultatet mangler.
     """
     if result is None:
         return {key: 0 for key in keys}
@@ -289,6 +289,11 @@ def fhir_server_aktivitetsresultat_sfi_dfm(
             "procedure_posted_count": dg.MetadataValue.int(obs_totals["procedure_posted_count"]),
             "condition_posted_count": dg.MetadataValue.int(obs_totals["condition_posted_count"]),
             "failed_count": dg.MetadataValue.int(obs_totals["failed_count"]),
+            # Rækker genoprettet efter unique-violation; forventet 0, da id'erne
+            # pre-resolves — et tal over 0 peger på et hul i opslaget.
+            "unique_violation_recovered_count": dg.MetadataValue.int(
+                obs_totals["unique_violation_recovered_count"]
+            ),
             "fetched_count": dg.MetadataValue.int(total_fetched),
             # Spool sidecar count — the pipeline's own 25k chunk count is in
             # the orchestrator's log/metadata ("chunk_count") when multi-chunk.
@@ -301,12 +306,18 @@ def fhir_server_aktivitetsresultat_sfi_dfm(
             q_meta = {
                 "posted_count": dg.MetadataValue.int(q_totals["posted_count"]),
                 "failed_count": dg.MetadataValue.int(q_totals["failed_count"]),
+                "unique_violation_recovered_count": dg.MetadataValue.int(
+                    q_totals["unique_violation_recovered_count"]
+                ),
                 "mode": dg.MetadataValue.text(config.mode),
                 "method": dg.MetadataValue.text("dfm_arc_streamed"),
             }
             qr_meta = {
                 "posted_count": dg.MetadataValue.int(qr_totals["posted_count"]),
                 "failed_count": dg.MetadataValue.int(qr_totals["failed_count"]),
+                "unique_violation_recovered_count": dg.MetadataValue.int(
+                    qr_totals["unique_violation_recovered_count"]
+                ),
                 "mode": dg.MetadataValue.text(config.mode),
                 "method": dg.MetadataValue.text("dfm_arc_streamed"),
             }

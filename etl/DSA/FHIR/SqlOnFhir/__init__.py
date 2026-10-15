@@ -19,13 +19,9 @@ Architecture:
 """
 
 from .Appointment_dfm import sof_appointment_dfm
-from .CarePlan import (
-    sof_careplan_daily,
-    sof_careplan_monthly,
-)
-from .CarePlan_Activity import (
-    sof_careplan_activity_daily,
-    sof_careplan_activity_monthly,
+from .CarePlan_dfm import (
+    sof_careplan_activity_dfm,
+    sof_careplan_dfm,
 )
 from .Condition_dfm import (
     sof_condition_dfm,
@@ -61,10 +57,8 @@ all_assets = [
     sof_condition_tillaegskode_dfm,
     sof_condition_dfm,
     sof_organization,
-    sof_careplan_daily,
-    sof_careplan_monthly,
-    sof_careplan_activity_daily,
-    sof_careplan_activity_monthly,
+    sof_careplan_dfm,
+    sof_careplan_activity_dfm,
     sof_procedure_dfm,
     sof_procedure_tillaegskode_dfm,
     sof_service_request_dfm,
@@ -91,10 +85,8 @@ __all__ = [
     "sof_condition_tillaegskode_dfm",
     "sof_condition_dfm",
     "sof_organization",
-    "sof_careplan_daily",
-    "sof_careplan_monthly",
-    "sof_careplan_activity_daily",
-    "sof_careplan_activity_monthly",
+    "sof_careplan_dfm",
+    "sof_careplan_activity_dfm",
     "sof_procedure_dfm",
     "sof_procedure_tillaegskode_dfm",
     "sof_service_request_dfm",

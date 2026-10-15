@@ -32,30 +32,20 @@ fhir_aktivitetsresultat_daily_ifdb_feature_patient_validation
 fhir_aktivitetsresultat_daily_ifdb
 ```
 
-## Setting one up
+## Getting one
 
-Set the environment variable before starting Dagster:
+Push a `feature/*`, `fix/*` or `bugfix/*` branch. The pipeline builds the branch's
+image on the first push — when the push touches `etl/**`, `pyproject.toml` or the
+code-server Dockerfiles — the deployment watcher starts a Dagster code server on Dev,
+and later pushes are picked up by the running server without a rebuild. The postfix is set by that deployment — you never set it by hand. See
+[Getting started](../../../docs/onboarding.md).
 
-```bash
-export DAGSTER_BRANCH_POSTFIX=feature-add-patient-validation
-dagster dev
-```
-
-In a deployment configuration (Nomad):
+In the Nomad job the deployment sets:
 
 ```hcl
 env {
   DAGSTER_BRANCH_POSTFIX = "feature-branch-name"
 }
-```
-
-In Docker Compose:
-
-```yaml
-services:
-  dagster:
-    environment:
-      - DAGSTER_BRANCH_POSTFIX=feature-branch-name
 ```
 
 ## Postfix sanitization
@@ -104,5 +94,7 @@ if is_feature_branch_deployment():
 
 ## Cleanup
 
-Tear down feature-branch deployments when the branch is merged or abandoned — they
-hold resources and clutter the asset graph.
+Delete the branch when it is merged or abandoned. Its image is then pruned from the
+registry — immediately on the next merge to `development`, otherwise within seven
+days — and the watcher stops the corresponding code server. Deployments left
+standing hold resources and clutter the asset graph for everyone.

@@ -21,7 +21,7 @@ All DFM jobs are launched from **Dagster UI → Jobs → (select job) → Launch
 | Run normal incremental extraction | `ifdb_archive_job` | [1. Default Delta Run](#1-default-delta-run) |
 | Reprocess a date range (no checkpoint change) | `ifdb_archive_job` | [2. Ad-Hoc Period Run](#2-ad-hoc-period-run) |
 | Reprocess specific IDs | `ifdb_archive_job` | [3. Ad-Hoc IDs Run](#3-ad-hoc-ids-run) |
-| Fix DQA-flagged dangling FHIR references | `fhir_ifdb_dfm_base_job` | [Replay DQA-flagged dangling references](#replay-dqa-flagged-dangling-references-referential-remediation) |
+| Fix DQA-flagged dangling FHIR references | `ifdb_dfm_daily_job` | [Replay DQA-flagged dangling references](#replay-dqa-flagged-dangling-references-referential-remediation) |
 | Reload a large historical range in chunks | `period_orchestrator_job` | [4. Period Orchestrator](#4-period-orchestrator) |
 | Reset a checkpoint to re-extract from a date | `dfm_reset_job` | [5. Checkpoint Reset](#5-checkpoint-reset) |
 | Force a specific IFDB flow-start timestamp | `ifdb_archive_job` | [6. Custom Flow-Start Override](#6-custom-flow-start-override) |
@@ -210,13 +210,13 @@ ops:
       advance_checkpoint: false
 ```
 
-Launch via `fhir_ifdb_dfm_base_job` (which contains `fhir_server_encounter_dfm`).
+Launch via `ifdb_dfm_daily_job` (which contains `fhir_server_encounter_dfm`).
 Feeder views: `dqa.v_replay_ifdb_encounter` / `dqa.v_replay_ifdb_episode_of_care`
 (`OBJECT_ID`), `dqa.v_replay_ifdb_patient` (`PATIENT_ID`).
 
 **Step 2 — reproject downstream.** SOF does **not** support `mode: ids` (it falls
 back to delta) — but re-posting bumps each resource's `lastUpdated`, so a normal
-**delta** SOF + DSO sync (`fhir_ifdb_dfm_sof_dso_job`) reprojects exactly the
+**delta** SOF + DSO sync (in the same `ifdb_dfm_daily_job` run) reprojects exactly the
 re-posted resources into the flat `fhir.*` tables.
 
 **Step 3 — confirm + close out.** Re-run the DQA referential check; the replayed
@@ -549,8 +549,7 @@ ops:
 | `fhir_ifdb_dfm_job` | FHIR transform + upload from archive | `RunModeConfig` |
 | `ifdb_dfm_full_job` | Full pipeline: extract → archive → FHIR → SOF | `RunModeConfig` + `FlowStartConfig` |
 | `fhir_sof_dfm_job` | SQL-on-FHIR view extraction | `RunModeConfig` |
-| `fhir_ifdb_dfm_base_job` | Base DFM pipeline: flow-start → extract → archive → FHIR server (all DFM producers; CarePlan still partitioned) | `RunModeConfig` + `FlowStartConfig` |
-| `fhir_ifdb_dfm_sof_dso_job` | SOF + DSO for DFM resources, then Borger (`ref_patient_borger` → `ref_patient_address_borger` → `dim_Borger` → `dso_sync_dim_borger`) og SFI_datapoint refresh (waits for Observation/QR DSO + codesystem.sfi_*) | `RunModeConfig` |
+| `ifdb_dfm_daily_job` | **The nightly pipeline.** flow-start → extract → archive → FHIR server → SOF → DSO, then Borger (`ref_patient_borger` → `ref_patient_address_borger` → `dim_Borger` → `dso_sync_dim_borger`) and the SFI_datapoint refresh | `RunModeConfig` + `FlowStartConfig` |
 | `dfm_reset_job` | Checkpoint reset | `DfmResetConfig` |
 | `period_orchestrator_job` | Chunked historical reload | `PartitionedPeriodConfig` |
 
@@ -573,66 +572,48 @@ SOF assets query PostgreSQL flat views (Aidbox `sof` schema) using a timestamp-b
 
 ### Overview
 
-The daily FHIR ETL is split into two independent pipelines:
+The whole IFDB → FHIR pipeline is one job:
 
 ```
-┌──────────────────────────────────┐
-│   fhir_ifdb_dfm_base_job        │  ← Scheduled at 06:00 CET
-│   (Patient, EoC, Encounter,     │
-│    Location, DocumentReference,  │
-│    Condition, Procedure,         │
-│    ServiceRequest, SFI,          │
-│    Appointment, Location_SOR:    │
-│    DFM checkpoint-based,         │
-│    unpartitioned)                │
-└──────────────┬───────────────────┘
-               │ SUCCESS
-               ▼ (sensor)
-┌──────────────────────┐   ┌──────────────────────────┐
-│ fhir_etl_ifdb_daily  │   │ fhir_ifdb_dfm_sof_dso    │
-│ _job (partitioned,   │   │ _job (SOF + DSO,         │
-│ remaining resources: │   │ Borger ref/dim + DSO,    │
-│ CarePlan only —      │   │ codesystem.sfi_* +       │
-│ CarePlan lands as    │   │ SFI_datapoint refresh)   │
-│ DFM)                 │   │                          │
-└──────────────────────┘   └──────────────────────────┘
+┌────────────────────────────────────────────────────────┐
+│  ifdb_dfm_daily_job          ← 06:00 CET               │
+│                                                        │
+│  flow-start → ext.* → arc.*                            │
+│      → FHIR server (Patient, EoC, Encounter, Location, │
+│        Location_SOR, DocumentReference, Condition,     │
+│        Procedure, ServiceRequest, SFI, Appointment,    │
+│        CarePlan)                                       │
+│      → SOF (sof.* views → flat fhir.*)                 │
+│      → DSO sync                                        │
+│      → Borger ref/dim + dso_sync_dim_borger            │
+│      → codesystem.sfi_* + SFI_datapoint refresh        │
+└────────────────────────────────────────────────────────┘
 ```
 
 ### How It Works
 
-1. **`fhir_ifdb_dfm_base_job`** runs daily at 06:00 via `ifdb_dfm_base_schedule`. It extracts data from Oracle (checkpoint-based delta), merges into archive tables, and posts FHIR resources to the FHIR server. It covers **Patient, EpisodeOfCare, Encounter, Location, DocumentReference (Epikrise + CareDischargeReport), Condition (Diagnose + PAS-diagnose), Procedure (AdminProc + RIS-ydelse), ServiceRequest (HENVISNING + RIS-ydelse + RehabilitationPlan), Aktivitetsresultat/SFI (incl. Questionnaire/QR), Appointment and Location_SOR**. All SOF/DSO runs in the DFM SOF/DSO job — the multi-producer exception is fully resolved except Observation, which moved early because the EVENTMARKER assets are unregistered stubs (CarePlan must land as DFM).
+1. **`ifdb_dfm_daily_job`** runs daily at 06:00 via `ifdb_dfm_daily_schedule`. Every
+   stage is DFM checkpoint-based and unpartitioned, so the run needs no partition
+   key and Dagster resolves the whole graph as one set of ordering edges.
 
-2. **`dfm_base_job_success_sensor`** watches for successful completions of the base job. On success, it triggers:
-   - `fhir_etl_ifdb_daily_job` — processes the remaining daily resource (CarePlan/EVENTMARKER)
-   - `fhir_ifdb_dfm_sof_dso_job` — SQL-on-FHIR extraction and DSO sync for the DFM resources, then the Borger chain (`ref_patient_borger` → `ref_patient_address_borger` → `dim_Borger` → `dso_sync_dim_borger`), `codesystem.sfi_*` sync, and finally `dso_refresh_sfi_datapoint_daily`. The refresh asset lives in `fhir_dso_sync_dfm` so Dagster actually waits for today's Observation/QR DSO sync (a dep on an asset outside the job is treated as external and the edge disappears). The two jobs still run **in parallel** with each other; SFI_datapoint no longer runs in the partitioned daily job.
+2. **Why one job.** It used to be three: a base job, and two jobs a success sensor
+   fanned out to. That split existed because the remaining daily resources were
+   *partitioned* — a partitioned job cannot select unpartitioned assets, so the
+   sensor had to launch it separately with a partition key derived from the base
+   run's start time. When CarePlan (the last partitioned producer) moved to DFM,
+   the constraint disappeared, and with it the sensors, the partition-anchoring
+   logic, and the `DFM_BASE_FAILURE_TRIGGER_DAILY` recovery escape hatch.
 
-   The partition key is derived from the **base run's start time** (Europe/Copenhagen), not the sensor's wall-clock time — so a backlog of successes (e.g. after daemon downtime) materialises each day's own partition rather than collapsing them onto "today". Re-executing the base run re-fires this chain (intended recovery for a fixed-and-retried base run; harmless for an already-green one, since downstream is idempotent).
+3. **Ordering is by asset dep, not by job boundary.** This is the thing to get right
+   when adding an asset: a dep on an asset that is *not selected by the running job*
+   is treated by Dagster as an external asset and the ordering edge silently
+   disappears. `dso_refresh_sfi_datapoint_daily` is the worked example — it lives in
+   `fhir_dso_sync_dfm` precisely so it is selected alongside the Observation/QR DSO
+   syncs it must wait for.
 
-3. **`dfm_base_job_failure_sensor`** alarms when the base job fails: downstream `fhir_etl_ifdb_daily_job` and `fhir_ifdb_dfm_sof_dso_job` are gated on base **success** and will not run that tick, so a base failure would otherwise leave the whole FHIR day un-materialised.
-   - **Opt-in recovery:** set env var `DFM_BASE_FAILURE_TRIGGER_DAILY=true` to best-effort trigger `fhir_etl_ifdb_daily_job` (but **not** SOF/DSO) even when the base job fails. Safe because legacy resources resolve their Patient/EpisodeOfCare/Location/Encounter references against already-posted data + on-demand resolution, not against today's base run. Default is **off** (strict gating).
-
-4. **`fhir_etl_ifdb_daily_job`** is the original daily job, but it now **excludes** assets tagged with `"dfm_migrated": "true"`. This means DFM-converted assets are automatically removed from the daily partitioned job without needing to maintain explicit key lists.
-
-### The `dfm_migrated` Tag
-
-Assets tagged `"dfm_migrated": "true"` are excluded from `fhir_etl_ifdb_daily_job` via:
-
-```python
-_dfm_migrated = dg.AssetSelection.tag("dfm_migrated", "true")
-
-fhir_etl_ifdb_daily_job = dg.define_asset_job(
-    name="fhir_etl_ifdb_daily_job",
-    selection=(
-        (ifdb_extraction_daily_assets - _dfm_migrated)
-        | (fhir_ifdb_daily_assets - _dfm_migrated)
-        | (fhir_sof_daily_assets - _dfm_migrated)
-        | (fhir_dso_sync_daily - _dfm_migrated)
-    ),
-    ...
-)
-```
-
-Tag-based subtraction resolves dynamically (no hard-coded keys), which means it works correctly with branch postfixing for multi-deployment support and will never produce `DagsterInvalidSubsetError` for missing keys.
+4. **Failure.** The job failing is reported by `nightly_failure_sensor` like any
+   other scheduled run. Recovery is a Dagster re-execution (optionally
+   from-failure), not a separate best-effort job.
 
 ---
 
@@ -651,14 +632,12 @@ When converting an existing daily-partitioned IFDB resource to the DFM framework
 ### 2. Remove the Old Partitioned Assets
 
 Once the DFM assets are in place, remove the old daily/monthly/full_load
-partitioned assets for that entity. If you need a transition period where both
-pipelines coexist, tag the old daily assets with `"dfm_migrated": "true"`
-instead — that excludes them from `fhir_etl_ifdb_daily_job` without deleting
-them — and delete them when the DFM pipeline is verified:
+partitioned assets for that entity:
 
 | Layer | File | What to remove |
 |-------|------|-------------|
-| **Extraction** | `DSI/oracle/ifdb.py` | The `create_extraction_assets(...)` call and asset-list entries (keep the `TableExtractionConfig` if quality checks use it — the dependency resolver reads `arc.*` and no longer needs the legacy configs) |
+| **Extraction** | `DSI/oracle/ifdb.py` | Any remaining extract-asset wiring and asset-list entries (keep the `TableExtractionConfig` if quality checks use it — the dependency resolver reads `arc.*` and no longer needs the legacy configs) |
+| **DSI package** | `DSI/oracle/__init__.py` | Re-exports of the removed assets, and the asset lists that fed `definitions.py` |
 | **FHIR** | `DSA/FHIR/<Resource>/<Resource>_IFDB.py` | The whole file — move shared `_transform_*`/`_post_*` helpers into `<Resource>_IFDB_dfm.py` first and repoint importers (dependency resolver, quality checks, tests) |
 | **SOF** | `DSA/FHIR/SqlOnFhir/<Resource>.py` | The whole file (replaced by `<Resource>_dfm.py`) |
 | **DSO Sync** | `DSO/load/sync_fhir.py` | Remove the spec from `_DSO_SYNC_SPECS`; add it to `_DFM_DSO_SYNC_SPECS` |
@@ -668,11 +647,12 @@ partitioned asset names to depend on the new DFM asset instead.
 
 ### 3. Job Membership Comes From the Asset Group
 
-Do **not** edit `jobs/ifdb_dfm_jobs.py` — its selections are group-based
-(`AssetSelection.groups("ifdb_archive") | groups("fhir_ifdb_dfm")` for the base
-job, `groups("fhir_sof_dfm") | groups("fhir_dso_sync_dfm") | ...` for SOF/DSO).
-Setting the correct `group_name` on the new assets IS the job registration; a
-wrong or missing group silently drops the asset from the nightly run.
+Do **not** edit `jobs/ifdb_dfm_jobs.py` — `ifdb_dfm_daily_job`'s selection is
+group-based (`groups("ifdb_archive") | groups("fhir_ifdb_dfm") |
+groups("fhir_sof_dfm") | groups("fhir_dso_sync_dfm") | ...`). Setting the correct
+`group_name` on the new assets IS the job registration; a wrong or missing group
+silently drops the asset from the nightly run — and any `deps` pointing at it
+from inside the job become external, losing the ordering edge too.
 
 ### 4. Register Modules
 
@@ -687,18 +667,18 @@ Run a quick import check to confirm the job resolves:
 cd etl && python -c "
 import sys; sys.path.insert(0, '.')
 from definitions import defs
-job = defs.get_job_def('fhir_etl_ifdb_daily_job')
+job = defs.get_job_def('ifdb_dfm_daily_job')
 keys = sorted([str(k) for k in job.asset_layer.selected_asset_keys])
-# Verify the migrated entity is NOT in the list
-assert not any('<entity>' in k for k in keys), 'Entity still in daily job!'
-print(f'OK: {len(keys)} assets in daily job, entity excluded.')
+# Verify the new DFM assets ARE selected by the nightly job
+assert any('<entity>' in k for k in keys), 'Entity missing from the nightly job!'
+print(f'OK: {len(keys)} assets in the nightly job.')
 "
 ```
 
 ### Notes
 
-- For Patient, EpisodeOfCare, Encounter, Location, Condition, Procedure, ServiceRequest, Aktivitetsresultat/SFI, Appointment and Location_SOR the old daily/monthly/full_load partitioned assets have been **deleted** — historical reloads use the DFM `full_load`/`period` modes (see sections above) instead of partition backfills. Only CarePlan (EVENTMARKER) remains on the partitioned path and MUST land as DFM. The partitioned `ris_ydelse`/`henvisning*`/`referralinformation` extracts were deleted with ServiceRequest, their last consumer.
-- The DFM base job is unpartitioned (uses checkpoint-based incremental), while the remaining daily job is still daily-partitioned.
+- Every IFDB resource is now on the DFM path, so the old daily/monthly/full_load partitioned assets have all been **deleted** — historical reloads use the DFM `full_load`/`period` modes (see sections above) instead of partition backfills. CarePlan (EVENTMARKER) was the last one; the `dfm_migrated` tag that used to subtract migrated assets from the partitioned daily job went with it.
+- No job in the deployment carries a `partitions_def` any more.
 
 ---
 
@@ -718,6 +698,7 @@ Checkpoints live in `meta.DFMState`. Key checkpoint entries for IFDB:
 | `arc` | `ifdb_ris_ydelse` | staging | Last archived RIS-ydelse (XML verbatim; shared with ServiceRequest) |
 | `arc` | `ifdb_henvisning` (+`_historik`) / `ifdb_referralinformation` | staging | Last archived Henvisning (+history, referral info) |
 | `arc` | `ifdb_aktivitetsresultat` (+`ifdb_aktivitetsudfoerelse`, `_speciale`) | staging | Last archived Aktivitetsresultat/SFI (+lookups) |
+| `arc` | `ifdb_eventmarker` | staging | Last archived EVENTMARKER (all 17 source columns; `DELETED` -> `dw_is_deleted`) |
 | `arc` | `bom_ifdb_aftale` (+`bom_ifdb_aftaleressourcedeltager`) | staging | Last archived Appointment (AFTALE flatten + deltager-lookup) |
 | `arc` | `bom_ifdb_orgenhed_sor` / `bom_ifdb_patientinfo` | staging | Last archived Location_SOR flatten / PATIENTINFO (CPR fallback) |
 | `arc` | `sor_register` | staging | Last archived SOR register snapshot |
@@ -728,13 +709,15 @@ Checkpoints live in `meta.DFMState`. Key checkpoint entries for IFDB:
 | `fhir_server` | `Procedure_AdminProc` / `Procedure_RisYdelse` | staging | Last FHIR-posted Procedure per slice |
 | `fhir_server` | `ServiceRequest` / `RehabilitationPlan` | staging | Last FHIR-posted ServiceRequest (henvisning+RIS streams / rehab-plan slice) |
 | `fhir_server` | `Aktivitetsresultat_SFI` | staging | Last FHIR-posted Observation/Procedure/Condition (+Q/QR) from SFI |
+| `fhir_server` | `CarePlan` | staging | Last FHIR-posted Alle Markoerer CarePlan (one per patient; scoped from the EVENTMARKER archive delta) |
 | `fhir_server` | `Appointment` / `Location_SOR` | staging | Last FHIR-posted Appointment / SOR-Location |
 | `fhir` | `Patient` / `Patient_Address` / `Encounter` / `Encounter_Location` / `EpisodeOfCare` / `Location` | staging | Last SOF extract per flat table |
 | `fhir` | `DocumentReference` / `DocumentReference_Recipient` | staging | Last SOF extract (DocumentReference tables) |
 | `fhir` | `ServiceRequest` / `ServiceRequest_tillaegskode` / `ServiceRequest_Recipient` | staging | Last SOF extract (ServiceRequest tables) |
 | `fhir` | `Condition` / `Condition_tillaegskode` | staging | Last SOF extract (Condition tables; SOF is DFM — all four producers migrated) |
 | `fhir` | `Procedure` / `Procedure_tillaegskode` | staging | Last SOF extract (Procedure tables; SOF is DFM) |
-| `fhir` | `Observation` / `Questionnaire` / `Questionnaire_item` / `QuestionnaireResponse` / `QuestionnaireResponse_item` | staging | Last SOF extract (SFI tables; EVENTMARKER-Observation assets are unregistered stubs — CarePlan must land as DFM) |
+| `fhir` | `Observation` / `Questionnaire` / `Questionnaire_item` / `QuestionnaireResponse` / `QuestionnaireResponse_item` | staging | Last SOF extract (SFI tables; the EVENTMARKER-Observation assets remain unregistered stubs) |
+| `fhir` | `CarePlan` / `CarePlan_Activity` | staging | Last SOF extract (CarePlan tables; the child runs `child_grain_reconcile`) |
 | `fhir` | `Appointment` | staging | Last SOF extract (Appointment table) |
 
 View current checkpoints:

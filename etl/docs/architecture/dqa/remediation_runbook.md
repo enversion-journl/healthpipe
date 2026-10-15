@@ -41,10 +41,8 @@ remediate **after the daily FHIR pipeline has completed** for the period you car
 about:
 
 ```
-fhir_ifdb_dfm_base_job            (Oracle → arc → FHIR server posts)
-        │ SUCCESS (sensor)
-        ▼
-fhir_ifdb_dfm_sof_dso_job         (SQL-on-FHIR projection + DSO sync → flat fhir.*)
+ifdb_dfm_daily_job                (Oracle → arc → FHIR server posts →
+        │                          SQL-on-FHIR projection + DSO sync → flat fhir.*)
         │
         ▼
 dqa_fhir_weekly_job               (detection: referential_integrity + fhir_server_reconciliation)
@@ -54,16 +52,16 @@ dqa_fhir_weekly_job               (detection: referential_integrity + fhir_serve
 ```
 
 - **`dqa_remediation_replay`** — run after `dqa_fhir_weekly_job` has populated
-  `dqa.RemediationQueue`, **and** after a recent `fhir_ifdb_dfm_base_job` so the
+  `dqa.RemediationQueue`, **and** after a recent `ifdb_dfm_daily_job` so the
   *surviving* parent (e.g. the kept Organization) already exists on the FHIR
   server. The replay itself runs `fhir_server_<entity>_dfm` (ids) + SOF + DSO, so
   don't run it concurrently with the daily pipeline for the same entity.
-- **`dqa_fhir_server_cleanup`** — run after `fhir_ifdb_dfm_sof_dso_job` so the flat
+- **`dqa_fhir_server_cleanup`** — run after `ifdb_dfm_daily_job` so the flat
   tables are current (newly-posted resources projected). It only ever *soft-deletes*
   rows whose id is **gone** from the server, so not-yet-projected resources don't
   affect it — but acting on a settled state avoids confusion. **Do not run it
-  concurrently with the FHIR pipeline** (`fhir_ifdb_dfm_base_job` /
-  `fhir_ifdb_dfm_sof_dso_job`) for the same resource: it snapshots the server's live
+  concurrently with the FHIR pipeline** (`ifdb_dfm_daily_job`) for the same
+  resource: it snapshots the server's live
   ids first, then soft-deletes flat rows missing from that snapshot. As a safeguard
   it only ever acts on rows whose `dw_timestamp_insert` predates the snapshot, so a
   resource created *after* the snapshot and projected mid-run can't be wrongly
@@ -268,7 +266,7 @@ ops:
 (`OBJECT_ID, PERIOD_START`), and its archive merge runs NOT-MATCHED-BY-SOURCE
 delete detection (`upstream_is_full_load`) — an ids-mode *partial* ext would
 mass-soft-delete every row outside the batch. Location gaps self-heal on the next
-daily full load. Don't run this concurrently with `fhir_ifdb_dfm_base_job` for the
+daily full load. Don't run this concurrently with `ifdb_dfm_daily_job` for the
 same entity (both write ext/arc).
 
 ---

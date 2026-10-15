@@ -745,6 +745,30 @@ def test_non_dfm_subjects_are_registered():
     assert {s.name for s in _NON_DFM_SUBJECTS} <= registered
 
 
+def test_careplan_server_reconciliation_scopes_to_live_rows():
+    """The check must not re-count what the cleanup already retired.
+
+    dqa_fhir_server_cleanup(entity="care_plan") soft-deletes rows in BOTH
+    fhir.CarePlan and fhir.CarePlan_Activity on the parent careplan_id and bumps
+    dw_timestamp_update so the DSO sync carries it on. With deleted_column=None
+    the reconciliation treats every row as live, so those same rows keep counting
+    as stale_in_flat and the check can never go green after a cleanup.
+    """
+    from dqa.config.fhir_subjects import FHIR_SUBJECTS
+    from dqa.remediation.fhir_server_cleanup import _ENTITIES
+
+    subjects = {s.name: s for s in FHIR_SUBJECTS}
+    cleanup_targets = {t["flat"] for t in _ENTITIES["care_plan"]["targets"]}
+    assert cleanup_targets == {"[fhir].[CarePlan]", "[fhir].[CarePlan_Activity]"}
+
+    for name in ("fhir_careplan", "fhir_careplan_activity"):
+        specs = [s for s in subjects[name].checks if s.check_type == "fhir_server_reconciliation"]
+        assert len(specs) == 1, name
+        # Absent means the check's own default, which is "dw_is_deleted".
+        assert specs[0].params.get("deleted_column", "dw_is_deleted") == "dw_is_deleted", name
+        assert specs[0].params["resource_table"] == "careplan", name
+
+
 def test_cleanup_entities_cover_all_is_deleted_tables():
     """Every fhir.* table carrying dw_is_deleted must be reachable by the cleanup.
 

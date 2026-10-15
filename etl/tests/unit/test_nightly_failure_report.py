@@ -129,7 +129,7 @@ class TestResolveDeploymentEnv:
 @pytest.mark.unit
 class TestIsAutomationRun:
     def test_schedule_triggered_reported(self):
-        assert is_automation_run({"dagster/schedule_name": "ifdb_dfm_base_schedule"})
+        assert is_automation_run({"dagster/schedule_name": "ifdb_dfm_daily_schedule"})
 
     def test_sensor_triggered_reported(self):
         assert is_automation_run({"dagster/triggered_by": "dfm_base_job_success_sensor"})

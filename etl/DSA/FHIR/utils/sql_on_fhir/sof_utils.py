@@ -14,8 +14,10 @@ Shared logic for:
 """
 
 import json
+import os
 import time
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -64,6 +66,293 @@ MAX_DRIVER_PARAMS = 2000
 # are handled by re-executing the whole asset rather than reconnecting
 # inline mid-extraction.
 SOF_ASSET_RETRY_POLICY = dg.RetryPolicy(max_retries=2, delay=120)
+
+# Backfill-tilstand for SOF-MERGE'n på staging: portioneret MERGE med commit pr. portion
+# og sekundære indeks slået fra under indlæsningen, som i DSO-synken. Ét statement for
+# 12-17 mio. rækker var disk-bundet af indeksvedligeholdelse og tabte alt ved afbrydelse.
+# Porten: kun når deltaet er både stort og stort i forhold til målet, og kun for tabeller
+# der har valgt det til
+# ("backfill_mode" i SOF_RESOURCE_CONFIGS). Det daglige delta kører uændret.
+# Hvis MERGE'n stadig bærer tiden efter dette: næste greb er en append-sti for nye
+# nøgler — stage vinduet, byg indeks på staging-tabellen og SWITCH den ind i en
+# månedspartitioneret måltabel. Det kræver (qr_id, dato) som nøgle på staging og DSO.
+SOF_BACKFILL_MODE_ENV = "SOF_BACKFILL_MODE"  # auto | always | never
+SOF_MERGE_BATCH_ROWS_ENV = "SOF_MERGE_BATCH_ROWS"  # 0 = ét statement
+SOF_INDEX_DISABLE_ENV = "SOF_INDEX_DISABLE"  # on | off
+SOF_BACKFILL_MIN_ROWS_ENV = "SOF_BACKFILL_MIN_ROWS"
+SOF_BACKFILL_MIN_RATIO_ENV = "SOF_BACKFILL_MIN_RATIO"
+# Run-tags, der overstyrer miljøet for én kørsel (målekørsler).
+SOF_BACKFILL_MODE_TAG = "sof/backfill_mode"
+SOF_MERGE_BATCH_ROWS_TAG = "sof/merge_batch_rows"
+SOF_INDEX_DISABLE_TAG = "sof/index_disable"
+SOF_BACKFILL_MIN_ROWS_TAG = "sof/backfill_min_rows"
+SOF_BACKFILL_MIN_RATIO_TAG = "sof/backfill_min_ratio"
+SOF_DEFAULT_MERGE_BATCH_ROWS = 250_000
+SOF_DEFAULT_BACKFILL_MIN_ROWS = 1_000_000
+SOF_DEFAULT_BACKFILL_MIN_RATIO = 0.10
+# Portionsnummer på staging-tabellen; tildeles med DENSE_RANK over nøglen, så alle
+# rækker med samme nøgle lander i samme portion (dedup pr. portion er så korrekt).
+SOF_STAGE_BATCH_COLUMN = "__sof_batch"
+
+
+@dataclass(frozen=True)
+class SofBackfillPlan:
+    """Afgørelse for én SOF-indlæsning: portioneret MERGE og/eller indeks fra."""
+
+    active: bool
+    batch_rows: int  # 0 = ét MERGE-statement
+    disable_indexes: bool
+    reason: str
+    incoming_rows: int = 0
+    target_rows: int = 0
+
+    def describe(self) -> str:
+        if not self.active:
+            return f"inactive ({self.reason})"
+        return (
+            f"active: batch_rows={self.batch_rows or 'single'} "
+            f"disable_indexes={self.disable_indexes} incoming={self.incoming_rows:,} "
+            f"target={self.target_rows:,} ({self.reason})"
+        )
+
+
+def _sof_run_tags(context: Any) -> dict[str, str]:
+    run = getattr(context, "run", None)
+    tags = getattr(run, "tags", None)
+    return dict(tags) if isinstance(tags, dict) else {}
+
+
+def _sof_setting(context: Any, tag: str, env: str, default: str) -> str:
+    """Run-tag før miljøvariabel før default."""
+    value = _sof_run_tags(context).get(tag) or os.environ.get(env)
+    return str(value).strip() if value is not None and str(value).strip() else default
+
+
+def _sof_target_row_estimate(cursor: Any, table_name: str) -> int:
+    """Måltabellens rækketal fra sys.partitions (billigt, ingen scanning)."""
+    cursor.execute(
+        f"""
+        SELECT COALESCE(SUM(p.rows), 0)
+        FROM sys.partitions p
+        WHERE p.object_id = OBJECT_ID(N'[fhir].[{table_name}]')
+          AND p.index_id IN (0, 1)
+        """
+    )
+    row = cursor.fetchone()
+    return int(row[0]) if row and row[0] is not None else 0
+
+
+def resolve_sof_backfill_plan(
+    cursor: Any,
+    table_name: str,
+    table_cfg: dict[str, Any] | None,
+    incoming_rows: int,
+    context: Any = None,
+) -> SofBackfillPlan:
+    """Afgør, om denne indlæsning kører i backfill-tilstand.
+
+    Kun tabeller med ``backfill_mode`` i konfigurationen. ``never`` slår det fra,
+    ``always`` åbner porten uanset størrelse; ``auto`` (default) kræver, at deltaet er
+    over ``min_rows`` og udgør mindst ``min_ratio`` af måltabellen. Inden for en åben
+    port kan portionsstørrelse (0 = ét statement) og indeks-frakobling styres hver for
+    sig, så de to greb kan måles hver for sig.
+    """
+    if not (table_cfg and table_cfg.get("backfill_mode")):
+        return SofBackfillPlan(False, 0, False, "not opted in", incoming_rows)
+    mode = _sof_setting(context, SOF_BACKFILL_MODE_TAG, SOF_BACKFILL_MODE_ENV, "auto").lower()
+    if mode == "never":
+        return SofBackfillPlan(False, 0, False, "backfill_mode=never", incoming_rows)
+    target_rows = 0
+    if mode != "always":
+        try:
+            min_rows = max(
+                1,
+                int(
+                    _sof_setting(
+                        context,
+                        SOF_BACKFILL_MIN_ROWS_TAG,
+                        SOF_BACKFILL_MIN_ROWS_ENV,
+                        str(SOF_DEFAULT_BACKFILL_MIN_ROWS),
+                    )
+                ),
+            )
+        except ValueError:
+            min_rows = SOF_DEFAULT_BACKFILL_MIN_ROWS
+        try:
+            min_ratio = max(
+                0.0,
+                float(
+                    _sof_setting(
+                        context,
+                        SOF_BACKFILL_MIN_RATIO_TAG,
+                        SOF_BACKFILL_MIN_RATIO_ENV,
+                        str(SOF_DEFAULT_BACKFILL_MIN_RATIO),
+                    )
+                ),
+            )
+        except ValueError:
+            min_ratio = SOF_DEFAULT_BACKFILL_MIN_RATIO
+        if incoming_rows < min_rows:
+            return SofBackfillPlan(
+                False,
+                0,
+                False,
+                f"incoming {incoming_rows:,} < min_rows {min_rows:,}",
+                incoming_rows,
+            )
+        target_rows = _sof_target_row_estimate(cursor, table_name)
+        ratio = (incoming_rows / target_rows) if target_rows > 0 else float("inf")
+        if ratio < min_ratio:
+            return SofBackfillPlan(
+                False,
+                0,
+                False,
+                f"ratio {ratio:.3f} < min_ratio {min_ratio}",
+                incoming_rows,
+                target_rows,
+            )
+        reason = f"auto: ratio {ratio:.3f} >= {min_ratio}, incoming >= {min_rows:,}"
+    else:
+        reason = "backfill_mode=always"
+    try:
+        batch_rows = max(
+            0,
+            int(
+                _sof_setting(
+                    context,
+                    SOF_MERGE_BATCH_ROWS_TAG,
+                    SOF_MERGE_BATCH_ROWS_ENV,
+                    str(SOF_DEFAULT_MERGE_BATCH_ROWS),
+                )
+            ),
+        )
+    except ValueError:
+        batch_rows = SOF_DEFAULT_MERGE_BATCH_ROWS
+    disable = (
+        _sof_setting(context, SOF_INDEX_DISABLE_TAG, SOF_INDEX_DISABLE_ENV, "on").lower() != "off"
+    )
+    return SofBackfillPlan(True, batch_rows, disable, reason, incoming_rows, target_rows)
+
+
+def _build_stage_batch_assignment_sql(
+    stage_table: str, primary_keys: list[str], batch_rows: int
+) -> str:
+    """Nummerér staging-rækkerne i portioner à ``batch_rows`` NØGLER i nøgleorden.
+
+    DENSE_RANK, ikke ROW_NUMBER: dublerede nøgler får samme rang og dermed samme
+    portion, så dedup-vinduet i MERGE'n stadig ser alle rækker for en nøgle.
+    """
+    pk_cols = ", ".join(f"[{pk}]" for pk in primary_keys)
+    return f"""
+        WITH ranked AS (
+            SELECT [{SOF_STAGE_BATCH_COLUMN}], DENSE_RANK() OVER (ORDER BY {pk_cols}) AS __sof_rank
+            FROM {stage_table}
+        )
+        UPDATE ranked SET [{SOF_STAGE_BATCH_COLUMN}] = (__sof_rank - 1) / {int(batch_rows)};
+    """
+
+
+def _nonclustered_index_names_sql(table_name: str) -> str:
+    return f"""
+        SELECT i.name, i.is_disabled
+        FROM sys.indexes i
+        WHERE i.object_id = OBJECT_ID(N'[fhir].[{table_name}]')
+          AND i.type = 2
+          AND i.is_primary_key = 0
+        ORDER BY i.name
+    """
+
+
+def _disable_target_indexes(cursor: Any, table_name: str) -> list[str]:
+    """Slå målets sekundære indeks fra; returnér alle, der skal genopbygges bagefter
+    (også dem, en tidligere afbrudt kørsel har efterladt slået fra)."""
+    cursor.execute(_nonclustered_index_names_sql(table_name))
+    rows = [(str(name), bool(disabled)) for name, disabled in cursor.fetchall()]
+    for name, disabled in rows:
+        if not disabled:
+            cursor.execute(f"ALTER INDEX [{name}] ON [fhir].[{table_name}] DISABLE")
+    return [name for name, _ in rows]
+
+
+def _rebuild_target_indexes(
+    cursor: Any, conn: Any, table_name: str, names: list[str], context: Any = None
+) -> dict[str, float]:
+    """Genopbyg de nævnte indeks ét ad gangen med commit og tid pr. indeks."""
+    timings: dict[str, float] = {}
+    for name in names:
+        started = time.perf_counter()
+        cursor.execute(f"ALTER INDEX [{name}] ON [fhir].[{table_name}] REBUILD")
+        conn.commit()
+        timings[name] = time.perf_counter() - started
+        if context:
+            context.log.info(
+                f"[SOF_BACKFILL] rebuilt index [{name}] on fhir.{table_name} in {timings[name]:.2f}s"
+            )
+    return timings
+
+
+def _merge_in_batches(
+    cursor: Any,
+    conn: Any,
+    context: Any,
+    *,
+    stage_table: str,
+    table_name: str,
+    columns: list[str],
+    primary_keys: list[str],
+    batch_rows: int,
+    dedup_enabled: bool,
+    dedup_tiebreak_columns: list[str] | None,
+    resurrect_soft_deleted: bool,
+    computed_columns: dict[str, str] | None,
+) -> tuple[int, int]:
+    """MERGE staging-tabellen ind i målet i portioner med commit pr. portion.
+
+    Semantikken er den samme som ét statement: hver kilderække behandles præcis én
+    gang (MATCHED opdateres, NOT MATCHED indsættes; der er ingen NOT MATCHED BY
+    SOURCE-gren), og portionerne er nøgleintervaller, så dedup pr. nøgle er intakt.
+    Hver portion er sin egen transaktion: en afbrydelse koster højst én portion, og
+    genkørslen er idempotent.
+    """
+    pk_cols = ", ".join(f"[{pk}]" for pk in primary_keys)
+    cursor.execute(f"ALTER TABLE {stage_table} ADD [{SOF_STAGE_BATCH_COLUMN}] INT NULL")
+    cursor.execute(_build_stage_batch_assignment_sql(stage_table, primary_keys, batch_rows))
+    cursor.execute(
+        f"CREATE CLUSTERED INDEX IX_SofTemp_PK ON {stage_table} "
+        f"([{SOF_STAGE_BATCH_COLUMN}], {pk_cols}) WITH (DROP_EXISTING = ON)"
+    )
+    cursor.execute(f"SELECT MAX([{SOF_STAGE_BATCH_COLUMN}]) FROM {stage_table}")
+    row = cursor.fetchone()
+    batch_count = int(row[0]) + 1 if row and row[0] is not None else 0
+    conn.commit()
+    total_affected = 0
+    started = time.perf_counter()
+    for batch in range(batch_count):
+        merge_sql = build_fhir_merge_sql(
+            table_name,
+            columns,
+            primary_keys,
+            source_table=stage_table,
+            deduplicate_source_by_pk=dedup_enabled,
+            dedup_tiebreak_columns=dedup_tiebreak_columns,
+            resurrect_soft_deleted=resurrect_soft_deleted,
+            computed_columns=computed_columns,
+            source_filter=f"[{SOF_STAGE_BATCH_COLUMN}] = {batch}",
+        )
+        batch_started = time.perf_counter()
+        cursor.execute(merge_sql)
+        affected = cursor.rowcount if cursor.rowcount is not None and cursor.rowcount > 0 else 0
+        total_affected += affected
+        conn.commit()
+        if context:
+            context.log.info(
+                f"[SOF_TIMING] merge_batch={batch + 1}/{batch_count} "
+                f"rows_affected={affected:,} elapsed={time.perf_counter() - batch_started:.2f}s "
+                f"cum_rows_affected={total_affected:,} "
+                f"cum_elapsed={time.perf_counter() - started:.2f}s"
+            )
+    return total_affected, batch_count
+
 
 # =============================================================================
 # Resource Configuration Registry
@@ -214,11 +503,20 @@ SOF_RESOURCE_CONFIGS: dict[str, dict[str, Any]] = {
         "id_column": "careplan_id",
         "mssql_table": "CarePlan_Activity",
         "primary_keys": ["ifdb_eventmarker_id"],
-        # dw_is_deleted is not projected by this view: dqa_fhir_server_cleanup
-        # sets it to 1, and this MERGE is the only thing that writes 0 back.
-        # Without it a retired row stays invisible even when the resource
-        # returns.
+        # dw_is_deleted is set by child-grain reconcile, not the resource.
         "resurrect_soft_deleted": True,
+        # A marker removed upstream disappears from its CarePlan's activity
+        # list, and a plain MERGE only adds and updates — so the row would stay
+        # live forever. Mark every activity of a changed CarePlan deleted, then
+        # let the MERGE resurrect the ones the resource still carries. The
+        # producer re-posts a patient whose markers were ALL removed with an
+        # empty activity list precisely so it lands in this window.
+        # That empty re-post is exactly a CarePlan with zero activities, so a
+        # quiet window whose only change is such a patient yields a 0-row
+        # extract. The reconcile guard already treats an empty delta as
+        # legitimate for every scoped reconcile, so nothing extra is needed —
+        # only a full load still refuses to mark on zero rows.
+        "child_grain_reconcile": True,
     },
     "procedure_view": {
         "view_name": "procedure_view",
@@ -361,6 +659,9 @@ SOF_RESOURCE_CONFIGS: dict[str, dict[str, Any]] = {
         # Absent isDeleted extension must land 0, not NULL -- see patient_view.
         "boolean_false_default_columns": ["dw_is_deleted"],
         "primary_keys": ["qr_id"],
+        # Backfill-vinduer (mio. rækker ind i en tabel med fem sekundære indeks):
+        # portioneret MERGE og indeks fra, se resolve_sof_backfill_plan.
+        "backfill_mode": True,
         # dw_is_deleted is not projected by this view: dqa_fhir_server_cleanup
         # sets it to 1, and this MERGE is the only thing that writes 0 back.
         # Without it a retired row stays invisible even when the resource
@@ -372,6 +673,7 @@ SOF_RESOURCE_CONFIGS: dict[str, dict[str, Any]] = {
         "mssql_table": "QuestionnaireResponse_item",
         "primary_keys": ["qr_id", "link_id", "item_key", "answer_index"],
         "null_sentinel_columns": ["link_id", "item_key", "answer_index"],
+        "backfill_mode": True,
         # dw_is_deleted is not projected by this view: dqa_fhir_server_cleanup
         # sets it to 1, and this MERGE is the only thing that writes 0 back.
         # Without it a retired row stays invisible even when the resource
@@ -903,6 +1205,8 @@ def extract_and_merge_sof_view(
     normalized_datetime_columns: list[str] | None = None,
     fetch_chunk_size: int = SOF_STREAM_FETCH_CHUNK_SIZE,
     soft_delete_threshold: int | None = None,
+    backfill_override: SofBackfillPlan | None = None,
+    timings: dict[str, Any] | None = None,
 ) -> tuple[int, int]:
     """Stream SoF rows directly into MSSQL temp table and MERGE.
 
@@ -921,6 +1225,10 @@ def extract_and_merge_sof_view(
             ``parse_fhir_datetime`` before staging, so the DWH never keys on the
             string form -- see ``period_keys`` for why that mapping is
             many-to-one and therefore unusable as a key.
+        backfill_override: Bypass ``resolve_sof_backfill_plan`` (measurement runs
+            against a copy of the target).
+        timings: Optional dict the function fills with phase timings and the
+            backfill plan, for callers that report them.
 
     Returns:
         Tuple: (source_row_count, rows_affected_by_merge)
@@ -1212,11 +1520,39 @@ def extract_and_merge_sof_view(
                                 f"before they silently drop a real period."
                             )
 
+                    # Backfill-tilstand (portioneret MERGE, indeks fra) afgøres af
+                    # deltaets størrelse mod målet; det daglige delta rammer ikke porten.
+                    plan = backfill_override or resolve_sof_backfill_plan(
+                        mssql_cursor, table_name, table_cfg, source_row_count, context
+                    )
+                    if context and plan.active:
+                        context.log.info(
+                            f"[SOF_BACKFILL] target=fhir.{table_name} {plan.describe()}"
+                        )
+                    disabled_indexes: list[str] = []
+                    rebuild_timings: dict[str, float] = {}
+                    _t_disable = 0.0
+                    _t_rebuild = 0.0
+                    merge_batches = 0
+
                     # TIMING: index + MERGE phase (set-based DSA upsert)
                     _t_merge_total = 0.0
                     _t_idx = 0.0
                     reconcile_open = False
                     try:
+                        if plan.disable_indexes and source_row_count > 0:
+                            # Slås fra FØR reconcile-markeringerne og MERGE'n; opslag på
+                            # forældre-id går via det klyngede indeks (PK-præfiks).
+                            _t_disable_start = time.perf_counter()
+                            disabled_indexes = _disable_target_indexes(mssql_cursor, table_name)
+                            mssql_conn.commit()
+                            _t_disable = time.perf_counter() - _t_disable_start
+                            if context:
+                                context.log.info(
+                                    f"[SOF_BACKFILL] disabled {len(disabled_indexes)} nonclustered "
+                                    f"index(es) on fhir.{table_name} in {_t_disable:.2f}s: "
+                                    f"{', '.join(disabled_indexes) or '-'}"
+                                )
                         if reconcile_deletes and (full_load or parent_ids):
                             # A full extract with no rows would retire the entire
                             # target and is therefore unsafe. A delta child reconcile
@@ -1232,6 +1568,13 @@ def extract_and_merge_sof_view(
                                         "retire every active row. Investigate the SoF view "
                                         "and Aidbox connection before retrying."
                                     ),
+                                )
+                            if source_row_count == 0 and context:
+                                context.log.info(
+                                    f"Delete reconcile for fhir.{table_name}: extract "
+                                    f"returned 0 rows for {len(parent_ids)} changed "
+                                    "parent(s) — every one of them emptied out. Marking "
+                                    "their rows deleted with nothing to resurrect."
                                 )
                             if child_grain_reconcile:
                                 marked = _mark_child_rows_deleted(
@@ -1349,6 +1692,11 @@ def extract_and_merge_sof_view(
                                                 "Refusing to deduplicate because this could "
                                                 "hide extra downstream data."
                                             )
+                            computed_columns = (
+                                _questionnaire_canonical_expressions("src")
+                                if table_name == "QuestionnaireResponse"
+                                else None
+                            )
                             merge_sql = build_fhir_merge_sql(
                                 table_name,
                                 columns,
@@ -1357,11 +1705,7 @@ def extract_and_merge_sof_view(
                                 deduplicate_source_by_pk=dedup_enabled,
                                 dedup_tiebreak_columns=dedup_tiebreak_columns,
                                 resurrect_soft_deleted=resurrect_soft_deleted,
-                                computed_columns=(
-                                    _questionnaire_canonical_expressions("src")
-                                    if table_name == "QuestionnaireResponse"
-                                    else None
-                                ),
+                                computed_columns=computed_columns,
                             )
                             if context and dedup_enabled:
                                 context.log.info(
@@ -1375,13 +1719,29 @@ def extract_and_merge_sof_view(
                                     f"stage_rows={source_row_count:,}"
                                 )
                             _t_merge_start = time.perf_counter()
-                            mssql_cursor.execute(merge_sql)
+                            if plan.batch_rows > 0:
+                                rows_affected, merge_batches = _merge_in_batches(
+                                    mssql_cursor,
+                                    mssql_conn,
+                                    context,
+                                    stage_table=stage_table,
+                                    table_name=table_name,
+                                    columns=columns,
+                                    primary_keys=primary_keys,
+                                    batch_rows=plan.batch_rows,
+                                    dedup_enabled=dedup_enabled,
+                                    dedup_tiebreak_columns=dedup_tiebreak_columns,
+                                    resurrect_soft_deleted=resurrect_soft_deleted,
+                                    computed_columns=computed_columns,
+                                )
+                            else:
+                                mssql_cursor.execute(merge_sql)
+                                rows_affected = mssql_cursor.rowcount
                             _t_merge_total = time.perf_counter() - _t_merge_start
-                            rows_affected = mssql_cursor.rowcount
                             if context:
                                 context.log.info(
                                     f"[SOF_TIMING] merge_done elapsed={_t_merge_total:.2f}s "
-                                    f"rows_affected={rows_affected:,}"
+                                    f"rows_affected={rows_affected:,} batches={merge_batches}"
                                 )
                             if table_name == "QuestionnaireResponse":
                                 _t_normalize_start = time.perf_counter()
@@ -1402,6 +1762,16 @@ def extract_and_merge_sof_view(
                     except Exception:
                         mssql_conn.rollback()
                         raise
+                    finally:
+                        # Indeksene må aldrig efterlades slået fra af en afsluttet
+                        # kørsel — heller ikke en fejlet. Genopbygningen committer pr.
+                        # indeks; en fejl her kædes på den oprindelige undtagelse.
+                        if disabled_indexes:
+                            _t_rebuild_start = time.perf_counter()
+                            rebuild_timings = _rebuild_target_indexes(
+                                mssql_cursor, mssql_conn, table_name, disabled_indexes, context
+                            )
+                            _t_rebuild = time.perf_counter() - _t_rebuild_start
 
                     # TIMING: temp drop + commit
                     if context:
@@ -1437,9 +1807,33 @@ def extract_and_merge_sof_view(
                             f"prep_total={_t_prep_total:.2f}s "
                             f"stage_total={_t_stage_total:.2f}s "
                             f"create_index={_t_idx:.2f}s "
-                            f"merge={_t_merge_total:.2f}s "
+                            f"merge={_t_merge_total:.2f}s merge_batches={merge_batches} "
+                            f"index_disable={_t_disable:.2f}s index_rebuild={_t_rebuild:.2f}s "
                             f"drop={_t_drop:.2f}s "
                             f"timed_sum={_t_total:.2f}s"
+                        )
+                    if timings is not None:
+                        timings.update(
+                            {
+                                "rows": source_row_count,
+                                "rows_affected": rows_affected,
+                                "chunks": chunk_num,
+                                "declare_s": round(_t_declare, 2),
+                                "fetch_s": round(_t_fetch_total, 2),
+                                "prep_s": round(_t_prep_total, 2),
+                                "stage_s": round(_t_stage_total, 2),
+                                "create_index_s": round(_t_idx, 2),
+                                "merge_s": round(_t_merge_total, 2),
+                                "merge_batches": merge_batches,
+                                "index_disable_s": round(_t_disable, 2),
+                                "index_rebuild_s": round(_t_rebuild, 2),
+                                "index_rebuild_per_index_s": {
+                                    k: round(v, 2) for k, v in rebuild_timings.items()
+                                },
+                                "drop_s": round(_t_drop, 2),
+                                "plan": plan.describe(),
+                                "disabled_indexes": list(disabled_indexes),
+                            }
                         )
                 finally:
                     mssql_cursor.close()
@@ -1503,6 +1897,7 @@ def build_fhir_merge_sql(
     dedup_tiebreak_columns: list[str] | None = None,
     resurrect_soft_deleted: bool = False,
     computed_columns: dict[str, str] | None = None,
+    source_filter: str | None = None,
 ) -> str:
     """
     Generate a T-SQL MERGE statement for upserting into fhir.* tables.
@@ -1529,6 +1924,10 @@ def build_fhir_merge_sql(
             derived columns that are not part of the staged view (e.g.
             QuestionnaireResponse canonical/version). Not part of the diff
             predicate — they derive from columns that already are.
+        source_filter: Optional predicate over the staging table's columns that
+            restricts the MERGE to one portion (batched backfill). Applied inside
+            the dedup wrapper, so duplicate keys are still deduplicated as long as
+            a key's rows share a portion.
 
     Returns:
         T-SQL MERGE statement string.
@@ -1570,6 +1969,7 @@ def build_fhir_merge_sql(
         else:
             order_by = "(SELECT 0)"
         source_cols = ", ".join(f"[{c}]" for c in columns)
+        base_filter = f"\n                WHERE {source_filter}" if source_filter else ""
         source_expr = f"""(
             SELECT {source_cols}
             FROM (
@@ -1579,10 +1979,13 @@ def build_fhir_merge_sql(
                         PARTITION BY {partition_cols}
                         ORDER BY {order_by}
                     ) AS __sof_dedup_rn
-                FROM {source_table} AS src_base
+                FROM {source_table} AS src_base{base_filter}
             ) AS dedup
             WHERE __sof_dedup_rn = 1
         )"""
+    elif source_filter:
+        source_cols = ", ".join(f"[{c}]" for c in columns)
+        source_expr = f"(SELECT {source_cols} FROM {source_table} WHERE {source_filter})"
     else:
         source_expr = source_table
 

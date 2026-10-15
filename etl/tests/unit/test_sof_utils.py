@@ -1239,6 +1239,124 @@ class TestChildGrainReconcileTransaction:
         assert mssql_conn.commits >= 1
 
 
+class _CarePlanActivityPgCursor:
+    """SoF cursor for careplan_activity_view: parent CarePlans, child activities."""
+
+    def __init__(self, parent_ids, chunks):
+        self._parent_ids = parent_ids
+        self._chunks = list(chunks)
+        self.description = [
+            ("careplan_id",),
+            ("ifdb_eventmarker_id",),
+            ("last_updated",),
+            ("created_at",),
+        ]
+        self._last_sql = ""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def execute(self, sql, _params=None):
+        self._last_sql = sql
+        return None
+
+    def fetchone(self):
+        return None
+
+    def fetchall(self):
+        if "SELECT r.id FROM" in self._last_sql:
+            return [(pid,) for pid in self._parent_ids]
+        return []
+
+    def fetchmany(self, _size):
+        if self._chunks:
+            return self._chunks.pop(0)
+        return []
+
+
+@pytest.mark.unit
+class TestAllowEmptyChildExtract:
+    """careplan_activity_view opts out of the empty-extract guard on deltas.
+
+    A CarePlan whose markers were all retired is re-posted with zero activities
+    on purpose — that is what puts it in the reconcile window. So a quiet night
+    whose only change is such a patient produces a legitimately empty extract,
+    and failing on it would block the very retirement the reconcile exists for.
+    """
+
+    def _zero_row_mssql(self):
+        class MssqlCursor:
+            rowcount = 0
+
+            def __init__(self):
+                self._schema_fetched = False
+                self.executed = []
+
+            def execute(self, sql, _params=None):
+                self.executed.append(sql)
+                return None
+
+            def fetchall(self):
+                if self._schema_fetched:
+                    return []
+                self._schema_fetched = True
+                return [
+                    ("careplan_id", "nvarchar", 255, None, None),
+                    ("ifdb_eventmarker_id", "nvarchar", 255, None, None),
+                    ("last_updated", "datetime2", None, None, None),
+                    ("created_at", "datetime2", None, None, None),
+                ]
+
+            def fetchone(self):
+                return (0, 0, 0)
+
+            def bulkcopy(self, table, data, **kwargs):
+                return {"rows_copied": len(data)}
+
+            def executemany(self, sql, rows):
+                return None
+
+            def close(self):
+                return None
+
+        return MssqlCursor()
+
+    def _run(self, *, parent_ids, partition_start):
+        pg_cursor = _CarePlanActivityPgCursor(parent_ids=parent_ids, chunks=[])
+        mssql_cursor = self._zero_row_mssql()
+        mssql_conn = _RecordingMssqlConn(mssql_cursor)
+        extract_and_merge_sof_view(
+            fhir_database=_FakePgResource(pg_cursor),
+            mssql_target=_RecordingMssqlResource(mssql_conn),
+            view_name="careplan_activity_view",
+            resource_table="careplan",
+            id_column="careplan_id",
+            table_name="CarePlan_Activity",
+            primary_keys=["ifdb_eventmarker_id"],
+            partition_start=partition_start,
+        )
+        return mssql_cursor, mssql_conn
+
+    def test_delta_zero_rows_still_marks_the_emptied_parents_deleted(self):
+        mssql_cursor, mssql_conn = self._run(parent_ids=["cp-1"], partition_start="2026-01-01")
+
+        marked = [sql for sql in mssql_cursor.executed if "dw_is_deleted" in sql]
+        assert marked, "the emptied parent's activity rows must still be retired"
+        # Marked against the changed-parent temp table, not the whole table.
+        assert any("#ReconcileParents" in sql for sql in marked)
+        assert mssql_conn.rollbacks == 0
+        assert mssql_conn.commits >= 1
+
+    def test_full_load_zero_rows_still_refuses(self):
+        # On a full load an empty extract always means the view or the connection
+        # is broken — marking on it would retire the entire table.
+        with pytest.raises(dg.Failure, match="extract returned 0 rows"):
+            self._run(parent_ids=[], partition_start=None)
+
+
 @pytest.mark.unit
 class TestResourceGrainReconcile:
     def _org_pg_cursor(self):

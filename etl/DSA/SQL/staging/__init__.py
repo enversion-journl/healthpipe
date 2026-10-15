@@ -63,6 +63,7 @@ from .stg_fct_Vareudlevering_ils import stg_fct_Vareudlevering_ils
 from .stg_Okosted import stg_Okosted
 from .stg_Organisation_sydax import stg_Organisation_sydax
 from .stg_SHAK import stg_SHAK
+from .stg_SHAKAlike import stg_SHAKAlike
 
 staging_assets = [
     # Pre-staging (joins, clean_code generation, dedup)
@@ -118,6 +119,7 @@ staging_assets = [
     stg_Organisation_sydax,
     stg_Okosted,
     stg_SHAK,
+    stg_SHAKAlike,
 ]
 
 all_assets = [*staging_assets]
@@ -169,5 +171,6 @@ __all__ = [
     "stg_fct_Vareudlevering_ils",
     "stg_Okosted",
     "stg_SHAK",
+    "stg_SHAKAlike",
     "stg_Organisation_sydax",
 ]

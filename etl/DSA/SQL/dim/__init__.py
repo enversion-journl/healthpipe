@@ -37,6 +37,7 @@ from .dim_Organisation import dim_Organisation
 from .dim_Postering import dim_Postering
 from .dim_Rekvirent import dim_Rekvirent
 from .dim_SHAK import dim_SHAK
+from .dim_SHAKAlike import dim_SHAKAlike
 from .dim_UNSPSC import dim_UNSPSC
 from .dim_Vareudlevering import dim_Vareudlevering
 
@@ -67,6 +68,7 @@ all_assets = [
     dim_Organisation,
     dim_Okosted,
     dim_SHAK,
+    dim_SHAKAlike,
     dim_Borger,
 ]
 
@@ -98,5 +100,6 @@ __all__ = [
     "dim_Organisation",
     "dim_Okosted",
     "dim_SHAK",
+    "dim_SHAKAlike",
     "dim_Borger",
 ]

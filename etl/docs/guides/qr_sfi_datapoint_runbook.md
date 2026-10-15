@@ -213,3 +213,25 @@ Hvis ny persistering eller DQ gate giver uventet effekt:
 - revert kun den konkrete persisterings-/preflight-ændring.
 - kør reconciliation igen, når fejlen er rettet.
 - sammenlign build/store QR-output før og efter.
+
+## Backfill-vinduer
+
+Storen er en clustered columnstore, månedspartitioneret på `occurred_at_dt`, med to
+smalle B-træer (datapoint-nøgle og patient). Store vinduer (mindst 1 mio. ændrede
+ressourcer) indlæses via arbejdstabellen `fhir.SFI_datapoint_store_backfill` og skiftes ind
+med SWITCH (partitioner med højst 100.000 efterslæbere tømmes til
+`fhir.SFI_datapoint_store_efterslaeb` først og får rækkerne tilbage bagefter); genkørsler af
+allerede indlæste måneder bruger indeks-frakobling. Hver kørsel
+slutter med REORGANIZE af columnstoren. Det daglige delta kører uændret. Run-tags til
+målekørsler:
+
+| Run-tag | Værdier |
+|---|---|
+| `sfi_datapoint/backfill_index_mode` | `auto` (default), `always`, `never` |
+| `sfi_datapoint/backfill_min_resources` | heltal, default 1.000.000 |
+| `sfi_datapoint/backfill_strategy` | `auto` (default), `switch`, `disable_indexes`, `none` |
+| `sof/backfill_mode`, `sof/merge_batch_rows`, `sof/index_disable` | SOF-MERGE'n: `auto`/`always`/`never`, portionsstørrelse (0 = ét statement), `on`/`off` |
+| `dso_sync/index_disable_min_rows`, `dso_sync/index_disable_min_ratio` | DSO-synkens indeks-frakobling |
+
+Status: `dso_sfi_store_partition_status`. Målebænke: `sfi_store_layout_benchmark_job` og
+`sof_merge_benchmark_job` (kopier, der droppes igen).

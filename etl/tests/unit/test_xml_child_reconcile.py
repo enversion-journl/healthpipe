@@ -368,7 +368,7 @@ def test_empty_parent_list_does_not_touch_the_database():
 
 
 class TestChildValueErFormatetsEjer:
-    """29571-paritet: child_value() danner PRÆCIS de literale formater, alle
+    """Formatparitet: child_value() danner PRÆCIS de literale formater, alle
     kaldesteder dannede før centraliseringen. Ændres et format her, skal det
     være en bevidst beslutning — ikke drift mellem dannelse og opslag."""
 

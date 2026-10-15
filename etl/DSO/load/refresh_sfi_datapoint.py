@@ -29,10 +29,12 @@ from typing import Any
 
 import dagster as dg
 from core.resources import MSSQLResource
+from DSO.load import sfi_store_partitioning as _part
 from DSO.load.sync_state import SyncStateManager
 from infrastructure.utils.ddl_loader import execute_sql_file
 
 _STORE_TABLE = "[fhir].[SFI_datapoint_store]"
+_STORE_DDL_FILE = "tables/fhir/02_sfi_datapoint_store.sql"
 _BUILD_VIEW = "[fhir].[SFI_datapoint_build]"
 _REFRESH_LOCK_NAME = "fhir.SFI_datapoint_store.refresh"
 
@@ -47,9 +49,53 @@ _QR_PREFLIGHT_MODE_SKIP = "skip"
 _RECONCILIATION_BATCH_SIZE_ENV = "SFI_DATAPOINT_RECONCILIATION_BATCH_SIZE"
 _DEFAULT_RECONCILIATION_BATCH_SIZE = 250_000
 _INCREMENTAL_BATCH_SIZE_ENV = "SFI_DATAPOINT_INCREMENTAL_BATCH_SIZE"
-_DEFAULT_INCREMENTAL_BATCH_SIZE = 50_000
+# Mindst ~150k ressourcer pr. portion giver over 102.400 rækker pr. INSERT, som er
+# columnstorens grænse for at komprimere direkte i stedet for at lande i deltastore (målt:
+# 50k-portioner gav 290 µs/række mod 43 µs i genopbygningen). Det daglige delta er
+# mindre end én portion uanset.
+_DEFAULT_INCREMENTAL_BATCH_SIZE = 250_000
 _QR_ZERO_WARN_THRESHOLD_ENV = "SFI_DATAPOINT_QR_ZERO_WARN_THRESHOLD"
 _DEFAULT_QR_ZERO_WARN_THRESHOLD = 0
+# Backfill-tilstand for storens indeks: over grænsen (antal ændrede ressourcer i
+# kørslen) slås de brede nonclustered indeks fra før portionsløkken og
+# genopbygges efter. Den daglige delta (~250k ressourcer) rammer aldrig grænsen.
+_BACKFILL_INDEX_MODE_ENV = "SFI_DATAPOINT_BACKFILL_INDEX_MODE"
+_BACKFILL_INDEX_MODE_AUTO = "auto"
+_BACKFILL_INDEX_MODE_ALWAYS = "always"
+_BACKFILL_INDEX_MODE_NEVER = "never"
+_BACKFILL_MIN_RESOURCES_ENV = "SFI_DATAPOINT_BACKFILL_MIN_RESOURCES"
+_DEFAULT_BACKFILL_MIN_RESOURCES = 1_000_000
+# Indeks, der ALDRIG slås fra ud over de unikke (som kandidat-SQL'en selv udelader).
+# Storen er en columnstore: DELETE-joinet pr. portion er en scanning af columnstoren i
+# batch-tilstand (ingen B-træ på ressource-id), så intet indeks er påkrævet for det.
+_BACKFILL_KEEP_INDEXES: frozenset[str] = frozenset()
+# Run-tags, der overstyrer miljøet for én kørsel (målekørsler på små vinduer):
+#   sfi_datapoint/backfill_index_mode = auto|always|never
+#   sfi_datapoint/backfill_min_resources = <heltal>
+_BACKFILL_INDEX_MODE_TAG = "sfi_datapoint/backfill_index_mode"
+_BACKFILL_MIN_RESOURCES_TAG = "sfi_datapoint/backfill_min_resources"
+# Backfill-strategi, når porten ovenfor er åben (se sfi_store_partitioning). Hvis
+# SWITCH-stien ikke performer, er byggeforespørgslen den tilbageværende post: mål den
+# isoleret, og overvej at materialisere byggeviewets QR-ben pr. portion først.
+#   auto            – SWITCH-stien, når storen er partitioneret og stikprøven viser,
+#                     at vinduet overvejende rammer tomme partitioner; ellers
+#                     indeks-frakobling som hidtil.
+#   switch          – SWITCH-stien (falder tilbage til disable_indexes på en
+#                     upartitioneret store, med advarsel).
+#   disable_indexes – kun indeks-frakobling (C-a), uanset partitionering.
+#   none            – ingen backfill-håndtering (alle indeks på, hver række vedligeholdes).
+_BACKFILL_STRATEGY_ENV = "SFI_DATAPOINT_BACKFILL_STRATEGY"
+_BACKFILL_STRATEGY_TAG = "sfi_datapoint/backfill_strategy"
+_BACKFILL_STRATEGY_AUTO = "auto"
+_BACKFILL_STRATEGY_SWITCH = "switch"
+_BACKFILL_STRATEGY_DISABLE = "disable_indexes"
+_BACKFILL_STRATEGY_NONE = "none"
+_BACKFILL_STRATEGIES = (
+    _BACKFILL_STRATEGY_AUTO,
+    _BACKFILL_STRATEGY_SWITCH,
+    _BACKFILL_STRATEGY_DISABLE,
+    _BACKFILL_STRATEGY_NONE,
+)
 
 _REFRESH_INSERT_COLUMNS = """
     [datapoint_key],
@@ -119,8 +165,8 @@ _REFRESH_INSERT_COLUMNS = """
 # treated as an external asset by Dagster — the ordering edge silently
 # disappears — so these lists MUST name the _dfm variants. The daily refresh
 # asset itself must also live in fhir_dso_sync_dfm so it is selected by
-# fhir_ifdb_dfm_sof_dso_job (the sensor fires that job in parallel with the
-# partitioned daily job).
+# ifdb_dfm_daily_job: a dep on an asset outside the running job is likewise
+# external, so both ends of the edge have to be in the same job.
 _SFI_DSO_DFM_DEPS = [
     "dso_sync_fhir_observation_dfm",
     "dso_sync_fhir_questionnaire_response_dfm",
@@ -620,15 +666,51 @@ def _build_number_changed_resources_sql() -> str:
     """
 
 
-def _build_inline_batch_apply_sql(batch_start: int, batch_end: int) -> str:
+def _plain_insert_tail(insert_columns: str, batch_select_sql: str) -> str:
+    """Hale til en portions-batch uden partitions-routing: INSERT direkte i storen."""
+    return f"""
+        INSERT INTO {_STORE_TABLE} (
+            {insert_columns}
+        )
+        {batch_select_sql};
+
+        DECLARE @inserted_rows BIGINT = @@ROWCOUNT;
+
+        SELECT @deleted_rows AS deleted_rows, @inserted_rows AS inserted_rows;
+    """
+
+
+def _insert_tail(insert_columns: str, batch_select_sql: str, *, routed: bool) -> str:
+    """Vælg hale: direkte INSERT (dagligt delta, indeks-frakobling) eller routing via
+    arbejdstabellen (SWITCH-tilstand, se sfi_store_partitioning.routed_insert_sql)."""
+    if routed:
+        return _part.routed_insert_sql(
+            insert_columns=insert_columns, batch_select_sql=batch_select_sql
+        )
+    return _plain_insert_tail(insert_columns, batch_select_sql)
+
+
+def _build_inline_batch_apply_sql(batch_start: int, batch_end: int, *, routed: bool = False) -> str:
     """Build batch-scoped DELETE + INSERT using inline build with #sfi_props_pivot.
 
-    Requires #changed_numbered and #sfi_props_pivot to exist in the session.
+    Requires #changed_numbered and #sfi_props_pivot to exist in the session. With
+    ``routed=True`` the batch also requires #empty_partitions (SWITCH mode) and
+    returns four counters instead of two.
     """
     source_select = _outer_select_columns()
     insert_columns = _REFRESH_INSERT_COLUMNS
     obs_leg = _inline_obs_build_leg("#batch_resources")
     qr_leg = _inline_qr_build_leg("#batch_resources")
+
+    batch_select_sql = f"""SELECT
+            {source_select}
+        FROM (
+            {obs_leg}
+
+            UNION ALL
+
+            {qr_leg}
+        ) AS b"""
 
     return f"""
         SET NOCOUNT ON;
@@ -652,30 +734,13 @@ def _build_inline_batch_apply_sql(batch_start: int, batch_end: int) -> str:
         -- while the session-level applock spans all batches. An in-SQL
         -- BEGIN/COMMIT would merely nest under the implicit transaction (no real
         -- commit until the connection commits) and defeat the batching.
-        DELETE tgt
-        FROM {_STORE_TABLE} tgt
-        INNER JOIN #batch_resources br
-            ON br.[source_resource] = tgt.[source_resource]
-           AND br.[source_resource_id] = tgt.[source_resource_id];
-
-        DECLARE @deleted_rows BIGINT = @@ROWCOUNT;
-
-        INSERT INTO {_STORE_TABLE} (
-            {insert_columns}
-        )
-        SELECT
-            {source_select}
-        FROM (
-            {obs_leg}
-
-            UNION ALL
-
-            {qr_leg}
-        ) AS b;
-
-        DECLARE @inserted_rows BIGINT = @@ROWCOUNT;
-
-        SELECT @deleted_rows AS deleted_rows, @inserted_rows AS inserted_rows;
+        -- Storen er en columnstore uden B-træ på ressource-id, så sletningen er en
+        -- scanning; portionens datointerval afgrænser den til portionens måneder
+        -- (partitions- og rækkegruppe-eliminering). Datorettelser i kilden samles op af
+        -- afstemningen, der sletter uden dato.
+        {_part.batch_date_window_sql("#batch_resources")}
+        {_part.scoped_delete_sql(_STORE_TABLE, "#batch_resources")}
+        {_insert_tail(insert_columns, batch_select_sql, routed=routed)}
     """
 
 
@@ -985,12 +1050,74 @@ def _build_reconciliation_setup_sql() -> str:
         CREATE NONCLUSTERED INDEX [IX_reconcile_resources_SourceResourceId]
             ON #reconcile_resources ([source_resource], [source_resource_id]);
 
-        SELECT COUNT_BIG(*) AS total_resources FROM #reconcile_resources;
+        SELECT
+            COUNT_BIG(*) AS total_resources,
+            CAST(SYSDATETIME() AS datetime2(0)) AS candidates_captured_at
+        FROM #reconcile_resources;
     """
 
 
-def _build_reconciliation_batch_sql(batch_start: int, batch_end: int) -> str:
-    """Build SQL for a single reconciliation batch (DELETE + INSERT for a row_id range)."""
+def _seed_watermark_sql() -> str:
+    """Indsæt en manglende watermark-række (parametre: schema, table, timestamp, status).
+    Bruges efter en fuld afstemning, så den daglige/månedlige refresh starter inkrementelt
+    fra kandidatsættets tidspunkt i stedet for at genopbygge alt endnu en gang."""
+    return f"""
+        IF NOT EXISTS (
+            SELECT 1 FROM {SyncStateManager.WATERMARK_TABLE}
+            WHERE schema_name = ? AND table_name = ?
+        )
+        INSERT INTO {SyncStateManager.WATERMARK_TABLE}
+            (schema_name, table_name, last_sync_timestamp, last_sync_rows,
+             last_sync_duration_ms, last_sync_status)
+        VALUES (?, ?, ?, 0, NULL, ?);
+    """
+
+
+def _seed_missing_watermarks(
+    cursor: Any, conn: Any, log: Any, *, captured_at: Any, exclude: str
+) -> list[str]:
+    """Efter en fuld afstemning: de andre refresh-watermarks, der mangler (fx efter
+    migrationen, der droppede storen), sættes til kandidatsættets tidspunkt. Ændringer
+    efter det tidspunkt tages af næste delta; ændringer før er med i genopbygningen."""
+    seeded: list[str] = []
+    for table in (
+        _WATERMARK_TABLE_DAILY,
+        _WATERMARK_TABLE_MONTHLY,
+        _WATERMARK_TABLE_RECONCILIATION,
+    ):
+        if table == exclude:
+            continue
+        cursor.execute(
+            _seed_watermark_sql(),
+            [
+                _WATERMARK_SCHEMA,
+                table,
+                _WATERMARK_SCHEMA,
+                table,
+                captured_at,
+                "seeded_by_reconciliation",
+            ],
+        )
+        if getattr(cursor, "rowcount", 0) and int(cursor.rowcount) > 0:
+            seeded.append(table)
+    conn.commit()
+    if seeded:
+        log.info(
+            "Watermarks %s sat til %s (kandidatsættets tidspunkt), så næste refresh er inkrementel.",
+            ", ".join(seeded),
+            captured_at,
+        )
+    return seeded
+
+
+def _build_reconciliation_batch_sql(
+    batch_start: int, batch_end: int, *, routed: bool = False
+) -> str:
+    """Build SQL for a single reconciliation batch (DELETE + INSERT for a row_id range).
+
+    ``routed=True`` routes rows for empty partitions through the work table (SWITCH
+    mode) and returns four counters instead of two.
+    """
     columns = _refresh_columns()
     source_select = ",\n                    ".join(
         (
@@ -1008,6 +1135,13 @@ def _build_reconciliation_batch_sql(batch_start: int, batch_end: int) -> str:
         )
         for column in columns
     )
+
+    batch_select_sql = f"""SELECT
+            {source_select}
+        FROM {_BUILD_VIEW} AS b
+        INNER JOIN #batch_resources AS br
+            ON br.[source_resource] = b.[source_resource]
+           AND br.[source_resource_id] = b.[source_resource_id]"""
 
     return f"""
         SET NOCOUNT ON;
@@ -1029,6 +1163,8 @@ def _build_reconciliation_batch_sql(batch_start: int, batch_end: int) -> str:
         -- No explicit BEGIN/COMMIT: autocommit=False means this DELETE+INSERT runs
         -- in the implicit transaction, committed per-batch by conn.commit() in the
         -- Python loop, so each reconciliation batch is independently durable.
+        -- Afstemningen sletter UDEN datointerval (scanning af hele storen pr. portion):
+        -- det er opsamlingen af rækker, hvis kildedato er rettet siden den daglige sti.
         DELETE tgt
         FROM {_STORE_TABLE} AS tgt
         INNER JOIN #batch_resources AS br
@@ -1036,20 +1172,7 @@ def _build_reconciliation_batch_sql(batch_start: int, batch_end: int) -> str:
            AND br.[source_resource_id] = tgt.[source_resource_id];
 
         DECLARE @deleted_rows BIGINT = @@ROWCOUNT;
-
-        INSERT INTO {_STORE_TABLE} (
-            {_REFRESH_INSERT_COLUMNS}
-        )
-        SELECT
-            {source_select}
-        FROM {_BUILD_VIEW} AS b
-        INNER JOIN #batch_resources AS br
-            ON br.[source_resource] = b.[source_resource]
-           AND br.[source_resource_id] = b.[source_resource_id];
-
-        DECLARE @inserted_rows BIGINT = @@ROWCOUNT;
-
-        SELECT @deleted_rows AS deleted_rows, @inserted_rows AS inserted_rows;
+        {_insert_tail(_REFRESH_INSERT_COLUMNS, batch_select_sql, routed=routed)}
     """
 
 
@@ -1068,7 +1191,7 @@ def _ensure_store_table_exists(
             cursor.close()
 
     context.log.warning("fhir.SFI_datapoint_store is missing; bootstrapping from DSO FHIR DDL.")
-    execute_sql_file(mssql_target_dso, "tables/fhir/02_sfi_datapoint_store.sql", context)
+    execute_sql_file(mssql_target_dso, _STORE_DDL_FILE, context)
 
 
 def _is_store_missing_error(error: Exception) -> bool:
@@ -1280,6 +1403,491 @@ def _incremental_batch_size(context: dg.AssetExecutionContext) -> int:
     return value
 
 
+def _run_tags(context: Any) -> dict[str, str]:
+    """Run-tags fra konteksten, eller tom dict for attrapper uden run."""
+    run = getattr(context, "run", None)
+    tags = getattr(run, "tags", None)
+    return dict(tags) if isinstance(tags, dict) else {}
+
+
+def _backfill_index_mode(context: Any = None) -> str:
+    """Backfill-indeks-tilstand: run-tag før miljø; auto (default), always eller never."""
+    raw = (
+        (
+            _run_tags(context).get(_BACKFILL_INDEX_MODE_TAG)
+            or os.environ.get(_BACKFILL_INDEX_MODE_ENV)
+            or _BACKFILL_INDEX_MODE_AUTO
+        )
+        .strip()
+        .lower()
+    )
+    if raw not in (
+        _BACKFILL_INDEX_MODE_AUTO,
+        _BACKFILL_INDEX_MODE_ALWAYS,
+        _BACKFILL_INDEX_MODE_NEVER,
+    ):
+        return _BACKFILL_INDEX_MODE_AUTO
+    return raw
+
+
+def _backfill_min_resources(context: Any = None) -> int:
+    raw = _run_tags(context).get(_BACKFILL_MIN_RESOURCES_TAG) or os.environ.get(
+        _BACKFILL_MIN_RESOURCES_ENV
+    )
+    if raw is None or not raw.strip():
+        return _DEFAULT_BACKFILL_MIN_RESOURCES
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return _DEFAULT_BACKFILL_MIN_RESOURCES
+
+
+def _should_disable_indexes_for_backfill(changed_resources: int, context: Any = None) -> bool:
+    """Afgør om kørslen er et backfill-vindue, hvor indeksvedligeholdelse pr. række
+    koster mere end én genopbygning bagefter.
+
+    Mekanikken er målt: portionstiden i storens refresh steg fra 27 til 62 s inden
+    for samme kørsel ved samme portionsstørrelse, fordi hver indsat række skal
+    væves ind i fem stadigt større, ikke-stigende B-træer (56,9 GB indeks mod
+    15,7 GB data). At bygge samme indeks bagefter er sekventielt og koster
+    minutter. Den daglige delta er lille og beholder alle indeks, så aftagerne
+    kan søge.
+    """
+    mode = _backfill_index_mode(context)
+    if mode == _BACKFILL_INDEX_MODE_NEVER:
+        return False
+    if mode == _BACKFILL_INDEX_MODE_ALWAYS:
+        return True
+    return changed_resources >= _backfill_min_resources(context)
+
+
+def _backfill_candidate_indexes_sql() -> str:
+    """Nonclustered, ikke-unikke, ikke-PK B-træer på storen med deres disabled-status.
+
+    Unikke indeks udelades, fordi de håndhæver entydighed under indlæsningen.
+    """
+    return f"""
+        SELECT i.name, i.is_disabled
+        FROM sys.indexes i
+        WHERE i.object_id = OBJECT_ID(N'{_STORE_TABLE}')
+          AND i.type = 2
+          AND i.is_primary_key = 0
+          AND i.is_unique = 0
+          AND i.is_unique_constraint = 0
+        ORDER BY i.name
+    """
+
+
+def _list_backfill_candidate_indexes(cursor: Any) -> list[tuple[str, bool]]:
+    cursor.execute(_backfill_candidate_indexes_sql())
+    return [
+        (str(name), bool(is_disabled))
+        for name, is_disabled in cursor.fetchall()
+        if str(name) not in _BACKFILL_KEEP_INDEXES
+    ]
+
+
+def _list_disabled_indexes(cursor: Any) -> list[str]:
+    """Alle nonclustered indeks på storen, der står slået fra."""
+    cursor.execute(_part.nonclustered_indexes_sql(_STORE_TABLE))
+    return [str(name) for name, is_disabled in cursor.fetchall() if is_disabled]
+
+
+def _list_disabled_required_indexes(cursor: Any) -> list[str]:
+    """Slåede-fra indeks på storen, som portionsløkken ikke kan undvære: de beholdte og
+    de unikke. Alt andet håndteres af backfill-kandidatlogikken."""
+    return [
+        name
+        for name in _list_disabled_indexes(cursor)
+        if name in _BACKFILL_KEEP_INDEXES or name.startswith("UX_")
+    ]
+
+
+def _rebuild_indexes(cursor: Any, conn: Any, context: Any, names: list[str]) -> dict[str, int]:
+    """Genopbyg de nævnte indeks ét ad gangen med commit og tid pr. indeks."""
+    timings_ms: dict[str, int] = {}
+    for name in names:
+        started = time.monotonic_ns() // 1_000_000
+        cursor.execute(f"ALTER INDEX [{name}] ON {_STORE_TABLE} REBUILD")
+        conn.commit()
+        timings_ms[name] = (time.monotonic_ns() // 1_000_000) - started
+        context.log.info("Genopbyggede indeks [%s] på %d ms.", name, timings_ms[name])
+    return timings_ms
+
+
+class _BackfillIndexScope:
+    """Slå storens brede indeks fra omkring portionsløkken i et backfill-vindue.
+
+    Bruges som context manager INDEN FOR refresh-låsen. ``enter`` afgør ud fra
+    antal ændrede ressourcer, om indeksene slås fra; ``exit`` genopbygger dem
+    altid (også ved fejl), så storen aldrig efterlades uden indeks af en
+    afsluttet kørsel. Efterlader en dræbt proces alligevel indeks slået fra,
+    reparerer næste kørsel det: allerede deaktiverede indeks genopbygges ved
+    indgang, medmindre kørslen selv går i backfill-tilstand.
+    """
+
+    def __init__(
+        self,
+        cursor: Any,
+        conn: Any,
+        context: Any,
+        changed_resources: int,
+        *,
+        active: bool | None = None,
+    ) -> None:
+        self._cursor = cursor
+        self._conn = conn
+        self._context = context
+        self._changed = changed_resources
+        self._forced_active = active
+        self.disabled: list[str] = []
+        self.rebuilt_ms: dict[str, int] = {}
+        self.active = False
+
+    def __enter__(self) -> "_BackfillIndexScope":
+        # Indeks, der ALDRIG må stå slået fra, når løkken starter: det unikke indeks
+        # håndhæver entydigheden. En dræbt kørsel kan have efterladt det slået fra.
+        required = _list_disabled_required_indexes(self._cursor)
+        if required:
+            self._context.log.warning(
+                "Fandt %d påkrævede indeks slået fra på %s fra en afbrudt kørsel — genopbygger først: %s",
+                len(required),
+                _STORE_TABLE,
+                ", ".join(required),
+            )
+            self.rebuilt_ms.update(
+                _rebuild_indexes(self._cursor, self._conn, self._context, required)
+            )
+        candidates = _list_backfill_candidate_indexes(self._cursor)
+        already_disabled = [name for name, disabled in candidates if disabled]
+        if self._forced_active is None:
+            self.active = _should_disable_indexes_for_backfill(self._changed, self._context)
+        else:
+            self.active = self._forced_active
+        if not self.active:
+            if already_disabled:
+                self._context.log.warning(
+                    "Fandt %d indeks slået fra på %s fra en afbrudt kørsel — genopbygger før refresh: %s",
+                    len(already_disabled),
+                    _STORE_TABLE,
+                    ", ".join(already_disabled),
+                )
+                self.rebuilt_ms.update(
+                    _rebuild_indexes(self._cursor, self._conn, self._context, already_disabled)
+                )
+            return self
+        for name, disabled in candidates:
+            if not disabled:
+                self._cursor.execute(f"ALTER INDEX [{name}] ON {_STORE_TABLE} DISABLE")
+            self.disabled.append(name)
+        self._conn.commit()
+        self._context.log.info(
+            "Backfill-tilstand (%d ændrede ressourcer >= grænse): %d indeks slået fra på %s "
+            "indtil portionsløkken er færdig: %s. Beholdt: %s.",
+            self._changed,
+            len(self.disabled),
+            _STORE_TABLE,
+            ", ".join(self.disabled) or "-",
+            ", ".join(sorted(_BACKFILL_KEEP_INDEXES)),
+        )
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        if not self.disabled:
+            return False
+        if exc_type is not None:
+            self._context.log.warning(
+                "Portionsløkken fejlede — genopbygger %d indeks på %s før fejlen propagerer.",
+                len(self.disabled),
+                _STORE_TABLE,
+            )
+            try:
+                self._conn.rollback()
+            except Exception:  # noqa: BLE001 — oprydningen må ikke maskere den oprindelige fejl
+                pass
+        self.rebuilt_ms.update(
+            _rebuild_indexes(self._cursor, self._conn, self._context, list(self.disabled))
+        )
+        self._context.log.info(
+            "Genopbyggede %d indeks på %s på i alt %d ms.",
+            len(self.disabled),
+            _STORE_TABLE,
+            sum(self.rebuilt_ms.values()),
+        )
+        return False
+
+
+def _backfill_strategy(context: Any = None) -> str:
+    """Ønsket backfill-strategi: run-tag før miljø; ukendt værdi giver auto."""
+    raw = (
+        (
+            _run_tags(context).get(_BACKFILL_STRATEGY_TAG)
+            or os.environ.get(_BACKFILL_STRATEGY_ENV)
+            or _BACKFILL_STRATEGY_AUTO
+        )
+        .strip()
+        .lower()
+    )
+    return raw if raw in _BACKFILL_STRATEGIES else _BACKFILL_STRATEGY_AUTO
+
+
+def _repair_leftovers(cursor: Any, conn: Any, context: Any) -> None:
+    """Rækker i arbejdstabellen fra en dræbt kørsel er aldrig blevet synlige; tømmes.
+    Efterslæbere i holdetabellen mangler i storen; de lægges tilbage."""
+    if _part.table_exists(cursor, _part.WORK_TABLE):
+        _part.prepare_work_table(cursor, conn, context.log)
+    if _part.table_exists(cursor, _part.LEFTOVER_TABLE):
+        _part.restore_all_leftovers(
+            cursor, conn, context.log, insert_columns=_REFRESH_INSERT_COLUMNS
+        )
+
+
+def _resolve_backfill_strategy(
+    cursor: Any,
+    context: Any,
+    *,
+    total_resources: int,
+    numbered_table: str,
+) -> tuple[str, dict[str, Any]]:
+    """Afgør, hvordan portionsløkken håndterer et backfill-vindue.
+
+    Porten er den samme som hidtil (antal ændrede ressourcer >= grænse, med
+    run-tags). Er den lukket, sker intet særligt. Er den åben, vælges mellem
+    SWITCH-stien og indeks-frakobling: SWITCH kræver en partitioneret store og et
+    vindue, der overvejende rammer tomme partitioner (stikprøve). En genkørsel af et
+    allerede indlæst vindue rammer kun fyldte partitioner og får frakobling.
+    """
+    requested = _backfill_strategy(context)
+    probe: dict[str, Any] = {"requested": requested}
+    gate_open = _should_disable_indexes_for_backfill(total_resources, context)
+    if requested == _BACKFILL_STRATEGY_NONE or (
+        requested == _BACKFILL_STRATEGY_AUTO and not gate_open
+    ):
+        return _BACKFILL_STRATEGY_NONE, probe
+    if requested == _BACKFILL_STRATEGY_DISABLE:
+        return _BACKFILL_STRATEGY_DISABLE, probe
+
+    partitioned = _part.table_is_partitioned(cursor)
+    probe["store_partitioned"] = partitioned
+    if not partitioned:
+        if requested == _BACKFILL_STRATEGY_SWITCH:
+            context.log.warning(
+                "Strategi 'switch' forlangt, men %s er ikke partitioneret — bruger indeks-frakobling.",
+                _STORE_TABLE,
+            )
+        return _BACKFILL_STRATEGY_DISABLE, probe
+    if not _part.table_exists(cursor, _part.WORK_TABLE) or not _part.table_exists(
+        cursor, _part.LEFTOVER_TABLE
+    ):
+        context.log.warning(
+            "Arbejdstabellen %s eller holdetabellen %s mangler — kør DSO-infrastrukturjobbet; "
+            "bruger indeks-frakobling.",
+            _part.WORK_TABLE,
+            _part.LEFTOVER_TABLE,
+        )
+        return _BACKFILL_STRATEGY_DISABLE, probe
+
+    cursor.execute(_part.empty_partitions_temp_sql(_STORE_TABLE))
+    empty = int(_fetch_single_row_result(cursor, result_name="empty partitions")[0])
+    probe["empty_partitions"] = empty
+    if requested == _BACKFILL_STRATEGY_SWITCH:
+        return _BACKFILL_STRATEGY_SWITCH, probe
+
+    cursor.execute(_part.probe_empty_share_sql(numbered_table, total_resources))
+    sampled, in_empty = _fetch_single_row_result(cursor, result_name="empty-share probe")
+    sampled = int(sampled or 0)
+    in_empty = int(in_empty or 0)
+    share = (in_empty / sampled) if sampled else 0.0
+    probe.update({"probe_sampled": sampled, "probe_in_empty": in_empty, "probe_share": share})
+    chosen = (
+        _BACKFILL_STRATEGY_SWITCH
+        if share >= _part.SWITCH_MIN_EMPTY_SHARE
+        else _BACKFILL_STRATEGY_DISABLE
+    )
+    context.log.info(
+        "Backfill-strategi %s: %d ændrede ressourcer, %d tomme partitioner, stikprøve %d/%d "
+        "(%.0f %%) i tomme partitioner (grænse %.0f %%).",
+        chosen,
+        total_resources,
+        empty,
+        in_empty,
+        sampled,
+        share * 100,
+        _part.SWITCH_MIN_EMPTY_SHARE * 100,
+    )
+    return chosen, probe
+
+
+class _ApplyTotals:
+    """Tællere fra portionsløkken."""
+
+    def __init__(self) -> None:
+        self.deleted = 0
+        self.inserted = 0
+        self.batches = 0
+        self.work_rows = 0
+        self.store_rows = 0
+
+
+def _run_apply_loop(
+    cursor: Any,
+    conn: Any,
+    context: Any,
+    *,
+    total_resources: int,
+    batch_size: int,
+    build_batch_sql: Any,
+    routed: bool,
+    switch_scope: Any = None,
+) -> _ApplyTotals:
+    """Kør DELETE+INSERT-portionerne med commit pr. portion (se kommentaren i den
+    første kalder). ``routed`` giver batches med fire tællere (SWITCH-tilstand)."""
+    totals = _ApplyTotals()
+    total_batches = (total_resources + batch_size - 1) // batch_size
+    batch_start = 1
+    while batch_start <= total_resources:
+        batch_end = batch_start + batch_size - 1
+        totals.batches += 1
+
+        cursor.execute(build_batch_sql(batch_start, batch_end, routed=routed))
+        batch_row = _fetch_single_row_result(cursor, result_name=f"batch {totals.batches} stats")
+        batch_deleted = int(batch_row[0])
+        batch_inserted = int(batch_row[1])
+        totals.deleted += batch_deleted
+        totals.inserted += batch_inserted
+        if routed and len(batch_row) >= 4:
+            work_rows, store_rows = int(batch_row[2]), int(batch_row[3])
+            totals.work_rows += work_rows
+            totals.store_rows += store_rows
+            if switch_scope is not None:
+                switch_scope.note_batch(work_rows, store_rows)
+
+        # Commit each batch independently. The connection runs autocommit=False,
+        # so without this every batch would nest in one outer transaction and the
+        # log would never relieve (and a late failure would roll back all prior
+        # batches). The session-level applock acquired by the caller spans these
+        # commits. On failure the exception propagates before update_sync_state,
+        # so the watermark is not advanced and the next run reprocesses
+        # idempotently.
+        conn.commit()
+
+        context.log.info(
+            "Batch %d/%d complete: deleted %d, inserted %d "
+            "(cumulative: %d deleted, %d inserted%s).",
+            totals.batches,
+            total_batches,
+            batch_deleted,
+            batch_inserted,
+            totals.deleted,
+            totals.inserted,
+            f", {totals.work_rows} via arbejdstabel" if routed else "",
+        )
+
+        batch_start = batch_end + 1
+    return totals
+
+
+def _apply_with_backfill_handling(
+    cursor: Any,
+    conn: Any,
+    context: Any,
+    *,
+    total_resources: int,
+    batch_size: int,
+    build_batch_sql: Any,
+    numbered_table: str,
+) -> tuple[_ApplyTotals, dict[str, Any]]:
+    """Portionsløkken inden for refresh-låsen, omgivet af den valgte backfill-håndtering.
+
+    Returnerer tællerne og metadata om håndteringen. Fejl propagerer efter, at
+    scopet har ryddet op (indeks genopbygget / arbejdstabel efterladt til næste
+    kørsel), præcis som hidtil.
+    """
+    _repair_leftovers(cursor, conn, context)
+    strategy, probe = _resolve_backfill_strategy(
+        cursor, context, total_resources=total_resources, numbered_table=numbered_table
+    )
+    metadata: dict[str, Any] = {
+        "backfill_strategy": strategy,
+        "backfill_strategy_requested": probe.get("requested", _BACKFILL_STRATEGY_AUTO),
+        "backfill_probe_empty_share": round(float(probe.get("probe_share", 0.0)), 3),
+    }
+
+    if strategy == _BACKFILL_STRATEGY_SWITCH:
+        # SWITCH kræver identiske, AKTIVE indeks på begge sider; et indeks efterladt
+        # slået fra af en dræbt frakoblingskørsel genopbygges derfor først.
+        disabled = _list_disabled_indexes(cursor)
+        if disabled:
+            context.log.warning(
+                "Fandt %d indeks slået fra på %s før SWITCH-tilstand — genopbygger: %s",
+                len(disabled),
+                _STORE_TABLE,
+                ", ".join(disabled),
+            )
+            metadata["backfill_index_rebuild_before_ms"] = sum(
+                _rebuild_indexes(cursor, conn, context, disabled).values()
+            )
+        switch_scope = _part.SwitchLoadScope(
+            cursor,
+            conn,
+            context.log,
+            insert_columns=_REFRESH_INSERT_COLUMNS,
+            numbered_table=numbered_table,
+        )
+        with switch_scope:
+            totals = _run_apply_loop(
+                cursor,
+                conn,
+                context,
+                total_resources=total_resources,
+                batch_size=batch_size,
+                build_batch_sql=build_batch_sql,
+                routed=True,
+                switch_scope=switch_scope,
+            )
+        metadata.update(switch_scope.report.as_metadata())
+        metadata.update(
+            {
+                "backfill_index_mode": False,
+                "backfill_indexes_disabled": 0,
+                "backfill_index_rebuild_ms": 0,
+            }
+        )
+        metadata["columnstore_reorganize_ms"] = _part.reorganize_columnstore(
+            cursor, conn, context.log
+        )
+        return totals, metadata
+
+    index_scope = _BackfillIndexScope(
+        cursor,
+        conn,
+        context,
+        total_resources,
+        active=(strategy == _BACKFILL_STRATEGY_DISABLE),
+    )
+    with index_scope:
+        totals = _run_apply_loop(
+            cursor,
+            conn,
+            context,
+            total_resources=total_resources,
+            batch_size=batch_size,
+            build_batch_sql=build_batch_sql,
+            routed=False,
+        )
+    metadata.update(
+        {
+            "backfill_index_mode": index_scope.active,
+            "backfill_indexes_disabled": len(index_scope.disabled),
+            "backfill_index_rebuild_ms": sum(index_scope.rebuilt_ms.values()),
+        }
+    )
+    # Slettede rækker og åbne deltastore-rækkegrupper ryddes efter hver kørsel, så
+    # aftagerne ikke betaler for dem i scanningerne. Ikke-fatal.
+    metadata["columnstore_reorganize_ms"] = _part.reorganize_columnstore(cursor, conn, context.log)
+    return totals, metadata
+
+
 def _execute_incremental_refresh(
     context: dg.AssetExecutionContext,
     mssql_target_dso: MSSQLResource,
@@ -1435,52 +2043,24 @@ def _execute_incremental_refresh(
             if int(lock_row[0]) < 0:
                 raise RuntimeError("Could not acquire SFI_datapoint_store refresh lock")
 
-            deleted_total = 0
-            inserted_total = 0
-            batch_num = 0
-
             try:
-                batch_start = 1
-                while batch_start <= total_resources:
-                    batch_end = batch_start + batch_size - 1
-                    batch_num += 1
-
-                    batch_sql = _build_inline_batch_apply_sql(batch_start, batch_end)
-                    cursor.execute(batch_sql)
-                    batch_row = _fetch_single_row_result(
-                        cursor, result_name=f"batch {batch_num} stats"
-                    )
-                    batch_deleted = int(batch_row[0])
-                    batch_inserted = int(batch_row[1])
-                    deleted_total += batch_deleted
-                    inserted_total += batch_inserted
-
-                    # Commit each batch independently. The connection runs
-                    # autocommit=False, so without this every batch would nest in one
-                    # outer transaction and the log would never relieve (and a late
-                    # failure would roll back all prior batches). The session-level
-                    # applock acquired above spans these commits. On failure the
-                    # exception propagates before update_sync_state, so the watermark
-                    # is not advanced and the next run reprocesses idempotently.
-                    conn.commit()
-
-                    context.log.info(
-                        "Batch %d/%d complete: deleted %d, inserted %d "
-                        "(cumulative: %d deleted, %d inserted).",
-                        batch_num,
-                        total_batches,
-                        batch_deleted,
-                        batch_inserted,
-                        deleted_total,
-                        inserted_total,
-                    )
-
-                    batch_start = batch_end + 1
+                totals, backfill_metadata = _apply_with_backfill_handling(
+                    cursor,
+                    conn,
+                    context,
+                    total_resources=total_resources,
+                    batch_size=batch_size,
+                    build_batch_sql=_build_inline_batch_apply_sql,
+                    numbered_table="#changed_numbered",
+                )
             finally:
                 cursor.execute(
                     f"EXEC sys.sp_releaseapplock "
                     f"@Resource = N'{_REFRESH_LOCK_NAME}', @LockOwner = N'Session';"
                 )
+            deleted_total = totals.deleted
+            inserted_total = totals.inserted
+            batch_num = totals.batches
 
             cursor.execute(f"SELECT COUNT(*) FROM {_STORE_TABLE}")
             row_count = int(cursor.fetchone()[0])
@@ -1550,6 +2130,7 @@ def _execute_incremental_refresh(
                     "qr_resources_zero_datapoints": dg.MetadataValue.int(qr_zero_datapoints),
                     "incremental_batches": dg.MetadataValue.int(batch_num),
                     "incremental_batch_size": dg.MetadataValue.int(batch_size),
+                    **_backfill_metadata_values(backfill_metadata),
                     "duration_ms": dg.MetadataValue.int(int(duration_ms)),
                     **{key: dg.MetadataValue.int(value) for key, value in preflight_stats.items()},
                 }
@@ -1631,6 +2212,7 @@ def _execute_full_reconciliation(
             cursor.execute(setup_sql)
             setup_row = _fetch_single_row_result(cursor, result_name="reconciliation setup total")
             total_resources = int(setup_row[0])
+            candidates_captured_at = setup_row[1] if len(setup_row) > 1 else None
 
             total_batches = (total_resources + batch_size - 1) // batch_size
             context.log.info(
@@ -1654,48 +2236,24 @@ def _execute_full_reconciliation(
             if int(lock_row[0]) < 0:
                 raise RuntimeError("Could not acquire SFI_datapoint_store refresh lock")
 
-            deleted_total = 0
-            inserted_total = 0
-            batch_num = 0
-
             try:
-                batch_start = 1
-                while batch_start <= total_resources:
-                    batch_end = batch_start + batch_size - 1
-                    batch_num += 1
-
-                    batch_sql = _build_reconciliation_batch_sql(batch_start, batch_end)
-                    cursor.execute(batch_sql)
-                    batch_row = _fetch_single_row_result(
-                        cursor, result_name=f"batch {batch_num} stats"
-                    )
-                    batch_deleted = int(batch_row[0])
-                    batch_inserted = int(batch_row[1])
-                    deleted_total += batch_deleted
-                    inserted_total += batch_inserted
-
-                    # Commit each batch independently (autocommit=False); see the
-                    # incremental path for the rationale. Keeps reconciliation
-                    # batches durable and bounds transaction-log growth.
-                    conn.commit()
-
-                    context.log.info(
-                        "Batch %d/%d complete: deleted %d, inserted %d "
-                        "(cumulative: %d deleted, %d inserted).",
-                        batch_num,
-                        total_batches,
-                        batch_deleted,
-                        batch_inserted,
-                        deleted_total,
-                        inserted_total,
-                    )
-
-                    batch_start = batch_end + 1
+                totals, backfill_metadata = _apply_with_backfill_handling(
+                    cursor,
+                    conn,
+                    context,
+                    total_resources=total_resources,
+                    batch_size=batch_size,
+                    build_batch_sql=_build_reconciliation_batch_sql,
+                    numbered_table="#reconcile_resources",
+                )
             finally:
                 cursor.execute(
                     f"EXEC sys.sp_releaseapplock "
                     f"@Resource = N'{_REFRESH_LOCK_NAME}', @LockOwner = N'Session';"
                 )
+            deleted_total = totals.deleted
+            inserted_total = totals.inserted
+            batch_num = totals.batches
 
             cursor.execute(f"SELECT COUNT(*) FROM {_STORE_TABLE}")
             row = cursor.fetchone()
@@ -1712,6 +2270,15 @@ def _execute_full_reconciliation(
                 duration_ms=int(duration_ms),
                 status="success_reconciliation",
             )
+            seeded_watermarks: list[str] = []
+            if candidates_captured_at is not None:
+                seeded_watermarks = _seed_missing_watermarks(
+                    cursor,
+                    conn,
+                    context.log,
+                    captured_at=candidates_captured_at,
+                    exclude=watermark_table,
+                )
 
             context.log.info(
                 "Batched reconciliation of %s completed: %d resources, %d batches, "
@@ -1742,11 +2309,28 @@ def _execute_full_reconciliation(
                     "deleted_rows": dg.MetadataValue.int(deleted_total),
                     "inserted_rows": dg.MetadataValue.int(inserted_total),
                     "batch_size": dg.MetadataValue.int(batch_size),
+                    **_backfill_metadata_values(backfill_metadata),
+                    "seeded_watermarks": dg.MetadataValue.text(", ".join(seeded_watermarks) or "-"),
                     "duration_ms": dg.MetadataValue.int(int(duration_ms)),
                 }
             )
         finally:
             cursor.close()
+
+
+def _backfill_metadata_values(values: dict[str, Any]) -> dict[str, Any]:
+    """Backfill-metadata som Dagster-metadataværdier (bool/int/float/tekst)."""
+    out: dict[str, Any] = {}
+    for key, value in values.items():
+        if isinstance(value, bool):
+            out[key] = dg.MetadataValue.bool(value)
+        elif isinstance(value, int):
+            out[key] = dg.MetadataValue.int(value)
+        elif isinstance(value, float):
+            out[key] = dg.MetadataValue.float(value)
+        else:
+            out[key] = dg.MetadataValue.text(str(value))
+    return out
 
 
 def _refresh_sfi_datapoint_store(
@@ -1837,7 +2421,7 @@ dso_refresh_sfi_datapoint_daily = _create_refresh_asset(
     description=(
         "Incremental refresh of fhir.SFI_datapoint_store on DSO — "
         "processes only resources changed since last watermark. Runs in "
-        "fhir_ifdb_dfm_sof_dso_job after Observation/QR DSO sync."
+        "ifdb_dfm_daily_job after Observation/QR DSO sync."
     ),
 )
 
@@ -1863,8 +2447,111 @@ dso_reconcile_sfi_datapoint_store = _create_reconciliation_asset(
     ),
 )
 
+
+class SfiDatapointWatermarkResetConfig(dg.Config):
+    """Operatørværktøj: sæt storens watermark (meta.SyncWatermarks på DSO) til et
+    givet tidspunkt, så et allerede synkroniseret delta kan genkøres (replay til
+    måling eller reparation). Rækken skal findes; intet oprettes."""
+
+    watermark_table: str = _WATERMARK_TABLE_DAILY
+    new_value: str  # 'YYYY-MM-DD HH:MM:SS'
+    reason: str
+    # Opret rækken, hvis den mangler (fx efter migrationen, der droppede storen og dens
+    # watermarks). Standard er at fejle, så en tastefejl i tabelnavnet ikke opretter noget.
+    create_if_missing: bool = False
+
+
+@dg.asset(
+    name="dso_sfi_datapoint_watermark_reset",
+    group_name="fhir_dso_sync_maintenance",
+    description=(
+        "Sætter watermark for storens refresh (meta.SyncWatermarks, schema sfi_datapoint) "
+        "til et angivet tidspunkt. Bruges til replay af et kendt delta; kræver reason."
+    ),
+)
+def dso_sfi_datapoint_watermark_reset(
+    context: dg.AssetExecutionContext,
+    config: SfiDatapointWatermarkResetConfig,
+    mssql_target_dso: MSSQLResource,
+) -> dg.MaterializeResult:
+    return _reset_sfi_datapoint_watermark(context.log, config, mssql_target_dso)
+
+
+def _reset_sfi_datapoint_watermark(
+    log: Any, config: SfiDatapointWatermarkResetConfig, mssql_target_dso: Any
+) -> dg.MaterializeResult:
+    """Selve resettet (testbar uden Dagster-kontekst)."""
+    from datetime import datetime as _dt
+
+    if config.watermark_table not in (
+        _WATERMARK_TABLE_DAILY,
+        _WATERMARK_TABLE_MONTHLY,
+        _WATERMARK_TABLE_RECONCILIATION,
+    ):
+        raise ValueError(f"Ukendt watermark_table: {config.watermark_table!r}")
+    ny = _dt.strptime(config.new_value.strip(), "%Y-%m-%d %H:%M:%S")
+    if not config.reason.strip():
+        raise ValueError("reason er påkrævet")
+    with mssql_target_dso.get_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                f"SELECT last_sync_timestamp, last_sync_status FROM {SyncStateManager.WATERMARK_TABLE} "
+                "WHERE schema_name = ? AND table_name = ?",
+                [_WATERMARK_SCHEMA, config.watermark_table],
+            )
+            row = cursor.fetchone()
+            status = f"reset: {config.reason.strip()[:40]}"
+            if row is None and not config.create_if_missing:
+                raise RuntimeError(
+                    f"Ingen watermark-række for {_WATERMARK_SCHEMA}.{config.watermark_table}"
+                )
+            if row is None:
+                gammel = None
+                cursor.execute(
+                    _seed_watermark_sql(),
+                    [
+                        _WATERMARK_SCHEMA,
+                        config.watermark_table,
+                        _WATERMARK_SCHEMA,
+                        config.watermark_table,
+                        ny,
+                        status,
+                    ],
+                )
+            else:
+                gammel = row[0]
+                cursor.execute(
+                    f"UPDATE {SyncStateManager.WATERMARK_TABLE} "
+                    "SET last_sync_timestamp = ?, last_sync_status = ?, "
+                    "updated_at = CAST(SYSDATETIME() AS datetime2(0)) "
+                    "WHERE schema_name = ? AND table_name = ?",
+                    [ny, status, _WATERMARK_SCHEMA, config.watermark_table],
+                )
+            conn.commit()
+        finally:
+            cursor.close()
+    log.info(
+        "Watermark %s.%s: %s -> %s (%s)",
+        _WATERMARK_SCHEMA,
+        config.watermark_table,
+        gammel,
+        ny,
+        config.reason,
+    )
+    return dg.MaterializeResult(
+        metadata={
+            "watermark_table": dg.MetadataValue.text(config.watermark_table),
+            "old_value": dg.MetadataValue.text(str(gammel)),
+            "new_value": dg.MetadataValue.text(str(ny)),
+            "reason": dg.MetadataValue.text(config.reason),
+        }
+    )
+
+
 all_sfi_datapoint_refresh_assets = [
     dso_refresh_sfi_datapoint_daily,
     dso_refresh_sfi_datapoint_monthly,
     dso_reconcile_sfi_datapoint_store,
+    dso_sfi_datapoint_watermark_reset,
 ]

@@ -10,33 +10,29 @@ Sensors Module
 All Dagster sensor definitions are consolidated here for discoverability and maintainability.
 
 Sensors:
-- dfm_base_job_sensor: Triggers downstream jobs on DFM base job success, and
-  alarms (optionally best-effort triggers daily) on DFM base job failure
-  (both built via factories in definitions.py to receive postfixed job objects)
 - nightly_failure_sensor: Reports failed scheduled/sensor-triggered runs as
   Azure DevOps work items for the 07:00 triage agent (monitors all runs
   in the code location, so it needs no postfixed job references)
 - haiba_publish_sensor: Publishes the HAIBA dm layer to DSO after the nightly
   Borger chain has minted dw_ek_Borger for stub patients, gated on the
   archive's delivery watermark (built via a factory in definitions.py)
+
+The DFM base-job sensors are gone: the IFDB → FHIR pipeline is one job
+(``ifdb_dfm_daily_job``) on one schedule, so there is no downstream job to fan
+out to and no partition key to hand it. A failure of that job is reported by
+``nightly_failure_sensor`` like any other scheduled run.
 """
 
-from sensors.dfm_base_job_sensor import (
-    build_dfm_base_job_failure_sensor,
-    build_dfm_base_job_success_sensor,
-)
 from sensors.haiba_publish_sensor import build_haiba_publish_sensor
 from sensors.nightly_failure_sensor import build_nightly_failure_sensor
 
 nightly_failure_report_sensor = build_nightly_failure_sensor()
 
-# Statically-defined sensors (the DFM and HAIBA sensors are built dynamically
-# in definitions.py once jobs are postfixed).
+# Statically-defined sensors (the HAIBA sensor is built dynamically in
+# definitions.py once jobs are postfixed).
 all_sensors = [nightly_failure_report_sensor]
 
 __all__ = [
-    "build_dfm_base_job_success_sensor",
-    "build_dfm_base_job_failure_sensor",
     "build_haiba_publish_sensor",
     "build_nightly_failure_sensor",
     "nightly_failure_report_sensor",

@@ -213,3 +213,199 @@ def test_udf_og_speciale_opslag_er_chunk_lokale(monkeypatch) -> None:
     assert speciale_lookup_pr_chunk == [{"U1"}, {"U2"}, {"U3"}]
     # Alle udførelser hentes stadig (ingen falsk cache-hit, intet spring over).
     assert hentede_udf_ids == [["U1"], ["U2"], ["U3"]]
+
+
+# ---------------------------------------------------------------------------
+# Én sti gennem chunk-forløbet: under én chunk er ikke en særlig gren.
+# ---------------------------------------------------------------------------
+
+
+class _PostOptager:
+    """Optager, hvad orkestreringen poster (type og id'er), og svarer med tal.
+
+    ``recovered_for`` lader testen simulere, at posten af én familie måtte
+    genoprette rækker efter unique-violation — tallet skal nå metadata.
+    """
+
+    def __init__(self, recovered_for: dict[str, int] | None = None) -> None:
+        self.posted: dict[str, list[str]] = {}
+        self._recovered_for = recovered_for or {}
+
+    def __call__(self, **kwargs) -> dg.MaterializeResult:
+        rtype = kwargs["resource_type"]
+        dicts = kwargs["resource_dicts"]
+        self.posted.setdefault(rtype, []).extend(rid for rid, _ in dicts)
+        return dg.MaterializeResult(
+            metadata={
+                "posted_count": dg.MetadataValue.int(len(dicts)),
+                "failed_count": dg.MetadataValue.int(0),
+                "unique_violation_recovered_count": dg.MetadataValue.int(
+                    self._recovered_for.get(rtype, 0) if dicts else 0
+                ),
+            }
+        )
+
+
+def _fake_transform_alle_familier(chunk, *_args, **_kwargs):
+    """Legacy-transformen erstattet: én Observation pr. række, Procedure for 1 og 3, Condition for 2."""
+    obs = [(f"obs-{row['OBJEKT_ID']}", {}) for row in chunk]
+    proc = [(f"proc-{row['OBJEKT_ID']}", {}) for row in chunk if row["OBJEKT_ID"] != "2"]
+    cond = [(f"cond-{row['OBJEKT_ID']}", {}) for row in chunk if row["OBJEKT_ID"] == "2"]
+    return obs, proc, cond
+
+
+def _patch_pipeline_omgivelser(monkeypatch, *, chunk_size: int, post: _PostOptager) -> None:
+    monkeypatch.setattr(mod, "_AKTIVITETSRESULTAT_CHUNK_SIZE", chunk_size)
+    monkeypatch.setattr(mod, "_sfi_mode_enabled", lambda: False)
+    monkeypatch.setattr(mod, "_ensure_reference_dependencies", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        mod,
+        "_pre_resolve_references",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            lookups_by_resource_type=lambda: {},
+            miss_counts={"Patient": 0, "Encounter": 0, "EpisodeOfCare": 0},
+            release_chunk_scoped_ids=lambda: 0,
+        ),
+    )
+    monkeypatch.setattr(mod, "_fetch_aktivitetsudfoerelse_data_arc", lambda *args, **kwargs: {})
+    monkeypatch.setattr(
+        mod,
+        "_fetch_aktivitetsudfoerelse_speciale_data_arc",
+        lambda *args, **kwargs: {},
+    )
+    monkeypatch.setattr(
+        mod, "_transform_aktivitetsresultat_to_fhir_dicts", _fake_transform_alle_familier
+    )
+
+    import DSA.FHIR.utils.ifdb.fhir_posting as posting_mod
+
+    monkeypatch.setattr(posting_mod, "post_resource_dicts_direct", post)
+
+
+def _tre_raekker() -> _StreamingRows:
+    return _StreamingRows(
+        [
+            {"OBJEKT_ID": "1", "UDFOERELSE_ID": "U1"},
+            {"OBJEKT_ID": "2", "UDFOERELSE_ID": "U2"},
+            {"OBJEKT_ID": "3", "UDFOERELSE_ID": "U3"},
+        ]
+    )
+
+
+def _metadata_vaerdier(result: dg.MaterializeResult) -> dict:
+    return {key: value.value for key, value in result.metadata.items()}
+
+
+@pytest.mark.unit
+def test_enkelt_chunk_rapporterer_familier_dubletter_og_recovery(monkeypatch) -> None:
+    """Under én chunk er metadata komplet: familietal, dubletter, recovery-tæller, chunk-tal."""
+    fhir_database = _FakeFhirDatabase()
+    post = _PostOptager(recovered_for={"Procedure": 1})
+    _patch_pipeline_omgivelser(monkeypatch, chunk_size=10, post=post)
+
+    result = mod._run_aktivitetsresultat_pipeline_chunked(
+        extracted_data=_tre_raekker(),
+        context=_fake_context(),
+        ifdb_oracle=SimpleNamespace(),
+        fhir_database=fhir_database,
+    )
+
+    meta = _metadata_vaerdier(result)
+    assert meta["chunk_count"] == 1
+    assert meta["extracted_count"] == 3
+    assert meta["posted_count"] == 3
+    assert meta["procedure_posted_count"] == 2
+    assert meta["condition_posted_count"] == 1
+    assert meta["failed_count"] == 0
+    assert meta["duplicates_removed"] == 0
+    assert meta["unique_violation_recovered_count"] == 1
+    assert meta["method"] == "direct_postgres_dict_chunked"
+    assert fhir_database.suspend_calls == 1
+    assert fhir_database.clear_calls == [
+        ({"Observation", "Procedure", "Condition"}, "post-partition cleanup")
+    ]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("chunk_size", [1, 2, 10])
+def test_samme_sti_uanset_chunkstoerrelse(monkeypatch, chunk_size: int) -> None:
+    """Chunk-størrelsen ændrer kun chunk_count — postede id'er og tal er de samme."""
+    fhir_database = _FakeFhirDatabase()
+    post = _PostOptager()
+    _patch_pipeline_omgivelser(monkeypatch, chunk_size=chunk_size, post=post)
+
+    result = mod._run_aktivitetsresultat_pipeline_chunked(
+        extracted_data=_tre_raekker(),
+        context=_fake_context(),
+        ifdb_oracle=SimpleNamespace(),
+        fhir_database=fhir_database,
+    )
+
+    assert sorted(post.posted["Observation"]) == ["obs-1", "obs-2", "obs-3"]
+    assert sorted(post.posted["Procedure"]) == ["proc-1", "proc-3"]
+    assert post.posted["Condition"] == ["cond-2"]
+    meta = _metadata_vaerdier(result)
+    assert meta["chunk_count"] == -(-3 // chunk_size)
+    assert (
+        meta["posted_count"],
+        meta["procedure_posted_count"],
+        meta["condition_posted_count"],
+    ) == (
+        3,
+        2,
+        1,
+    )
+    assert meta["unique_violation_recovered_count"] == 0
+    # Én suspend pr. chunk, én samlet rydning pr. kørsel — uanset antal chunks.
+    assert fhir_database.suspend_calls == meta["chunk_count"]
+    assert len(fhir_database.clear_calls) == 1
+
+
+# ---------------------------------------------------------------------------
+# Run-tag-override af chunkstørrelsen: målekørsler kan chunke anderledes uden miljøændring.
+# ---------------------------------------------------------------------------
+
+
+def _context_med_tags(tags: dict[str, str]) -> SimpleNamespace:
+    ctx = _fake_context()
+    ctx.run = SimpleNamespace(tags=tags)
+    return ctx
+
+
+@pytest.mark.unit
+def test_run_tag_overstyrer_chunkstoerrelsen(monkeypatch) -> None:
+    """Miljøets chunk (her 1) giver 3 chunks; tagget fhir/aktres_chunk_size=10 giver én."""
+    fhir_database = _FakeFhirDatabase()
+    post = _PostOptager()
+    _patch_pipeline_omgivelser(monkeypatch, chunk_size=1, post=post)
+
+    result = mod._run_aktivitetsresultat_pipeline_chunked(
+        extracted_data=_tre_raekker(),
+        context=_context_med_tags({"fhir/aktres_chunk_size": "10"}),
+        ifdb_oracle=SimpleNamespace(),
+        fhir_database=fhir_database,
+    )
+
+    meta = _metadata_vaerdier(result)
+    assert (meta["chunk_count"], meta["chunk_size"]) == (1, 10)
+    assert fhir_database.suspend_calls == 1
+    assert sorted(post.posted["Observation"]) == ["obs-1", "obs-2", "obs-3"]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("tag", ["nul", "0", "-5"])
+def test_ugyldigt_chunk_tag_ignoreres(monkeypatch, tag: str) -> None:
+    """Et ugyldigt tag må aldrig vælte kørslen — miljøets chunk bruges."""
+    fhir_database = _FakeFhirDatabase()
+    post = _PostOptager()
+    _patch_pipeline_omgivelser(monkeypatch, chunk_size=2, post=post)
+
+    result = mod._run_aktivitetsresultat_pipeline_chunked(
+        extracted_data=_tre_raekker(),
+        context=_context_med_tags({"fhir/aktres_chunk_size": tag}),
+        ifdb_oracle=SimpleNamespace(),
+        fhir_database=fhir_database,
+    )
+
+    meta = _metadata_vaerdier(result)
+    assert (meta["chunk_count"], meta["chunk_size"]) == (2, 2)

@@ -7,6 +7,53 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-10-16
+
+### Added
+
+- New source system: EPJI.
+- Location dimension `dim.SHAKAlike` from EPJI (the EPJI locations as a SHAK-like
+  hierarchy). The CodeSystem tables `codesystem.SHAKAlikeConcept`,
+  `codesystem.SHAKAlikeProperties` and `codesystem.SHAKAlikeHierarchy` and the ConceptMap
+  `conceptmap.SHAKAlikeToSOR` (EPJI location to SOR) come with it.
+- New source system: SDS Udredningsret (LPR_Udredningsret). The daily
+  `udredningsret_ingest_job` loads the deliveries into the archive. No DSO table uses
+  the data yet.
+- Operator asset `careplan_genkoersel_nulstilling`. It deletes the CarePlan data and
+  resets its load checkpoints before a full reload.
+
+### Changed
+
+- **Breaking:** The FHIR CarePlan from IFDB (all markers) has one living CarePlan for
+  each person, not for each IFDB patient ID. `fhir.CarePlan.identifier_value` is now
+  `<FHIR patient id>_alle_markoerer`. In each environment, run
+  `careplan_genkoersel_nulstilling` (dry run first) and then a full load of the CarePlan
+  assets and their DSO sync. The CarePlan load stops while `fhir.CarePlan` has rows with
+  the old identifier.
+- `fhir.CarePlan_Activity.markoer_display` comes from the IFDB `EVENT_CODE` as
+  `<type>: <code>`, not from `EVENT_TEXT`. A marker that is removed from a living
+  CarePlan gets `dw_is_deleted = 1`.
+- **Breaking:** `fhir.SFI_datapoint_store` changes to a clustered columnstore with
+  monthly partitions. A migration drops the old store, so `fhir.SFI_datapoint` is empty
+  until the first refresh is complete. The refresh can take hours. Apply this release
+  in a time window in which an empty `fhir.SFI_datapoint` is acceptable.
+- The IFDB to FHIR pipeline is one daily job, `ifdb_dfm_daily_job`, with the schedule
+  `ifdb_dfm_daily_schedule` at 06:00. It replaces `fhir_ifdb_dfm_base_job`, the CarePlan
+  job and the sensors that started them.
+- The FHIR ServiceRequest load from IFDB creates the missing patients from the archive.
+  It skips a request that it cannot resolve, and the nightly run continues.
+- The DSO sync frees the cached query plans when it creates the linked server to staging
+  again, and then reads all result sets.
+- The migration `20260903_01_reset_vareudlevering_checkpoints.sql` is now
+  `20260903_02_reset_vareudlevering_checkpoints.sql`, because a new migration takes the
+  first rank of that date. A database that applied 1.0.3 runs the reset again. The reset
+  is idempotent, but the next run loads the ILS history of `fct.Vareudlevering` again.
+
+### Removed
+
+- The legacy IFDB CarePlan job, the DFM base-job sensors and the CarePlan categories
+  without a producer (only `alle_markoerer` stays).
+
 ## [1.0.3] - 2026-10-13
 
 ### Added
@@ -102,7 +149,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - First public release.
 
-[Unreleased]: https://github.com/enversion-journl/healthpipe/compare/v1.0.3...HEAD
+[Unreleased]: https://github.com/enversion-journl/healthpipe/compare/v1.0.4...HEAD
+[1.0.4]: https://github.com/enversion-journl/healthpipe/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/enversion-journl/healthpipe/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/enversion-journl/healthpipe/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/enversion-journl/healthpipe/compare/v1.0.0...v1.0.1

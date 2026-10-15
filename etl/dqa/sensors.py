@@ -18,19 +18,18 @@ settled, requests the pipeline's DQA jobs:
 
 **AND-join.** A spec may list several ``monitored`` ETL jobs; the sensor fires the
 DQA jobs only once **all** of them have succeeded for the same business day. The
-FHIR daily pipeline fans out from ``fhir_ifdb_dfm_base_job`` into two jobs
-(``fhir_ifdb_dfm_sof_dso_job`` = SOF->flat ``fhir.*`` + DSO sync, and
-``fhir_etl_ifdb_daily_job`` = the remaining daily resources); the DQA checks must
-see both, so we wait for the pair. ``run_key`` is keyed on the business day, so the
-two success events (and any daemon retries) collapse to exactly one DQA run per day
-per requested job.
+FHIR pipeline is a single job today (``ifdb_dfm_daily_job``) so the join is
+trivial there, but the machinery stays: a pipeline that fans back out into
+several jobs must not fire its DQA checks off the first one to finish.
+``run_key`` is keyed on the business day, so repeated success events (and any
+daemon retries) collapse to exactly one DQA run per day per requested job.
 
 Business day is anchored to each monitored run's **start time** (Europe/Copenhagen),
 not the sensor's wall clock, so a backlog processed after daemon downtime still maps
 each run to its own day (mirrors ``sensors/dfm_base_job_sensor``).
 
-Why sensors instead of a cron: the pipeline is sensor-chained off a 06:00 base job
-whose finish time varies with data volume, so a fixed clock would race it. The
+Why sensors instead of a cron: the pipeline starts at 06:00 but its finish time
+varies with data volume, so a fixed clock would race it. The
 non-FHIR DSO reconciliation domains have scattered sync sources and no single
 "after ETL" signal, so those stay on a staggered Saturday cron (see ``schedules.py``).
 
@@ -57,12 +56,12 @@ _SATURDAY = 5  # datetime.weekday(): Monday=0 .. Sunday=6
 DQA_AFTER_ETL_SENSOR_SPECS: list[dict] = [
     {
         "name": "dqa_fhir_after_etl",
-        # Both downstream jobs of the DFM base job must finish: the SOF/DSO sync
-        # (flat fhir.* + DSO copy) and the remaining daily FHIR resources.
-        "monitored": ["fhir_ifdb_dfm_sof_dso_job", "fhir_etl_ifdb_daily_job"],
+        # The flat fhir.* tables and their DSO copies are settled when the one
+        # IFDB -> FHIR job finishes; there is no second job to wait for.
+        "monitored": ["ifdb_dfm_daily_job"],
         "daily_job": "dqa_fhir_daily_job",
         # Saturday only: heavy referential/source/server checks, plus the DSO<->DSA
-        # reconciliation for the FHIR domain (also gated on both fhir jobs).
+        # reconciliation for the FHIR domain.
         "weekly_jobs": ["dqa_fhir_weekly_job", "dqa_dso_fhir_job"],
     },
     {
@@ -99,11 +98,11 @@ DQA_AFTER_ETL_SENSOR_SPECS: list[dict] = [
     },
     {
         "name": "dqa_arc_ifdb_after_archive",
-        # The arc.* IFDB tables are settled exactly when the DFM base job succeeds.
+        # The arc.* IFDB tables are settled once the IFDB -> FHIR job succeeds.
         # Triggering here (Saturday only) instead of a cron removes the race where
         # the flow-start-bounded reconciliation reads a checkpoint the archive merge
         # hasn't caught up to. No daily arc checks.
-        "monitored": ["fhir_ifdb_dfm_base_job"],
+        "monitored": ["ifdb_dfm_daily_job"],
         "daily_job": None,
         "weekly_jobs": ["dqa_arc_ifdb_weekly_job"],
     },

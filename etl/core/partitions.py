@@ -4,67 +4,42 @@
 # This file is part of Healthpipe. See the LICENSE file in the project
 # root for the full AGPL-3.0 license text.
 
+"""Partition-key helpers left over from the partitioned extraction era.
+
+No asset or job in the deployment carries a ``partitions_def`` any more — every
+source runs on DFM checkpoints, and a re-run of a window is a ``RunModeConfig``
+(``period`` / ``full_load`` / ``ids``) rather than a backfill. The partition
+*definitions* that used to live here went with the last partitioned producer.
+
+What remains are two key-format helpers that the SQL extractors still call. They
+are reachable because the extractors accept an optional ``partition_key`` and
+build a bounded WHERE from it; on the DFM path that argument is always None, so
+these are effectively dormant. They stay until the extractors' partition
+branches are unwound, which is a separate change.
+"""
+
 from datetime import datetime
 
 import dagster as dg
 
-# Centralized place for all asset partitions definitions
-#
-# Start-date constants are defined once and reused by both the partition
-# definitions and the PARTITION_START_KEYS lookup.  To change a start date,
-# edit ONLY the constant below.
-
+# The start dates the partition definitions used to begin at. Only the *values*
+# matter now: is_first_partition() compares a key against them to decide when an
+# extract should use an upper bound only, so that everything before the start
+# date is swept in.
 START_DATE_DAILY = "2021-01-01"
 START_DATE_MONTHLY = "2021-01"
 
-# Daily partitions starting from 2021 to cover legacy data.
-# The end_offset=1 tells Dagster to include the current day's partition,
-# even though the day is not yet complete.
-daily_partitions = dg.DailyPartitionsDefinition(start_date=START_DATE_DAILY, end_offset=1)
-
-# Monthly partitions starting from the same early date
-# Used for monthly ETL workflows and aggregation
-# The end_offset=1 tells Dagster to include the current month's partition,
-# even though the month is not yet complete.
-monthly_partitions = dg.MonthlyPartitionsDefinition(
-    start_date=START_DATE_MONTHLY,
-    end_offset=1,
-    fmt="%Y-%m",
-)
-
-# Static partition for full load scenarios
-# Used for one-time/initial data loads where all data is processed at once
-full_load_partitions = dg.StaticPartitionsDefinition(["full_load"])
-
-# Mapping from each partition definition to its configured start key.
-# Used by is_first_partition() to decide when upper-bound-only filtering applies.
-PARTITION_START_KEYS: dict[dg.PartitionsDefinition, str] = {
-    daily_partitions: START_DATE_DAILY,
-    monthly_partitions: START_DATE_MONTHLY,
-}
+_PARTITION_START_KEYS: frozenset[str] = frozenset({START_DATE_DAILY, START_DATE_MONTHLY})
 
 
-def is_first_partition(
-    partition_key: str,
-    partitions_def: dg.PartitionsDefinition | None = None,
-) -> bool:
-    """Return True when *partition_key* equals the configured start key.
+def is_first_partition(partition_key: str) -> bool:
+    """Return True when *partition_key* is the earliest key in its range.
 
-    When the partition is the earliest in the range, extract queries should
-    use an upper bound only (no lower bound) so that all historical data
-    before the start date is included.
-
-    If *partitions_def* is provided, the start key is looked up from
-    PARTITION_START_KEYS.  Otherwise the function falls back to checking
-    against every known start key.
+    For the earliest partition an extract query should use an upper bound only
+    (no lower bound), so that all historical data before the start date is
+    included rather than silently dropped.
     """
-    if partitions_def is not None:
-        start_key = PARTITION_START_KEYS.get(partitions_def)
-        if start_key is not None:
-            return partition_key == start_key
-        return False
-
-    return partition_key in PARTITION_START_KEYS.values()
+    return partition_key in _PARTITION_START_KEYS
 
 
 def _validate_partition_key(partition_key: str) -> bool:
@@ -91,6 +66,7 @@ def _validate_partition_key(partition_key: str) -> bool:
     return False
 
 
-# Unified partition definition using DynamicPartitionsDefinition
-# Partitions must be added dynamically before use
+# Dynamic partition set kept for the integration-test materialization helper,
+# which registers a key into it before materializing. No asset uses it, so the
+# registration is inert; it goes when that helper stops taking a partition.
 unified_partitions = dg.DynamicPartitionsDefinition(name="unified_partitions")

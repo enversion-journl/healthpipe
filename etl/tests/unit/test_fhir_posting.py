@@ -17,7 +17,9 @@ from unittest.mock import MagicMock, patch
 
 import dagster as dg
 import pytest
+from core.fhir.direct_upsert import UpsertResult
 from DSA.FHIR.utils.ifdb.fhir_posting import (
+    post_resource_dicts_direct,
     post_resources_direct,
     prepare_resources_for_upsert,
     resolve_resource_ids_for_upsert,
@@ -504,3 +506,67 @@ class TestCacheResolutionPath:
 
         assert result[0].id == "uuid-1"
         assert result[1].id is None
+
+
+class TestRecoveryCounterInMetadata:
+    """Recovery-tælleren fra upserten skal nå materialiserings-metadata på begge stier."""
+
+    def _context(self) -> MagicMock:
+        context = MagicMock(spec=dg.AssetExecutionContext)
+        context.has_partition_key = True
+        context.partition_key = "2024-01-01"
+        return context
+
+    def test_resource_path_surfaces_recovered_rows(self):
+        fhir_database = MagicMock()
+        fhir_database.batch_upsert_resources.return_value = UpsertResult(5, 0, [], recovered=2)
+        patients = [Patient(id=f"patient-{i}", identifier=[]) for i in range(5)]
+
+        with patch("DSA.FHIR.utils.ifdb.fhir_posting.dg.get_dagster_logger") as mock_logger:
+            logger = MagicMock()
+            mock_logger.return_value = logger
+            result = post_resources_direct(
+                context=self._context(),
+                resources=patients,
+                fhir_database=fhir_database,
+                resource_type="Patient",
+            )
+
+        assert result.metadata["posted_count"].value == 5
+        assert result.metadata["unique_violation_recovered_count"].value == 2
+        # Nettet må ikke være tavst: en genoprettelse er en advarsel, ikke en succes i stilhed.
+        assert logger.warning.call_count == 1
+
+    def test_dict_path_surfaces_recovered_rows(self):
+        fhir_database = MagicMock()
+        fhir_database.batch_upsert_resource_dicts.return_value = UpsertResult(2, 0, [], recovered=1)
+
+        with patch("DSA.FHIR.utils.ifdb.fhir_posting.dg.get_dagster_logger") as mock_logger:
+            mock_logger.return_value = MagicMock()
+            result = post_resource_dicts_direct(
+                context=self._context(),
+                resource_dicts=[("a", {"resourceType": "Observation"}), ("b", {})],
+                fhir_database=fhir_database,
+                resource_type="Observation",
+            )
+
+        assert result.metadata["posted_count"].value == 2
+        assert result.metadata["unique_violation_recovered_count"].value == 1
+
+    def test_plain_tuple_counts_as_zero_recovered(self):
+        """Attrapper (og ældre kaldere) returnerer en bar tupel — det er 0 genoprettede."""
+        fhir_database = MagicMock()
+        fhir_database.batch_upsert_resources.return_value = (1, 0, [])
+
+        with patch("DSA.FHIR.utils.ifdb.fhir_posting.dg.get_dagster_logger") as mock_logger:
+            logger = MagicMock()
+            mock_logger.return_value = logger
+            result = post_resources_direct(
+                context=self._context(),
+                resources=[Patient(id="p", identifier=[])],
+                fhir_database=fhir_database,
+                resource_type="Patient",
+            )
+
+        assert result.metadata["unique_violation_recovered_count"].value == 0
+        logger.warning.assert_not_called()

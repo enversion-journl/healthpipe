@@ -20,11 +20,11 @@ dso_lineage:
     patient_id:       { DataType: NVARCHAR(255), FhirPath: "subject.getReferenceKey(Patient)", FK-Target: fhir.Patient, FK-Key: patient_id, FK-Required: true, Description: "FHIR-tildelt Patient-reference (Aidbox UUID) — resolver-tildelt ved posting ud fra IFDB.EVENTMARKER.patient_id_ifdb; ikke direkte projiceret fra kilden." }
     status:           { DataType: NVARCHAR(50), FhirPath: "status" }
     intent:           { DataType: NVARCHAR(50), FhirPath: "intent" }
-    category_code:    { DataType: NVARCHAR(100), FhirPath: "category[0].coding[0].code" }
+    category_code:    { DataType: NVARCHAR(100), FhirPath: "category[0].coding[0].code", Description: "Altid 'alle_markoerer' i system http://example.org/fhir/CodeSystem/patient-rights-type. De oevrige patientrettighedskategorier (kraeftpakke, udredningsret, behandlingsret, maksimale ventetider) havde ingen producent i repoet og er pensioneret." }
     period_start:     { DataType: NVARCHAR(50), FhirPath: "period.start", Source: [ifdb.IFDB.EVENTMARKER.TIME] }
     period_end:       { DataType: NVARCHAR(50), FhirPath: "period.end", Source: [ifdb.IFDB.EVENTMARKER.TIME] }
     organization_id:  { DataType: NVARCHAR(255), FhirPath: "author.getReferenceKey(Organization)", FK-Target: fhir.Organization, FK-Key: organization_id, FK-Required: false }
-    identifier_value: { DataType: NVARCHAR(500), FhirPath: "identifier.value.first()" }
+    identifier_value: { DataType: NVARCHAR(500), FhirPath: "identifier.value.first()", Description: "'<FHIR patient id>_alle_markoerer' i system urn:dk:sundhed:alle-markoerer:careplan. Noeglet paa PERSONEN, ikke paa EVENTMARKER.PATIENT_ID: IFDB pensionerer et PATIENT_ID og udsteder et nyt for samme CPR, og begge resolver til samme FHIR-patient. Et UNIQUE partielt indeks paa vaerdien goer en anden levende CarePlan pr. person uskrivelig." }
     dw_is_deleted:    { DataType: INT, Description: "Slettet-flag (0 = live, 1 = slettet). Warehouse-styret: resourcen baerer ingen urn:fhir:isDeleted-extension, og viewet projicerer ikke feltet. Saettes kun af dqa_fhir_server_cleanup og nulstilles ved MERGE-match. NOT NULL DEFAULT 0, saa konsumenter kan skrive '= 0' ensartet paa tvaers af alle fhir.*-tabeller." }
     last_updated:     { DataType: DATETIME2, FhirPath: "r.ts" }
     created_at:       { DataType: DATETIME2, FhirPath: "r.cts" }

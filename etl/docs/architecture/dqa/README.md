@@ -325,9 +325,9 @@ could race the sensor-chained 06:00 pipeline. Two mechanisms:
 
   | Sensor | Fires after (AND-join) | Daily | Weekly (Saturday) |
   |---|---|---|---|
-  | `dqa_fhir_after_etl` | `fhir_ifdb_dfm_sof_dso_job` **and** `fhir_etl_ifdb_daily_job` | `dqa_fhir_daily_job` | `dqa_fhir_weekly_job`, `dqa_dso_fhir_job` |
+  | `dqa_fhir_after_etl` | `ifdb_dfm_daily_job` | `dqa_fhir_daily_job` | `dqa_fhir_weekly_job`, `dqa_dso_fhir_job` |
   | `dqa_erp_daily_after_dfm` | `erp_daily_dfm_job` | `dqa_dwh_daily_job` | `dqa_dwh_weekly_job` |
-  | `dqa_arc_ifdb_after_archive` | `fhir_ifdb_dfm_base_job` | — | `dqa_arc_ifdb_weekly_job` |
+  | `dqa_arc_ifdb_after_archive` | `ifdb_dfm_daily_job` | — | `dqa_arc_ifdb_weekly_job` |
 
   The FHIR daily pipeline fans out from the 06:00 base job into two jobs (SOF→flat
   `fhir.*` + DSO sync, and the remaining daily resources); the checks need both, so

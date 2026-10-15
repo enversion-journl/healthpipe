@@ -27,6 +27,7 @@ TAG_MAX_WORKERS = "fhir/max_workers"
 TAG_ID_RESOLUTION_BATCH_SIZE = "fhir/id_resolution_batch_size"
 TAG_RETIRE_CEILING_FLOOR = "fhir/retire_ceiling_floor"
 TAG_RETIRE_CEILING_FRACTION = "fhir/retire_ceiling_fraction"
+TAG_AKTRES_CHUNK_SIZE = "fhir/aktres_chunk_size"
 
 
 def _merged_context_tags(context: dg.AssetExecutionContext) -> dict[str, str]:
@@ -61,6 +62,42 @@ def retire_ceiling_from_context(context: dg.AssetExecutionContext) -> RetireCeil
             f"fraction={ceiling.fraction}"
         )
     return ceiling
+
+
+def aktivitetsresultat_chunk_size_from_context(
+    context: dg.AssetExecutionContext,
+    default: int,
+) -> int:
+    """Pipeline-chunkstørrelsen for aktivitetsresultat-posten, med run-tag-override.
+
+    Default er miljøets ``IFDB_AKTIVITETSRESULTAT_CHUNK_SIZE``. Tagget
+    ``fhir/aktres_chunk_size`` lader en målekørsel køre samme vindue med en anden
+    chunkning — fx hele vinduet som én chunk eller 10.000 mod 25.000 — uden at
+    røre code-serverens miljø. Ugyldige eller ikke-positive værdier ignoreres
+    med en advarsel, så et tastefejl-tag aldrig kan vælte kørslen.
+    """
+    raw = _merged_context_tags(context).get(TAG_AKTRES_CHUNK_SIZE)
+    if not isinstance(raw, (str, int)):
+        return default
+    try:
+        value = int(str(raw).strip())
+    except ValueError:
+        dg.get_dagster_logger().warning(
+            f"Ignoring run tag {TAG_AKTRES_CHUNK_SIZE}={raw!r}: not an integer; "
+            f"using chunk size {default}"
+        )
+        return default
+    if value < 1:
+        dg.get_dagster_logger().warning(
+            f"Ignoring run tag {TAG_AKTRES_CHUNK_SIZE}={value}: must be >= 1; "
+            f"using chunk size {default}"
+        )
+        return default
+    if value != default:
+        dg.get_dagster_logger().info(
+            f"Aktivitetsresultat chunk size overridden by run tag: {value} (default {default})"
+        )
+    return value
 
 
 @dataclass

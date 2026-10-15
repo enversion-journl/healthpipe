@@ -117,14 +117,11 @@ def _create_dso_sync_monthly(
 # Spec table: (sync_config_key, sof_resource_name, mssql_table)
 # =============================================================================
 
-_DSO_SYNC_SPECS: list[tuple[str, str, str]] = [
-    # Only resources that still have a producer in the partitioned daily job --
-    # now CarePlan alone. When it moves to _DFM_DSO_SYNC_SPECS, this list is
-    # empty and the daily job can be retired.
-    # Organization is handled separately as unpartitioned (see below)
-    ("fhir_careplan", "careplan", "CarePlan"),
-    ("fhir_careplan_activity", "careplan_activity", "CarePlan_Activity"),
-]
+# Every FHIR resource is now produced on the DFM path, so no flat table has a
+# partitioned upstream left to sync from. The daily/monthly factories below stay
+# for the next source that arrives partitioned; today they generate nothing.
+# Organization is handled separately as unpartitioned (see below).
+_DSO_SYNC_SPECS: list[tuple[str, str, str]] = []
 
 # =============================================================================
 # Generated asset instances
@@ -207,6 +204,10 @@ _DFM_DSO_SYNC_SPECS: list[tuple[str, str, str]] = [
         "documentreference_recipient",
         "DocumentReference_Recipient",
     ),
+    # CarePlan was the last partitioned producer; its move to the DFM path is
+    # what emptied _DSO_SYNC_SPECS above.
+    ("fhir_careplan", "careplan", "CarePlan"),
+    ("fhir_careplan_activity", "careplan_activity", "CarePlan_Activity"),
 ]
 
 

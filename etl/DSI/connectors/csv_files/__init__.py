@@ -6,6 +6,6 @@
 
 """CSV file connector for DSI extraction layer.
 
-Provides CsvExtractor, CsvExtractionConfig,
-and the asset factory for CSV file extraction.
+Provides CsvExtractor and CsvExtractionConfig. The CSV modules in
+``DSI/csv_files/`` define their assets directly; there is no asset factory here.
 """

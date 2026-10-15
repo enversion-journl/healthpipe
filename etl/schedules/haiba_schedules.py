@@ -6,7 +6,7 @@
 
 """Schedule for the HAIBA ingest job.
 
-05:00 CET, one hour before ``ifdb_dfm_base_schedule``. That ordering is the
+05:00 CET, one hour before ``ifdb_dfm_daily_schedule``. That ordering is the
 point of the time: a delivery that landed overnight has its stub patients in
 Aidbox before the 06:00 DFM base job, so the SOF+Borger chain the base-job
 sensor triggers projects them the same morning and haiba_publish_sensor can

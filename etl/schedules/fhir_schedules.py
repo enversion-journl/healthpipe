@@ -7,13 +7,9 @@
 """
 FHIR ETL schedules.
 
-The direct 06:00 schedule for ``fhir_etl_ifdb_daily_job`` has been retired in
-favor of sensor-based orchestration: ``dfm_base_job_success_sensor`` triggers
-the daily job after ``fhir_ifdb_dfm_base_job`` succeeds (so the daily resources
-that reference Patient/EpisodeOfCare/Encounter/Location run only after those
-exist). ``fhir_etl_schedule`` therefore is NOT registered as a Dagster schedule
-— it is kept as a plain helper that builds the daily job's RunRequest payload
-(partition key + catchup tag), exercised by the schedule contract tests.
+Only the weekly CodeSystem refresh lives here. The IFDB → FHIR pipeline runs as
+a single job on ``ifdb_dfm_daily_schedule`` (see ``schedules/ifdb_dfm_schedules``);
+the partitioned daily job it used to build RunRequests for is gone.
 """
 
 import dagster as dg
@@ -21,21 +17,6 @@ from jobs.codesystem_jobs import fhir_codesystem_job
 from schedules.schedule_default_status import get_schedule_default_status
 
 SCHEDULE_DEFAULT_STATUS = get_schedule_default_status()
-
-
-def fhir_etl_schedule(context: dg.ScheduleEvaluationContext) -> dg.RunRequest:
-    """Build the RunRequest payload for the (retired) partitioned IFDB FHIR job.
-
-    NOT a ScheduleDefinition and NOT registered in ``all_schedules`` — the daily
-    job is sensor-triggered (see module docstring). Kept as a plain function so
-    the partition-key/tag contract stays covered by tests; registering it would
-    double-trigger the daily job alongside the sensor.
-    """
-    scheduled_date = context.scheduled_execution_time.strftime("%Y-%m-%d")
-    return dg.RunRequest(
-        partition_key=scheduled_date,
-        tags={"ifdb_extraction_mode": "scheduled_catchup"},
-    )
 
 
 # Clinical SKS/SOR CodeSystem refresh -> DSO + FHIR terminology server.
@@ -51,6 +32,5 @@ fhir_codesystem_weekly_schedule = dg.ScheduleDefinition(
 
 
 __all__ = [
-    "fhir_etl_schedule",
     "fhir_codesystem_weekly_schedule",
 ]

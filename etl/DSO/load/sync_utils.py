@@ -488,16 +488,26 @@ class SyncTableConfig:
     # Column used as watermark for delta sync, e.g. 'dw_timestamp_update' or 'dw_timestamp_insert'.
     # Required when mode='watermark', ignored otherwise.
     watermark_column: str | None = None
+    # Persisted computed column on the STAGING table equal to
+    # COALESCE(watermark_column, dw_timestamp_insert) — e.g. dw_timestamp_effective.
+    # When set, the delta predicate filters on this column directly, so an index on
+    # it is a seek; the COALESCE form is not sargable and scans the whole staging
+    # table each sync (97 GB for QuestionnaireResponse). Hvis synken stadig scanner:
+    # tjek at kolonnen findes og er indekseret på staging, og at den er PERSISTED.
+    watermark_effective_column: str | None = None
     # When True, disable the target's nonclustered (non-PK) indexes for a BULK
-    # LOAD only — a truncate_insert refresh or the empty-target first load — and
+    # LOAD — a truncate_insert refresh, the empty-target first load, or a delta
+    # that is large relative to the populated target (backfill window, see
+    # _should_disable_target_indexes: incoming rows >= DSO_SYNC_INDEX_DISABLE_
+    # MIN_ROWS and incoming/target >= DSO_SYNC_INDEX_DISABLE_MIN_RATIO) — and
     # rebuild them afterwards, so the load maintains just the clustered PK and
     # the nonclustered indexes are rebuilt once (sorted) instead of taking a
-    # random write per row per index. An incremental MERGE into a populated
+    # random write per row per index. A small incremental MERGE into a populated
     # target leaves the indexes intact: rebuilding every index over the whole
     # table to absorb a small changed delta would cost far more than per-row
-    # upkeep. Use only for very large/wide fact tables where index maintenance
-    # during the initial load dominates; adds risk (rebuild must run in
-    # finally). Source (staging) indexes are never disabled.
+    # upkeep. Use for very large/wide tables where index maintenance during
+    # bulk loads dominates; adds risk (rebuild must run in finally). Source
+    # (staging) indexes are never disabled.
     disable_target_indexes_during_sync: bool = False
     # Rows per chunk when using the Python fallback path (_sync_via_python).
     # Controls fetchmany() size and executemany() batch size to keep memory constant.
@@ -1138,14 +1148,22 @@ def build_watermark_coalesce_predicate(
     lower_exclusive: str | None = None,
     upper_inclusive: str | None = None,
     openquery: bool = False,
+    effective_col: str | None = None,
 ) -> str:
     """Build ``COALESCE([wm],[ins]) > lower AND COALESCE([wm],[ins]) <= upper``.
 
     Lower bound uses exclusive ``>`` (DFM Strategy B). Upper bound is inclusive
     ``<=`` and must be the pre-MERGE MAX sample so mid-sync inserts cannot lift
     the checkpoint past unread rows.
+
+    ``effective_col`` replaces the COALESCE with a persisted column holding the
+    same value (``dw_timestamp_effective``), so the predicate is sargable.
     """
-    expr = f"COALESCE([{watermark_col}], [{insert_fallback}])"
+    expr = (
+        f"[{effective_col}]"
+        if effective_col
+        else f"COALESCE([{watermark_col}], [{insert_fallback}])"
+    )
     parts: list[str] = []
     if lower_exclusive is not None:
         lit = _escape_ts_literal(str(lower_exclusive), openquery=openquery)
@@ -1231,6 +1249,7 @@ def build_delta_merge_statement(
         insert_fallback,
         lower_exclusive=lower,
         upper_inclusive=checkpoint_upper_bound,
+        effective_col=config.watermark_effective_column,
     )
 
     # Build ON clause for MERGE matching
@@ -1281,6 +1300,102 @@ def _get_non_pk_nonclustered_index_names(
         """
     )
     return [row[0] for row in cursor.fetchall()]
+
+
+# Backfill-port for indeks-frakobling: et delta, der er stort i forhold til
+# måltabellen, behandles som en bulk load. Den daglige delta (promiller af
+# målet) beholder alle indeks; et backfill-vindue (Q2: 11,8 mio. rækker ind i
+# 9,1 mio.) slår dem fra og genopbygger dem én gang bagefter. Målt 2022-Q2:
+# MERGE'n af QuestionnaireResponse tog 63 min, hvoraf 64 % var ventetid på
+# tilfældige sidelæsninger til de fem sekundære indeks.
+_INDEX_DISABLE_MIN_RATIO_ENV = "DSO_SYNC_INDEX_DISABLE_MIN_RATIO"
+_INDEX_DISABLE_MIN_ROWS_ENV = "DSO_SYNC_INDEX_DISABLE_MIN_ROWS"
+_DEFAULT_INDEX_DISABLE_MIN_RATIO = 0.10
+_DEFAULT_INDEX_DISABLE_MIN_ROWS = 1_000_000
+# Run-tags, der overstyrer miljøet for én kørsel (målekørsler på små vinduer).
+_INDEX_DISABLE_MIN_ROWS_TAG = "dso_sync/index_disable_min_rows"
+_INDEX_DISABLE_MIN_RATIO_TAG = "dso_sync/index_disable_min_ratio"
+
+
+def _run_tags(context) -> dict[str, str]:
+    run = getattr(context, "run", None)
+    tags = getattr(run, "tags", None)
+    return dict(tags) if isinstance(tags, dict) else {}
+
+
+def _index_disable_thresholds(context=None) -> tuple[int, float]:
+    """(min_rows, min_ratio): run-tag før miljø, med sikre defaults."""
+    tags = _run_tags(context)
+    try:
+        min_rows = max(
+            1,
+            int(
+                tags.get(_INDEX_DISABLE_MIN_ROWS_TAG)
+                or os.environ.get(_INDEX_DISABLE_MIN_ROWS_ENV)
+                or _DEFAULT_INDEX_DISABLE_MIN_ROWS
+            ),
+        )
+    except ValueError:
+        min_rows = _DEFAULT_INDEX_DISABLE_MIN_ROWS
+    try:
+        min_ratio = max(
+            0.0,
+            float(
+                tags.get(_INDEX_DISABLE_MIN_RATIO_TAG)
+                or os.environ.get(_INDEX_DISABLE_MIN_RATIO_ENV)
+                or _DEFAULT_INDEX_DISABLE_MIN_RATIO
+            ),
+        )
+    except ValueError:
+        min_ratio = _DEFAULT_INDEX_DISABLE_MIN_RATIO
+    return min_rows, min_ratio
+
+
+def _target_row_estimate(cursor, schema: str, table: str) -> int:
+    """Måltabellens rækketal fra sys.partitions (billigt, ingen scanning)."""
+    cursor.execute(
+        f"""
+        SELECT COALESCE(SUM(p.rows), 0)
+        FROM sys.partitions p
+        WHERE p.object_id = OBJECT_ID(N'[{schema.replace("'", "''")}].[{table.replace("'", "''")}]')
+          AND p.index_id IN (0, 1)
+        """
+    )
+    row = cursor.fetchone()
+    return int(row[0]) if row and row[0] is not None else 0
+
+
+def _should_disable_target_indexes(
+    cursor,
+    config: SyncTableConfig,
+    context,
+    *,
+    incoming_rows: int,
+    is_bulk_load: bool,
+) -> bool:
+    """Afgør om målets nonclustered indeks skal slås fra under denne skrivning.
+
+    Kun når tabellen har valgt det til. En egentlig bulk load (truncate/tomt
+    mål) slår altid fra. Et delta ind i et fyldt mål slår fra, når det både er
+    absolut stort og stort i forhold til målet — ellers koster genopbygningen
+    mere end vedligeholdelsen pr. række.
+    """
+    if not config.disable_target_indexes_during_sync:
+        return False
+    if is_bulk_load:
+        return True
+    min_rows, min_ratio = _index_disable_thresholds(context)
+    if incoming_rows < min_rows:
+        return False
+    target_rows = _target_row_estimate(cursor, config.schema, config.table)
+    ratio = (incoming_rows / target_rows) if target_rows > 0 else float("inf")
+    decision = ratio >= min_ratio
+    context.log.info(
+        f"Index-disable gate for [{config.schema}].[{config.table}]: incoming={incoming_rows:,}, "
+        f"target={target_rows:,}, ratio={ratio:.3f} (min_rows={min_rows:,}, min_ratio={min_ratio}) "
+        f"-> {'disable' if decision else 'keep'}"
+    )
+    return decision
 
 
 def build_truncate_insert_statement(
@@ -1780,6 +1895,7 @@ def _sync_via_linked_server_batched(
             lower_exclusive=last_sync_checkpoint,
             upper_inclusive=checkpoint_upper_bound,
             openquery=True,
+            effective_col=config.watermark_effective_column,
         )
         watermark_where = f" AND {pred}"
 
@@ -1994,7 +2110,9 @@ def _sync_via_linked_server_batched(
         # intact (rebuilding every index over the whole table to absorb a small
         # delta would cost far more than per-row upkeep). See the field docstring.
         disabled_indexes: list[str] = []
-        if config.disable_target_indexes_during_sync and is_bulk_load:
+        if _should_disable_target_indexes(
+            cursor, config, context, incoming_rows=total_rows, is_bulk_load=is_bulk_load
+        ):
             disabled_indexes = _get_non_pk_nonclustered_index_names(
                 cursor, config.schema, config.table
             )
@@ -2023,8 +2141,13 @@ def _sync_via_linked_server_batched(
                 merge_sql = _build_local_merge_sql()
                 context.log.info(f"Phase 2: Local MERGE into {full_table}")
                 _clear_stale_current_before_merge(cursor, config, "#_sync_staging", string_pk_cols)
+                merge_started = time.monotonic()
                 cursor.execute(merge_sql)
                 rows_affected = cursor.rowcount
+                context.log.info(
+                    f"Phase 2 MERGE into {full_table} done: {rows_affected:,} rows in "
+                    f"{time.monotonic() - merge_started:.1f}s"
+                )
             else:
                 context.log.info(
                     f"Phase 2: target empty - bulk INSERT WITH (TABLOCK) into {full_table} "
@@ -2040,14 +2163,23 @@ def _sync_via_linked_server_batched(
             if config.identity_insert:
                 context.log.info(f"Disabling IDENTITY_INSERT for {full_table}")
                 cursor.execute(f"SET IDENTITY_INSERT {full_table} OFF")
+            rebuild_started = time.monotonic()
             for idx_name in disabled_indexes:
+                idx_started = time.monotonic()
                 try:
                     cursor.execute(f"ALTER INDEX [{idx_name}] ON {full_table} REBUILD")
                 except Exception as e:
                     context.log.error(f"Failed to rebuild index [{idx_name}] on {full_table}: {e}")
                     raise
+                context.log.info(
+                    f"Rebuilt index [{idx_name}] on {full_table} in "
+                    f"{time.monotonic() - idx_started:.1f}s"
+                )
             if disabled_indexes:
-                context.log.info(f"Rebuilt {len(disabled_indexes)} indexes on {full_table}")
+                context.log.info(
+                    f"Rebuilt {len(disabled_indexes)} indexes on {full_table} in "
+                    f"{time.monotonic() - rebuild_started:.1f}s total"
+                )
 
         conn.commit()
 
@@ -2167,6 +2299,7 @@ def _sync_via_linked_server_batched_composite(
             lower_exclusive=last_sync_checkpoint,
             upper_inclusive=checkpoint_upper_bound,
             openquery=True,
+            effective_col=config.watermark_effective_column,
         )
         watermark_where = f" AND {pred}"
 
@@ -2294,35 +2427,64 @@ def _sync_via_linked_server_batched_composite(
             sync_start,
         )
 
-        if config.mode == "truncate_insert":
-            # Always TRUNCATE — even at 0 source rows — so a full refresh clears
-            # stale target rows when the source has become empty. (This is the
-            # intended composite behaviour and differs from the single-PK path,
-            # which early-returns at 0 rows; see the truncate-when-empty test.)
-            context.log.info(f"Phase 2: TRUNCATE + INSERT into {full_table}")
-            cursor.execute(f"TRUNCATE TABLE {full_table}")
-            if total_rows == 0:
-                rows_affected = 0
-            else:
-                cursor.execute(
-                    f"INSERT INTO {full_table} ({col_list}) "
-                    f"SELECT {col_list} FROM #_sync_staging"
-                )
-                rows_affected = cursor.rowcount
-        elif total_rows == 0:
-            rows_affected = 0
-        else:
+        # Decide the write up front (same probe and order as before), because
+        # index handling depends on it: a bulk load or a backfill-sized delta
+        # disables the nonclustered indexes around Phase 2 (see
+        # _should_disable_target_indexes); a small delta leaves them intact.
+        target_is_empty = False
+        if config.mode != "truncate_insert" and total_rows > 0:
             # Empty-target short-circuit (see _sync_via_linked_server_batched):
             # bulk INSERT WITH (TABLOCK) when the DSO target is empty (minimally
             # logged), MERGE otherwise. Plain emptiness check, not sentinel-aware.
             cursor.execute(
                 f"SELECT CASE WHEN EXISTS (SELECT 1 FROM {full_table}) THEN 1 ELSE 0 END"
             )
-            if cursor.fetchone()[0]:
+            target_is_empty = cursor.fetchone()[0] == 0
+        is_bulk_load = config.mode == "truncate_insert" or target_is_empty
+
+        disabled_indexes: list[str] = []
+        if total_rows > 0 and _should_disable_target_indexes(
+            cursor, config, context, incoming_rows=total_rows, is_bulk_load=is_bulk_load
+        ):
+            disabled_indexes = _get_non_pk_nonclustered_index_names(
+                cursor, config.schema, config.table
+            )
+            for idx_name in disabled_indexes:
+                cursor.execute(f"ALTER INDEX [{idx_name}] ON {full_table} DISABLE")
+            if disabled_indexes:
+                context.log.info(
+                    f"Disabled {len(disabled_indexes)} nonclustered indexes on {full_table} "
+                    f"for bulk load (rebuilt after Phase 2)"
+                )
+
+        try:
+            if config.mode == "truncate_insert":
+                # Always TRUNCATE — even at 0 source rows — so a full refresh clears
+                # stale target rows when the source has become empty. (This is the
+                # intended composite behaviour and differs from the single-PK path,
+                # which early-returns at 0 rows; see the truncate-when-empty test.)
+                context.log.info(f"Phase 2: TRUNCATE + INSERT into {full_table}")
+                cursor.execute(f"TRUNCATE TABLE {full_table}")
+                if total_rows == 0:
+                    rows_affected = 0
+                else:
+                    cursor.execute(
+                        f"INSERT INTO {full_table} ({col_list}) "
+                        f"SELECT {col_list} FROM #_sync_staging"
+                    )
+                    rows_affected = cursor.rowcount
+            elif total_rows == 0:
+                rows_affected = 0
+            elif not target_is_empty:
                 context.log.info(f"Phase 2: Local composite MERGE into {full_table}")
                 _clear_stale_current_before_merge(cursor, config, "#_sync_staging", string_pk_cols)
+                merge_started = time.monotonic()
                 cursor.execute(_build_local_merge_sql())
                 rows_affected = cursor.rowcount
+                context.log.info(
+                    f"Phase 2 composite MERGE into {full_table} done: {rows_affected:,} rows in "
+                    f"{time.monotonic() - merge_started:.1f}s"
+                )
             else:
                 context.log.info(
                     f"Phase 2: target empty - bulk INSERT WITH (TABLOCK) into {full_table} "
@@ -2333,6 +2495,24 @@ def _sync_via_linked_server_batched_composite(
                     f"SELECT {col_list} FROM #_sync_staging"
                 )
                 rows_affected = cursor.rowcount
+        finally:
+            rebuild_started = time.monotonic()
+            for idx_name in disabled_indexes:
+                idx_started = time.monotonic()
+                try:
+                    cursor.execute(f"ALTER INDEX [{idx_name}] ON {full_table} REBUILD")
+                except Exception as e:
+                    context.log.error(f"Failed to rebuild index [{idx_name}] on {full_table}: {e}")
+                    raise
+                context.log.info(
+                    f"Rebuilt index [{idx_name}] on {full_table} in "
+                    f"{time.monotonic() - idx_started:.1f}s"
+                )
+            if disabled_indexes:
+                context.log.info(
+                    f"Rebuilt {len(disabled_indexes)} indexes on {full_table} in "
+                    f"{time.monotonic() - rebuild_started:.1f}s total"
+                )
 
         conn.commit()
     finally:
@@ -2579,14 +2759,23 @@ def _sync_via_linked_server(
                 context.log.info(f"Disabling IDENTITY_INSERT for {full_table}")
                 cursor.execute(f"SET IDENTITY_INSERT {full_table} OFF")
             # Rebuild indexes that were disabled before MERGE
+            rebuild_started = time.monotonic()
             for idx_name in disabled_indexes:
+                idx_started = time.monotonic()
                 try:
                     cursor.execute(f"ALTER INDEX [{idx_name}] ON {full_table} REBUILD")
                 except Exception as e:
                     context.log.error(f"Failed to rebuild index [{idx_name}] on {full_table}: {e}")
                     raise
+                context.log.info(
+                    f"Rebuilt index [{idx_name}] on {full_table} in "
+                    f"{time.monotonic() - idx_started:.1f}s"
+                )
             if disabled_indexes:
-                context.log.info(f"Rebuilt {len(disabled_indexes)} indexes on {full_table}")
+                context.log.info(
+                    f"Rebuilt {len(disabled_indexes)} indexes on {full_table} in "
+                    f"{time.monotonic() - rebuild_started:.1f}s total"
+                )
             cursor.close()
 
         conn.commit()
@@ -2734,7 +2923,11 @@ def _sync_via_python(
             or "dw_timestamp_update"
         )
         insert_fallback = _find_insert_timestamp_col(sync_columns) or "dw_timestamp_insert"
-        expr = f"COALESCE([{watermark_col}], [{insert_fallback}])"
+        expr = (
+            f"[{config.watermark_effective_column}]"
+            if config.watermark_effective_column
+            else f"COALESCE([{watermark_col}], [{insert_fallback}])"
+        )
         parts: list[str] = []
         params: list[str] = []
         if last_sync_checkpoint is not None:

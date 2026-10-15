@@ -1,0 +1,11 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+"""SHAK-a-like (EPJI location.external_id) CodeSystem asset."""
+
+from .shakalike import build_shakalike_codesystem, cs_shakalike
+
+__all__ = ["cs_shakalike", "build_shakalike_codesystem"]
