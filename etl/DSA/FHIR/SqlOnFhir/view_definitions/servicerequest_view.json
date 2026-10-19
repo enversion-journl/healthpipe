@@ -6,28 +6,262 @@
   "select": [
     {
       "column": [
-        {"name": "service_request_id", "path": "id"},
-        {"name": "identifier_system", "path": "identifier.system.first()"},
-        {"name": "identifier_value", "path": "identifier.value.first()"},
-        {"name": "patient_id", "path": "subject.id"},
-        {"name": "episode_of_care_id", "path": "extension.where(url='http://example.org/fhir/StructureDefinition/episodeOfCare').valueReference.id.first()"},
-        {"name": "encounter_id", "path": "encounter.id.first()"},
-        {"name": "status", "path": "status"},
-        {"name": "intent", "path": "intent"},
-        {"name": "priority", "path": "priority"},
-        {"name": "category_code", "path": "category.coding.code.first()"},
-        {"name": "category_display", "path": "category.coding.display.first()"},
-        {"name": "code", "path": "code.coding.code.first()"},
-        {"name": "code_system", "path": "code.coding.system.first()"},
-        {"name": "code_display", "path": "code.coding.display.first()"},
-        {"name": "reason_reference_id", "path": "reasonReference.id.first()"},
-        {"name": "authored_on", "path": "authoredOn"},
-        {"name": "occurrence_start", "path": "occurrencePeriod.start"},
-        {"name": "occurrence_end", "path": "occurrencePeriod.end"},
-        {"name": "requester_id", "path": "requester.id"},
-        {"name": "performer_id", "path": "performer.id.first()"},
-        {"name": "source_table", "path": "extension('http://example.org/fhir/StructureDefinition/sourceTable').valueString.first()"},
-        {"name": "dw_is_deleted", "path": "extension.where(url='urn:fhir:isDeleted').valueInteger"}
+        {
+          "name": "service_request_id",
+          "path": "id"
+        },
+        {
+          "name": "identifier_system",
+          "path": "identifier.system.first()"
+        },
+        {
+          "name": "identifier_value",
+          "path": "identifier.value.first()"
+        },
+        {
+          "name": "patient_id",
+          "path": "subject.id"
+        },
+        {
+          "name": "episode_of_care_id",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/episodeOfCare').valueReference.id.first()"
+        },
+        {
+          "name": "encounter_id",
+          "path": "encounter.id.first()"
+        },
+        {
+          "name": "status",
+          "path": "status"
+        },
+        {
+          "name": "intent",
+          "path": "intent"
+        },
+        {
+          "name": "priority",
+          "path": "priority"
+        },
+        {
+          "name": "category_code",
+          "path": "category.coding.code.first()"
+        },
+        {
+          "name": "category_display",
+          "path": "category.coding.display.first()"
+        },
+        {
+          "name": "code",
+          "path": "code.coding.code.first()"
+        },
+        {
+          "name": "code_system",
+          "path": "code.coding.system.first()"
+        },
+        {
+          "name": "code_display",
+          "path": "code.coding.display.first()"
+        },
+        {
+          "name": "reason_reference_id",
+          "path": "reasonReference.id.first()"
+        },
+        {
+          "name": "authored_on",
+          "path": "authoredOn"
+        },
+        {
+          "name": "occurrence_start",
+          "path": "occurrencePeriod.start"
+        },
+        {
+          "name": "occurrence_end",
+          "path": "occurrencePeriod.end"
+        },
+        {
+          "name": "requester_id",
+          "path": "requester.id"
+        },
+        {
+          "name": "performer_id",
+          "path": "performer.id.first()"
+        },
+        {
+          "name": "source_table",
+          "path": "extension('http://example.org/fhir/StructureDefinition/sourceTable').valueString.first()"
+        },
+        {
+          "name": "status_kode",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/henvisningSourceMeta').extension.where(url='statusKode').valueString.first()"
+        },
+        {
+          "name": "prioritet_kode",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/henvisningSourceMeta').extension.where(url='indkaldelsesprioritetKode').valueString.first()"
+        },
+        {
+          "name": "henvisningsmaade_kode",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/henvisningSourceMeta').extension.where(url='henvisningsmaadeKode').valueString.first()"
+        },
+        {
+          "name": "referral_purpose",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/henvisningSourceMeta').extension.where(url='referralPurpose').valueString.first()"
+        },
+        {
+          "name": "modtaget",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/henvisningSourceMeta').extension.where(url='modtaget').valueDateTime.first()"
+        },
+        {
+          "name": "afsendelsesdato",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/henvisningSourceMeta').extension.where(url='afsendelsesdato').valueDateTime.first()"
+        },
+        {
+          "name": "dw_is_deleted",
+          "path": "extension.where(url='urn:fhir:isDeleted').valueInteger"
+        },
+        {
+          "name": "henvist_til_yder_navn",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/henvisningSourceMeta').extension.where(url='henvistTilYderNavn').valueString.first()"
+        },
+        {
+          "name": "henvist_til_yder_nummer",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/henvisningSourceMeta').extension.where(url='henvistTilYderNummer').valueString.first()"
+        },
+        {
+          "name": "henvist_til_afdeling_kode",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/henvisningSourceMeta').extension.where(url='henvistTilAfdelingKode').valueString.first()"
+        },
+        {
+          "name": "henvist_til_afdeling_kodetekst",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/henvisningSourceMeta').extension.where(url='henvistTilAfdelingKodetekst').valueString.first()"
+        },
+        {
+          "name": "henvist_til_muni_kode",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/henvisningSourceMeta').extension.where(url='henvistTilMuniKode').valueString.first()"
+        },
+        {
+          "name": "henvist_til_muni_location",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/henvisningSourceMeta').extension.where(url='henvistTilMuniLocation').valueString.first()"
+        },
+        {
+          "name": "henvist_fra_yder_navn",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/henvisningSourceMeta').extension.where(url='henvistFraYderNavn').valueString.first()"
+        },
+        {
+          "name": "henvist_fra_yder_nummer",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/henvisningSourceMeta').extension.where(url='henvistFraYderNummer').valueString.first()"
+        },
+        {
+          "name": "henvist_fra_afdeling_kode",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/henvisningSourceMeta').extension.where(url='henvistFraAfdelingKode').valueString.first()"
+        },
+        {
+          "name": "henvist_fra_afdeling_kodetekst",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/henvisningSourceMeta').extension.where(url='henvistFraAfdelingKodetekst').valueString.first()"
+        },
+        {
+          "name": "henvist_fra_institution_navn",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/henvisningSourceMeta').extension.where(url='henvistFraInstitutionNavn').valueString.first()"
+        },
+        {
+          "name": "henvist_fra_institution_postnr",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/henvisningSourceMeta').extension.where(url='henvistFraInstitutionPostnr').valueString.first()"
+        },
+        {
+          "name": "henvist_fra_institution_vej",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/henvisningSourceMeta').extension.where(url='henvistFraInstitutionVej').valueString.first()"
+        },
+        {
+          "name": "henvist_fra_institution_tlf_nr",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/henvisningSourceMeta').extension.where(url='henvistFraInstitutionTlfNr').valueString.first()"
+        },
+        {
+          "name": "afslutningsaarsag_kode",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/henvisningSourceMeta').extension.where(url='afslutningsaarsagKode').valueString.first()"
+        },
+        {
+          "name": "afslutningsaarsag_kodetekst",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/henvisningSourceMeta').extension.where(url='afslutningsaarsagKodetekst').valueString.first()"
+        },
+        {
+          "name": "afsender_yder_navn",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/henvisningSourceMeta').extension.where(url='afsenderYderNavn').valueString.first()"
+        },
+        {
+          "name": "afsender_yder_nummer",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/henvisningSourceMeta').extension.where(url='afsenderYderNummer').valueString.first()"
+        },
+        {
+          "name": "afsender_afdeling_kode",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/henvisningSourceMeta').extension.where(url='afsenderAfdelingKode').valueString.first()"
+        },
+        {
+          "name": "afsender_afdeling_kodetekst",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/henvisningSourceMeta').extension.where(url='afsenderAfdelingKodetekst').valueString.first()"
+        },
+        {
+          "name": "afsender_institution_navn",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/henvisningSourceMeta').extension.where(url='afsenderInstitutionNavn').valueString.first()"
+        },
+        {
+          "name": "afsender_institution_postnr",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/henvisningSourceMeta').extension.where(url='afsenderInstitutionPostnr').valueString.first()"
+        },
+        {
+          "name": "afsender_institution_vej",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/henvisningSourceMeta').extension.where(url='afsenderInstitutionVej').valueString.first()"
+        },
+        {
+          "name": "afsender_institution_tlf_nr",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/henvisningSourceMeta').extension.where(url='afsenderInstitutionTlfNr').valueString.first()"
+        },
+        {
+          "name": "behandler_yder_navn",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/henvisningSourceMeta').extension.where(url='behandlerYderNavn').valueString.first()"
+        },
+        {
+          "name": "behandler_yder_nummer",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/henvisningSourceMeta').extension.where(url='behandlerYderNummer').valueString.first()"
+        },
+        {
+          "name": "behandler_afdeling_kode",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/henvisningSourceMeta').extension.where(url='behandlerAfdelingKode').valueString.first()"
+        },
+        {
+          "name": "behandler_afdeling_kodetekst",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/henvisningSourceMeta').extension.where(url='behandlerAfdelingKodetekst').valueString.first()"
+        },
+        {
+          "name": "sent_electronical",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/henvisningSourceMeta').extension.where(url='sentElectronical').valueString.first()"
+        },
+        {
+          "name": "henvist_til_afdeling_sorkode",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/henvisningSourceMeta').extension.where(url='henvistTilAfdelingSorkode').valueString.first()"
+        },
+        {
+          "name": "henvist_fra_afdeling_sorkode",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/henvisningSourceMeta').extension.where(url='henvistFraAfdelingSorkode').valueString.first()"
+        },
+        {
+          "name": "afsender_afdeling_sorkode",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/henvisningSourceMeta').extension.where(url='afsenderAfdelingSorkode').valueString.first()"
+        },
+        {
+          "name": "behandler_afdeling_sorkode",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/henvisningSourceMeta').extension.where(url='behandlerAfdelingSorkode').valueString.first()"
+        },
+        {
+          "name": "henvisningsdato",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/henvisningSourceMeta').extension.where(url='henvisningsdato').valueDateTime.first()"
+        },
+        {
+          "name": "slutdato",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/henvisningSourceMeta').extension.where(url='slutdato').valueDateTime.first()"
+        },
+        {
+          "name": "faellesvisitation",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/henvisningSourceMeta').extension.where(url='latestHistory').extension.where(url='faellesvisitation').valueString.first()"
+        }
       ]
     }
   ]

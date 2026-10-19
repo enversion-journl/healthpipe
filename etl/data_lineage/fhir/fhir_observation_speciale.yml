@@ -1,0 +1,27 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fhir
+  TableName: fhir.Observation_Speciale
+  Domain: [FHIR]
+  Description: "Specialer på en SFI-registrerings aktivitetsudførelse — child-tabel i eget grain. En udførelse kan have flere specialer."
+  Grain: "Én række pr. (observation, speciale) — PK: observation_id + speciale_kode"
+  FhirResource: Observation
+
+  SourceSystems:
+    - ifdb_aktivitetsudfoerelse_speciale: [IFDB.AKTIVITETSUDFOERELSE_SPECIALE]
+
+  Columns:
+    observation_id:            { Type: PK, DataType: NVARCHAR(255), FhirPath: "id", FK-Target: fhir.Observation, FK-Key: observation_id, FK-Required: true, Description: "Første led i den sammensatte primærnøgle og samtidig fremmednøglen til forældretabellen." }
+    speciale_kode:             { Type: PK, DataType: NVARCHAR(512), FhirPath: "extension.where(url='specialeKode').valueString.first()", Source: [ifdb_aktivitetsudfoerelse_speciale.IFDB.AKTIVITETSUDFOERELSE_SPECIALE.SPECIALE_KODE], FK-None: true }
+    speciale_kodetekst:        { DataType: NVARCHAR(512), FhirPath: "extension.where(url='specialeKodetekst').valueString.first()", Source: [ifdb_aktivitetsudfoerelse_speciale.IFDB.AKTIVITETSUDFOERELSE_SPECIALE.SPECIALE_KODETEKST], Description: "Specialets tekst, som kilden skrev den." }
+    speciale_hospital_kode:    { DataType: NVARCHAR(512), FhirPath: "extension.where(url='specialeHospitalKode').valueString.first()", Source: [ifdb_aktivitetsudfoerelse_speciale.IFDB.AKTIVITETSUDFOERELSE_SPECIALE.SPECIALE_HOSPITAL_KODE], FK-None: true, Description: "Kildesystemets egen sygehuskode for specialet." }
+    speciale_hospital_navn:    { DataType: NVARCHAR(512), FhirPath: "extension.where(url='specialeHospitalNavn').valueString.first()", Source: [ifdb_aktivitetsudfoerelse_speciale.IFDB.AKTIVITETSUDFOERELSE_SPECIALE.SPECIALE_HOSPITAL_NAVN], Description: "Sygehusets navn, som kilden skrev det." }
+    speciale_hospital_orgkode: { DataType: NVARCHAR(512), FhirPath: "extension.where(url='specialeHospitalOrgkode').valueString.first()", Source: [ifdb_aktivitetsudfoerelse_speciale.IFDB.AKTIVITETSUDFOERELSE_SPECIALE.SPECIALE_HOSPITAL_ORGKODE], FK-None: true, Description: "Kildesystemets egen organisationskode for sygehuset." }
+    dw_is_deleted:             { DataType: INT, Description: "Slettet-flag (0 = live, 1 = slettet). Warehouse-styret: foraeldre-ressourcen baerer urn:fhir:isDeleted, men dette grain projicerer ikke feltet. Saettes af child-grain reconcile, naar specialet ikke laengere findes under den levende foraelder. NOT NULL DEFAULT 0." }
+    last_updated:              { DataType: DATETIME2, FhirPath: "r.ts" }
+    created_at:                { DataType: DATETIME2, FhirPath: "r.cts" }

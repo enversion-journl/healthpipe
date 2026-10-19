@@ -5,7 +5,7 @@
 # root for the full AGPL-3.0 license text.
 
 """Dataset specification for SDS' datamart "Monitorering af udredningsretten"
-(LPR_Udredningsret, [internal ticket], [internal ticket]).
+(SDS LPR_Udredningsret).
 
 ONE source of truth for the extract (DSI/csv_files/udredningsret.py), the
 archive (DSI/csv_files/udredningsret_archive.py) and the arc DDL
@@ -46,7 +46,7 @@ layer's name and is formed in pre_stg).
 WIDTHS: every source column is NVARCHAR(VALUE_WIDTH) in both ext and arc. SDS'
 own max_length values are all <= 255 characters
 (Speciale_ansvarlig_enhed_kontakt), so one shared width is safe, and ext and
-arc can never diverge (HAIBA lesson [internal ticket]).
+arc can never diverge (HAIBA lesson).
 """
 
 from dataclasses import dataclass
@@ -55,7 +55,7 @@ DATASET_PREFIX = "UdredningsretMont"  # UdredningsretMont_1083_<dato>.csv
 LEVERANCEINFO_PREFIX = "UdredningsretMont_LEVERANCEINFO"
 REGION = "1083"
 
-VALUE_WIDTH = 500  # HAIBA lesson [internal ticket]: ext and arc MUST share the width
+VALUE_WIDTH = 500  # HAIBA lesson: ext and arc MUST share the width
 NOEGLE_WIDTH = 64  # SHA2_256 as hex
 
 
@@ -100,10 +100,15 @@ CONTENT_EXCLUDED = ("PK", "OBJEKTID_FORLOBSMARKOR")
 # SDS' own sequence numbers with no meaning across deliveries: F_ID is renumbered
 # for whole helbredsforloeb at a time (31 %/month) and PK follows. Measured on dev
 # 2026-09-08: 98.8 % of 1.5 M weekly arc updates were ONLY these two columns.
-# They stay in arc but do not count as a change — they are refreshed together
-# with a real content change (and leverance_dato). OBJEKTID_FORLOBSMARKOR, by
-# contrast, is the marker's LPR3 UUID that encounters are enriched with (B9),
-# so it is kept current even when SDS reissues it.
+# They stay in arc but do not count as a change (no dw_timestamp_update or
+# leverance_dato bump). They ARE kept current, though: the merge writes them
+# together with a real content change, and udredningsret_archive.
+# refresh_surrogate_ids copies the delivery's values onto the untouched live
+# rows afterwards (decision U1 in udredningsret_model.md — staging groups
+# markers into udredningsforloeb on F_ID within the delivery, so a stale F_ID
+# on unchanged rows would split a renumbered helbredsforloeb in two).
+# OBJEKTID_FORLOBSMARKOR, by contrast, is the marker's LPR3 UUID that
+# encounters are enriched with (B9), so it is inside change-detect.
 SURROGATE_ID_COLUMNS = ("PK", "F_ID")
 
 # Ranking of loebenummer within one markoer_noegle (review F13). The rank must

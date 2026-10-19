@@ -23,7 +23,7 @@ from unittest.mock import MagicMock, patch
 import dagster as dg
 import pytest
 from DSA.FHIR.EpisodeOfCare import EpisodeOfCare_IFDB_dfm as emod
-from DSA.FHIR.Patient import Patient_IFDB_dfm as pmod
+from DSA.FHIR.Patient import patient_service as psvc
 
 pytestmark = pytest.mark.unit
 
@@ -46,35 +46,33 @@ def _passthrough_upsert(resources, **kwargs):
 
 
 class TestPatientPostStrict:
+    """Patient is written only through the entry point's write_patients, which is strict."""
+
     def test_raises_when_batch_reports_failures(self):
         fhir_db = MagicMock()
         fhir_db.batch_upsert_resources.return_value = (8, 2, ["p1: err", "p2: err"])
         patients = [MagicMock(id=None) for _ in range(10)]
-
-        with patch.object(pmod, "prepare_resources_for_upsert", _passthrough_upsert):
+        with patch.object(psvc, "prepare_resources_for_upsert", _passthrough_upsert):
             with pytest.raises(dg.Failure, match="Failed to post 2 of 10 Patient"):
-                pmod._post_patients_to_fhir(
-                    context=_ctx(),
-                    patients=patients,
-                    fhir_database=fhir_db,
-                    extracted_count=10,
-                )
+                psvc.write_patients(_ctx(), fhir_db, patients, source_name="test")
+
+    def test_failure_message_carries_counts_only(self):
+        """failed_ids can carry driver text with the CPR; the message carries counts only."""
+        fhir_db = MagicMock()
+        fhir_db.batch_upsert_resources.return_value = (0, 1, ["duplicate key (0101011234)"])
+        with patch.object(psvc, "prepare_resources_for_upsert", _passthrough_upsert):
+            with pytest.raises(dg.Failure) as fejl:
+                psvc.write_patients(_ctx(), fhir_db, [MagicMock(id=None)], source_name="test")
+        assert "0101011234" not in str(fejl.value)
 
     def test_no_raise_when_all_succeed(self):
         fhir_db = MagicMock()
         fhir_db.batch_upsert_resources.return_value = (10, 0, [])
         patients = [MagicMock(id=None) for _ in range(10)]
-
-        with patch.object(pmod, "prepare_resources_for_upsert", _passthrough_upsert):
-            result = pmod._post_patients_to_fhir(
-                context=_ctx(),
-                patients=patients,
-                fhir_database=fhir_db,
-                extracted_count=10,
-            )
-
-        assert result.metadata["posted_count"].value == 10
-        assert result.metadata["failed_count"].value == 0
+        with patch.object(psvc, "prepare_resources_for_upsert", _passthrough_upsert):
+            result = psvc.write_patients(_ctx(), fhir_db, patients, source_name="test")
+        assert len(result) == 10
+        fhir_db.batch_upsert_resources.assert_called_once()
 
 
 # ===========================================================================

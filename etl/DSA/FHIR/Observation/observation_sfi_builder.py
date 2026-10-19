@@ -17,6 +17,10 @@ from DSA.CodeSystem.sfi.catalog import (
     add_sfi_catalog_element,
     sfi_datapoint_to_element,
 )
+from DSA.FHIR.Aktivitetsresultat.activity_metadata import (
+    apply_aktivitetsudfoerelse_extensions,
+    build_aktivitetsudfoerelse_extensions,
+)
 from DSA.FHIR.Aktivitetsresultat.questionnaire_outputs import (
     _append_questionnaire_outputs_for_row,
 )
@@ -563,6 +567,8 @@ def _build_sfi_observation_dicts_for_rows(
     routing_resolver: RoutingResolver | None = None,
     routing_decision_sink: list[dict[str, str | None]] | None = None,
     sfi_catalog_sink: dict[str, list[SfiElement]] | None = None,
+    udf_lookup: dict[str, dict[str, Any]] | None = None,
+    speciale_lookup: dict[str, list[dict[str, Any]]] | None = None,
 ) -> tuple[list[tuple[str, dict]], list[tuple[str, dict]], list[tuple[str, dict]], int]:
     """Orchestrate per-row SFI Observation build + parallel Procedure/Condition emission."""
     routing_resolver = routing_resolver or _get_routing_resolver()
@@ -658,6 +664,11 @@ def _build_sfi_observation_dicts_for_rows(
                 route_decision=route_decision,
                 numeric_values_only=is_procedure_row or is_condition_row,
             )
+            udf_extensions = build_aktivitetsudfoerelse_extensions(
+                row_dict, udf_lookup, speciale_lookup
+            )
+            for _, observation in obs_dicts:
+                apply_aktivitetsudfoerelse_extensions(observation, udf_extensions)
             all_observations.extend(obs_dicts)
         except SfiDuplicateOccurrenceError:
             # Invariant violation — never swallow as a per-row error; surface it.
@@ -705,6 +716,8 @@ def _build_sfi_unified_dicts_for_rows(
     questionnaires_by_id: dict[str, dict] | None = None,
     dirty_questionnaire_ids: list[str] | None = None,
     sfi_catalog_sink: dict[str, list[SfiElement]] | None = None,
+    udf_lookup: dict[str, dict[str, Any]] | None = None,
+    speciale_lookup: dict[str, list[dict[str, Any]]] | None = None,
 ) -> tuple[
     list[tuple[str, dict]],
     list[tuple[str, dict]],
@@ -850,6 +863,11 @@ def _build_sfi_unified_dicts_for_rows(
                         )
 
                 _append_routing_decision(routing_decision_sink, row_dict, route_decision)
+                udf_extensions = build_aktivitetsudfoerelse_extensions(
+                    row_dict, udf_lookup, speciale_lookup
+                )
+                for _, observation in row_observations:
+                    apply_aktivitetsudfoerelse_extensions(observation, udf_extensions)
                 observation_dicts.extend(row_observations)
             elif (
                 route_decision.target_resource == TargetResource.QUESTIONNAIRE_RESPONSE

@@ -55,9 +55,13 @@ def _dso_subjects() -> list[tuple[DqaSubject, str]]:
         HAIBA_DM_CONFIGS,
         SECURITY_SYNC_CONFIGS,
         SHARED_DIMS_SYNC_CONFIGS,
+        UDREDNINGSRET_SYNC_CONFIGS,
     )
 
     # (domain, track, configs). fhir -> FHIR track; everything else -> DWH track.
+    # Every config dict merged into ALL_SYNC_CONFIGS must be listed here too:
+    # this list is what assigns the domain, and the derivation is asserted to
+    # cover ALL_SYNC_CONFIGS one-for-one (tests/unit/test_dqa_dso.py).
     domains: list[tuple[str, Track, dict]] = [
         ("fhir", Track.FHIR, FHIR_SYNC_CONFIGS),
         ("erp", Track.DWH, ERP_SYNC_CONFIGS),
@@ -67,6 +71,7 @@ def _dso_subjects() -> list[tuple[DqaSubject, str]]:
         ("conceptmap", Track.DWH, CONCEPTMAP_SYNC_CONFIGS),
         ("haiba", Track.DWH, HAIBA_DM_CONFIGS),
         ("drg", Track.DWH, DRG_SYNC_CONFIGS),
+        ("udredningsret", Track.DWH, UDREDNINGSRET_SYNC_CONFIGS),
     ]
     link = get_linked_server_config()
 

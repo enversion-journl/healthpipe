@@ -171,6 +171,43 @@ def test_dim_aftale_lineage_declares_type1():
 
 
 # ---------------------------------------------------------------------------
+# The MERGE must write every lafth enrichment column
+# ---------------------------------------------------------------------------
+
+_LAFTH_ENRICHMENT_DIM_COLUMNS = [
+    "standard_leveringsdage",
+    "dw_ek_Dato_sysdato",
+    "dato_tid_sysdato",
+    "bruger",
+    "aktiv",
+    "fragt_beloeb",
+    "sw_fragt",
+    "gebyr_beloeb",
+    "sw_gebyr",
+    "graense_beloeb",
+    "fragt_graense_beloeb",
+]
+
+
+def test_merge_writes_every_lafth_enrichment_column():
+    """Plausible bug: a column is dropped from the MERGE's SET or INSERT list.
+    That is the only silent break in the chain — the dim column stays NULL while
+    the pipeline stays green. A column missing from pre_stg, stg, the DDL or the
+    migration makes the next layer fail loudly with "Invalid column name"."""
+    dim = _read(DSA_SQL / "dim" / "dim_Aftale.py")
+    set_block = dim[dim.index("UPDATE SET") : dim.index("WHEN NOT MATCHED BY TARGET")]
+    insert_columns = dim[dim.index("INSERT (") : dim.index("VALUES (")]
+
+    for col in _LAFTH_ENRICHMENT_DIM_COLUMNS:
+        assert f"tgt.{col} = src.{col}" in set_block, f"the SET block must write {col}"
+        assert f" {col}," in insert_columns, f"the INSERT column list must include {col}"
+
+    assert (
+        "dato_key('s.sysdato')" in dim
+    ), "dw_ek_Dato_sysdato must be built by applying the shared dato_key helper to sysdato"
+
+
+# ---------------------------------------------------------------------------
 # The archive must keep preserving expired and deleted agreements
 # ---------------------------------------------------------------------------
 

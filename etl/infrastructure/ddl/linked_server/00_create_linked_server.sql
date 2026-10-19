@@ -178,17 +178,17 @@ EXEC sp_serveroption @server = @LinkedServerName, @optname = 'data access', @opt
 
 -- collation compatible
 --   Asserts the remote (staging) server uses the same collation as DSO; only
---   valid when they actually match. They don't here (staging
---   SQL_Latin1_General_CP1_CI_AS vs DSO Danish_Norwegian_CI_AS), so it must be
---   'false'. Cross-collation join correctness is handled by COLLATE
---   DATABASE_DEFAULT in sync_utils.py.
-EXEC sp_serveroption @server = @LinkedServerName, @optname = 'collation compatible', @optvalue = 'false';
+--   valid when they actually match. Both use Danish_Norwegian_CI_AS.
+EXEC sp_serveroption @server = @LinkedServerName, @optname = 'collation compatible', @optvalue = 'true';
 
 -- lazy schema validation
 --   Defers remote table schema validation from compile time to execution time.
 --   Eliminates one metadata round-trip per query.  Beneficial for the delta
 --   sync pattern where the same tables are merged repeatedly with known schemas.
-EXEC sp_serveroption @server = @LinkedServerName, @optname = 'lazy schema validation', @optvalue = 'true';
+IF CAST(SERVERPROPERTY('EngineEdition') AS INT) = 3
+    EXEC sp_serveroption @server = @LinkedServerName, @optname = 'lazy schema validation', @optvalue = 'true';
+ELSE
+    PRINT 'Skipping lazy schema validation: not available on ' + CAST(SERVERPROPERTY('Edition') AS NVARCHAR(128));
 
 -- connect timeout (seconds)
 --   30s is generous for a same-network connection.  Prevents indefinite hangs

@@ -1,0 +1,22 @@
+{
+  "resourceType": "ViewDefinition",
+  "name": "servicerequest_supplementary_code_view",
+  "resource": "ServiceRequest",
+  "status": "active",
+  "select": [
+    {
+      "column": [
+        {"name": "service_request_id", "path": "id"},
+        {"name": "source_identifier_value", "path": "identifier.value.first()"}
+      ]
+    },
+    {
+      "forEach": "orderDetail.coding",
+      "column": [
+        {"name": "supplementary_code", "path": "code"},
+        {"name": "supplementary_code_system", "path": "system"},
+        {"name": "supplementary_code_display", "path": "display"}
+      ]
+    }
+  ]
+}

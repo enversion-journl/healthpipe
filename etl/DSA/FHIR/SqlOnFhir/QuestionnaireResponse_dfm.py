@@ -42,7 +42,7 @@ sof_questionnaire_response_dfm = create_sof_dfm_asset(
     asset_name="sof_questionnaire_response_dfm",
     config_key="questionnaire_response_view",
     checkpoint_resource="QuestionnaireResponse",
-    deps=_SFI_PRODUCERS,
+    deps=[*_SFI_PRODUCERS, "sof_questionnaire_dfm"],
 )
 
 sof_questionnaire_response_item_dfm = create_sof_dfm_asset(

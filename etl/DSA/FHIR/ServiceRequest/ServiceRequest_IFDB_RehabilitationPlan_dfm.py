@@ -33,11 +33,11 @@ from core.resources import FHIRDatabaseResource, MSSQLResource
 # transforms — a scalar sub-field builder, a per-batch child-row fetch, and the
 # fhir_server checkpoint advance. Reused rather than duplicated.
 from DSA.FHIR.DocumentReference.document_reference_common import (
-    advance_fhir_checkpoint,
     append_subfield,
     fetch_child_rows_for_batch,
 )
 from DSA.FHIR.utils.dfm_query import build_fhir_archive_query
+from DSA.FHIR.utils.fhir_checkpoint import advance_fhir_checkpoint
 from DSA.FHIR.utils.ifdb.fhir_posting import post_resources_direct, prepare_resources_for_upsert
 from DSA.FHIR.utils.ifdb.patient_cpr_fallback import build_patient_cpr_fallback
 from DSA.FHIR.utils.ifdb.posting_config import TAG_CHUNK_SIZE, TAG_MAX_WORKERS
@@ -472,7 +472,7 @@ def fhir_server_rehabilitation_plan_dfm(
 
         new_checkpoint = advance_fhir_checkpoint(
             dfm,
-            mssql_target_staging,
+            run_ctx,
             "RehabilitationPlan",
             config,
             total_fetched,

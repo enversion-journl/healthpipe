@@ -48,6 +48,17 @@ _FACTS: list[tuple[str, str]] = [
     # rows and totalpris against the archive per slice and FAILS the run on any
     # deviation.
     ("dwh_drgkontakt", "fct.DRGKontakt"),
+    # Udredningsret (US-4): eight FK roles, of which dw_ek_Helbredsforloeb is a
+    # grouping key with no dimension (FK-None in the lineage) and therefore gets
+    # sentinel_rate only, not referential_integrity. Caps go into
+    # _SENTINEL_MAX_RATES once a baseline has been measured on Dev.
+    ("dwh_udredningsforloeb", "fct.Udredningsforloeb"),
+    # Udredningsret (US-5): the marker fact's six FK roles. dw_ek_Helbredsforloeb
+    # is the same dimension-less grouping key as on the forloeb fact (FK-None ->
+    # sentinel_rate only). dw_ek_Udredningsforloeb is capped below: a marker
+    # without an F_ID belongs to no forloeb and legitimately carries -1
+    # (decision U5), so the cap watches the share rather than the existence.
+    ("dwh_udredningsretmarkoer", "fct.UdredningsretMarkoer"),
     ("dwh_fakturalinje", "fct.Fakturalinje"),
     ("dwh_faktura", "fct.Faktura"),
     ("dwh_postering", "fct.Postering"),
@@ -68,6 +79,12 @@ _SENTINEL_MAX_RATES: dict[str, float | dict[str, float]] = {
     "fct.Vareudlevering": 0.5,
     "fct.Finanskladdelinje": 0.5,
     "fct.Budget": 0.5,
+    # Udredningsret marker fact: markers without an F_ID resolve to -1 by design
+    # (decision U5); measured share 0.143 on the delivery of 2026-09-07, capped
+    # with headroom per spec 4.2. dw_ek_Forloebsmarkoer also carries a small
+    # legitimate -1 share (a blank marker code) and is deliberately left
+    # uncapped -- observability-only, since the dict caps per column.
+    "fct.UdredningsretMarkoer": {"dw_ek_Udredningsforloeb": 0.20},
     # DRG baseline (full somatik load, -1 rate per FK role):
     #   Klassifikation/sygehus/kontaktansvar/Dato_ind/Dato_ud ~0.000, Borger 0.0003,
     #   forloebselement/Dato_henvisning ~0.027, DRGProcedureGruppe ~0.048,
@@ -150,6 +167,122 @@ _BRIDGES: list[tuple[str, str]] = [
     ("dwh_bridge_drgproceduregruppe", "bridge.DRGProcedureGruppe"),
 ]
 
-DWH_SUBJECTS: list[DqaSubject] = [_fact(name, table) for name, table in _FACTS] + [
-    _bridge(name, table) for name, table in _BRIDGES
-]
+# dim.ILSBruger: grain uniqueness on the initials. identifier_staff is WARN: bd_oprid
+# is unique in the source today but not a declared key there.
+_DIM_ILSBRUGER = DqaSubject(
+    name="dwh_dim_ilsbruger",
+    track=Track.DWH,
+    table="dim.ILSBruger",
+    resource_key=_RES,
+    identity_column="dw_ek_ILSBruger",
+    checks=(
+        CheckSpecification(
+            "uniqueness",
+            Severity.ERROR,
+            Cadence.DAILY,
+            {"grain": "clean_code_ILSBruger"},
+            name_suffix="clean_code",
+        ),
+        CheckSpecification(
+            "uniqueness",
+            Severity.WARN,
+            Cadence.DAILY,
+            {"grain": "identifier_staff"},
+            name_suffix="identifier_staff",
+        ),
+    ),
+)
+
+# dim.Borger: the Type 2 invariants and the CPR register's delivery age. Every check
+# counts; none has examples_sql, because the offending key would be a personal number.
+_BORGER_VERSIONS = "FROM [dim].[Borger] WHERE [dw_sk_Borger] > 0"
+_BORGER_COUNT = f"SELECT COUNT(DISTINCT [dw_ek_Borger]) {_BORGER_VERSIONS} AND [dw_is_deleted] = 0"
+
+_DIM_BORGER = DqaSubject(
+    name="dwh_dim_borger",
+    track=Track.DWH,
+    table="dim.Borger",
+    resource_key=_RES,
+    identity_column="dw_sk_Borger",
+    checks=(
+        CheckSpecification(
+            "custom_sql",
+            Severity.ERROR,
+            Cadence.DAILY,
+            {
+                "sql": (
+                    f"SELECT COUNT(*) FROM (SELECT [dw_ek_Borger] {_BORGER_VERSIONS} "
+                    "AND [dw_is_current] = 1 GROUP BY [dw_ek_Borger] HAVING COUNT(*) > 1) x"
+                ),
+                "checked_sql": _BORGER_COUNT,
+            },
+            name_suffix="one_current_version",
+        ),
+        CheckSpecification(
+            "custom_sql",
+            Severity.ERROR,
+            Cadence.DAILY,
+            {
+                "sql": (
+                    f"SELECT COUNT(*) FROM (SELECT [dw_ek_Borger] {_BORGER_VERSIONS} "
+                    "AND [dw_is_deleted] = 0 GROUP BY [dw_ek_Borger] "
+                    "HAVING SUM(CAST([dw_is_current] AS INT)) = 0) x"
+                ),
+                "checked_sql": _BORGER_COUNT,
+            },
+            name_suffix="current_version_exists",
+        ),
+        # Half-open intervals on the Type 2 axis. tilflytning/fraflytning are the
+        # source's descriptive dates and may legitimately overlap.
+        CheckSpecification(
+            "custom_sql",
+            Severity.ERROR,
+            Cadence.DAILY,
+            {
+                "sql": (
+                    "SELECT COUNT(*) FROM (SELECT b.[dw_ek_Borger] FROM [dim].[Borger] b "
+                    "JOIN [dim].[Borger] n ON n.[dw_ek_Borger] = b.[dw_ek_Borger] "
+                    "AND n.[dw_sk_Borger] > b.[dw_sk_Borger] AND n.[dw_is_deleted] = 0 "
+                    "AND b.[dw_valid_from] < n.[dw_valid_to] "
+                    "AND n.[dw_valid_from] < b.[dw_valid_to] "
+                    "WHERE b.[dw_sk_Borger] > 0 AND b.[dw_is_deleted] = 0 "
+                    "GROUP BY b.[dw_ek_Borger]) x"
+                ),
+                "checked_sql": _BORGER_COUNT,
+            },
+            name_suffix="no_overlapping_validity",
+        ),
+        CheckSpecification(
+            "custom_sql",
+            Severity.WARN,
+            Cadence.DAILY,
+            {
+                "sql": (
+                    f"SELECT COUNT(*) FROM (SELECT [cpr_nummer] {_BORGER_VERSIONS} "
+                    "AND [dw_is_current] = 1 AND [cpr_nummer] IS NOT NULL "
+                    "GROUP BY [cpr_nummer] HAVING COUNT(DISTINCT [dw_ek_Borger]) > 1) x"
+                ),
+                "checked_sql": _BORGER_COUNT,
+            },
+            name_suffix="cpr_on_one_borger",
+        ),
+        CheckSpecification(
+            "freshness",
+            Severity.WARN,
+            Cadence.DAILY,
+            {
+                "table": "meta.CPRLeverance",
+                "watermark_column": "leverance_dato",
+                "where": "[arkiveret_tidspunkt] IS NOT NULL",
+                "max_age_days": 5,
+            },
+            name_suffix="cpr_delivery",
+        ),
+    ),
+)
+
+DWH_SUBJECTS: list[DqaSubject] = (
+    [_fact(name, table) for name, table in _FACTS]
+    + [_bridge(name, table) for name, table in _BRIDGES]
+    + [_DIM_ILSBRUGER, _DIM_BORGER]
+)

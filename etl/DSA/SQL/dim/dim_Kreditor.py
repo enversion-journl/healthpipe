@@ -82,8 +82,21 @@ def _build_resolve_sql(checkpoint: str | None) -> str:
     CREATE UNIQUE CLUSTERED INDEX IX_tmp_Kreditor_Delta
     ON #Kreditor_Delta (clean_code_kreditor);
 
-    ;WITH syd_pick AS (
-        -- Current SydAX attributes per delta-CVR (named first, newest, KreditorId tail)
+    ;WITH syd_base AS (
+        SELECT
+            {SYDAX_CC} AS clean_code_Kreditor,
+            CAST(k.KreditorId AS BIGINT) AS kreditor_id,
+            k.Kreditornavn AS kreditornavn,
+            k.Soegenavn AS soegenavn,
+            k.JuridiskEnhed AS juridisk_enhed,
+            k.StartDateTime AS start_datetime,
+            k.dw_timestamp_update
+        FROM [arc].[sydax_kreditor] k
+        WHERE k.JuridiskEnhed IS NOT NULL AND LTRIM(RTRIM(k.JuridiskEnhed)) <> ''
+    ),
+    syd_pick AS (
+        -- Current SydAX attributes per delta-CVR (named first, newest,
+        -- newest version, KreditorId tail)
         SELECT clean_code_Kreditor, kreditornavn, juridisk_enhed
         FROM (
             SELECT b.*,
@@ -92,18 +105,31 @@ def _build_resolve_sql(checkpoint: str | None) -> str:
                     ORDER BY
                         CASE WHEN b.kreditornavn IS NOT NULL AND b.kreditornavn <> '' THEN 0 ELSE 1 END,
                         b.dw_timestamp_update DESC,
+                        b.start_datetime DESC,
                         b.kreditor_id DESC
                 ) AS rn
-            FROM (
-                SELECT
-                    {SYDAX_CC} AS clean_code_Kreditor,
-                    CAST(k.KreditorId AS BIGINT) AS kreditor_id,
-                    k.Kreditornavn AS kreditornavn,
-                    k.JuridiskEnhed AS juridisk_enhed,
-                    k.dw_timestamp_update
-                FROM [arc].[sydax_kreditor] k
-                WHERE k.JuridiskEnhed IS NOT NULL AND LTRIM(RTRIM(k.JuridiskEnhed)) <> ''
-            ) b
+            FROM syd_base b
+            INNER JOIN #Kreditor_Delta dc
+                ON dc.clean_code_kreditor = b.clean_code_Kreditor
+        ) r
+        WHERE rn = 1
+    ),
+    syd_soegenavn_pick AS (
+        -- SydAX search name per delta-CVR, picked on its own presence so a
+        -- name-less winner in syd_pick cannot drop it (non-empty first, newest,
+        -- newest version, KreditorId tail)
+        SELECT clean_code_Kreditor, soegenavn
+        FROM (
+            SELECT b.*,
+                ROW_NUMBER() OVER (
+                    PARTITION BY b.clean_code_Kreditor
+                    ORDER BY
+                        CASE WHEN b.soegenavn IS NOT NULL AND b.soegenavn <> '' THEN 0 ELSE 1 END,
+                        b.dw_timestamp_update DESC,
+                        b.start_datetime DESC,
+                        b.kreditor_id DESC
+                ) AS rn
+            FROM syd_base b
             INNER JOIN #Kreditor_Delta dc
                 ON dc.clean_code_kreditor = b.clean_code_Kreditor
         ) r
@@ -205,6 +231,7 @@ def _build_resolve_sql(checkpoint: str | None) -> str:
         CAST(mys.postnummer AS NVARCHAR(50)) AS postnummer_mysupply,
 
         -- Single-source attributes
+        syd_sn.soegenavn AS soegenavn_sydax,
         ils.kontakt AS kontakt,
         mys.faktura_valuta_kode AS valutakode,
 
@@ -218,6 +245,9 @@ def _build_resolve_sql(checkpoint: str | None) -> str:
 
     LEFT JOIN syd_pick syd
         ON syd.clean_code_Kreditor = d.clean_code_kreditor
+
+    LEFT JOIN syd_soegenavn_pick syd_sn
+        ON syd_sn.clean_code_Kreditor = d.clean_code_kreditor
 
     LEFT JOIN ils_pick ils
         ON ils.clean_code_Kreditor = d.clean_code_kreditor
@@ -240,6 +270,7 @@ MERGE_SQL = """
             tgt.kreditornavn_sydax = src.kreditornavn_sydax,
             tgt.kreditornavn_ils = src.kreditornavn_ils,
             tgt.kreditornavn_mysupply = src.kreditornavn_mysupply,
+            tgt.soegenavn_sydax = src.soegenavn_sydax,
             tgt.vejnavn = src.vejnavn,
             tgt.vejnavn_ils = src.vejnavn_ils,
             tgt.vejnavn_mysupply = src.vejnavn_mysupply,
@@ -260,6 +291,7 @@ MERGE_SQL = """
         INSERT (
             dw_ek_Kreditor, clean_code_kreditor, cvrnr,
             kreditornavn, kreditornavn_sydax, kreditornavn_ils, kreditornavn_mysupply,
+            soegenavn_sydax,
             vejnavn, vejnavn_ils, vejnavn_mysupply,
             bynavn, bynavn_ils, bynavn_mysupply,
             postnummer, postnummer_ils, postnummer_mysupply,
@@ -270,6 +302,7 @@ MERGE_SQL = """
         VALUES (
             src.dw_ek_Kreditor, src.clean_code_kreditor, src.cvrnr,
             src.kreditornavn, src.kreditornavn_sydax, src.kreditornavn_ils, src.kreditornavn_mysupply,
+            src.soegenavn_sydax,
             src.vejnavn, src.vejnavn_ils, src.vejnavn_mysupply,
             src.bynavn, src.bynavn_ils, src.bynavn_mysupply,
             src.postnummer, src.postnummer_ils, src.postnummer_mysupply,

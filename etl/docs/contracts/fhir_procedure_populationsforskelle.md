@@ -8,7 +8,7 @@
 
 # Procedure-populationen: forskelle mod det gamle DWH-flow
 
-> **Målgruppe:** aftagere af `fhir.Procedure` og `fhir.Procedure_tillaegskode`.
+> **Målgruppe:** aftagere af `fhir.Procedure` og `fhir.Procedure_SupplementaryCode`.
 > **Senest opdateret:** 2026-09-01 (SFI-sporet: operationskoder & delkoder).
 
 FHIR-sporet er bevidst **lossless**: registreringer frasorteres ikke i
@@ -46,7 +46,7 @@ derfor antal kilderækker. Tillægskoder er **klyngekorrekte**: en sideangivelse
 på en deloperation lander på deloperationen — ikke på hovedoperationen.
 
 **8. Tillægskoder er komplette.** `Procedure.code.coding` (og dermed
-`fhir.Procedure_tillaegskode`) indeholder nu også: (a) XML-tillægskoderne
+`fhir.Procedure_SupplementaryCode`) indeholder nu også: (a) XML-tillægskoderne
 (alle SKS-familier — også operations-, undersøgelses-, administrative og
 ATC-koder), og (b) de beregnede talværdi-tillægskoder VPH/VNH/VPK/VNK
 (ca. 24 mio. registreringer bærer dem). Første coding er hovedkoden
@@ -73,7 +73,7 @@ hovedproceduren og er **ikke** projiceret.
 ## Hvad der ikke er query-bart i de flade tabeller
 
 Følgende findes i FHIR-ressourcen (Aidbox JSONB), men **ikke** som kolonner i
-`fhir.Procedure` / `fhir.Procedure_tillaegskode`:
+`fhir.Procedure` / `fhir.Procedure_SupplementaryCode`:
 
 - operationspersonale / `performer` (rolle + navn)
 - udførende organisation (SOR på performer)

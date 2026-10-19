@@ -20,33 +20,46 @@ the fhir.* projections, not from any source system directly.
                                   organization_id), replaces map.Organisation
   * ref.RekvirentUndtagelse    — ILS rekvUndtagne exclusion list for reelt
                                   forbrug (CleanCode PK; orphans kept)
+  * ref.KommuneToPopulationsansvar — municipality code to the hospital with
+                                  population responsibility (mapping in code)
+  * ref.ILSAendringslog        — ILS dbo.changelog as-is (prrowid PK, raw
+                                  Noegle without FK resolution)
 """
 
 from .faktura_to_postering import ref_faktura_to_postering
 from .fakturalinje_matchkeys import ref_fakturalinje_matchkeys
+from .ils_aendringslog import ref_ILSAendringslog
 from .kmd_fakturalinje_unspsc_match import ref_kmd_fakturalinje_unspsc_match
+from .kommune_to_populationsansvar import ref_KommuneToPopulationsansvar
 from .organisation import ref_organisation
 from .patient_borger import ref_patient_borger
+from .patient_identity import ref_patient_identity
 from .patient_address_borger import ref_patient_address_borger
 from .rekvirent_undtagelse import ref_RekvirentUndtagelse
 
 all_assets = [
     ref_patient_borger,
+    ref_patient_identity,
     ref_patient_address_borger,
     ref_faktura_to_postering,
     ref_kmd_fakturalinje_unspsc_match,
     ref_fakturalinje_matchkeys,
     ref_organisation,
     ref_RekvirentUndtagelse,
+    ref_KommuneToPopulationsansvar,
+    ref_ILSAendringslog,
 ]
 
 __all__ = [
     "ref_patient_borger",
+    "ref_patient_identity",
     "ref_patient_address_borger",
     "ref_faktura_to_postering",
     "ref_kmd_fakturalinje_unspsc_match",
     "ref_fakturalinje_matchkeys",
     "ref_organisation",
     "ref_RekvirentUndtagelse",
+    "ref_KommuneToPopulationsansvar",
+    "ref_ILSAendringslog",
     "all_assets",
 ]

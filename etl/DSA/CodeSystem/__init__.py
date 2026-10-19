@@ -17,6 +17,7 @@ Each codesystem produces three tables:
 """
 
 from .ean.ean import cs_ean
+from .ifdb.ifdb import cs_ifdb_kodelister
 from .lager.lager import cs_lager
 from .okosted.okosted import cs_okosted
 from .rekvirent.rekvirent import cs_rekvirent
@@ -35,6 +36,7 @@ codesystem_dsa_assets = [
     cs_sfi,
     cs_sks,
     cs_shak,
+    cs_ifdb_kodelister,
     cs_shakalike,
 ]
 
@@ -46,6 +48,7 @@ __all__ = [
     "cs_rekvirent",
     "cs_lager",
     "cs_ean",
+    "cs_ifdb_kodelister",
     "cs_sor",
     "cs_okosted",
     "cs_sfi",

@@ -3,6 +3,9 @@
   "name": "location_view",
   "resource": "Location",
   "status": "active",
+  "where": [
+    {"path": "identifier.where(system='https://sundhedsdatastyrelsen.dk/sor').exists()"}
+  ],
   "select": [
     {
       "column": [

@@ -24,6 +24,8 @@ Consumers:
 URI constants themselves live in `utils.fhir.identifier_systems`.
 """
 
+import re
+
 from utils.fhir.identifier_systems import (
     _SAFE_IDENTIFIER_SYSTEM_RE,
     SYSTEM_BOM_IFDB_AFTALE_OID,
@@ -35,6 +37,7 @@ from utils.fhir.identifier_systems import (
     SYSTEM_IFDB_AKTIVITETSRESULTAT_PROCEDURE,
     SYSTEM_IFDB_AKTIVITETSRESULTAT_SFI,
     SYSTEM_IFDB_AKTIVITETSRESULTAT_XML_CONDITION,
+    SYSTEM_IFDB_BED,
     SYSTEM_IFDB_CARE_DISCHARGE_REPORT,
     SYSTEM_IFDB_DIAGNOSE,
     SYSTEM_IFDB_EPIKRISE,
@@ -47,6 +50,9 @@ from utils.fhir.identifier_systems import (
     SYSTEM_IFDB_REHABILITATION_PLAN,
     SYSTEM_IFDB_RIS_YDELSE,
     SYSTEM_IFDB_RIS_YDELSE_DIAGNOSE,
+    SYSTEM_IFDB_SENGEENHED,
+    SYSTEM_IFDB_SENGEENHED_KAPACITET,
+    SYSTEM_SILKEBORGDATA_TJENESTENUMMER,
     SYSTEM_SOR,
 )
 
@@ -76,6 +82,8 @@ IDENTIFIER_UNIQUE_INDEX_SPECS: list[tuple[str, str]] = [
     ("EpisodeOfCare", SYSTEM_IFDB_EPISODE_OF_CARE_ID),
     ("Encounter", SYSTEM_IFDB_OBJECT_ID),
     ("Location", SYSTEM_SOR),
+    ("Location", SYSTEM_IFDB_SENGEENHED),
+    ("Location", SYSTEM_IFDB_BED),
     ("CarePlan", SYSTEM_CAREPLAN_ALLE_MARKOERER),
     ("Condition", SYSTEM_IFDB_DIAGNOSE),
     ("Condition", SYSTEM_IFDB_PAS_DIAGNOSE),
@@ -84,6 +92,7 @@ IDENTIFIER_UNIQUE_INDEX_SPECS: list[tuple[str, str]] = [
     ("Condition", SYSTEM_IFDB_RIS_YDELSE_DIAGNOSE),
     ("Observation", SYSTEM_IFDB_AKTIVITETSRESULTAT),
     ("Observation", SYSTEM_IFDB_AKTIVITETSRESULTAT_SFI),
+    ("Observation", SYSTEM_IFDB_SENGEENHED_KAPACITET),
     ("Procedure", SYSTEM_IFDB_ADMINISTRATIVE_PROCEDURE),
     ("Procedure", SYSTEM_IFDB_AKTIVITETSRESULTAT_PROCEDURE),
     ("Procedure", SYSTEM_IFDB_RIS_YDELSE),
@@ -96,6 +105,11 @@ IDENTIFIER_UNIQUE_INDEX_SPECS: list[tuple[str, str]] = [
     ("Appointment", SYSTEM_BOM_IFDB_AFTALE_OID),
     ("DocumentReference", SYSTEM_IFDB_EPIKRISE),
     ("DocumentReference", SYSTEM_IFDB_CARE_DISCHARGE_REPORT),
+    # Staff are usually also patients, so the same CPR carries both a Patient
+    # and a Practitioner. The index is per (resource_type, system), so the two
+    # do not collide — test_practitioner_transforms pins that.
+    ("Practitioner", SYSTEM_CPR),
+    ("PractitionerRole", SYSTEM_SILKEBORGDATA_TJENESTENUMMER),
 ]
 
 # Validate at import time that the systems are safe for SQL-literal
@@ -108,6 +122,55 @@ for _rt, _sys in IDENTIFIER_UNIQUE_INDEX_SPECS:
             f"Identifier system {_sys!r} in IDENTIFIER_UNIQUE_INDEX_SPECS "
             "contains characters unsafe for SQL-literal interpolation"
         )
+
+_UNIQUE_PAIRS = set(IDENTIFIER_UNIQUE_INDEX_SPECS)
+
+# -----------------------------------------------------------------------------
+# Eksplicitte indeksnavne, hvor det genererede navn ikke er inden for graensen
+# -----------------------------------------------------------------------------
+# Postgres afkorter identifikatorer til 63 tegn UDEN at fejle. Det genererede
+# navn "idx_practitionerrole_urn_source_silkeborgdata_tjenestenummer_uniq" er
+# 65 tegn og blev gemt som "..._un": kendetegnet "_uniq" blev klippet af.
+# To ting brister af det:
+#   1. Oprydningen af INVALID indekser slaar op paa pg_class.relname med det
+#      FULDE navn og ramte derfor aldrig raekken. Et INVALID indeks fra en
+#      strandet CONCURRENTLY-bygning blev aldrig ryddet op.
+#   2. CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS no-oppede derefter mod
+#      det afkortede navn, og assetet rapporterede "Created UNIQUE index" paa
+#      hver eneste foelgende koersel, mens indekset haandhaevede ingenting.
+#
+# Rettelsen er et kortere navn, ikke en afkortning: navnet skal vaere det
+# samme, foer og efter Postgres har set det. "urn_source_" baerer ingen
+# information, som ikke allerede staar i resten af navnet.
+#
+# Kun PractitionerRole er daekket her med vilje. De tre oevrige specs over
+# graensen (Condition/aktivitetsresultat_xml_condition 67, QuestionnaireResponse
+# 65, DocumentReference 64) er IFDB-ressourcer og hoerer til deres egen sag: et
+# nyt navn paa et udrullet indeks koster en genopbygning, og de har levende
+# data. PractitionerRole har ikke.
+IDENTIFIER_UNIQUE_INDEX_NAME_OVERRIDES: dict[tuple[str, str], str] = {
+    ("PractitionerRole", SYSTEM_SILKEBORGDATA_TJENESTENUMMER): (
+        "idx_practitionerrole_silkeborgdata_tjenestenummer_uniq"
+    ),
+}
+
+# Et override, der selv er for langt, eller som peger paa et par uden for
+# specs, ville vaere praecis den lydloese fejl, det er skrevet for at fjerne.
+_SAFE_INDEX_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+for _pair, _navn in IDENTIFIER_UNIQUE_INDEX_NAME_OVERRIDES.items():
+    if _pair not in _UNIQUE_PAIRS:
+        raise ValueError(
+            f"{_pair} is in IDENTIFIER_UNIQUE_INDEX_NAME_OVERRIDES but not in "
+            "IDENTIFIER_UNIQUE_INDEX_SPECS — the name would never be used"
+        )
+    if len(_navn) > 63:
+        raise ValueError(
+            f"Index name {_navn!r} is {len(_navn)} characters; PostgreSQL "
+            "truncates identifiers at 63, which is what the override exists "
+            "to avoid"
+        )
+    if not _SAFE_INDEX_NAME_RE.match(_navn):
+        raise ValueError(f"Index name {_navn!r} is not a safe unquoted SQL identifier")
 
 # =============================================================================
 # Praefiks-indekser til oprydning af XML-boern
@@ -137,7 +200,6 @@ IDENTIFIER_PREFIX_INDEX_SPECS: list[tuple[str, str]] = [
 
 # Hvert praefiks-par skal ogsaa have det unikke indeks: den partielle
 # WHERE-klausul er den samme, og opslaget forudsaetter begge.
-_UNIQUE_PAIRS = set(IDENTIFIER_UNIQUE_INDEX_SPECS)
 for _rt, _sys in IDENTIFIER_PREFIX_INDEX_SPECS:
     if not _SAFE_IDENTIFIER_SYSTEM_RE.match(_sys):
         raise ValueError(
@@ -156,6 +218,32 @@ IDENTIFIER_PREFIX_INDEX_SET: frozenset[tuple[str, str]] = frozenset(IDENTIFIER_P
 
 # Membership test set used by the identifier-lookup resolver.
 IDENTIFIER_UNIQUE_INDEX_SET: frozenset[tuple[str, str]] = frozenset(IDENTIFIER_UNIQUE_INDEX_SPECS)
+
+
+# =============================================================================
+# Alias GIN indexes -- every identifier value on the resource, not only the first
+# =============================================================================
+# The UNIQUE expression index sees only the first identifier per system, so alias
+# lookups (core.fhir.alias_lookup) probe the values through this index and
+# recheck the system on the candidate rows. Indexing values only keeps the shared
+# system key out of the index; jsonb_path_ops and fastupdate = off keep a probe to
+# a few pages. Named ``_identifier_alias`` so Phase 0 does not drop it.
+ALIAS_GIN_EXPRESSION = "jsonb_path_query_array(resource->'identifier', '$[*].value')"
+
+# DDL:
+#   CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_<table>_identifier_alias
+#       ON <table> USING gin
+#       ((jsonb_path_query_array(resource->'identifier', '$[*].value')) jsonb_path_ops)
+#       WITH (fastupdate = off)
+IDENTIFIER_ALIAS_GIN_RESOURCES: list[str] = ["Patient"]
+
+ALIAS_GIN_OPCLASS = "jsonb_path_ops"
+ALIAS_GIN_OPTIONS = "fastupdate = off"
+
+
+def alias_gin_index_name(table_name: str) -> str:
+    """Index name for the alias GIN index on a raw resource table."""
+    return f"idx_{table_name}_identifier_alias"
 
 
 # =============================================================================
@@ -184,6 +272,8 @@ TXID_BTREE_RESOURCES: list[str] = [
     "Questionnaire",
     "QuestionnaireResponse",
     "DocumentReference",
+    "Practitioner",
+    "PractitionerRole",
 ]
 
 
@@ -207,6 +297,10 @@ SOF_TS_RESOURCES: list[str] = [
     "ServiceRequest",
     "Appointment",
     "DocumentReference",
+    "Practitioner",
+    "PractitionerRole",
+    "Questionnaire",
+    "QuestionnaireResponse",
 ]
 
 

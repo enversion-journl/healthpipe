@@ -83,6 +83,16 @@ def stg_dim_Aftale_ils(
                         hoved_start AS hoved_start,
                         hoved_slut AS hoved_slut,
                         alle_maa_benytte,
+                        deflevdage AS standard_leveringsdage,
+                        sysdato,
+                        bruger,
+                        aktiv,
+                        fragtbel AS fragt_beloeb,
+                        sw_fragt,
+                        gebyrbel AS gebyr_beloeb,
+                        sw_gebyr,
+                        graensebel AS graense_beloeb,
+                        fragtgraensebel AS fragt_graense_beloeb,
                         dw_timestamp_update
                     INTO [stg].[dim_Aftale_ils]
                     FROM (
@@ -113,6 +123,16 @@ def stg_dim_Aftale_ils(
                                 WHERE LTRIM(RTRIM(lhs.lnr)) = LTRIM(RTRIM(pva.lnr))
                                   AND LTRIM(RTRIM(lhs.aftale)) = LTRIM(RTRIM(pva.aftale))
                             ) THEN 0 ELSE 1 END AS alle_maa_benytte,
+                            pva.deflevdage,
+                            pva.sysdato,
+                            pva.bruger,
+                            pva.aktiv,
+                            pva.fragtbel,
+                            pva.sw_fragt,
+                            pva.gebyrbel,
+                            pva.sw_gebyr,
+                            pva.graensebel,
+                            pva.fragtgraensebel,
                             pva.dw_timestamp_update,
                             -- The base layer is at (aftale, lnr, vnr) grain, so the
                             -- ROW_NUMBER below collapses the agreement's LINES into

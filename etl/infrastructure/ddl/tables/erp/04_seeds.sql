@@ -65,6 +65,22 @@ BEGIN
 END
 GO
 
+-- map.ILSBruger sentinel (the dim.ILSBruger sentinel is in 02_dims.sql)
+-- Dynamic SQL avoids compile-time column resolution.
+IF NOT EXISTS (SELECT 1 FROM [map].[ILSBruger] WHERE [dw_ek_ILSBruger] = -1)
+BEGIN
+    EXEC('
+        SET IDENTITY_INSERT [map].[ILSBruger] ON;
+        INSERT INTO [map].[ILSBruger] (
+            [dw_ek_ILSBruger], [clean_code_ILSBruger], [dw_timestamp_insert], [dw_timestamp_update]
+        ) VALUES (
+            -1, N''UNKNOWN'', CAST(SYSDATETIME() AS DATETIME2), CAST(SYSDATETIME() AS DATETIME2)
+        );
+        SET IDENTITY_INSERT [map].[ILSBruger] OFF;
+    ');
+END
+GO
+
 -- dim.ILSVare sentinel
 IF NOT EXISTS (SELECT 1 FROM [dim].[ILSVare] WHERE [dw_ek_ILSVare] = -1)
 BEGIN

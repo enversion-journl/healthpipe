@@ -17,5 +17,5 @@ sof_patient_address_dfm = create_sof_dfm_asset(
     asset_name="sof_patient_address_dfm",
     config_key="patient_address_view",
     checkpoint_resource="Patient_Address",
-    deps=["fhir_sof_infrastructure", "fhir_server_patient_dfm"],
+    deps=["fhir_sof_infrastructure", "fhir_server_patient_dfm", "fhir_server_patient_cpr_dfm"],
 )

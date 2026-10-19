@@ -8,9 +8,9 @@
 Staging: stg.dim_UNSPSC (consolidated delta)
 
 Builds a single delta set of UNSPSC codes from all archive sources (KMD, three
-ILS legs, udbud), each filtered on dw_timestamp_update > the shared dim.UNSPSC
+ILS legs), each filtered on dw_timestamp_update > the shared dim.UNSPSC
 checkpoint. One row per clean_code_UNSPSC, with the per-source presence flags
-dw_source_kmd / dw_source_ils / dw_source_udbud aggregated via MAX.
+dw_source_kmd / dw_source_ils aggregated via MAX.
 """
 
 import dagster as dg
@@ -24,37 +24,31 @@ DECLARE @wm NVARCHAR(50) = ?;
 DROP TABLE IF EXISTS [stg].[dim_UNSPSC];
 
 ;WITH delta AS (
-    SELECT [UNSPSCClassID] AS clean_code_UNSPSC, 1 AS KMD, 0 AS ILS, 0 AS Udbud
+    SELECT [UNSPSCClassID] AS clean_code_UNSPSC, 1 AS KMD, 0 AS ILS
     FROM [arc].[kmd_uddata_unspsc]
     WHERE [DW_IsCurrent] = 1 AND [UNSPSCClassID] IS NOT NULL
       AND (@wm IS NULL OR [dw_timestamp_update] > CAST(@wm AS DATETIME2))
     UNION ALL
-    SELECT [unspsc], 0, 1, 0
+    SELECT [unspsc], 0, 1
     FROM [arc].[ils_unspsc]
     WHERE [unspsc] IS NOT NULL
       AND (@wm IS NULL OR [dw_timestamp_update] > CAST(@wm AS DATETIME2))
     UNION ALL
-    SELECT [unspc], 0, 1, 0
+    SELECT [unspc], 0, 1
     FROM [arc].[ils_vare]
     WHERE [unspc] IS NOT NULL
       AND (@wm IS NULL OR [dw_timestamp_update] > CAST(@wm AS DATETIME2))
     UNION ALL
     SELECT CASE WHEN [unspsc2] LIKE '%.0' THEN LEFT([unspsc2], LEN([unspsc2]) - 2) ELSE [unspsc2] END,
-           0, 1, 0
+           0, 1
     FROM [arc].[ils_vare]
     WHERE [unspsc2] IS NOT NULL AND LTRIM(RTRIM([unspsc2])) <> ''
-      AND (@wm IS NULL OR [dw_timestamp_update] > CAST(@wm AS DATETIME2))
-    UNION ALL
-    SELECT LTRIM(RTRIM([UNSPSC_Nr])), 0, 0, 1
-    FROM [arc].[unspsc_udbudskategori]
-    WHERE [UNSPSC_Nr] IS NOT NULL AND LTRIM(RTRIM([UNSPSC_Nr])) <> ''
       AND (@wm IS NULL OR [dw_timestamp_update] > CAST(@wm AS DATETIME2))
 )
 SELECT
     LTRIM(RTRIM(clean_code_UNSPSC)) AS clean_code_UNSPSC,
     CAST(MAX(KMD)   AS BIT) AS dw_source_kmd,
-    CAST(MAX(ILS)   AS BIT) AS dw_source_ils,
-    CAST(MAX(Udbud) AS BIT) AS dw_source_udbud
+    CAST(MAX(ILS)   AS BIT) AS dw_source_ils
 INTO [stg].[dim_UNSPSC]
 FROM delta
 WHERE LTRIM(RTRIM(clean_code_UNSPSC)) <> ''
@@ -72,7 +66,6 @@ CREATE CLUSTERED INDEX IX_stg_dim_unspsc_cc ON [stg].[dim_UNSPSC](clean_code_UNS
         dg.AssetKey(["arc_kmd_uddata_unspsc"]),
         dg.AssetKey(["arc_ils_unspsc"]),
         dg.AssetKey(["arc_ils_vare"]),
-        dg.AssetKey(["staging_infra_udbudskategori_seed"]),
     ],
     tags={"domain": "erp", "layer": "staging", "entity": "unspsc"},
     description="Consolidated delta set of UNSPSC codes from all arc sources with source-exists flags.",

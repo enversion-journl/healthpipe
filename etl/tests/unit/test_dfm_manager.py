@@ -148,6 +148,15 @@ class TestGetCheckpoint:
 
 
 class TestStartDfmRun:
+    def test_run_without_source_values_does_not_name_the_source_columns(self):
+        """A non-extract run must work on a DFMRunLog that the migration has not changed yet."""
+        dfm, cursor, _ = _make_dfm(fetchone_results=[(5,)])
+
+        dfm.start_dfm_run("map", "map_shak", dagster_run_id="run-1", mode="delta")
+
+        [insert_sql] = [sql for sql in cursor.executed if "INSERT INTO [meta].[DFMRunLog]" in sql]
+        assert "source_" not in insert_sql
+
     def test_checkpoint_owner_reads_own_state(self):
         """Checkpoint owner (arc) without checkpoint_from reads its own DFMState."""
         dfm, cursor, _ = _make_dfm(

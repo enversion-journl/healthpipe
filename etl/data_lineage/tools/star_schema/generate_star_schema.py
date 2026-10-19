@@ -108,15 +108,27 @@ def _resolve_fhir_target(
     col_name: str,
     table_id: str,
     all_fhir_names: set[str],
+    fk_target: str | None = None,
 ) -> str | None:
     """Resolve a FHIR ``*_id`` column to its target table.
 
-    Convention: ``{resource}_id`` maps to ``fhir.{Resource}``.
+    An explicit ``FK-Target`` wins; otherwise ``{resource}_id`` maps to ``fhir.{Resource}``.
     Compound names like ``episode_of_care_id`` become ``fhir.EpisodeOfCare``.
     Prefixes like ``managing_`` are stripped (``managing_organization_id`` →
     ``fhir.Organization``).  Returns *None* when no matching table exists or
     when the column is a self-reference / source-system identifier.
     """
+    if fk_target:
+        target = _canonicalize(fk_target, all_fhir_names)
+        if target == table_id:
+            return None
+        if target not in all_fhir_names:
+            logger.warning(
+                "%s.%s: FK-Target %s matches no FHIR table", table_id, col_name, fk_target
+            )
+            return None
+        return target
+
     if not col_name.endswith("_id"):
         return None
 
@@ -299,8 +311,8 @@ def extract_relationships(table: dict, all_tables: list[dict]) -> list[dict]:
       - dim  -> self = ``hierarchy``
       - dim  -> other dim = ``dim_to_dim``
 
-    For FHIR tables, relationships are inferred from ``*_id`` column naming
-    conventions (no explicit FK annotations needed).
+    For FHIR tables, an explicit ``FK-Target`` wins; otherwise relationships are
+    inferred from ``*_id`` column naming conventions.
     """
     all_table_names = {t["name"] for t in all_tables}
     all_fhir_names = {t["name"] for t in all_tables if t["type"] == "fhir"}
@@ -309,9 +321,11 @@ def extract_relationships(table: dict, all_tables: list[dict]) -> list[dict]:
     table_type = table["type"]
 
     if table_type == "fhir":
-        # Infer relationships from *_id column naming convention
+        # Explicit FK-Target first, then the *_id column naming convention
         for col in table.get("columns", []):
-            target = _resolve_fhir_target(col["name"], table_id, all_fhir_names)
+            target = _resolve_fhir_target(
+                col["name"], table_id, all_fhir_names, col.get("fk_target")
+            )
             if target:
                 col["fk"] = True
                 col["target"] = target

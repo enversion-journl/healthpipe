@@ -383,6 +383,184 @@ FHIR_SUBJECTS: list[DqaSubject] = [
         ],
         deleted_column="dw_is_deleted",
     ),
+    # WardUnit / seng / kapacitet are their own flat tables. They must not
+    # enter fhir.Location's SOR reconciliation (identifier_value_sor is NULL).
+    _fhir(
+        "fhir_ward_unit",
+        "fhir.WardUnit",
+        "ward_unit_id",
+        [
+            CheckSpecification(
+                "uniqueness",
+                Severity.ERROR,
+                Cadence.DAILY,
+                {"grain": "ward_unit_id", "deleted_column": None},
+                name_suffix="resource_id",
+            ),
+            CheckSpecification(
+                "uniqueness",
+                Severity.ERROR,
+                Cadence.DAILY,
+                {"grain": "identifier_value"},
+                name_suffix="business_key",
+            ),
+            # Invarianten join'en fra belaegning til kapacitet hviler paa: kilden
+            # garanterer kun hoejst én AKTIV sengeenhed pr. enhedskode (en enhed
+            # kan genoprettes med nyt OBJEKT_ID paa samme kode). Holder den ikke,
+            # bliver join'en fra fhir.Bed / fhir.Encounter_BedSpace flertydig og
+            # multiplicerer raekker. uniqueness kan ikke filtrere paa status, saa
+            # den skrives som SQL.
+            CheckSpecification(
+                "custom_sql",
+                Severity.ERROR,
+                Cadence.DAILY,
+                {
+                    "sql": (
+                        "SELECT COUNT(*) FROM (SELECT [admin_unit_code] "
+                        "FROM [fhir].[WardUnit] "
+                        "WHERE [status] = 'active' AND [dw_is_deleted] = 0 "
+                        "AND [admin_unit_code] IS NOT NULL "
+                        "GROUP BY [admin_unit_code] HAVING COUNT(*) > 1) AS [dubletter]"
+                    ),
+                    "checked_sql": (
+                        "SELECT COUNT(DISTINCT [admin_unit_code]) FROM [fhir].[WardUnit] "
+                        "WHERE [status] = 'active' AND [dw_is_deleted] = 0 "
+                        "AND [admin_unit_code] IS NOT NULL"
+                    ),
+                    "examples_sql": (
+                        "SELECT TOP 20 [admin_unit_code] FROM [fhir].[WardUnit] "
+                        "WHERE [status] = 'active' AND [dw_is_deleted] = 0 "
+                        "AND [admin_unit_code] IS NOT NULL "
+                        "GROUP BY [admin_unit_code] HAVING COUNT(*) > 1"
+                    ),
+                },
+                name_suffix="en_aktiv_pr_admin_unit_code",
+            ),
+        ],
+        extra_weekly=[
+            _reconcile_vs_fhir_server("location", report_missing_in_flat=False),
+            # SLETTET er kildens eget slettefelt, saa delete-propagationen
+            # kontrolleres med.
+            _reconcile_vs_archive(
+                "arc.ifdb_sengeenhed",
+                source_key="OBJEKT_ID",
+                source_deleted="SLETTET",
+            ),
+        ],
+        deleted_column="dw_is_deleted",
+    ),
+    # Kapacitetens forretningsnoegle mintes i Python ({type}:{sengeenhed_id}:
+    # {fra_iso}), og FRA staar som NVARCHAR i kildens eget format. En afstemning
+    # mod arkivet skulle derfor genskabe ISO-formateringen i SQL, hvilket ville
+    # binde checken til transformens strengformat. Uniqueness paa noeglen +
+    # afstemningen mod FHIR-serveren daekker tabellen i stedet.
+    _fhir(
+        "fhir_ward_unit_capacity",
+        "fhir.WardUnit_Capacity",
+        "observation_id",
+        [
+            CheckSpecification(
+                "uniqueness",
+                Severity.ERROR,
+                Cadence.DAILY,
+                {"grain": "observation_id", "deleted_column": None},
+                name_suffix="resource_id",
+            ),
+            CheckSpecification(
+                "uniqueness",
+                Severity.ERROR,
+                Cadence.DAILY,
+                {"grain": "identifier_value"},
+                name_suffix="business_key",
+            ),
+        ],
+        extra_weekly=[
+            _reconcile_vs_fhir_server("observation", report_missing_in_flat=False),
+        ],
+        deleted_column="dw_is_deleted",
+    ),
+    _fhir(
+        "fhir_bed",
+        "fhir.Bed",
+        "bed_id",
+        [
+            CheckSpecification(
+                "uniqueness",
+                Severity.ERROR,
+                Cadence.DAILY,
+                {"grain": "bed_id", "deleted_column": None},
+                name_suffix="resource_id",
+            ),
+            CheckSpecification(
+                "uniqueness",
+                Severity.ERROR,
+                Cadence.DAILY,
+                {"grain": "identifier_value"},
+                name_suffix="business_key",
+            ),
+        ],
+        extra_weekly=[
+            _reconcile_vs_fhir_server("location", report_missing_in_flat=False),
+            # Sengene dedupliceres ud af historikken (én raekke pr. BED_ID, hvor
+            # en levende raekke vinder), saa kilden har mange raekker pr. noegle.
+            # Afstemningen er derfor kun paa noeglens tilstedevaerelse: hver
+            # levende BED_ID i arkivet skal have en seng. Sengens eget
+            # slettesignal er "ingen levende historikraekke tilbage" og kan ikke
+            # sammenlignes raekke for raekke.
+            _reconcile_vs_archive(
+                "arc.ifdb_encounter_bed_space_history",
+                source_key="BED_ID",
+                source_deleted=None,
+                target_deleted=None,
+                source_filter="[dw_is_deleted] = 0 AND [BED_ID] IS NOT NULL",
+            ),
+        ],
+        deleted_column="dw_is_deleted",
+    ),
+    # De to child-tabeller baerer ingen kildenoegle: encounter_id er Aidbox' id,
+    # ikke ENCOUNTER.OBJECT_ID, saa en afstemning mod arkivet ville kraeve et
+    # join gennem fhir.Encounter.identifier_value, som checken ikke kan udtrykke.
+    # Det, afstemningen skulle fange -- raekker der er vaek i kilden men staar
+    # tilbage her -- daekkes i stedet af child_grain_reconcile i SoF-MERGE'en,
+    # der pensionerer dem, saa snart parent-kontakten re-emitteres.
+    # Den sammensatte grain er til gengaeld noget vi selv haandhaever, og den
+    # kontrolleres dagligt.
+    _fhir(
+        "fhir_encounter_bed_space",
+        "fhir.Encounter_BedSpace",
+        "encounter_id",
+        [
+            CheckSpecification(
+                "uniqueness",
+                Severity.ERROR,
+                Cadence.DAILY,
+                {"grain": "encounter_id, location_id, location_period_start"},
+                name_suffix="grain",
+            ),
+        ],
+        extra_weekly=[
+            _reconcile_vs_fhir_server("encounter", report_missing_in_flat=False),
+        ],
+        deleted_column="dw_is_deleted",
+    ),
+    _fhir(
+        "fhir_encounter_absence",
+        "fhir.Encounter_Absence",
+        "encounter_id",
+        [
+            CheckSpecification(
+                "uniqueness",
+                Severity.ERROR,
+                Cadence.DAILY,
+                {"grain": "encounter_id, period_start"},
+                name_suffix="grain",
+            ),
+        ],
+        extra_weekly=[
+            _reconcile_vs_fhir_server("encounter", report_missing_in_flat=False),
+        ],
+        deleted_column="dw_is_deleted",
+    ),
     # Derived table: referential checks (composite PK; inherits its keys) + the
     # FHIR-server reconciliation (same Encounter resource, finer grain -> rows go
     # stale when an encounter is deleted on the server, just like fhir.Encounter).
@@ -544,7 +722,7 @@ FHIR_SUBJECTS: list[DqaSubject] = [
                     "sql": (
                         "SELECT COUNT(*) FROM [fhir].[Procedure] p "
                         "WHERE p.[code] IS NULL AND EXISTS ("
-                        "SELECT 1 FROM [fhir].[Procedure_tillaegskode] t "
+                        "SELECT 1 FROM [fhir].[Procedure_SupplementaryCode] t "
                         "WHERE t.[procedure_id] = p.[procedure_id] AND t.[dw_is_deleted] = 0)"
                     ),
                     "checked_sql": "SELECT COUNT(*) FROM [fhir].[Procedure]",

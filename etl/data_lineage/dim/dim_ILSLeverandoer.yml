@@ -1,0 +1,37 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: dimension
+  TableName: dim.ILSLeverandoer
+  Domain: [ERP]
+  Description: "ILS-leverandoerer — én raekke pr. leverandoernummer (lnr), SCD Type 1. Supplerer dim.Kreditor, der kun kender leverandoerer med CVR: dw_ek_Kreditor peger paa CVR-niveauet, hvor et CVR kan genkendes, ellers -1. Leverandoerer, der er slettet i ILS, bevares — brug aktiv. Raekker med giro = 'Person' (hjemmepatienter, ansatte) er ikke sloerede."
+  Grain: "Én række pr. lnr fra ILS dbo.lev. Findes lnr flere gange i ILS-historikken, gaelder den senest aendrede"
+  SCD: type1
+
+  SourceSystems:
+    - ils: [dbo.lev]
+
+  Columns:
+    dw_ek_ILSLeverandoer:      { Type: PK, DataType: INT }
+    clean_code_ILSLeverandoer: { DataType: NVARCHAR(255), Source: [ils.dbo.lev.lnr], Expr: "ILSLEV_{UPPER(TRIM(lnr))}" }
+    leverandoernummer:         { DataType: NVARCHAR(100), Source: [ils.dbo.lev.lnr], Expr: "UPPER(TRIM(lnr))" }
+    dw_ek_Kreditor:            { Type: FK, DataType: INT, FK-Target: dim.Kreditor, Source: [ils.dbo.lev.se_nr, ils.dbo.lev.cvr_nr, ils.dbo.lev.lnr, ils.dbo.lev.land, ils.dbo.lev.giro], Expr: "-1 for giro = 'Person'. Ellers foerste match i map.Kreditor af: CVR_{se_nr} (formel som stg_dim_Kreditor), CVR_{cvr_nr} (samme normalisering), CVR_{lnr} (samme formel som se_nr) naar lnr er 8 cifre uden foranstillet 0 og land = 'DK'; ellers -1", Description: "Koblingen til dim.Kreditor (CVR-niveau). Kun CVR'er, der findes i dim.Kreditor, bruges. Personer (giro = 'Person') kobles aldrig — deres se_nr er fx en foedselsdato" }
+    kreditor_match_kilde:      { DataType: NVARCHAR(10), Source: [ils.dbo.lev.se_nr, ils.dbo.lev.cvr_nr, ils.dbo.lev.lnr, ils.dbo.lev.land, ils.dbo.lev.giro], Expr: "'se_nr' | 'cvr_nr' | 'lnr' efter hvilken kode der matchede; NULL naar dw_ek_Kreditor = -1", Description: "Hvilken kode koblingen til dim.Kreditor bygger paa; 'lnr' er den mindst sikre" }
+    leverandoernavn:           { DataType: NVARCHAR(80), Source: [ils.dbo.lev.navn], Description: "Raat navn (trimmet) — inkl. evt. Mail/OIO-suffiks og usloeret for giro = 'Person'" }
+    adresse:                   { DataType: NVARCHAR(80), Source: [ils.dbo.lev.adr] }
+    adresse2:                  { DataType: NVARCHAR(80), Source: [ils.dbo.lev.adr2] }
+    land:                      { DataType: NVARCHAR(6), Source: [ils.dbo.lev.land] }
+    postnummer:                { DataType: NVARCHAR(10), Source: [ils.dbo.lev.postdi] }
+    giro:                      { DataType: NVARCHAR(16), Source: [ils.dbo.lev.giro], Description: "Uaendret fra kilden; 'Person' (praecis den casing) markerer hjemmepatienter/ansatte — grundlag for datamarternes Person-sloering" }
+    aktiv:                     { DataType: BIT, Source: [ils.dbo.lev.aktiv] }
+    standard_leveringsdage:    { DataType: INT, Source: [ils.dbo.lev.deflevdage], Description: "Leverandoerens standardleveringstid i dage (ILS 'Norm. lev.dage'). Ikke at forveksle med aftalens lafth.deflevdage eller lagerets lgr.deflevdage (dim.Lager.standard_leveringsdage)" }
+    dw_ek_Dato_oprettet:       { Type: FK, DataType: INT, Source: [ils.dbo.lev.oprdto] }
+    dato_tid_oprettet:         { DataType: DATETIME2, Source: [ils.dbo.lev.oprdto, ils.dbo.lev.oprtid], Expr: "oprdto + oprtid sekunder" }
+    opr_bruger:                { DataType: NVARCHAR(50), Source: [ils.dbo.lev.oprbruger], Description: "UPPER af init" }
+    dw_ek_Dato_ajourfoert:     { Type: FK, DataType: INT, Source: [ils.dbo.lev.sysdato] }
+    dato_tid_ajourfoert:       { DataType: DATETIME2, Source: [ils.dbo.lev.sysdato, ils.dbo.lev.sysklk], Expr: "sysdato + sysklk sekunder" }
+    ajourfoert_bruger:         { DataType: NVARCHAR(50), Source: [ils.dbo.lev.bruger], Description: "UPPER af init" }

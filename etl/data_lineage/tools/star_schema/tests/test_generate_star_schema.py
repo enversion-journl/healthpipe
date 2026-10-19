@@ -1305,7 +1305,7 @@ class TestScanLineageDirectory:
 
 
 class TestResolveFhirTarget:
-    """Test _resolve_fhir_target(col_name, table_id, all_fhir_names)."""
+    """Test _resolve_fhir_target(col_name, table_id, all_fhir_names, fk_target)."""
 
     _fhir_names = {
         "fhir.Patient",
@@ -1320,6 +1320,37 @@ class TestResolveFhirTarget:
         assert (
             _resolve_fhir_target("patient_id", "fhir.Encounter", self._fhir_names) == "fhir.Patient"
         )
+
+    def test_fk_target_overrides_the_name(self):
+        assert (
+            _resolve_fhir_target(
+                "performing_location_id", "fhir.Appointment", self._fhir_names, "fhir.Location"
+            )
+            == "fhir.Location"
+        )
+        assert (
+            _resolve_fhir_target("careplan_id", "fhir.Encounter", self._fhir_names, "fhir.CarePlan")
+            == "fhir.CarePlan"
+        )
+
+    def test_fk_target_self_reference_skipped(self):
+        assert (
+            _resolve_fhir_target(
+                "part_of_id", "fhir.Organization", self._fhir_names, "fhir.Organization"
+            )
+            is None
+        )
+
+    def test_fk_target_case_insensitive_and_unknown_warns(self, caplog):
+        assert (
+            _resolve_fhir_target("location_id", "fhir.Encounter", self._fhir_names, "fhir.location")
+            == "fhir.Location"
+        )
+        assert not caplog.records
+        assert (
+            _resolve_fhir_target("bed_id", "fhir.Encounter", self._fhir_names, "fhir.Bed") is None
+        )
+        assert "fhir.Encounter.bed_id: FK-Target fhir.Bed matches no FHIR table" in caplog.text
 
     def test_compound_name(self):
         assert (

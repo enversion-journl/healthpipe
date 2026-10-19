@@ -145,6 +145,7 @@ def test_extract_fails_on_blocked_type_and_allows_the_override(tmp_path, monkeyp
         module, "_write_to_ext_table", lambda conn, schema, rows, ctx: sum(1 for _ in rows)
     )
     monkeypatch.setattr(module, "_arc_active_counts", lambda conn, schema: {})
+    monkeypatch.setattr(module, "_read_checkpoints", lambda *a, **k: {})
     ctx = MagicMock()
 
     with pytest.raises(ValueError, match="BACT"):
@@ -200,6 +201,7 @@ def test_drift_is_keyed_by_the_column_value_not_the_filename(tmp_path, monkeypat
         module, "_write_to_ext_table", lambda conn, schema, rows, ctx: sum(1 for _ in rows)
     )
     monkeypatch.setattr(module, "_arc_active_counts", lambda conn, schema: {"COHA": 100})
+    monkeypatch.setattr(module, "_read_checkpoints", lambda *a, **k: {})
     dropped: list[str] = []
     monkeypatch.setattr(
         module, "_drop_ext_table", lambda conn, schema: dropped.append(schema.ext_table)

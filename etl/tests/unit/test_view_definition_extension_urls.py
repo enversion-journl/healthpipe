@@ -14,7 +14,7 @@ import re
 from pathlib import Path
 
 import pytest
-from utils.fhir import fhir_extensions
+from utils.fhir import fhir_extensions, fhir_extensions_planned
 
 pytestmark = pytest.mark.unit
 
@@ -29,18 +29,9 @@ _LOCAL_URL = re.compile(r"http://example\.org/fhir/StructureDefinition/[A-Za-z0-
 # transform without removing it here would go unnoticed, so keep the reason
 # specific enough that the next person can tell whether it is still true.
 _NOT_PRODUCED_YET: dict[str, str] = {
-    "http://example.org/fhir/StructureDefinition/motherIdentifier": (
-        "No source column in PATIENT_COLUMN_MAPPING; mother CPR is not delivered by IFDB."
-    ),
-    "http://example.org/fhir/StructureDefinition/fatherIdentifier": (
-        "No source column in PATIENT_COLUMN_MAPPING; father CPR is not delivered by IFDB."
-    ),
     "http://example.org/fhir/StructureDefinition/discretionFlag": (
-        "OENSKER_DISKRETION is mapped in PATIENT_COLUMN_MAPPING but transforms.py "
-        "does not build the extension."
-    ),
-    "http://example.org/fhir/StructureDefinition/addressKvhx": (
-        "No source column for KVHX; transforms.py does not build the extension."
+        "OENSKER_DISKRETION is mapped in PATIENT_COLUMN_MAPPING but patient_ifdb_contribution.py "
+        "does not build the extension. Owned by IFDB in DSA/FHIR/Patient/field_ownership.py."
     ),
 }
 
@@ -102,3 +93,31 @@ def test_not_produced_yet_entries_are_still_unproduced():
         "These URLs are now written by an EXTENSION_* constant and must be removed "
         f"from _NOT_PRODUCED_YET: {stale}"
     )
+
+
+def _planned_rsd_urls() -> set[str]:
+    """RSD URLs declared as *planned* -- decided and owned, but written by no transform yet."""
+    return {
+        value
+        for name, value in vars(fhir_extensions_planned).items()
+        if name.startswith("EXTENSION_") and isinstance(value, str) and _LOCAL_URL.fullmatch(value)
+    }
+
+
+def test_planned_constants_are_all_in_the_allowlist():
+    """A planned constant is a promise, not production. Every RSD URL in
+    fhir_extensions_planned must still be listed as not produced -- the day it moves
+    to fhir_extensions, test_not_produced_yet_entries_are_still_unproduced forces the
+    allowlist entry out. Together the two keep 'planned' from silently becoming
+    'believed produced'."""
+    missing = sorted(_planned_rsd_urls() - set(_NOT_PRODUCED_YET))
+    assert not missing, (
+        "Planned extension URL(s) are not in _NOT_PRODUCED_YET; either add them with a "
+        f"reason, or -- if a transform now writes them -- move them to fhir_extensions: {missing}"
+    )
+
+
+def test_planned_and_written_are_disjoint():
+    """The same URL cannot be both 'we post this' and 'nobody posts this yet'."""
+    both = sorted(_planned_rsd_urls() & _written_urls())
+    assert not both, f"URL(s) declared in both fhir_extensions and fhir_extensions_planned: {both}"

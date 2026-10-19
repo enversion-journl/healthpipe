@@ -289,6 +289,21 @@ class TestExtensions:
                 strict_source_validation=True,
             )
 
+    def test_rows_without_service_groups_are_counted(self):
+        """The asset is not strict, so such a row is skipped, but never silently."""
+        skipped: dict[str, int] = {}
+        procs = _transform_ris_ydelse_to_fhir(
+            [
+                _full_row(XML="<rekvisition><foo>bar</foo></rekvisition>"),
+                _full_row(XML=None),
+                _full_row(STATE="DRAFT_REPORT"),
+            ],
+            _MockContext(),
+            skipped_total=skipped,
+        )
+        assert procs == []
+        assert skipped == {"(no service groups)": 2, "DRAFT_REPORT": 1}
+
     def test_source_meta_complete(self):
         procs = _transform_ris_ydelse_to_fhir([_full_row()], _MockContext())
         src = [e for e in procs[0].extension if e.url == EXTENSION_RIS_YDELSE_SOURCE_META]

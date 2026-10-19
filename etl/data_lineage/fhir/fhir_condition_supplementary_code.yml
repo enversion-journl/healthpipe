@@ -1,0 +1,27 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fhir
+  TableName: fhir.Condition_SupplementaryCode
+  Domain: [FHIR]
+  Description: "SKS tillægskoder på Condition — child-tabel i eget grain (non-userSelected codings)."
+  Grain: "Én række pr. tillægskode pr. Condition — PK: condition_id + supplementary_code + supplementary_code_system"
+  FhirResource: Condition
+
+  SourceSystems:
+    - ifdb_pas_diagnose_tillaegskode: [IFDB.PAS_DIAGNOSE_TILLAEGSKODE]
+    - ifdb_diagnose_tillaegskode: [IFDB.DIAGNOSE_TILLAEGSKODE]
+
+  Columns:
+    condition_id:            { Type: PK, DataType: NVARCHAR(255), FhirPath: "id", FK-Target: fhir.Condition, FK-Key: condition_id, FK-Required: true }
+    source_identifier_value: { DataType: NVARCHAR(255), FhirPath: "identifier.value.first()", Source: [ifdb_pas_diagnose_tillaegskode.IFDB.PAS_DIAGNOSE_TILLAEGSKODE.PAS_DIAGNOSE_ID, ifdb_diagnose_tillaegskode.IFDB.DIAGNOSE_TILLAEGSKODE.DIAGNOSE_ID] }
+    supplementary_code:       { Type: PK, DataType: NVARCHAR(255), FhirPath: "code", Source: [ifdb_pas_diagnose_tillaegskode.IFDB.PAS_DIAGNOSE_TILLAEGSKODE.TILLAEGSKODE_KODE, ifdb_diagnose_tillaegskode.IFDB.DIAGNOSE_TILLAEGSKODE.TILLAEGSKODE_KODE] }
+    supplementary_code_system:     { Type: PK, DataType: NVARCHAR(500), FhirPath: "system" }
+    supplementary_code_display:    { DataType: NVARCHAR(500), FhirPath: "display", Source: [ifdb_pas_diagnose_tillaegskode.IFDB.PAS_DIAGNOSE_TILLAEGSKODE.TILLAEGSKODE_KODETEKST, ifdb_diagnose_tillaegskode.IFDB.DIAGNOSE_TILLAEGSKODE.TILLAEGSKODE_KODETEKST] }
+    dw_is_deleted:           { DataType: INT, Description: "Slettet-flag (0 = live, 1 = slettet). Warehouse-styret: foraeldre-ressourcen baerer urn:fhir:isDeleted, men dette grain projicerer ikke feltet. Saettes af child-grain reconcile, naar koden ikke laengere findes under den levende foraelder, og af dqa_fhir_server_cleanup ved hard-delete i Aidbox; nulstilles ved MERGE-match (resurrect_soft_deleted). NOT NULL DEFAULT 0." }
+    last_updated:            { DataType: DATETIME2, FhirPath: "r.ts" }
+    created_at:              { DataType: DATETIME2, FhirPath: "r.cts" }

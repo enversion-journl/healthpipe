@@ -27,6 +27,8 @@ pytestmark = pytest.mark.unit
         ("shak", "concept", "SHAKConcept"),
         ("shak", "properties", "SHAKProperties"),
         ("shak", "hierarchy", "SHAKHierarchy"),
+        ("ifdb", "concept", "IFDBConcept"),
+        ("ifdb", "properties", "IFDBProperties"),
         ("shakalike", "concept", "SHAKAlikeConcept"),
         ("shakalike", "properties", "SHAKAlikeProperties"),
         ("shakalike", "hierarchy", "SHAKAlikeHierarchy"),
@@ -47,6 +49,7 @@ def test_map_covers_all_codesystems():
         "rekvirent",
         "lager",
         "okosted",
+        "ifdb",
     }
 
 

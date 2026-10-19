@@ -71,6 +71,11 @@ _ARC_DFM_ASSETS: dict[str, tuple[str, str]] = {
         "ext_ifdb_aktivitetsudfoerelse",
         "arc_aktivitetsudfoerelse_ifdb",
     ),
+    # Sengeenhed: single merge key (OBJEKT_ID) + delta on MODTIDSPUNKT, so an
+    # ids-mode replay is both safe and cheap (279 rows). The four other
+    # senge/kapacitet tables are absent: composite merge keys, and three of them
+    # are full snapshots whose gaps self-heal on the next load.
+    "arc_ifdb_sengeenhed": ("ext_ifdb_sengeenhed", "arc_sengeenhed_ifdb"),
     "arc_ifdb_eventmarker": ("ext_ifdb_eventmarker", "arc_eventmarker_ifdb"),
     # arc_ifdb_location intentionally absent -- see the module docstring.
     # The full-load child/ref tables (tillaegskode + PAS ref tables +

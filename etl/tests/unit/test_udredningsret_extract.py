@@ -15,6 +15,7 @@ _run_extract. The database is faked; it is the stream logic that is tested.
 Mirrors tests/unit/test_drg_extract.py.
 """
 
+import contextlib
 import csv
 import io
 import tarfile
@@ -137,6 +138,8 @@ class _Log:
 
 
 class _Ctx:
+    run_id = "run-1"
+
     def __init__(self):
         self.log = _Log()
 
@@ -539,12 +542,18 @@ class _FakeDfm:
         self.checkpoint = checkpoint
         self.set_calls: list[tuple] = []
 
-    def get_delivery_checkpoint(self, unit):
+    def get_checkpoint(self, schema, unit):
+        assert schema == "dfm"
         assert unit == udredningsret.DELIVERY_UNIT
         return self.checkpoint
 
-    def set_delivery_checkpoint(self, unit, identity):
-        self.set_calls.append((unit, identity))
+    def set_checkpoint(self, schema, unit, *, value):
+        assert schema == "dfm"
+        self.set_calls.append((unit, value))
+
+    @contextlib.contextmanager
+    def target_runs(self, schema, targets, **_):
+        yield {}
 
 
 def _run(tmp_path, monkeypatch, checkpoint, on_or_before=None):

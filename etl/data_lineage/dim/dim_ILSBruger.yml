@@ -1,0 +1,32 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: dimension
+  TableName: dim.ILSBruger
+  Domain: [ERP]
+  Description: "ILS-brugere fra ILS' brugerstamdata (zz_oper). Type 1. Brugere, der ikke længere findes under deres initialer i ILS, bliver stående med active = 0."
+  Grain: "Én række pr. ILS-bruger, identificeret ved initialerne (bd_init). Deler to kilderækker initialer, vinder den aktive, dernæst den senest ændrede (sysdato)."
+  Notes:
+    - "name_text, active og source_table følger kolonnenavnene på fhir.Practitioner, så tabellen kan indgå i en fælles personaledimension. identifier_staff er den planlagte fælles nøgle til den. vw_dim.ILSBruger udstiller kolonnerne under ILS-overskrifterne BrugerID, ILSinit, Navn, Sygehus, Sygehusnavn og Aktiv."
+    - "bd_oprid er unik, men ikke altid et personid: den findes i flere former (bl.a. REGION-formen aaa9aa, aaa99, rene tal og fri tekst), og fælles ILS-profiler, robotter og servicekonti har egne id'er, ofte med bindestreg (fx '1SHS-MOBIL', 'RPA-SLB-01'). En fælles personaledimension skal derfor afgrænse personer, før den kobler på identifier_staff."
+    - "primaer_sygehus er ILS' sygehuskode (dbo.sgh.sgh). '*' og enkelte koder uden match i dbo.sgh står med primaer_sygehus_navn = NULL. Der er endnu ingen FK til en sygehusdimension."
+    - "Arkivet registrerer ikke sletninger, så en bruger, der slettes i ILS, beholder sin seneste bd_aktiv."
+
+  SourceSystems:
+    - ils: [dbo.zz_oper, dbo.sgh]
+
+  Columns:
+    dw_ek_ILSBruger:       { Type: PK, DataType: INT }
+    clean_code_ILSBruger:  { DataType: NVARCHAR(100), Source: [ils.dbo.zz_oper.bd_init], Expr: "'ILSBRUGER_' + UPPER(TRIM(bd_init))" }
+    initialer:             { DataType: NVARCHAR(6), Source: [ils.dbo.zz_oper.bd_init], Expr: "UPPER(TRIM(bd_init))" }
+    bruger_id:             { DataType: NVARCHAR(20), Source: [ils.dbo.zz_oper.bd_oprid], Description: "Brugerens bruger-id, som det står i ILS. Opslagsnøgle for kolonner, der refererer bd_oprid (fx ordh.bd_oprid).", Expr: "UPPER(TRIM(bd_oprid)); tom værdi → NULL" }
+    identifier_staff:      { DataType: NVARCHAR(50), Source: [ils.dbo.zz_oper.bd_oprid], Description: "Brugerens bruger-id som personalekode i kort form. Planlagt fælles nøgle til en personaledimension.", Expr: "UPPER(TRIM(bd_oprid)); kun en personalekode i lang form – to bogstaver, bindestreg, en kode på 5-6 bogstaver/cifre og evt. '-9' eller '--9' – reduceres til koden (aa-aaa9aa-9 → AAA9AA). Alle andre værdier, også fri tekst med bindestreg, bæres uændret. Tom værdi → NULL" }
+    name_text:             { DataType: NVARCHAR(60), Source: [ils.dbo.zz_oper.bd_navn], Description: "Brugerens fulde navn." }
+    active:                { DataType: BIT, Source: [ils.dbo.zz_oper.bd_aktiv], Description: "1 når brugeren er aktiv i ILS." }
+    primaer_sygehus:       { DataType: NVARCHAR(16), Source: [ils.dbo.zz_oper.bd_primafd], Description: "Brugerens primære sygehus som ILS-sygehuskode." }
+    primaer_sygehus_navn:  { DataType: NVARCHAR(80), Source: [ils.dbo.sgh.navn], Description: "Navnet på brugerens primære sygehus.", Expr: "dbo.sgh.navn via join sgh = TRIM(bd_primafd); ved flere rækker pr. sgh vinder nyeste sysdato; tomt navn eller en kode, der ikke findes i dbo.sgh, giver NULL" }
+    source_table:          { DataType: NVARCHAR(100), Expr: "Konstant 'ils_zz_oper'" }

@@ -79,6 +79,24 @@ def dso_sync_dim_aftale(
 
 
 @dg.asset(
+    name="dso_sync_dim_ilsleverandoer",
+    group_name="erp_dso_sync",
+    compute_kind="mssql",
+    deps=["dim_ILSLeverandoer"],
+    tags={"domain": "erp", "layer": "dso_sync", "type": "dimension"},
+    description="Sync dim.ILSLeverandoer from staging to DSO database",
+)
+def dso_sync_dim_ilsleverandoer(
+    context: dg.AssetExecutionContext,
+    mssql_target_dso: MSSQLResource,
+    mssql_source_staging: MSSQLResource,
+) -> dg.MaterializeResult:
+    return _materialize_sync_result(
+        context, mssql_target_dso, mssql_source_staging, "dim_ILSLeverandoer", ERP_DIM_CONFIGS
+    )
+
+
+@dg.asset(
     name="dso_sync_bridge_leverandoervareilsvare",
     group_name="erp_dso_sync",
     compute_kind="mssql",
@@ -484,6 +502,24 @@ def dso_sync_dim_ilsvare(
 
 
 @dg.asset(
+    name="dso_sync_dim_ilsbruger",
+    group_name="erp_dso_sync",
+    compute_kind="mssql",
+    deps=["dim_ILSBruger"],
+    tags={"domain": "erp", "layer": "dso_sync", "type": "dimension"},
+    description="Sync dim.ILSBruger from staging to DSO database",
+)
+def dso_sync_dim_ilsbruger(
+    context: dg.AssetExecutionContext,
+    mssql_target_dso: MSSQLResource,
+    mssql_source_staging: MSSQLResource,
+) -> dg.MaterializeResult:
+    return _materialize_sync_result(
+        context, mssql_target_dso, mssql_source_staging, "dim_ILSBruger", ERP_DIM_CONFIGS
+    )
+
+
+@dg.asset(
     name="dso_sync_dim_UNSPSC",
     group_name="erp_dso_sync",
     compute_kind="mssql",
@@ -573,6 +609,7 @@ def dso_sync_dim_shakalike(
 
 all_dso_sync_dim_assets = [
     dso_sync_dim_aftale,
+    dso_sync_dim_ilsleverandoer,
     dso_sync_bridge_leverandoervareilsvare,
     dso_sync_bridge_aftalelager,
     dso_sync_dim_kreditor,
@@ -589,6 +626,7 @@ all_dso_sync_dim_assets = [
     dso_sync_dim_ean,
     dso_sync_dim_LagerbeholdningEgenskaber,
     dso_sync_dim_AfdelingLagerbeholdningEgenskaber,
+    dso_sync_dim_ilsbruger,
     dso_sync_dim_ilsvare,
     dso_sync_dim_UNSPSC,
     dso_sync_dim_budget_egenskaber,

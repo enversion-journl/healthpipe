@@ -59,7 +59,7 @@ dso_lineage:
     er_helligdag:           { DataType: BIT, Expr: "1 på officielle danske helligdage, ellers 0" }
     helligdag:              { DataType: NVARCHAR(50), Expr: "Helligdagsnavn eller 'Ikke en helligdag'" }
     er_beredskabshelligdag: { DataType: BIT, Expr: "1 for officielle helligdage samt 24/12 og 31/12" }
-    beredskabshelligdag:    { DataType: NVARCHAR(50), Expr: "Helligdagsnavn, Juleaften, Nytårsaften eller 'Ikke en beredskabshelligdag'" }
+    beredskabshelligdag:    { DataType: NVARCHAR(50), Expr: "Helligdagsnavn, Juleaftensdag, Nytårsaftensdag eller 'Ikke en helligdag'" }
     dw_timestamp_insert:    { Type: Audit, DataType: DATETIME2(0), Expr: "SYSDATETIME() ved første insert" }
     dw_timestamp_update:    { Type: Audit, DataType: DATETIME2(0), Expr: "SYSDATETIME() ved ændringer" }
 

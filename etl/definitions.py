@@ -76,7 +76,11 @@ from core.resources import (
     IFDBOracleResource,
     ILSMSSQLResource,
     KmdUddataMSSQLResource,
+    MaxManusMSSQLResource,
     MySupplyMSSQLResource,
+    PatologiMSSQLResource,
+    SimaArkivMSSQLResource,
+    SimaMSSQLResource,
     SydaxMSSQLResource,
     fhir_defs,
     mssql_defs,
@@ -136,7 +140,13 @@ from DSA.SQL.checks import (
     dq_partition_completeness_finanskladdelinje,
     dq_partition_completeness_postering,
     dw_quality,
+    silkeborgdata_e26_pers_checkpoint_alignment,
+    silkeborgdata_e26_pers_checkpoint_not_stalled,
+    silkeborgdata_e26_pers_period_continuity,
+    silkeborgdata_e26_pers_period_volume,
+    silkeborgdata_practitionerrole_no_orphans,
 )
+from DSA.SQL.cpr import all_assets as cpr_dsa_assets
 from DSA.SQL.dev import all_assets as dev_assets
 from DSA.SQL.dfm import dfm_assets
 from DSA.SQL.dim import all_assets as dim_assets
@@ -150,6 +160,7 @@ from DSA.SQL.staging import all_assets as staging_assets
 
 # DSI CSV file extraction assets (manual ConceptMap mappings)
 from DSI.csv_files import all_extract_assets as csv_extract_assets
+from DSI.csv_files.cpr import cpr_extract_checks
 
 # DSI Extract - ERP (staging assets from source systems)
 from DSI.mssql import (
@@ -179,6 +190,15 @@ from infrastructure.assets.careplan_genkoersel_nulstilling import (
     careplan_genkoersel_nulstilling_job,
 )
 from infrastructure.assets.db_space import all_db_space_checks
+from infrastructure.assets.ifdb_backfill_window_reconciliation import (
+    ifdb_backfill_window_reconciliation,
+)
+
+# Meta-asset: fuldindlæsning af IFDB -> FHIR-kæden, ét vindue ad gangen
+from infrastructure.assets.ifdb_fhir_fuldload import (
+    ifdb_fhir_fuldload,
+    ifdb_fhir_fuldload_job,
+)
 
 # DPA security AD pipeline (extract from AD -> populate staging; feeds dso_sync_security)
 from infrastructure.assets.security_ad_assets import all_security_ad_assets
@@ -215,7 +235,12 @@ from jobs import all_jobs
 from schedules import all_schedules
 from sensors import (
     all_sensors,
+    build_cpr_backlog_sensor,
+    build_drg_publish_sensor,
+    build_drg_queue_failure_sensor,
+    build_drg_queue_sensor,
     build_haiba_publish_sensor,
+    build_udredningsret_publish_sensor,
 )
 
 # Source assets (unchanged - still in sources/)
@@ -275,6 +300,7 @@ all_assets = [
     *bridge_assets,
     *map_assets,
     *ref_assets,
+    *cpr_dsa_assets,
     *fct_assets,
     # DSA SQL — dev-only assets (e.g. faktura table reset)
     *dev_assets,
@@ -362,6 +388,9 @@ all_assets = [
     sfi_genkoersel_nulstilling,
     # MIDLERTIDIG: verifikation af genkørslens indlæste data
     sfi_genkoersel_verifikation,
+    # Fuldindlæsning af IFDB -> FHIR-kæden, ét vindue ad gangen
+    ifdb_backfill_window_reconciliation,
+    ifdb_fhir_fuldload,
     # Målebænk og status for storens fysiske layout
     dso_sfi_store_layout_benchmark,
     dso_sfi_store_partition_status,
@@ -384,6 +413,10 @@ resources = {
     "sydax_mssql": SydaxMSSQLResource(),
     "ils_mssql": ILSMSSQLResource(),
     "kmd_uddata_mssql": KmdUddataMSSQLResource(),
+    "maxmanus_mssql": MaxManusMSSQLResource(),
+    "sima_mssql": SimaMSSQLResource(),
+    "sima_arkiv_mssql": SimaArkivMSSQLResource(),
+    "patologi_mssql": PatologiMSSQLResource(),
     "ifdb_oracle": IFDBOracleResource(),
     "epji_oracle": EPJIOracleResource(),
     **fhir_resources,
@@ -432,6 +465,7 @@ postfixed_jobs = postfix_jobs(
         careplan_genkoersel_nulstilling_job,
         sfi_genkoersel_nulstilling_job,
         sfi_genkoersel_verifikation_job,
+        ifdb_fhir_fuldload_job,
         sfi_store_layout_benchmark_job,
         sof_merge_benchmark_job,
     ],
@@ -456,9 +490,16 @@ postfixed_checks = postfix_asset_checks(
         dq_partition_completeness_finanskladdelinje,
         dq_partition_completeness_postering,
         dq_archive_completeness_vareudlevering,
+        # SilkeborgData E26PERS archive — guards the DFM contract
+        silkeborgdata_e26_pers_period_continuity,
+        silkeborgdata_e26_pers_period_volume,
+        silkeborgdata_e26_pers_checkpoint_alignment,
+        silkeborgdata_e26_pers_checkpoint_not_stalled,
+        silkeborgdata_practitionerrole_no_orphans,
         *dqa_asset_checks,
         *dso_asset_checks,
         *all_db_space_checks,
+        *cpr_extract_checks,
     ],
     key_replacements,
 )
@@ -478,6 +519,27 @@ _haiba_publish_job = _postfixed_job_by_name[_pfx("haiba_publish_job")]
 haiba_publish_sensor = build_haiba_publish_sensor(
     borger_chain_job=_ifdb_dfm_daily_job,
     publish_job=_haiba_publish_job,
+)
+
+# DRG publish sensor: same reason as HAIBA — the unknown-CPR stubs the DRG
+# ingest queue posts to Aidbox only have a dw_ek_Borger once the SOF+Borger
+# chain has minted them. Ungated: the publish is delta, so a night without a
+# delivery is a no-op, and running nightly re-resolves dw_ek_Borger = -1.
+_drg_publish_job = _postfixed_job_by_name[_pfx("drg_publish_job")]
+drg_publish_sensor = build_drg_publish_sensor(
+    borger_chain_job=_ifdb_dfm_daily_job,
+    publish_job=_drg_publish_job,
+)
+
+# Udredningsret publish sensor: same shape and same reason — stub patients
+# created by udredningsret_ingest_job only have a dw_ek_Borger once the SOF+Borger
+# chain has minted them, so the DSA rebuild and the DSO sync wait for it. Gated on
+# meta.UdredningsretLeverance's delivery watermark, so a night without a new SDS
+# delivery does not re-stage 8.2M archive rows.
+_udredningsret_publish_job = _postfixed_job_by_name[_pfx("udredningsret_publish_job")]
+udredningsret_publish_sensor = build_udredningsret_publish_sensor(
+    borger_chain_job=_ifdb_dfm_daily_job,
+    publish_job=_udredningsret_publish_job,
 )
 
 # DQA post-ETL sensors: run a track's DQA job after the ETL that feeds it
@@ -518,9 +580,45 @@ for _spec in DQA_AFTER_ETL_SENSOR_SPECS:
             )
         )
 
+# CPR backlog sensor: one more ingest run per successful ingest while deliveries
+# are still waiting on the share, so a backlog is caught up in order.
+cpr_backlog_sensor = build_cpr_backlog_sensor(_postfixed_job_by_name[_pfx("cpr_ingest_job")])
+# DRG ingest queue: the schedule requests the queue's head, this sensor walks
+# the rest one run at a time. Serialising by chaining rather than by a
+# concurrency tag keeps the ext tables safe without instance configuration —
+# and gives "U only after every M succeeded" as a property of the queue order.
+# Indexed directly (no presence guard): all three jobs always live in
+# all_jobs, and a missing one must fail at load — a silently shrunk
+# monitored_jobs would just stop the queue with nothing to see.
+_drg_ingest_jobs = [
+    _postfixed_job_by_name[_pfx(name)]
+    for name in (
+        "drg_ingest_somatik_maaned_job",
+        "drg_ingest_somatik_uge_job",
+        "drg_ingest_psyk_maaned_job",
+    )
+]
+# The chain advances on SUCCESS only, so a failed run stops the cycle and the
+# units behind it are never requested. The failed run is red; the runs that
+# never happened are an absence — this names them.
+drg_queue_failure_sensor = build_drg_queue_failure_sensor(ingest_jobs=_drg_ingest_jobs)
+drg_queue_sensor = build_drg_queue_sensor(
+    ingest_jobs=_drg_ingest_jobs,
+    job_for_unit={
+        ("DRG", "M"): _postfixed_job_by_name[_pfx("drg_ingest_somatik_maaned_job")],
+        ("DRG", "U"): _postfixed_job_by_name[_pfx("drg_ingest_somatik_uge_job")],
+        ("DRGPSYK", "M"): _postfixed_job_by_name[_pfx("drg_ingest_psyk_maaned_job")],
+    },
+)
+
 postfixed_sensors = [
     *all_sensors,
     haiba_publish_sensor,
+    cpr_backlog_sensor,
+    drg_publish_sensor,
+    drg_queue_sensor,
+    drg_queue_failure_sensor,
+    udredningsret_publish_sensor,
     *dqa_after_etl_sensors,
 ]
 

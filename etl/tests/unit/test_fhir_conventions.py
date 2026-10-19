@@ -31,6 +31,11 @@ SANCTIONED_GROUP_KEY_PATTERNS: dict[str, str] = {
     "fhir_ifdb_monthly": r"fhir_[a-z0-9_]+_monthly_ifdb",
     "fhir_ifdb_full_load": r"fhir_[a-z0-9_]+_full_load_ifdb",
     "fhir_ifdb_dfm": r"fhir_server_[a-z0-9_]+_dfm",
+    # SilkeborgData is a separate source system, so its assets stay out of the
+    # IFDB groups and cadence: silkeborgdata_daily_job selects these groups and
+    # runs archive -> resources -> SOF as one dependency-ordered chain.
+    "fhir_silkeborgdata_dfm": r"fhir_server_[a-z0-9_]+_dfm",
+    "fhir_silkeborgdata_sof": r"sof_[a-z0-9_]+_dfm",
     "fhir_sof_daily": r"sof_[a-z0-9_]+_daily",
     "fhir_sof_monthly": r"sof_[a-z0-9_]+_monthly",
     "fhir_sof_dfm": r"sof_[a-z0-9_]+_dfm",
@@ -38,6 +43,8 @@ SANCTIONED_GROUP_KEY_PATTERNS: dict[str, str] = {
     "fhir_quality_dfm": r"fhir_quality_check_[a-z0-9_]+",
     "haiba_borger": r"fhir_[a-z0-9_]+_haiba",
     "drg_borger": r"fhir_[a-z0-9_]+_drg",
+    "cpr": r"fhir_server_[a-z0-9_]+_cpr_dfm",
+    "udredningsret_borger": r"fhir_[a-z0-9_]+_udredningsret",
 }
 
 URI_PREFIXES = ("http://", "https://", "urn:")
@@ -163,3 +170,32 @@ class TestNoStrayUriLiterals:
     def test_scan_flags_inline_hl7_terminology_literal(self):
         source = 'def f():\n    return "http://terminology.hl7.org/CodeSystem/v3-ActCode"\n'
         assert _uri_literal_violations(source, "Seeded/Seeded_IFDB.py")
+
+
+class TestPatientAssetsAreRegistered:
+    """An asset missing from ``all_assets`` does not exist on the code server."""
+
+    def test_every_verify_asset_in_the_patient_package_is_registered(self):
+        import importlib
+        import pkgutil
+
+        import dagster as dg
+
+        package = importlib.import_module("DSA.FHIR.Patient")
+        registered = {
+            a.key.to_user_string() for a in package.all_assets if isinstance(a, dg.AssetsDefinition)
+        }
+        found: dict[str, str] = {}
+        for module in pkgutil.iter_modules(package.__path__):
+            m = importlib.import_module(f"DSA.FHIR.Patient.{module.name}")
+            for name in dir(m):
+                if not name.startswith("verify_"):
+                    continue
+                obj = getattr(m, name)
+                if isinstance(obj, dg.AssetsDefinition):
+                    found[obj.key.to_user_string()] = module.name
+        missing = {k: v for k, v in found.items() if k not in registered}
+        assert not missing, (
+            "these verify assets are defined but not in DSA.FHIR.Patient.all_assets, "
+            f"so they do not exist on the code server: {missing}"
+        )

@@ -55,7 +55,7 @@ Every pipeline run is described by a single `mode` value:
 | `full_load` | Scheduled/daily: reload the complete source table | Yes | Yes |
 | `period` | Ad-hoc: filter by date range | No* | No (partial) |
 | `ids` | Ad-hoc: filter by specific ID list or staging table | No* | No (partial) |
-| `flow_start` | Internal: used by `dfm_ifdb_flow_start` to capture the IFDB upper-bound timestamp | Yes | N/A |
+| `flow_start` | Internal: used by `dfm_ifdb_flow_start` to store the IFDB transfer ceiling and EPJ ceiling | Yes | N/A |
 | `reset` | Internal: used by `dfm_reset_job` / `usp_dfm_reset` to rewind a checkpoint | N/A | N/A |
 
 > \* `advance_checkpoint` defaults to `None` (mode-dependent): for `delta`/`full_load` it resolves to `True` (advance); for `period`/`ids` it resolves to `False` (safe-by-default — does not advance). Set `advance_checkpoint=True` explicitly to opt-in to advancement for `period`/`ids` (e.g. the `period_orchestrator` does this for sequential chunk advancement).
@@ -167,7 +167,7 @@ class ArchiveMergeConfig:
 
 **`checkpoint_query`** is the SQL expression evaluated immediately after the MERGE to determine the new checkpoint value. The result is passed to `set_checkpoint()`. Example: `"SELECT CAST(MAX([dw_timestamp_update]) AS NVARCHAR(50)) FROM [arc].[spend_analysis_lines]"`. When `None`, no checkpoint is set (e.g. for insert-only tables where checkpoint tracking is handled differently).
 
-**`flow_start_key`** is an alternative to `checkpoint_query` for determining the new checkpoint value. Instead of computing it via SQL, the archive reads the checkpoint from another `DFMState` entry. This is used for the IFDB pattern where the flow-start timestamp (from `dfm.ifdb_flow_start`) becomes the archive checkpoint. Resolution order: `flow_start_key` > `checkpoint_query` > `SYSDATETIME()` fallback. Currently used only for IFDB archives; may be deprecated if all future sources use `checkpoint_query`.
+**`flow_start_key`** is an alternative to `checkpoint_query` for determining the new checkpoint value. Instead of computing it via SQL, the archive reads the checkpoint from another `DFMState` entry. This is used for the IFDB pattern where the ceiling the extract read becomes the archive checkpoint: the extract records it under `DfmExtractConfig.used_ceiling_key` (`dfm/<target_table>_flow_start`), and the archive's `flow_start_key` is that key, so a flow start in a later run cannot move the checkpoint past rows the extract never read. Resolution order: `flow_start_key` > `checkpoint_query` > `SYSDATETIME()` fallback.
 
 **`update_only_on_change`** adds a NULL-safe column comparison condition to `WHEN MATCHED`, so rows are only updated when at least one non-key column has actually changed. Use for full-load tables where the source frequently re-sends unchanged rows — avoids unnecessary UPDATE writes, transaction log churn, and `dw_timestamp_update` noise. See `archive_merge_options.md` for details.
 
@@ -224,14 +224,14 @@ The extract itself always does `DROP + CREATE` on `ext.*` — the table is volat
 
 **Lookback days** protect against late-arriving data in the source system. For example, with `lookback_days=3` and a checkpoint of `2026-05-01`, the extract pulls rows where `delta_column > 2026-04-28` — re-extracting 3 extra days to catch any rows that arrived late. The archive MERGE (upsert) handles the overlap safely since matched rows are simply updated.
 
-**Upper-bound column override** (`DfmExtractConfig.upper_bound_column`): when the flow-start ceiling should filter on a different column than the checkpoint lower bound, set `upper_bound_column` on the extract config. This produces a split-column WHERE clause:
+**Upper-bound column** (`DfmExtractConfig.upper_bound_column`): the column the flow-start ceiling filters on. It defaults to the delta column:
 
 ```sql
 WHERE IFDB_MODIFICATION_DATETIME > TO_DATE(checkpoint)
-  AND EPJI_MODIFICATION_DATETIME <= TO_DATE(flow_start)
+  AND IFDB_MODIFICATION_DATETIME <= TO_DATE(ceiling)
 ```
 
-This is needed for IFDB tables where the checkpoint lower bound tracks `IFDB_MODIFICATION_DATETIME` (when IFDB processed the row) but the flow-start ceiling is based on `EPJI_MODIFICATION_DATETIME` (when the source EPJ-I change occurred). Without this, the flow-start ceiling derived from `JOB_LOG.SLUTTID` would not correctly bound the delta window because it corresponds to `EPJI_MODIFICATION_DATETIME`, not `IFDB_MODIFICATION_DATETIME`.
+The archive checkpoint becomes the ceiling, and the next run compares it with the delta column, so the ceiling, the delta column and the upper-bound column must all follow one clock. IFDB has two clocks: the EPJ modification time (`EPJI_MODIFICATION_DATETIME`, `MODTIDSPUNKT`) and the time IFDB transferred the row (`IFDB_MODIFICATION_DATETIME`, `OPDATERET_TID`, `UPDATE_TIME`). `dfm_ifdb_flow_start` therefore stores one ceiling per clock — the transfer ceiling (Oracle `SYSDATE` at a complete cycle) and the EPJ ceiling (`MIN(MAX(JOB_LOG.SLUTTID))`) — and each IFDB extract bounds both ends on its delta column against the ceiling on the same clock. A ceiling on another clock than the lower bound either splits an IFDB cycle (rows transferred in a later cycle with an old EPJ time come in, newer EPJ changes are held back) or re-reads the previous cycle on every run. `tests/unit/test_ifdb_delta_ceilings.py` checks that each IFDB delta extract bounds both ends on its delta column and reads the ceiling on that column's clock. See *Two ceilings* in `dfm_operations_guide.md` for the table split.
 
 ### 4.2 Full-Load Extract (mode="full_load")
 
@@ -496,7 +496,7 @@ The replay is visible downstream because the MERGE always sets `dw_timestamp_upd
 |-----------|----------|-----------|
 | Asset's checkpoint is read by **other assets** to filter a shared source (e.g. dim/fct → pre_stg reads from archive) | `SYSDATETIME()` | Replays must be visible to downstream checkpoint consumers |
 | Asset **directly queries its own source** by its checkpoint (e.g. ref reads from fhir.*) | `MAX(source_column)` | Checkpoint semantically tracks source consumption; replays are visible via `dw_timestamp_update` |
-| Archive layer (with `flow_start_key`) | `flow_start` from upstream | Ensures gap-free coverage of the source system's delta window |
+| Archive layer (with `flow_start_key`) | The ceiling the extract used | Ensures gap-free coverage of the source system's delta window |
 
 **Delta mode comparison: always use `>` (strictly greater than), never `>=`.**
 
@@ -776,6 +776,9 @@ One row per run. Full audit trail.
 | `dagster_run_id` | NVARCHAR(128) | Traceability link |
 | `run_started_at` | DATETIME2 | Start timestamp |
 | `run_completed_at` | DATETIME2 | End timestamp |
+| `source_user` | NVARCHAR(128) | Extractions and flow starts that read a source: the user or service account of the source connection (NULL when there is none) |
+| `source_host` | NVARCHAR(255) | Extractions and flow starts that read a source: the host of the source connection (NULL when there is none) |
+| `source_table` | NVARCHAR(256) | Extractions: `schema.table` for a database, the stable dataset name for a file, the URL path for HTTP, the base DN for LDAP |
 
 ### 9.4 Checkpoint Advancement Rules
 
@@ -1134,7 +1137,7 @@ class PartitionedPeriodConfig(dg.Config):
     flow_start_override: str | None = None  # override flow-start on child runs (IFDB only)
 ```
 
-**`flow_start_override`** is propagated to the `FlowStartConfig` of child runs when set. This allows the period orchestrator to pin the flow-start upper bound for IFDB delta extracts, preventing the `dfm_ifdb_flow_start` asset from querying Oracle `JOB_LOG` on each child run (which would return a live timestamp unrelated to the historical period being reprocessed). Only relevant for IFDB jobs that include the `dfm_ifdb_flow_start` asset.
+**`flow_start_override`** is propagated to the `FlowStartConfig` of child runs when set. This allows the period orchestrator to pin both IFDB ceilings for IFDB delta extracts, preventing the `dfm_ifdb_flow_start` asset from querying Oracle `JOB_LOG` on each child run (which would return a live timestamp unrelated to the historical period being reprocessed). Only relevant for IFDB jobs that include the `dfm_ifdb_flow_start` asset.
 
 ### 12.3 Implementation
 

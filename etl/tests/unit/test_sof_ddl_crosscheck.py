@@ -131,3 +131,35 @@ class TestSofDdlCrossCheck:
         ddl_cols = _extract_ddl_columns(ddl_text, "Procedure")
         missing = view_cols - ddl_cols
         assert not missing, f"procedure_view columns missing from DDL: {missing}"
+
+
+def test_indeks_staar_i_sin_egen_tabels_vagt():
+    """Et indeks maa ikke ligge i IF NOT EXISTS-vagten for en ANDEN tabel.
+
+    Tabellerne oprettes hver i sin egen vagt, saa en gentagen koersel er en
+    no-op. Ligger et indeks i en fremmed vagt, afhaenger det af, om DEN tabel
+    mangler: findes indekset allerede (fx oprettet af en migration), fejler
+    batchen med «index already exists», staging_infra_fhir fejler, og alt
+    nedenstroems i den natlige kaede springes over.
+
+    Faldgruben er, at fejlen foerst opstaar, naar den fremmede tabel mangler,
+    og indekset i forvejen er lagt af en migration — altsaa ikke paa den
+    server, hvor begge dele blev bygget forfra.
+    """
+    ddl = DDL_PATH.read_text(encoding="utf-8")
+    fejl: list[str] = []
+    for blok in re.finditer(r"IF NOT EXISTS\s*\((.*?)\)\s*BEGIN(.*?)\nEND\b", ddl, re.DOTALL):
+        vagt, krop = blok.group(1), blok.group(2)
+        vagtens_tabeller = set(
+            re.findall(r"OBJECT_ID\(N?'\[?fhir\]?\.?\[?([A-Za-z_]+)\]?'", vagt)
+        ) | set(re.findall(r"TABLE_NAME\s*=\s*'([A-Za-z_]+)'", vagt))
+        if not vagtens_tabeller:
+            continue
+        for indeks, tabel in re.findall(
+            r"CREATE (?:UNIQUE )?(?:NON)?CLUSTERED INDEX \[([A-Za-z_]+)\]\s*\n?\s*"
+            r"ON \[fhir\]\.\[([A-Za-z_]+)\]",
+            krop,
+        ):
+            if tabel not in vagtens_tabeller:
+                fejl.append(f"{indeks} paa fhir.{tabel} i vagten for {sorted(vagtens_tabeller)}")
+    assert not fejl, "indeks i fremmed vagt: " + "; ".join(fejl)

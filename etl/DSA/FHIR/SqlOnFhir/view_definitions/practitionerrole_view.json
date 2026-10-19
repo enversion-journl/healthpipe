@@ -1,0 +1,30 @@
+{
+  "resourceType": "ViewDefinition",
+  "name": "practitionerrole_view",
+  "resource": "PractitionerRole",
+  "status": "active",
+  "select": [
+    {
+      "column": [
+        {"name": "practitioner_role_id", "path": "id"},
+        {"name": "identifier_tjenestenummer", "path": "identifier.where(system='urn:source:silkeborgdata:tjenestenummer').value.first()"},
+        {"name": "practitioner_id", "path": "practitioner.getReferenceKey(Practitioner)"},
+        {"name": "inst", "path": "extension('urn:source:silkeborgdata:inst').valueCoding.code.first()"},
+        {"name": "afdelingskode", "path": "extension('urn:source:silkeborgdata:afdelingskode').valueCoding.code.first()"},
+        {"name": "role_stillingskode", "path": "code.coding.where(system='urn:source:silkeborgdata:stillingskode').code.first()"},
+        {"name": "role_stilling_text", "path": "code.where(coding.system='urn:source:silkeborgdata:stillingskode').text.first()"},
+        {"name": "role_lederkode", "path": "code.coding.where(system='urn:source:silkeborgdata:lederkode').code.first()"},
+        {"name": "specialty_disco", "path": "specialty.coding.where(system='urn:source:silkeborgdata:discokode').code.first()"},
+        {"name": "period_start", "path": "period.start"},
+        {"name": "role_statuskode", "path": "extension('urn:source:silkeborgdata:statuskode').valueCoding.code.first()"},
+        {"name": "role_jobstatuskode", "path": "extension('urn:source:silkeborgdata:jobstatuskode').valueCoding.code.first()"},
+        {"name": "role_statusdato", "path": "extension('urn:source:silkeborgdata:statusdato').valueDate.first()"},
+        {"name": "role_tjenestekode", "path": "extension('urn:source:silkeborgdata:tjenestekode').valueCoding.code.first()"},
+        {"name": "role_omraadekode", "path": "extension('urn:source:silkeborgdata:omraadekode').valueCoding.code.first()"},
+        {"name": "active", "path": "active"},
+        {"name": "source_table", "path": "meta.tag.where(system='urn:source:silkeborgdata:source_table').code.first()"},
+        {"name": "dw_is_deleted", "path": "extension('urn:fhir:isDeleted').valueInteger.first()"}
+      ]
+    }
+  ]
+}

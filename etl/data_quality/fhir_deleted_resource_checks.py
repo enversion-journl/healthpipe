@@ -19,20 +19,20 @@ avoids mass false positives if IFDB returns suspiciously empty results.
 No Python-side FHIR parsing -- updates run in Postgres only.
 """
 
-import json
 from typing import Any
 
 import dagster as dg
 import oracledb
+from core.fhir.deletion import mark_resources_deleted
 from core.resources import FHIRDatabaseResource, IFDBOracleResource
 from data_quality.models import DeletedResourceCheckConfig
+from DSA.FHIR.Patient.patient_service import mark_deleted
 from DSI.oracle import ENCOUNTER_CONFIG, EPISODE_OF_CARE_CONFIG, PATIENT_CONFIG
 from utils.fhir.identifier_systems import (
     SYSTEM_IFDB_EPISODE_OF_CARE_ID,
     SYSTEM_IFDB_OBJECT_ID,
     SYSTEM_IFDB_PATIENT_ID,
 )
-from utils.fhir.is_deleted_extension import EXTENSION_FHIR_IS_DELETED
 
 # -----------------------------------------------------------------------------
 # Configuration
@@ -233,82 +233,11 @@ def _find_orphaned_ids(
     )
 
 
-def _batch_mark_deleted_jsonb(
-    context: dg.AssetExecutionContext,
-    fhir_database: FHIRDatabaseResource,
-    resource_type: str,
-    fhir_row_ids: list[str],
-) -> tuple[int, int]:
-    """Set urn:fhir:isDeleted=1 on resources by FHIR row id.
-
-    Returns ``(updated, skipped_already_marked)``.
-    """
-    if not fhir_row_ids:
-        return 0, 0
-
-    table_name = resource_type.lower()
-    ext_url = EXTENSION_FHIR_IS_DELETED
-    marker_fragment = json.dumps([{"url": ext_url, "valueInteger": 1}])
-    already_marker = json.dumps({"extension": [{"url": ext_url, "valueInteger": 1}]})
-
-    updated_total = 0
-    skipped_already = 0
-
-    with fhir_database.get_connection() as conn:
-        with conn.cursor() as cur:
-            for i in range(0, len(fhir_row_ids), _PG_UPDATE_BATCH):
-                batch = fhir_row_ids[i : i + _PG_UPDATE_BATCH]
-
-                cur.execute(f"SELECT COALESCE(MAX(txid), 0) FROM {table_name};")
-                base_txid = cur.fetchone()[0]
-
-                for j, row_id in enumerate(batch):
-                    cur.execute(
-                        f"""
-                        SELECT 1 FROM {table_name}
-                        WHERE id = %s
-                          AND resource @> %s::jsonb
-                        """,
-                        [row_id, already_marker],
-                    )
-                    if cur.fetchone():
-                        skipped_already += 1
-                        continue
-
-                    txid = base_txid + j + 1
-                    cur.execute(
-                        f"""
-                        UPDATE {table_name}
-                        SET resource = jsonb_set(
-                            resource,
-                            '{{extension}}',
-                            COALESCE(
-                                (
-                                    SELECT jsonb_agg(elem)
-                                    FROM jsonb_array_elements(
-                                        COALESCE(resource->'extension', '[]'::jsonb)
-                                    ) AS elem
-                                    WHERE elem->>'url' != %s
-                                ),
-                                '[]'::jsonb
-                            ) || %s::jsonb
-                        ),
-                        txid = %s,
-                        ts = CURRENT_TIMESTAMP,
-                        status = 'updated'::resource_status
-                        WHERE id = %s
-                        """,
-                        [ext_url, marker_fragment, txid, row_id],
-                    )
-                    updated_total += cur.rowcount
-
-                conn.commit()
-
-    context.log.info(
-        f"JSONB updates for {resource_type}: {updated_total} rows updated, "
-        f"{skipped_already} already marked deleted"
-    )
-    return updated_total, skipped_already
+def _batch_mark_deleted_jsonb(context, fhir_database, resource_type, fhir_row_ids):
+    """Generic reconciliation; person resources must use their domain service."""
+    if resource_type == "Patient":
+        raise ValueError("Use the Patient service for Patient deletion")
+    return mark_resources_deleted(fhir_database, resource_type, fhir_row_ids)
 
 
 def _check_and_mark_deleted_resources(
@@ -394,9 +323,14 @@ def _check_and_mark_deleted_resources(
         }
 
     fhir_row_ids = [fhir_map[sid] for sid in lookup.orphans_to_mark]
-    updated_count, skipped_marked = _batch_mark_deleted_jsonb(
-        context, fhir_database, resource_type, fhir_row_ids
-    )
+    if resource_type == "Patient":
+        updated_count, skipped_marked = mark_deleted(
+            context, fhir_database, fhir_row_ids, missing_epj_ids=lookup.orphans_to_mark
+        )
+    else:
+        updated_count, skipped_marked = _batch_mark_deleted_jsonb(
+            context, fhir_database, resource_type, fhir_row_ids
+        )
 
     return {
         "resource_type": resource_type,

@@ -28,7 +28,6 @@ SELECT
     -- another source. map.UNSPSC holds the sticky, cumulative truth across all runs.
     m.dw_source_ils                                                    AS dw_source_ils,
     m.dw_source_kmd                                                    AS dw_source_kmd,
-    m.dw_source_udbud                                                  AS dw_source_udbud,
     LTRIM(RTRIM(REPLACE(u.[betegn],                       CHAR(160), ''))) AS beskrivelse_ils,
     LTRIM(RTRIM(REPLACE(u.[un_name],                      CHAR(160), ''))) AS beskrivelse_engelsk_ils,
     LTRIM(RTRIM(REPLACE(k.[UNSPSCClassDescription],       CHAR(160), ''))) AS beskrivelse_kmd,
@@ -40,13 +39,7 @@ SELECT
     k.[UNSPSCClassLev3ID]                                              AS unspsc_level_3_kode_kmd,
     LTRIM(RTRIM(REPLACE(k.[UNSPSCClassLev3Description],   CHAR(160), ''))) AS unspsc_level_3_beskrivelse_kmd,
     k.[UNSPSCClassLev4ID]                                              AS unspsc_level_4_kode_kmd,
-    LTRIM(RTRIM(REPLACE(k.[UNSPSCClassLev4Description],   CHAR(160), ''))) AS unspsc_level_4_beskrivelse_kmd,
-    ud.[beskrivelse_udbud]                                            AS beskrivelse_udbud,
-    ud.[udbudstype]                                                   AS udbudstype,
-    ud.[udbudskategori_niveau_1]                                      AS udbudskategori_niveau_1,
-    ud.[udbudskategori_niveau_2]                                      AS udbudskategori_niveau_2,
-    ud.[udbudskategori_niveau_3]                                      AS udbudskategori_niveau_3,
-    ud.[udbudskategori_niveau_4]                                      AS udbudskategori_niveau_4
+    LTRIM(RTRIM(REPLACE(k.[UNSPSCClassLev4Description],   CHAR(160), ''))) AS unspsc_level_4_beskrivelse_kmd
 INTO #DeltaToMerge
 FROM [stg].[dim_UNSPSC] delta
 JOIN [map].[UNSPSC] m
@@ -56,32 +49,7 @@ LEFT JOIN [arc].[ils_unspsc] u
     ON u.[unspsc]         = m.clean_code_UNSPSC
 
 LEFT JOIN [arc].[kmd_uddata_unspsc] k
-    ON k.[UNSPSCClassID] = m.clean_code_UNSPSC AND k.[DW_IsCurrent] = 1
-
-LEFT JOIN (
-    SELECT
-        clean_code_UNSPSC,
-        LEFT(LTRIM(RTRIM(REPLACE([UNSPSC_Tekst],        CHAR(160), ''))), 255) AS beskrivelse_udbud,
-        LEFT(LTRIM(RTRIM(REPLACE([udbudstype],          CHAR(160), ''))), 255) AS udbudstype,
-        LEFT(LTRIM(RTRIM(REPLACE([Udbudskategori_niv1], CHAR(160), ''))), 255) AS udbudskategori_niveau_1,
-        LEFT(LTRIM(RTRIM(REPLACE([Udbudskategori_niv2], CHAR(160), ''))), 255) AS udbudskategori_niveau_2,
-        LEFT(LTRIM(RTRIM(REPLACE([Udbudskategori_niv3], CHAR(160), ''))), 255) AS udbudskategori_niveau_3,
-        LEFT(LTRIM(RTRIM(REPLACE([Udbudskategori_niv4], CHAR(160), ''))), 255) AS udbudskategori_niveau_4
-    FROM (
-        SELECT
-            LTRIM(RTRIM([UNSPSC_Nr])) AS clean_code_UNSPSC,
-            [UNSPSC_Tekst], [udbudstype],
-            [Udbudskategori_niv1], [Udbudskategori_niv2],
-            [Udbudskategori_niv3], [Udbudskategori_niv4],
-            ROW_NUMBER() OVER (
-                PARTITION BY LTRIM(RTRIM([UNSPSC_Nr]))
-                ORDER BY (SELECT NULL)
-            ) AS rn
-        FROM [arc].[unspsc_udbudskategori]
-        WHERE [UNSPSC_Nr] IS NOT NULL AND LTRIM(RTRIM([UNSPSC_Nr])) <> ''
-    ) d
-    WHERE d.rn = 1
-) ud ON ud.clean_code_UNSPSC = m.clean_code_UNSPSC;
+    ON k.[UNSPSCClassID] = m.clean_code_UNSPSC AND k.[DW_IsCurrent] = 1;
 
 CREATE UNIQUE CLUSTERED INDEX IX_tmp ON #DeltaToMerge (dw_ek_UNSPSC);
 """
@@ -92,33 +60,26 @@ USING #DeltaToMerge AS src
 ON tgt.dw_ek_UNSPSC = src.dw_ek_UNSPSC
 WHEN MATCHED AND EXISTS (
     SELECT
-        src.unspsc_kode, src.dw_source_ils, src.dw_source_kmd, src.dw_source_udbud,
+        src.unspsc_kode, src.dw_source_ils, src.dw_source_kmd,
         src.beskrivelse_ils, src.beskrivelse_engelsk_ils, src.beskrivelse_kmd,
         src.unspsc_level_kmd,
         src.unspsc_level_1_kode_kmd, src.unspsc_level_1_beskrivelse_kmd,
         src.unspsc_level_2_kode_kmd, src.unspsc_level_2_beskrivelse_kmd,
         src.unspsc_level_3_kode_kmd, src.unspsc_level_3_beskrivelse_kmd,
-        src.unspsc_level_4_kode_kmd, src.unspsc_level_4_beskrivelse_kmd,
-        src.beskrivelse_udbud, src.udbudstype,
-        src.udbudskategori_niveau_1, src.udbudskategori_niveau_2,
-        src.udbudskategori_niveau_3, src.udbudskategori_niveau_4
+        src.unspsc_level_4_kode_kmd, src.unspsc_level_4_beskrivelse_kmd
     EXCEPT
     SELECT
-        tgt.unspsc_kode, tgt.dw_source_ils, tgt.dw_source_kmd, tgt.dw_source_udbud,
+        tgt.unspsc_kode, tgt.dw_source_ils, tgt.dw_source_kmd,
         tgt.beskrivelse_ils, tgt.beskrivelse_engelsk_ils, tgt.beskrivelse_kmd,
         tgt.unspsc_level_kmd,
         tgt.unspsc_level_1_kode_kmd, tgt.unspsc_level_1_beskrivelse_kmd,
         tgt.unspsc_level_2_kode_kmd, tgt.unspsc_level_2_beskrivelse_kmd,
         tgt.unspsc_level_3_kode_kmd, tgt.unspsc_level_3_beskrivelse_kmd,
-        tgt.unspsc_level_4_kode_kmd, tgt.unspsc_level_4_beskrivelse_kmd,
-        tgt.beskrivelse_udbud, tgt.udbudstype,
-        tgt.udbudskategori_niveau_1, tgt.udbudskategori_niveau_2,
-        tgt.udbudskategori_niveau_3, tgt.udbudskategori_niveau_4
+        tgt.unspsc_level_4_kode_kmd, tgt.unspsc_level_4_beskrivelse_kmd
 ) THEN UPDATE SET
     tgt.unspsc_kode = src.unspsc_kode,
     tgt.dw_source_ils = src.dw_source_ils,
     tgt.dw_source_kmd = src.dw_source_kmd,
-    tgt.dw_source_udbud = src.dw_source_udbud,
     tgt.beskrivelse_ils = src.beskrivelse_ils,
     tgt.beskrivelse_engelsk_ils = src.beskrivelse_engelsk_ils,
     tgt.beskrivelse_kmd = src.beskrivelse_kmd,
@@ -131,36 +92,24 @@ WHEN MATCHED AND EXISTS (
     tgt.unspsc_level_3_beskrivelse_kmd = src.unspsc_level_3_beskrivelse_kmd,
     tgt.unspsc_level_4_kode_kmd = src.unspsc_level_4_kode_kmd,
     tgt.unspsc_level_4_beskrivelse_kmd = src.unspsc_level_4_beskrivelse_kmd,
-    tgt.beskrivelse_udbud = src.beskrivelse_udbud,
-    tgt.udbudstype = src.udbudstype,
-    tgt.udbudskategori_niveau_1 = src.udbudskategori_niveau_1,
-    tgt.udbudskategori_niveau_2 = src.udbudskategori_niveau_2,
-    tgt.udbudskategori_niveau_3 = src.udbudskategori_niveau_3,
-    tgt.udbudskategori_niveau_4 = src.udbudskategori_niveau_4,
     tgt.dw_timestamp_update = SYSDATETIME()
 WHEN NOT MATCHED BY TARGET THEN INSERT (
-    dw_ek_UNSPSC, unspsc_kode, dw_source_ils, dw_source_kmd, dw_source_udbud,
+    dw_ek_UNSPSC, unspsc_kode, dw_source_ils, dw_source_kmd,
     beskrivelse_ils, beskrivelse_engelsk_ils,
     beskrivelse_kmd, unspsc_level_kmd,
     unspsc_level_1_kode_kmd, unspsc_level_1_beskrivelse_kmd,
     unspsc_level_2_kode_kmd, unspsc_level_2_beskrivelse_kmd,
     unspsc_level_3_kode_kmd, unspsc_level_3_beskrivelse_kmd,
     unspsc_level_4_kode_kmd, unspsc_level_4_beskrivelse_kmd,
-    beskrivelse_udbud, udbudstype,
-    udbudskategori_niveau_1, udbudskategori_niveau_2,
-    udbudskategori_niveau_3, udbudskategori_niveau_4,
     dw_timestamp_insert, dw_timestamp_update
 ) VALUES (
-    src.dw_ek_UNSPSC, src.unspsc_kode, src.dw_source_ils, src.dw_source_kmd, src.dw_source_udbud,
+    src.dw_ek_UNSPSC, src.unspsc_kode, src.dw_source_ils, src.dw_source_kmd,
     src.beskrivelse_ils, src.beskrivelse_engelsk_ils,
     src.beskrivelse_kmd, src.unspsc_level_kmd,
     src.unspsc_level_1_kode_kmd, src.unspsc_level_1_beskrivelse_kmd,
     src.unspsc_level_2_kode_kmd, src.unspsc_level_2_beskrivelse_kmd,
     src.unspsc_level_3_kode_kmd, src.unspsc_level_3_beskrivelse_kmd,
     src.unspsc_level_4_kode_kmd, src.unspsc_level_4_beskrivelse_kmd,
-    src.beskrivelse_udbud, src.udbudstype,
-    src.udbudskategori_niveau_1, src.udbudskategori_niveau_2,
-    src.udbudskategori_niveau_3, src.udbudskategori_niveau_4,
     SYSDATETIME(), SYSDATETIME()
 );
 """

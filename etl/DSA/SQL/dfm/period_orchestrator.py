@@ -169,8 +169,8 @@ class PartitionedPeriodConfig(dg.Config):
     timestamp unrelated to the historical period). With per-chunk checkpoint
     advancement the archive checkpoint is derived from each chunk's ``date_to``
     regardless, so this is hygiene — it avoids a redundant Oracle round-trip per
-    chunk and prevents a historical reload from overwriting the shared
-    ``dfm.ifdb_flow_start`` row that a concurrent scheduled run may rely on.
+    chunk. The override overwrites both IFDB ceiling rows in ``meta.DFMState``; a
+    scheduled run that starts its extracts meanwhile uses it as its ceiling.
 
     Set via Dagster Launchpad when materializing the orchestrator.
     """
@@ -209,20 +209,26 @@ def build_period_run_config(
     delta_column: str | None = None,
     advance_checkpoint: bool = False,
     flow_start_override: str | None = None,
+    mode: str = "period",
 ) -> dict:
     """Build a run_config dict that configures every configurable op.
 
-    Introspects the job definition and configures two kinds of op:
+    Introspects the job definition and configures three kinds of op:
       - ops that accept a ``mode`` config field (RunModeConfig) → set to
-        ``mode='period'`` with the partition's dates.
+        ``mode`` (default ``'period'``) with the partition's dates. The dates are
+        ignored by modes that do not read them (e.g. ``full_load``), so a caller
+        that needs one step in another mode can reuse this builder.
       - ops that accept a ``flow_start_override`` field (FlowStartConfig, i.e.
         ``dfm_ifdb_flow_start``) → set to the given override, but only when
         ``flow_start_override`` is provided.
+      - ops that accept a ``cycle_wait_timeout_minutes`` field
+        (IFDBCycleWaitConfig, i.e. ``dfm_ifdb_cycle_wait``) → set to 0 unless
+        ``mode`` is ``delta`` without a ``flow_start_override``.
 
-    Ops with neither field (e.g. pure infra setup) are skipped.
+    Ops with none of these fields (e.g. pure infra setup) are skipped.
     """
     period_config: dict = {
-        "mode": "period",
+        "mode": mode,
         "date_from": partition.start,
         "date_to": partition.end,
         "advance_checkpoint": advance_checkpoint,
@@ -244,6 +250,10 @@ def build_period_run_config(
             ops[node.name] = {"config": period_config}
         elif flow_start_config is not None and "flow_start_override" in fields:
             ops[node.name] = {"config": flow_start_config}
+        elif "cycle_wait_timeout_minutes" in fields and (
+            mode != "delta" or flow_start_config is not None
+        ):
+            ops[node.name] = {"config": {"cycle_wait_timeout_minutes": 0}}
 
     return {"ops": ops}
 

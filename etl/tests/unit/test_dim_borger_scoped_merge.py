@@ -66,6 +66,8 @@ class FakeDfm:
 class FakeCursor:
     """Routes fetchone() answers by inspecting the last executed SQL."""
 
+    changed_patients = 30_000
+
     def __init__(self, executed: list[str]):
         self.executed = executed
         self._last = ""
@@ -78,7 +80,7 @@ class FakeCursor:
     def fetchone(self):
         s = self._last
         if "COUNT(*)" in s and "changed_patients" in s:
-            return (30_000,)
+            return (self.changed_patients,)
         if "COUNT(*)" in s and "merge_out" in s:
             return (0,)
         if "MAX(ts)" in s:
@@ -182,6 +184,27 @@ class TestScopedMerge:
             "src_rows_dim_borger",
         ):
             assert base in dropped
+
+
+class TestPopulationsansvarAndProtection:
+    def test_changed_mapping_reaches_dim_without_changed_patients(self, monkeypatch):
+        monkeypatch.setattr(FakeCursor, "changed_patients", 0)
+        executed = _run(monkeypatch, RunModeConfig(mode="delta"))
+        assert not any("MERGE INTO ScopedTarget" in s for s in executed)
+        refresh_sql = _find(executed, "SET b.populationsansvar")
+        assert "[ref].[KommuneToPopulationsansvar]" in refresh_sql
+
+    def test_populationsansvar_set_after_merge(self, monkeypatch):
+        executed = _run(monkeypatch, RunModeConfig(mode="delta"))
+        merge_at = executed.index(_find(executed, "MERGE INTO ScopedTarget"))
+        refresh_at = executed.index(_find(executed, "SET b.populationsansvar"))
+        assert refresh_at > merge_at
+
+    def test_only_retired_versions_of_protected_citizens_are_masked(self, monkeypatch):
+        executed = _run(monkeypatch, RunModeConfig(mode="delta"))
+        mask_sql = _find(executed, "SET fornavne = NULL")
+        assert "tgt.dw_is_deleted = 1" in mask_sql
+        assert "WHERE adressebeskyttelse = 1" in mask_sql
 
 
 class TestLookbackWindow:

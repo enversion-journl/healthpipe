@@ -19,6 +19,8 @@
 -- Keys (INT surrogates assigned in ref tables — see data_lineage/dim/dim_borger.yml):
 --   * dw_sk_Borger — INT, version-PK (carried from ref.Patient_Address_To_Borger; no local IDENTITY)
 --   * dw_ek_Borger — INT, entity-key (assigned by ref.PatientToBorger; stable across T2 versions)
+--   * fhir_Patient_id — fhir.Patient resource id behind the borger (same pattern
+--     as dim.Organisation.fhir_Organization_id)
 --
 -- Identifier columns (cpr_nummer, x_ecpr_nummer, d_ecpr_nummer) — at least
 -- one must be set per borger; enforced upstream by ref.PatientToBorger.
@@ -27,6 +29,8 @@
 --   * dw_sk_Borger = -1, dw_ek_Borger = -1  (UNKNOWN)
 --   * dw_sk_Borger = -2, dw_ek_Borger = -2  (N/A — used for facts where
 --                                            borger-relation explicitly does not apply)
+--   * dw_sk_Borger = -99, dw_ek_Borger = -99 (MASKERET — used for facts where the
+--                                            reader may not see which borger it is)
 -- ============================================================================
 IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dim].[Borger]') AND type = 'U')
 BEGIN
@@ -34,6 +38,7 @@ BEGIN
         -- Technical keys
         [dw_sk_Borger]                  INT NOT NULL,
         [dw_ek_Borger]                  INT NOT NULL,
+        [fhir_Patient_id]               NVARCHAR(255) NULL,
 
         -- Identifiers (Type 1)
         [cpr_nummer]                     VARCHAR(10) NULL,
@@ -111,6 +116,10 @@ BEGIN
         [dw_is_deleted]                  BIT NOT NULL CONSTRAINT [DF_Borger_dw_is_deleted] DEFAULT 0,
         [dw_timestamp_insert]           DATETIME2(0) NOT NULL CONSTRAINT [DF_Borger_dw_timestamp_insert] DEFAULT CAST(SYSDATETIME() AS datetime2(0)),
         [dw_timestamp_update]           DATETIME2(0) NOT NULL CONSTRAINT [DF_Borger_dw_timestamp_update] DEFAULT CAST(SYSDATETIME() AS datetime2(0)),
+
+        -- Hospital with population responsibility for the current municipality
+        -- (Type 1, from ref.KommuneToPopulationsansvar). Last, as on a migrated table.
+        [populationsansvar]             NVARCHAR(50) NULL,
         CONSTRAINT [PK_Dim_Borger] PRIMARY KEY CLUSTERED ([dw_sk_Borger] ASC),
         CONSTRAINT [CK_Dim_Borger_CurrentNotDeleted] CHECK (
             [dw_is_deleted] = 0 OR [dw_is_current] = 0
@@ -143,6 +152,19 @@ BEGIN
     ) VALUES (
         -2, -2, 'NA',
         N'Ikke', N'relevant',
+        CAST('1900-01-01' AS datetime2(0)), CAST('9999-12-31 23:59:59' AS datetime2(0)), 1, 0,
+        CAST(SYSDATETIME() AS datetime2(0))
+    );
+
+    -- -99 = MASKERET: fact rows where the reader may not see which borger it is
+    INSERT INTO [dim].[Borger] (
+        [dw_sk_Borger], [dw_ek_Borger], [cpr_nummer],
+        [fornavne], [efternavn],
+        [dw_valid_from], [dw_valid_to], [dw_is_current], [dw_is_deleted],
+        [dw_timestamp_insert]
+    ) VALUES (
+        -99, -99, 'MASKERET',
+        N'Maskeret', N'Borger',
         CAST('1900-01-01' AS datetime2(0)), CAST('9999-12-31 23:59:59' AS datetime2(0)), 1, 0,
         CAST(SYSDATETIME() AS datetime2(0))
     );

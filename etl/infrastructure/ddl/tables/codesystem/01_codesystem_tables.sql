@@ -647,6 +647,72 @@ BEGIN
 END
 GO
 
+-- ============================================================================
+-- IFDB: kildesystemets egne administrative kodelister.
+--
+-- IFDB kvalificerer selv sine koder: «PASHenvisning_ks.ur.Henvisningsstatus.
+-- Afsluttet» naevner listen foer den sidste prik og koden efter. Derfor er én
+-- tabel nok til alle listerne; den fulde kvalificerede kode er noeglen, og den
+-- er praecis den vaerdi, faktatabellerne allerede gemmer. Listenavnet ligger som
+-- egenskaben «kodeliste», udledt af koden selv.
+--
+-- Teksten hoerer her og ikke paa hver faktaraekke. Aftagerfladen joiner den paa
+-- i vw_fhir, saa den, der laeser tabellerne, ser praecis det samme som foer.
+-- ============================================================================
+IF NOT EXISTS (
+    SELECT * FROM sys.objects
+    WHERE object_id = OBJECT_ID(N'[codesystem].[IFDBConcept]') AND type = 'U'
+)
+BEGIN
+    CREATE TABLE [codesystem].[IFDBConcept] (
+        [code]                NVARCHAR(450)  NOT NULL,
+        [display]             NVARCHAR(500)  NULL,
+        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_IFDBConcept_dw_timestamp_insert] DEFAULT SYSDATETIME(),
+        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_IFDBConcept_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        CONSTRAINT [PK_codesystem_IFDBConcept] PRIMARY KEY CLUSTERED ([code])
+    );
+
+    CREATE NONCLUSTERED INDEX [IX_codesystem_IFDBConcept_display]
+        ON [codesystem].[IFDBConcept] ([display]) INCLUDE ([code]);
+END
+GO
+
+IF NOT EXISTS (
+    SELECT * FROM sys.objects
+    WHERE object_id = OBJECT_ID(N'[codesystem].[IFDBProperties]') AND type = 'U'
+)
+BEGIN
+    CREATE TABLE [codesystem].[IFDBProperties] (
+        [code]                NVARCHAR(450)  NOT NULL,
+        [property_code]       NVARCHAR(100)  NOT NULL,
+        [value]               NVARCHAR(500)  NULL,
+        [type]                NVARCHAR(50)   NULL,
+        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_IFDBProperties_dw_timestamp_insert] DEFAULT SYSDATETIME(),
+        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_IFDBProperties_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        CONSTRAINT [PK_codesystem_IFDBProperties] PRIMARY KEY CLUSTERED ([code], [property_code])
+    );
+
+    CREATE NONCLUSTERED INDEX [IX_codesystem_IFDBProperties_property_code]
+        ON [codesystem].[IFDBProperties] ([property_code]) INCLUDE ([code], [value]);
+END
+GO
+
+-- IFDB's kodelister er flade; tabellen findes, fordi merge-hjaelperen roerer alle tre.
+IF NOT EXISTS (
+    SELECT * FROM sys.objects
+    WHERE object_id = OBJECT_ID(N'[codesystem].[IFDBHierarchy]') AND type = 'U'
+)
+BEGIN
+    CREATE TABLE [codesystem].[IFDBHierarchy] (
+        [parent_code]         NVARCHAR(450)  NOT NULL,
+        [child_code]          NVARCHAR(450)  NOT NULL,
+        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_IFDBHierarchy_dw_timestamp_insert] DEFAULT SYSDATETIME(),
+        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_IFDBHierarchy_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        CONSTRAINT [PK_codesystem_IFDBHierarchy] PRIMARY KEY CLUSTERED ([parent_code], [child_code])
+    );
+END
+GO
+
 -- ---------------------------------------------------------------------------
 -- shakalike (EPJI location.external_id)
 -- ---------------------------------------------------------------------------

@@ -42,6 +42,7 @@ from DSO.load.sync_configs import (
     ERP_SYNC_CONFIGS,
     SECURITY_SYNC_CONFIGS,
     SHARED_DIMS_SYNC_CONFIGS,
+    UDREDNINGSRET_SYNC_CONFIGS,
     get_config,
 )
 from DSO.load.sync_dim import (
@@ -55,6 +56,8 @@ from DSO.load.sync_dim import (
     dso_sync_dim_fakturalinje,
     dso_sync_dim_finanskladde,
     dso_sync_dim_finanskladdelinje,
+    dso_sync_dim_ilsbruger,
+    dso_sync_dim_ilsleverandoer,
     dso_sync_dim_ilsvare,
     dso_sync_dim_kontoplan,
     dso_sync_dim_kreditor,
@@ -102,6 +105,7 @@ from DSO.load.sync_haiba import (
 )
 from DSO.load.sync_ref_erp import (
     all_dso_sync_ref_erp_assets,
+    dso_sync_ref_ILSAendringslog,
     dso_sync_ref_RekvirentUndtagelse,
 )
 from DSO.load.sync_security import (
@@ -110,6 +114,7 @@ from DSO.load.sync_security import (
     dso_sync_sec_rolledomaene,
 )
 from DSO.load.sync_state import SyncStateManager
+from DSO.load.sync_udredningsret import all_udredningsret_dso_sync_assets
 from DSO.load.sync_utils import (
     LINKED_SERVER_NAME,
     STAGING_DATABASE,
@@ -132,6 +137,7 @@ all_dso_sync_assets = (
     + all_dso_sync_fct_assets
     + all_haiba_dso_sync_assets
     + all_drg_dso_sync_assets
+    + all_udredningsret_dso_sync_assets
     + all_dso_sync_ref_erp_assets
     + all_codesystem_dso_sync_assets
     + all_conceptmap_dso_sync_assets
@@ -164,6 +170,7 @@ __all__ = [
     # Configurations
     "ALL_SYNC_CONFIGS",
     "DRG_SYNC_CONFIGS",
+    "UDREDNINGSRET_SYNC_CONFIGS",
     "CONCEPTMAP_SYNC_CONFIGS",
     "ERP_SYNC_CONFIGS",
     "SHARED_DIMS_SYNC_CONFIGS",
@@ -190,6 +197,8 @@ __all__ = [
     "dso_sync_dim_organisation",
     "dso_sync_dim_LagerbeholdningEgenskaber",
     "dso_sync_dim_AfdelingLagerbeholdningEgenskaber",
+    "dso_sync_dim_ilsbruger",
+    "dso_sync_dim_ilsleverandoer",
     "dso_sync_dim_ilsvare",
     "dso_sync_dim_UNSPSC",
     "dso_sync_dim_okosted",
@@ -206,6 +215,7 @@ __all__ = [
     "dso_sync_dm_haiba_cases_ssi",
     "dso_sync_dm_haiba_cases_ssi_egenskaber",
     "all_drg_dso_sync_assets",
+    "all_udredningsret_dso_sync_assets",
     "all_haiba_dso_sync_assets",
     "dso_sync_fct_faktura",
     "dso_sync_fct_fakturalinje",
@@ -236,6 +246,7 @@ __all__ = [
     # ERP ref sync
     "all_dso_sync_ref_erp_assets",
     "dso_sync_ref_RekvirentUndtagelse",
+    "dso_sync_ref_ILSAendringslog",
     # SFI_datapoint materialized store refresh
     "all_sfi_datapoint_refresh_assets",
     "dso_reconcile_sfi_datapoint_store",

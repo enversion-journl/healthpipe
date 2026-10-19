@@ -13,7 +13,7 @@
       ]
     },
     {
-      "forEachOrNull": "location",
+      "forEachOrNull": "location.where(physicalType.coding.where(code='bd').exists().not())",
       "column": [
         {
           "name": "location_id",

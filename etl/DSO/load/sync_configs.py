@@ -52,6 +52,13 @@ ERP_DIM_CONFIGS = {
         mode="watermark",
         watermark_column="dw_timestamp_update",
     ),
+    "dim_ILSLeverandoer": SyncTableConfig(
+        schema="dim",
+        table="ILSLeverandoer",
+        primary_key="dw_ek_ILSLeverandoer",
+        mode="watermark",
+        watermark_column="dw_timestamp_update",
+    ),
     "dim_Kontoplan": SyncTableConfig(
         schema="dim",
         table="Kontoplan",
@@ -140,6 +147,13 @@ ERP_DIM_CONFIGS = {
         schema="dim",
         table="ILSVare",
         primary_key="dw_ek_ILSVare",
+        mode="watermark",
+        watermark_column="dw_timestamp_update",
+    ),
+    "dim_ILSBruger": SyncTableConfig(
+        schema="dim",
+        table="ILSBruger",
+        primary_key="dw_ek_ILSBruger",
         mode="watermark",
         watermark_column="dw_timestamp_update",
     ),
@@ -313,6 +327,16 @@ SHARED_DIMS_REF_CONFIGS = {
         primary_key="clean_code_Rekvirent",
         mode="truncate_insert",
     ),
+    # ILS ændringslog as-is (~9M rows, append-only). The ref MERGE only stamps
+    # dw_timestamp_update on real changes, so a delta sync on it is complete.
+    "ref_ILSAendringslog": SyncTableConfig(
+        schema="ref",
+        table="ILSAendringslog",
+        primary_key="prrowid",
+        mode="watermark",
+        watermark_column="dw_timestamp_update",
+        chunk_size=20_000,
+    ),
 }
 
 SHARED_DIMS_DIM_CONFIGS = {
@@ -397,6 +421,19 @@ SECURITY_SYNC_CONFIGS = {
 # =============================================================================
 
 CODESYSTEM_SYNC_CONFIGS = {
+    # IFDB's egne kvalificerede kodelister; teksten joines paa i vw_fhir.
+    "codesystem_ifdb_concept": SyncTableConfig(
+        schema="codesystem",
+        table="IFDBConcept",
+        primary_key="code",
+        mode="truncate_insert",
+    ),
+    "codesystem_ifdb_properties": SyncTableConfig(
+        schema="codesystem",
+        table="IFDBProperties",
+        primary_key=["code", "property_code"],
+        mode="truncate_insert",
+    ),
     # SFI (already synced to [codesystem]; kept as-is)
     "codesystem_sfi_concept": SyncTableConfig(
         schema="codesystem",
@@ -576,12 +613,15 @@ CODESYSTEM_SYNC_CONFIGS = {
 # =============================================================================
 
 FHIR_SYNC_CONFIGS = {
+    # municipality_code stays in staging: for a citizen with name and address
+    # protection only populationsansvar on dim.Borger may show where they live.
     "fhir_patient": SyncTableConfig(
         schema="fhir",
         table="Patient",
         primary_key="patient_id",
         mode="watermark",
         watermark_column="dw_timestamp_update",
+        exclude_columns=["municipality_code"],
     ),
     "fhir_patient_address": SyncTableConfig(
         schema="fhir",
@@ -684,24 +724,38 @@ FHIR_SYNC_CONFIGS = {
         mode="watermark",
         watermark_column="dw_timestamp_update",
     ),
-    "fhir_condition_tillaegskode": SyncTableConfig(
+    "fhir_condition_supplementary_code": SyncTableConfig(
         schema="fhir",
-        table="Condition_tillaegskode",
-        primary_key=["condition_id", "tillaegskode_kode", "tillaegskode_system"],
+        table="Condition_SupplementaryCode",
+        primary_key=["condition_id", "supplementary_code", "supplementary_code_system"],
         mode="watermark",
         watermark_column="dw_timestamp_update",
     ),
-    "fhir_procedure_tillaegskode": SyncTableConfig(
+    "fhir_observation_speciale": SyncTableConfig(
         schema="fhir",
-        table="Procedure_tillaegskode",
-        primary_key=["procedure_id", "tillaegskode_kode", "tillaegskode_system"],
+        table="Observation_Speciale",
+        primary_key=["observation_id", "speciale_kode"],
         mode="watermark",
         watermark_column="dw_timestamp_update",
     ),
-    "fhir_service_request_tillaegskode": SyncTableConfig(
+    "fhir_condition_henvisning": SyncTableConfig(
         schema="fhir",
-        table="ServiceRequest_tillaegskode",
-        primary_key=["service_request_id", "tillaegskode_kode", "tillaegskode_system"],
+        table="Condition_henvisning",
+        primary_key=["condition_id", "henvisning_id"],
+        mode="watermark",
+        watermark_column="dw_timestamp_update",
+    ),
+    "fhir_procedure_supplementary_code": SyncTableConfig(
+        schema="fhir",
+        table="Procedure_SupplementaryCode",
+        primary_key=["procedure_id", "supplementary_code", "supplementary_code_system"],
+        mode="watermark",
+        watermark_column="dw_timestamp_update",
+    ),
+    "fhir_service_request_supplementary_code": SyncTableConfig(
+        schema="fhir",
+        table="ServiceRequest_SupplementaryCode",
+        primary_key=["service_request_id", "supplementary_code", "supplementary_code_system"],
         mode="watermark",
         watermark_column="dw_timestamp_update",
     ),
@@ -723,6 +777,41 @@ FHIR_SYNC_CONFIGS = {
         schema="fhir",
         table="Appointment",
         primary_key="appointment_id",
+        mode="watermark",
+        watermark_column="dw_timestamp_update",
+    ),
+    "fhir_ward_unit": SyncTableConfig(
+        schema="fhir",
+        table="WardUnit",
+        primary_key="ward_unit_id",
+        mode="watermark",
+        watermark_column="dw_timestamp_update",
+    ),
+    "fhir_ward_unit_capacity": SyncTableConfig(
+        schema="fhir",
+        table="WardUnit_Capacity",
+        primary_key="observation_id",
+        mode="watermark",
+        watermark_column="dw_timestamp_update",
+    ),
+    "fhir_bed": SyncTableConfig(
+        schema="fhir",
+        table="Bed",
+        primary_key="bed_id",
+        mode="watermark",
+        watermark_column="dw_timestamp_update",
+    ),
+    "fhir_encounter_bed_space": SyncTableConfig(
+        schema="fhir",
+        table="Encounter_BedSpace",
+        primary_key=["encounter_id", "location_id", "location_period_start"],
+        mode="watermark",
+        watermark_column="dw_timestamp_update",
+    ),
+    "fhir_encounter_absence": SyncTableConfig(
+        schema="fhir",
+        table="Encounter_Absence",
+        primary_key=["encounter_id", "period_start"],
         mode="watermark",
         watermark_column="dw_timestamp_update",
     ),
@@ -762,6 +851,23 @@ FHIR_SYNC_CONFIGS = {
         schema="fhir",
         table="CarePlan_Activity",
         primary_key="ifdb_eventmarker_id",
+        mode="watermark",
+        watermark_column="dw_timestamp_update",
+    ),
+    # SilkeborgData payroll staff — the one source that owns its whole chain in
+    # its own job, so its sync sits in its own group (see sync_fhir). The sync
+    # itself is source-agnostic: it copies whatever the SOF merge put in staging.
+    "fhir_practitioner": SyncTableConfig(
+        schema="fhir",
+        table="Practitioner",
+        primary_key="practitioner_id",
+        mode="watermark",
+        watermark_column="dw_timestamp_update",
+    ),
+    "fhir_practitioner_role": SyncTableConfig(
+        schema="fhir",
+        table="PractitionerRole",
+        primary_key="practitioner_role_id",
         mode="watermark",
         watermark_column="dw_timestamp_update",
     ),
@@ -959,6 +1065,98 @@ DRG_SYNC_CONFIGS = {
 
 
 # =============================================================================
+# UDREDNINGSRET CONFIGURATIONS
+# =============================================================================
+
+# Every udredningsret dim/fct carries dw_timestamp_update and is maintained
+# incrementally in the DSA layer (fct MERGE + soft-delete; the dims are Type 1
+# upserts), so a watermark delta on dw_timestamp_update moves exactly the
+# changed rows — no benefit to truncate_insert. The five maps
+# (map.Helbredsforloeb, map.Udredningsforloeb, map.UdredningsretKlassifikation,
+# map.Forloebsmarkoer, map.UdredningsretMarkoer) are deliberately absent: they
+# mint the IDENTITY keys and are staging-internal. So are arc.udredningsret_mont
+# — which holds the raw CPR — ext.udredningsret* and meta.UdredningsretLeverance;
+# none of them exists on DSO.
+#
+# What syncs carries no CPR, raw or hashed (decision U18). "No borger key" is not
+# enough on its own: clean_code_Udredningsforloeb is built as
+# 'UDREDFORL_' + helbredsforloeb_noegle + ... and helbredsforloeb_noegle is a
+# SHA2_256 over the citizen's CPR, so the column carries that digest verbatim —
+# a stable pseudonym anyone who knows the hash inputs can recompute, which is the
+# very category spec section 9 keeps out of dqa.Results. It is therefore
+# EXCLUDED from both tables that declare it (below); the DSO column stays NULL and
+# the surrogate dw_ek_Udredningsforloeb is the join key on DSO.
+# clean_code_UdredningsretMarkoer is not affected: markoer_noegle is a fresh hash
+# OF the helbredsforloeb key, not the key itself.
+#
+# dim.UdredningsretEgenskaber shares its PK, dw_ek_Udredningsforloeb, with
+# fct.Udredningsforloeb (as DRG's egenskaber dim does with fct.DRGKontakt), so
+# it syncs on that key and has none of its own.
+UDREDNINGSRET_SYNC_CONFIGS = {
+    "dim_UdredningsretEgenskaber": SyncTableConfig(
+        schema="dim",
+        table="UdredningsretEgenskaber",
+        primary_key="dw_ek_Udredningsforloeb",
+        mode="watermark",
+        watermark_column="dw_timestamp_update",
+        # Carries the CPR digest — see the U18 note above.
+        exclude_columns=["clean_code_Udredningsforloeb"],
+    ),
+    "dim_UdredningsretKlassifikation": SyncTableConfig(
+        schema="dim",
+        table="UdredningsretKlassifikation",
+        primary_key="dw_ek_UdredningsretKlassifikation",
+        mode="watermark",
+        watermark_column="dw_timestamp_update",
+    ),
+    "dim_Forloebsmarkoer": SyncTableConfig(
+        schema="dim",
+        table="Forloebsmarkoer",
+        primary_key="dw_ek_Forloebsmarkoer",
+        mode="watermark",
+        watermark_column="dw_timestamp_update",
+    ),
+    # Both facts take disable_target_indexes_during_sync. The flag fires on the
+    # BULK path only — truncate_insert or an empty target — which here means the
+    # first load into the table dso_infra_udredningsret creates and never seeds.
+    # The nightly watermark delta lands on a populated target and takes the MERGE
+    # path, where the nonclustered indexes are left intact: rebuilding every index
+    # over the whole table to absorb a small delta would cost far more than per-row
+    # upkeep (see _sync_via_linked_server_batched).
+    #
+    # fct.Udredningsforloeb is 1.9M rows with eight nonclustered indexes on top of
+    # the clustered PK — ~15M random index writes on the first load. That is an
+    # order of magnitude short of fct.DRGKontakt's 35.6M x 11, which hung on
+    # PAGEIOLATCH_EX for hours on dev, but it is the same failure shape, the flag
+    # is inert on every run after the first, and one rule for both facts beats two
+    # rules for the same problem.
+    "fct_Udredningsforloeb": SyncTableConfig(
+        schema="fct",
+        table="Udredningsforloeb",
+        primary_key="dw_ek_Udredningsforloeb",
+        mode="watermark",
+        watermark_column="dw_timestamp_update",
+        chunk_size=20_000,
+        disable_target_indexes_during_sync=True,
+        # Carries the CPR digest — see the U18 note above.
+        exclude_columns=["clean_code_Udredningsforloeb"],
+    ),
+    # 8.2M rows with seven nonclustered indexes on top of the clustered PK —
+    # ~57M random index writes on the first load, so this is fct.DRGKontakt's
+    # case outright.
+    "fct_UdredningsretMarkoer": SyncTableConfig(
+        schema="fct",
+        table="UdredningsretMarkoer",
+        primary_key="dw_ek_UdredningsretMarkoer",
+        mode="watermark",
+        watermark_column="dw_timestamp_update",
+        chunk_size=20_000,
+        disable_target_indexes_during_sync=True,
+    ),
+}
+
+
+# =============================================================================
 # ALL CONFIGURATIONS
 # =============================================================================
 
@@ -971,6 +1169,7 @@ ALL_SYNC_CONFIGS = {
     **CONCEPTMAP_SYNC_CONFIGS,
     **HAIBA_DM_CONFIGS,
     **DRG_SYNC_CONFIGS,
+    **UDREDNINGSRET_SYNC_CONFIGS,
 }
 
 

@@ -21,7 +21,7 @@ Grain: one row per Condition resource (PK condition_id). code/code_system/
 code_display carry the PRIMARY diagnosis coding, selected in condition_view via
 ``code.coding.where(userSelected = true)``. SKS supplementary codes
 (tillaegskoder — many are ATC medication codes) are projected to
-fhir.Condition_tillaegskode.
+fhir.Condition_SupplementaryCode.
 """
 
 from DSA.FHIR.utils.sql_on_fhir.sof_dfm_factory import create_sof_dfm_asset
@@ -43,11 +43,24 @@ sof_condition_dfm = create_sof_dfm_asset(
 
 # The child view is derived from the parent's resources, so it follows the
 # parent rather than re-reading the producers.
-sof_condition_tillaegskode_dfm = create_sof_dfm_asset(
-    asset_name="sof_condition_tillaegskode_dfm",
-    config_key="condition_tillaegskode_view",
-    checkpoint_resource="Condition_tillaegskode",
+sof_condition_supplementary_code_dfm = create_sof_dfm_asset(
+    asset_name="sof_condition_supplementary_code_dfm",
+    config_key="condition_supplementary_code_view",
+    checkpoint_resource="Condition_SupplementaryCode",
     deps=["fhir_sof_infrastructure", "sof_condition_dfm"],
 )
 
-__all__ = ["sof_condition_dfm", "sof_condition_tillaegskode_dfm"]
+# Kobling diagnose -> henvisning (PAS_DIAGNOSE_HENVISNING_REF) i eget grain; samme
+# afledning fra forældre-ressourcerne som tillægskoderne.
+sof_condition_henvisning_dfm = create_sof_dfm_asset(
+    asset_name="sof_condition_henvisning_dfm",
+    config_key="condition_henvisning_view",
+    checkpoint_resource="Condition_henvisning",
+    deps=["fhir_sof_infrastructure", "sof_condition_dfm"],
+)
+
+__all__ = [
+    "sof_condition_dfm",
+    "sof_condition_supplementary_code_dfm",
+    "sof_condition_henvisning_dfm",
+]

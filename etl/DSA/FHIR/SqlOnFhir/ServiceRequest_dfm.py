@@ -9,7 +9,7 @@ SQL on FHIR: ServiceRequest extraction using DFM checkpoint.
 
 Reads the ServiceRequest flat view (and its tillaegskode child view) from the
 Aidbox sof schema filtered by DFM checkpoint instead of Dagster partitions, and
-MERGEs into fhir.ServiceRequest / fhir.ServiceRequest_tillaegskode.
+MERGEs into fhir.ServiceRequest / fhir.ServiceRequest_SupplementaryCode.
 
 Both producers of fhir.ServiceRequest are on the DFM path (the
 henvisning/RIS pipeline; the rehabilitation-plan slice was already there), so
@@ -36,13 +36,13 @@ sof_service_request_dfm = create_sof_dfm_asset(
 # The child view is derived from the parent's resources, so it follows the
 # parent SOF asset rather than re-reading the producers (same pattern as the
 # Condition/Procedure child views).
-sof_service_request_tillaegskode_dfm = create_sof_dfm_asset(
-    asset_name="sof_service_request_tillaegskode_dfm",
-    config_key="servicerequest_tillaegskode_view",
-    checkpoint_resource="ServiceRequest_tillaegskode",
+sof_service_request_supplementary_code_dfm = create_sof_dfm_asset(
+    asset_name="sof_service_request_supplementary_code_dfm",
+    config_key="servicerequest_supplementary_code_view",
+    checkpoint_resource="ServiceRequest_SupplementaryCode",
     deps=["fhir_sof_infrastructure", "sof_service_request_dfm"],
     description=(
-        "Extract ServiceRequest_tillaegskode child view from Aidbox sof schema "
-        "(DFM checkpoint) and MERGE into fhir.ServiceRequest_tillaegskode"
+        "Extract ServiceRequest_SupplementaryCode child view from Aidbox sof schema "
+        "(DFM checkpoint) and MERGE into fhir.ServiceRequest_SupplementaryCode"
     ),
 )

@@ -30,7 +30,7 @@ hvornår hver af dem er påkrævet.
 Lineage-filerne dokumenterer, hvor hver kolonne stammer fra, sporet helt tilbage til
 kildesystem og kildetabel. De er ikke kun dokumentation: en CI-kontrol validerer
 dem mod DDL'en, DQA udleder referentielle tjek af dem, og de driver den interaktive
-star schema-visualisering.
+visualisering af stjerneskemaet.
 
 **Én fil per tabel**, i mappen der svarer til SQL-skemaet:
 
@@ -48,7 +48,7 @@ etl/data_lineage/
 ```yaml
 dso_lineage:
   TableName: dim.MinTabel          # påkrævet — udledes IKKE af filnavnet
-  Type: dimension                  # dimension | fact | fhir
+  Type: dimension                  # dimension | fact | fhir | bridge
   Domain: [ERP]                    # fx [ERP], [FHIR], [Shared]
   Description: "Kort beskrivelse på dansk"
   Grain: "Én række pr. ..."        # på dansk
@@ -57,7 +57,7 @@ dso_lineage:
     - sydax: [Kreditor.Kreditor]   # system: [skema.tabel, ...]
 
   Columns:
-    dw_ek_MinTabel:      { Type: PK, DataType: INT }         # entitetsnøgle → ingen Source
+    dw_ek_MinTabel:      { Type: PK, DataType: INT }         # entity key → ingen Source
     dw_ek_Organisation:  { Type: FK, DataType: INT }
     navn:                { DataType: NVARCHAR(200), Source: [sydax.Kreditor.Kreditor.navn] }
     beloeb:              { Type: Measure, DataType: DECIMAL(18,4), Source: [...], Expr: "sum af ..." }
@@ -70,7 +70,7 @@ dso_lineage:
    `arc.*`, `stg.*`, `pre_stg.*`, `map.*`, `dim.*`, `fct.*` er *transformationstrin*,
    ikke kilder. Skal en kolonne spores, følg transformationen hele vejen tilbage til
    kildesystemets kolonne, og beskriv afledningen i `Expr`.
-2. **Entitetsnøgler har ingen `Source`.** `dw_ek_*` og `dw_sk_*` tildeles i map-laget
+2. **Entity keys har ingen `Source`.** `dw_ek_*` og `dw_sk_*` tildeles i map-laget
    og har ingen oprindelse i et kildesystem. Skriv dem helt uden `Source` — ikke med
    `map.*` som kilde.
 3. **Referencer skal kunne slås op case-sensitivt** til `system.skema.tabel.kolonne`, hvor
@@ -170,7 +170,8 @@ Aftager: hvad den, der læser data, skal gøre anderledes på grund af beslutnin
 Status: Fastlagt / Foreløbig / Kendt begrænsning indtil ...
 ```
 
-For principielle valg bruges den udvidede form fra del 0:
+For principielle valg bruges den udvidede form fra
+[beslutningslog_principper.md](../contracts/beslutningslog_principper.md):
 *Valgt* / *Alternativ* / *Begrundelse* / *Betydning for aftager* / *Status*.
 
 ---
@@ -193,10 +194,10 @@ Tilføj som minimum:
 | DSO | `dso_reconciliation` — DSA og DSO stemmer række for række |
 
 Konfigurationen ligger i `etl/dqa/config/`. Tag altid nøglekolonner **fra
-konfigurationsobjektet** (fx `ArchiveMergeConfig.merge_keys`) frem for at taste dem
+konfigurationsobjektet** (fx `ArchiveMergeConfig.merge_keys`) frem for at skrive dem
 af — det er dét, der holder tjekket i takt med tabellens faktiske grain.
 
-Se [dqa/README.md](../architecture/dqa/README.md) (endnu ikke oversat).
+Se [dqa/README.md](../architecture/dqa/README.md) (på engelsk).
 
 ---
 

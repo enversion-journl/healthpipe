@@ -13,9 +13,8 @@ transform to FHIR Procedure, and post to the FHIR server. ALL source columns
 are preserved via standard fields and extensions, and procedure granularity is
 derived from XML <service> groups (one-to-many per OBJEKT_ID).
 
-Source validation is strict except in full_load mode (the bulk-equivalent):
-delta/period runs raise on unknown STATE values or unparseable XML, mirroring
-the previous daily/monthly vs bulk split.
+The asset never validates strictly: unknown STATE values and rows without
+service groups are skipped, counted and reported in the run's metadata.
 
 Standard FHIR fields:
     - Procedure.identifier <- OBJEKT_ID:ElementNummer
@@ -60,6 +59,7 @@ from core.resources import (
 from DSA.FHIR.utils.code_normalization import normalize_sks_coding_code
 from DSA.FHIR.utils.codings import build_unique_ordered_codings
 from DSA.FHIR.utils.dfm_query import build_fhir_archive_query
+from DSA.FHIR.utils.fhir_checkpoint import advance_fhir_checkpoint
 from DSA.FHIR.utils.ifdb.fhir_posting import (
     post_resources_direct,
     prepare_resources_for_upsert,
@@ -92,7 +92,7 @@ from fhir.resources.R4B.coding import Coding
 from fhir.resources.R4B.extension import Extension
 from fhir.resources.R4B.identifier import Identifier
 from fhir.resources.R4B.period import Period
-from fhir.resources.R4B.procedure import Procedure
+from fhir.resources.R4B.procedure import Procedure, ProcedurePerformer
 from fhir.resources.R4B.reference import Reference
 from utils.fhir.fhir_extensions import (
     EXTENSION_EPISODE_OF_CARE,
@@ -102,10 +102,14 @@ from utils.fhir.fhir_extensions import (
     EXTENSION_RIS_YDELSE_XML,
 )
 from utils.fhir.identifier_systems import (
+    PERFORMER_FUNCTION_DISPLAYS,
+    PERFORMER_FUNCTION_STAMAFDELING,
+    PERFORMER_FUNCTION_UDFOERENDE,
     SYSTEM_IFDB_EPISODE_OF_CARE_ID,
     SYSTEM_IFDB_OBJECT_ID,
     SYSTEM_IFDB_PATIENT_ID,
     SYSTEM_IFDB_RIS_YDELSE,
+    SYSTEM_PERFORMER_FUNCTION,
     SYSTEM_SKS,
     SYSTEM_SOR,
 )
@@ -131,7 +135,38 @@ RIS_YDELSE_REFERENCE_CONFIGS = [
     ),
 ]
 
+
+def _build_organization_performer(sorcode: str, funktion: str) -> ProcedurePerformer:
+    """Organisation som performer med rolle (udførende enhed eller stamafdeling)."""
+    return ProcedurePerformer(
+        actor=Reference(
+            type="Organization",
+            identifier=Identifier(system=SYSTEM_SOR, value=sorcode),
+        ),
+        function=CodeableConcept(
+            coding=[
+                Coding(
+                    system=SYSTEM_PERFORMER_FUNCTION,
+                    code=funktion,
+                    display=PERFORMER_FUNCTION_DISPLAYS[funktion],
+                )
+            ],
+            text=PERFORMER_FUNCTION_DISPLAYS[funktion],
+        ),
+    )
+
+
 RIS_YDELSE_NESTED_REFERENCE_CONFIGS = [
+    # Begge organisationer (udførende enhed, stamafdeling) opløses til
+    # Organization/<id>, så de kan joines i den flade tabel.
+    NestedReferenceFieldConfig(
+        field_path="performer.actor",
+        identifier_system_to_type={
+            SYSTEM_SOR: "Organization",
+        },
+        is_required=False,
+        description="Udførende enhed og stamafdeling (SOR) som Organization-referencer",
+    ),
     NestedReferenceFieldConfig(
         field_path="extension.valueReference",
         identifier_system_to_type={
@@ -177,6 +212,9 @@ KNOWN_NON_FINAL_RIS_STATES = {
     # never produce a completed radiology procedure and must also skip.
     "REJECTED",
 }
+
+# Counted with the skipped STATE values; the parentheses keep it out of the unknown ones.
+_NO_SERVICE_GROUPS = "(no service groups)"
 
 
 # RIS payloads carry full XML in extensions, so batches are sized smaller than
@@ -273,6 +311,7 @@ def _transform_ris_ydelse_to_fhir(
     context: dg.AssetExecutionContext,
     *,
     strict_source_validation: bool = False,
+    skipped_total: dict[str, int] | None = None,
 ) -> list[Procedure]:
     """Transform RIS_YDELSE rows to FHIR Procedure resources.
 
@@ -280,8 +319,10 @@ def _transform_ris_ydelse_to_fhir(
     or custom extensions. Raw XML content is preserved in risYdelseXml extension.
 
     When ``strict_source_validation`` is enabled, unexpected states and invalid
-    XML fail the transform instead of being silently skipped. Daily/monthly
-    assets use strict mode; bulk keeps the tolerant behavior for backfills.
+    XML fail the transform instead of being skipped.
+
+    ``skipped_total`` akkumulerer på tværs af batches, så asset'et kan lægge
+    tallene i sin metadata. Uden den tælles der stadig, bare kun pr. batch.
     """
     procedures: list[Procedure] = []
     skipped_states: dict[str, int] = {}
@@ -326,6 +367,7 @@ def _transform_ris_ydelse_to_fhir(
         if not service_groups:
             if strict_source_validation:
                 raise ValueError(f"RIS_YDELSE row {objekt_id} produced no service groups from XML")
+            skipped_states[_NO_SERVICE_GROUPS] = skipped_states.get(_NO_SERVICE_GROUPS, 0) + 1
             continue
 
         deleted_int = int(_is_true_flag(slettet))
@@ -414,23 +456,18 @@ def _transform_ris_ydelse_to_fhir(
                 else None
             )
 
+            # Udførende enhed og stamafdeling er to forskellige organisationer og
+            # står som hver sin performer med funktion, så den flade tabel kan
+            # skelne dem. Tidligere faldt vi tilbage til stamafdelingen, når den
+            # udførende enhed manglede, og blandede dermed de to sammen.
             performer_list = []
-            udfoert_sorcode = _str_or_none(row_dict.get("UDFOERT_ADMENHED_SORCODE"))
-            if not udfoert_sorcode:
-                udfoert_sorcode = _str_or_none(row_dict.get("STAMAFD_SORCODE"))
-            if udfoert_sorcode:
-                from fhir.resources.R4B.procedure import ProcedurePerformer
-
-                performer_list.append(
-                    ProcedurePerformer(
-                        actor=Reference(
-                            identifier=Identifier(
-                                system=SYSTEM_SOR,
-                                value=str(udfoert_sorcode),
-                            ),
-                        ),
-                    )
-                )
+            for felt, funktion in (
+                ("UDFOERT_ADMENHED_SORCODE", PERFORMER_FUNCTION_UDFOERENDE),
+                ("STAMAFD_SORCODE", PERFORMER_FUNCTION_STAMAFDELING),
+            ):
+                sorcode = _str_or_none(row_dict.get(felt))
+                if sorcode:
+                    performer_list.append(_build_organization_performer(sorcode, funktion))
 
             # Driftsflag som meta.tag: kun dermed kan der soeges paa flaget via
             # FHIR-serveren og filtreres paa det som kolonne i de flade tabeller.
@@ -488,8 +525,24 @@ def _transform_ris_ydelse_to_fhir(
     if skipped_states:
         context.log.info(
             f"Skipped {sum(skipped_states.values())} RIS_YDELSE rows "
-            f"with non-final states: {skipped_states}"
+            f"with non-final states or no service groups: {skipped_states}"
         )
+        # De ukendte er dem, værnet ellers ville være væltet på. De skal frem i
+        # lyset ved navn og antal, også når vi ikke stopper kørslen på dem.
+        unknown = {
+            state: count
+            for state, count in skipped_states.items()
+            if not state.startswith("(") and state not in KNOWN_NON_FINAL_RIS_STATES
+        }
+        if unknown:
+            context.log.warning(
+                f"RIS_YDELSE: unknown STATE values skipped (not in the allowed or "
+                f"known non-final lists): {unknown}. Present them to the domain "
+                f"experts; extend KNOWN_NON_FINAL_RIS_STATES if they are expected."
+            )
+        if skipped_total is not None:
+            for state, count in skipped_states.items():
+                skipped_total[state] = skipped_total.get(state, 0) + count
 
     return procedures
 
@@ -527,10 +580,10 @@ def _post_ris_ydelse_to_fhir(
                 eoc_ids_needed.add(str(ext.valueReference.identifier.value))
 
     if resolve_missing_dependencies and mssql:
+        from DSA.FHIR.Patient.patient_service import NEED_REFERENCE, ensure_patients
         from DSA.FHIR.utils.ifdb.dependency_resolver import (
             resolve_missing_encounters,
             resolve_missing_episodes_of_care,
-            resolve_missing_patients,
         )
 
         if eoc_ids_needed:
@@ -553,11 +606,12 @@ def _post_ris_ydelse_to_fhir(
 
         if patient_ids_needed:
             logger.info(f"[DEPENDENCY] Ensuring {len(patient_ids_needed)} patients exist")
-            resolve_missing_patients(
-                patient_ids=patient_ids_needed,
+            ensure_patients(
+                ifdb_patient_ids=patient_ids_needed,
                 mssql=mssql,
                 fhir_database=fhir_database,
                 context=context,
+                need=NEED_REFERENCE,
             )
 
     procedures = prepare_resources_for_upsert(
@@ -630,10 +684,8 @@ def fhir_server_procedure_ris_ydelse_dfm(
     # under the same CPR. Built once and reused for every batch.
     patient_cpr_fallback = build_patient_cpr_fallback(mssql_target_staging, fhir_database)
 
-    # Strict except in full_load (the bulk-equivalent): delta/period raise on
-    # unknown STATE values or unparseable XML, so bad source data stops the run
-    # instead of posting silently wrong resources.
-    strict_source_validation = config.mode != "full_load"
+    # Oversprungne STATE-værdier samlet for hele kørslen, så de kan rapporteres.
+    skipped_total: dict[str, int] = {}
 
     # Værn mod masse-pensionering i reconcile; hæves pr. kørsel via run-tags
     # ved en varslet masseoprydning.
@@ -645,10 +697,7 @@ def fhir_server_procedure_ris_ydelse_dfm(
         query = build_fhir_archive_query(
             "arc.ifdb_ris_ydelse", run_ctx.checkpoint, config, include_deleted=True
         )
-        context.log.info(
-            f"Querying arc.ifdb_ris_ydelse (mode={config.mode}, "
-            f"strict_source_validation={strict_source_validation})"
-        )
+        context.log.info(f"Querying arc.ifdb_ris_ydelse (mode={config.mode})")
 
         total_fetched = 0
         total_posted = 0
@@ -676,7 +725,7 @@ def fhir_server_procedure_ris_ydelse_dfm(
                     procedures = _transform_ris_ydelse_to_fhir(
                         batch,
                         context,
-                        strict_source_validation=strict_source_validation,
+                        skipped_total=skipped_total,
                     )
                     if procedures:
                         _post_ris_ydelse_to_fhir(
@@ -707,21 +756,9 @@ def fhir_server_procedure_ris_ydelse_dfm(
             f"Done: {total_fetched} fetched, {total_posted} posted in {batch_num} batches"
         )
 
-        new_checkpoint: str | None = None
-        if config.should_advance_checkpoint and total_fetched > 0:
-            with mssql_target_staging.get_connection() as conn:
-                cursor = conn.cursor()
-                try:
-                    cursor.execute("SELECT CONVERT(NVARCHAR(50), SYSDATETIME(), 121)")
-                    row = cursor.fetchone()
-                    new_checkpoint = row[0] if row else None
-                finally:
-                    cursor.close()
-
-            if new_checkpoint:
-                dfm.set_checkpoint(
-                    "fhir_server", "Procedure_RisYdelse", value=new_checkpoint, mode=config.mode
-                )
+        new_checkpoint = advance_fhir_checkpoint(
+            dfm, run_ctx, "Procedure_RisYdelse", config, total_fetched
+        )
 
         dfm.complete_dfm_run(
             run_ctx.log_id,
@@ -729,12 +766,20 @@ def fhir_server_procedure_ris_ydelse_dfm(
             rows_affected=total_posted,
         )
 
+        unknown_states = {
+            state: count
+            for state, count in skipped_total.items()
+            if not state.startswith("(") and state not in KNOWN_NON_FINAL_RIS_STATES
+        }
         return dg.MaterializeResult(
             metadata={
                 "posted_count": total_posted,
                 "fetched_count": total_fetched,
                 "batch_count": batch_num,
                 "mode": config.mode,
+                "skipped_rows": sum(skipped_total.values()),
+                "skipped_states": str(skipped_total or "-"),
+                "unknown_states": str(unknown_states or "ingen"),
             }
         )
     except Exception as exc:

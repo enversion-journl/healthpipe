@@ -1,0 +1,56 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fhir
+  TableName: fhir.Practitioner
+  Domain: [FHIR]
+  Description: "FHIR Practitioner fra SilkeborgDatas lønudtræk E26PERS. Type 1 (én aktuel række pr. person, bygget på personens nyeste leverance). Historikken bevares i arc.silkeborgdata_e26_pers, ikke som FHIR-versioner."
+  Grain: "Én række pr. person (practitioner_id), identificeret ved CPR i kilden"
+  FhirResource: Practitioner
+  # Ingen Profile: dk-core-practitioner bærer autorisationskoden fra
+  # autorisationsregisteret, og et lønudtræk har ingen. At erklære profilen
+  # uden dens bærende slice ville være et tomt løfte.
+
+  Extensions:
+    # Det afløste CPR bæres som extension og IKKE som en anden identifier under
+    # samme system: opslaget læser kun den første identifier pr. system, og det
+    # unikke indeks står på netop det udtryk.
+    identifier_cpr_previous: "urn:source:silkeborgdata:afloest_cpr"
+    dw_is_deleted:           "urn:fhir:isDeleted"
+
+  SourceSystems:
+    - silkeborgdata:    [arc.silkeborgdata_e26_pers]
+
+  Columns:
+    # ------------------------------------------------------------------
+    # Identitet
+    # ------------------------------------------------------------------
+    practitioner_id:      { Type: PK, DataType: NVARCHAR(255), FhirPath: "id", Description: "FHIR resource id (Aidbox). Ikke deterministisk — opløses ved upsert ud fra CPR-identifieren." }
+    identifier_cpr:       { DataType: NVARCHAR(10), FhirPath: "identifier.where(system='urn:dk:cpr').value", Source: [silkeborgdata.arc.silkeborgdata_e26_pers.CprNr], Description: "CPR (system: identifier_systems.SYSTEM_CPR). Personidentiteten — tjenestenummeret kan ikke bruges, da 36 numre er genbrugt til nye personer. Præcis ét CPR pr. række: et andet nummer under samme system ville gøre indeksnøglen afhængig af identifier-rækkefølgen." }
+    identifier_cpr_previous: { DataType: NVARCHAR(10), FhirPath: "extension('urn:source:silkeborgdata:afloest_cpr').valueString", Source: [silkeborgdata.arc.silkeborgdata_e26_pers.CprNr], FK-None: true, Expr: "Det CPR personen havde før en rettelse. Fyldt på 4 af 53.129 personer. En rettelse giver TO rækker: den overlevende med active = 1 og denne kolonne fyldt, og det afløste nummer som sin egen række med active = 0 og ingen roller." }
+
+    # ------------------------------------------------------------------
+    # Navn — kilden har formen "Efternavn,Fornavn(e)"
+    # ------------------------------------------------------------------
+    name_text:            { DataType: NVARCHAR(100), FhirPath: "name.text", Source: [silkeborgdata.arc.silkeborgdata_e26_pers.Navn], Description: "Rå kildeværdi, sættes altid — en forkert splitning kan derfor altid efterprøves." }
+    name_family:          { DataType: NVARCHAR(100), FhirPath: "name.family", Source: [silkeborgdata.arc.silkeborgdata_e26_pers.Navn], Expr: "Tekst før første komma. Absent når navnet mangler komma (31 rækker) — der gættes ikke." }
+    name_given:           { DataType: NVARCHAR(100), FhirPath: "name.given", Source: [silkeborgdata.arc.silkeborgdata_e26_pers.Navn], Expr: "Tekst efter første komma, splittet på mellemrum. Et efternavn med mellemrum kan ikke skelnes fra flere fornavne; name_text bevarer sandheden." }
+
+    # ------------------------------------------------------------------
+    # Demografi — udledt af CPR, ikke leveret af kilden
+    # ------------------------------------------------------------------
+    gender:               { DataType: NVARCHAR(20), FhirPath: "gender", Source: [silkeborgdata.arc.silkeborgdata_e26_pers.CprNr], Expr: "Sidste ciffer ulige → male, lige → female. Absent når CPR ikke består validitetsporten (10 cifre + parsende datodel) — 38 af 53.129 numre." }
+    birth_date:           { DataType: DATE, FhirPath: "birthDate", Source: [silkeborgdata.arc.silkeborgdata_e26_pers.CprNr], Expr: "Cifre 1-6 med århundrede fra 7. ciffer. Samme validitetsport som gender, plus en nedre plausibilitetsgrænse på 13 år. Ingen øvre grænse: arkivet rummer rigtige ansatte født helt tilbage til 1918." }
+
+    # ------------------------------------------------------------------
+    # Status og proveniens
+    # ------------------------------------------------------------------
+    active:               { DataType: BIT, FhirPath: "active", Source: [silkeborgdata.arc.silkeborgdata_e26_pers.Udtraeksdato], Expr: "1 når personen findes i den nyeste leverance. BIT og ikke tekst, så rapport-prædikatet WHERE active = 1 virker — fhir.Patient.active er BIT ad samme vej (fhir.Organization er NVARCHAR af historiske grunde). Betyder 'står i den aktuelle lønleverance' — IKKE 'autoriseret og praktiserende'. Statuskode/Jobstatuskode mappes ikke: kodelisten fra SilkeborgData mangler." }
+    source_table:         { DataType: NVARCHAR(100), FhirPath: "meta.tag.where(system='urn:source:silkeborgdata:source_table').code", Expr: "Konstant 'silkeborgdata_e26_pers' (system: identifier_systems.SYSTEM_SILKEBORGDATA_SOURCE_TABLE)" }
+    dw_is_deleted:        { DataType: INT, FhirPath: "extension('urn:fhir:isDeleted').valueInteger", Expr: "1 på en udgået identitet: det CPR personen havde før en rettelse har sin egen række, og den række er ikke et menneske, der skal tælles med. Alle, der blot er holdt op, står med 0 og skelnes på active = 0 — at filtrere dem væk her ville skjule tusinder af tidligere medarbejdere, som historiske data stadig refererer. Kilden sletter aldrig rækker; dqa_fhir_server_cleanup sætter også 1." }
+    last_updated:         { DataType: DATETIME2, FhirPath: "r.ts", Description: "Sat af FHIR-serveren, ikke af kilden." }
+    created_at:           { DataType: DATETIME2, FhirPath: "r.cts", Description: "Sat af FHIR-serveren, ikke af kilden." }

@@ -1,0 +1,23 @@
+{
+  "resourceType": "ViewDefinition",
+  "name": "observation_speciale_view",
+  "resource": "Observation",
+  "status": "active",
+  "select": [
+    {
+      "column": [
+        {"name": "observation_id", "path": "id"}
+      ]
+    },
+    {
+      "forEach": "extension.where(url='http://example.org/fhir/StructureDefinition/aktivitetsudfoerelseSpeciale').extension.where(url='speciale')",
+      "column": [
+        {"name": "speciale_kode", "path": "extension.where(url='specialeKode').valueString.first()"},
+        {"name": "speciale_kodetekst", "path": "extension.where(url='specialeKodetekst').valueString.first()"},
+        {"name": "speciale_hospital_kode", "path": "extension.where(url='specialeHospitalKode').valueString.first()"},
+        {"name": "speciale_hospital_navn", "path": "extension.where(url='specialeHospitalNavn').valueString.first()"},
+        {"name": "speciale_hospital_orgkode", "path": "extension.where(url='specialeHospitalOrgkode').valueString.first()"}
+      ]
+    }
+  ]
+}

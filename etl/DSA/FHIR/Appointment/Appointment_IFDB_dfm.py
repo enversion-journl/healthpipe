@@ -27,6 +27,7 @@ from core.dfm_config import RunModeConfig
 from core.dfm_manager import DfmManager
 from core.resources import FHIRDatabaseResource, IFDBOracleResource, MSSQLResource
 from DSA.FHIR.utils.dfm_query import build_fhir_archive_query
+from DSA.FHIR.utils.fhir_checkpoint import advance_fhir_checkpoint
 from DSA.FHIR.utils.fhir_utils import fhir_datetime
 from DSA.FHIR.utils.ifdb import arc_lookup
 from DSA.FHIR.utils.ifdb.fhir_posting import (
@@ -641,21 +642,7 @@ def fhir_server_appointment_dfm(
             f"Done: {total_fetched} fetched, {total_posted} posted in {batch_num} batches"
         )
 
-        new_checkpoint: str | None = None
-        if config.should_advance_checkpoint and total_fetched > 0:
-            with mssql_target_staging.get_connection() as conn:
-                cursor = conn.cursor()
-                try:
-                    cursor.execute("SELECT CONVERT(NVARCHAR(50), SYSDATETIME(), 121)")
-                    row = cursor.fetchone()
-                    new_checkpoint = row[0] if row else None
-                finally:
-                    cursor.close()
-
-            if new_checkpoint:
-                dfm.set_checkpoint(
-                    "fhir_server", "Appointment", value=new_checkpoint, mode=config.mode
-                )
+        new_checkpoint = advance_fhir_checkpoint(dfm, run_ctx, "Appointment", config, total_fetched)
 
         dfm.complete_dfm_run(
             run_ctx.log_id,

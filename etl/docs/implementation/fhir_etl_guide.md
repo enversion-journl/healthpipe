@@ -527,7 +527,7 @@ The implementation demonstrates:
   the IFDB staff identifier is carried unresolved — see the config comment for why)
 
 **Archive** (`ext.ifdb_eventmarker` → `arc.ifdb_eventmarker`, configs in `DSI/oracle/ifdb_extract.py` + `ifdb_archive.py`):
-- Delta on `IFDB_MODIFICATION_DATETIME` with the flow-start ceiling on `EPJI_MODIFICATION_DATETIME`
+- Delta on `IFDB_MODIFICATION_DATETIME`, bounded by the IFDB transfer ceiling (see *Two ceilings* in `dfm_operations_guide.md`)
 
 **Transform + Post Asset** (`DSA/FHIR/CarePlan/CarePlan_IFDB_dfm.py`):
 - Patient-scoped delta: DISTINCT `PATIENT_ID` over the archive window, then ALL of

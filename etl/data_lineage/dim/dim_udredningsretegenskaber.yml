@@ -1,0 +1,60 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: dimension
+  TableName: dim.UdredningsretEgenskaber
+  Domain: [Udredningsret]
+  Description: >
+    Transaktionsdimension for udredningsforløb: dw_ek_Udredningsforloeb er en
+    delt nøgle med fct.Udredningsforloeb via map.Udredningsforloeb. Bærer alt
+    deskriptivt om forløbet — start- og slutmarkør, SDS' egne id'er (f_id, pk)
+    som "senest leverede" attributter, ansvarlige enheder, regioner, speciale
+    og forløbslabel — så facten er fri for tekstkolonner. Attributterne læses
+    fra slutmarkøren, ellers forløbets seneste markør (beslutning U3). Ingen
+    borgernøgle og intet CPR: identiteten hører til på facten.
+  Grain: >
+    Én række pr. udredningsforløb, dvs. pr. (helbredsforløb, F_ID) over
+    leverancens levende markører — præcis samme grain som fct.Udredningsforloeb.
+  Privacy: >
+    Ingen borgernøgle, ingen rå CPR og ingen af DRG-egenskabsdimensionens direkte
+    demografi (alder, køn, bopælskommune); groveste geografi er bopælsregion.
+    Dimensionen er derfor udstillet som pass-through-view på DSO, hvor DRG's
+    tilsvarende er DPA-sikret. Undtagelsen er clean_code_Udredningsforloeb, som
+    bærer arkivets SHA2_256 over CPR og dermed er et genberegneligt, stabilt
+    pseudonym: den synkroniseres ikke til DSO (exclude_columns, beslutning U18)
+    og står NULL dér.
+  SCD: type1
+
+  SourceSystems:
+    - sds_udredningsret: [LPR_Udredningsret.UdredningsretMont]
+
+  Columns:
+    dw_ek_Udredningsforloeb: { Type: PK, DataType: INT, Description: "Entitetsnøgle fra map.Udredningsforloeb — delt PK med fct.Udredningsforloeb (transaktionsdimension)." }
+    clean_code_Udredningsforloeb: { DataType: VARCHAR(100), Expr: "UDREDFORL_{helbredsforloeb_noegle}_{startdato uden bindestreger}_{loebenummer}", Description: "Forretningsnøgle på DSA. Bærer arkivets CPR-hash og synkroniseres derfor IKKE til DSO (exclude_columns, beslutning U18) — kolonnen står NULL dér." }
+    f_id: { DataType: NVARCHAR(500), Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.F_ID], Description: "SDS' forløbs-id som senest leveret — omnummereres pr. leverance og er derfor en egenskab, aldrig en nøgle (beslutning U1)." }
+    pk: { DataType: NVARCHAR(20), Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.PK], Description: "SDS' rækkenøgle på attributmarkøren som senest leveret — omnummereres med F_ID." }
+    start_markoer_kode: { DataType: NVARCHAR(20), Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.FORLOEBSMARKOER], Expr: "Koden på startmarkøren = tidligste henvist-markør, ellers tidligste markør (beslutning U4)." }
+    start_markoer_uuid: { DataType: NVARCHAR(36), Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.OBJEKTID_FORLOBSMARKOR], Expr: "Startmarkørens markør-UUID, normaliseret til lowercase." }
+    slut_markoer_kode: { DataType: NVARCHAR(20), Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.FORLOEBSMARKOER], Expr: "Koden på slutmarkøren = MRK_H-markør uden for henvist, ellers seneste endeligt-udredt-markør; NULL for åbne forløb (beslutning U2)." }
+    slut_markoer_uuid: { DataType: NVARCHAR(36), Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.OBJEKTID_FORLOBSMARKOR], Expr: "Slutmarkørens markør-UUID, normaliseret til lowercase." }
+    seneste_markoer_dato: { DataType: NVARCHAR(10), Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.FORLOEBSMARKOER_DATO], Expr: "MAX over forløbets markørdatoer — bæres som egenskab, fordi den ikke er en afslutning (beslutning U2)." }
+    foerste_forloebselement_uuid: { DataType: NVARCHAR(36), Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.OBJEKTID_FORLOBELEMENT], Expr: "MIN over forløbets forløbselement-UUID'er — den stabile ordensnøgle bag løbenummeret." }
+    helbredsforloeb_id: { DataType: NVARCHAR(50), Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.DW_EK_HelbredsForloeb], Description: "SDS' egen surrogatnøgle for helbredsforløbet — bæres som senest leveret attribut; den blev omnummereret i dec. 2021 og er derfor ikke en nøgle." }
+    forloeb_enhed_sor: { DataType: NVARCHAR(25), Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.ANSVARLIG_ENHED_FORLOB], Description: "Rå SOR-kode ved siden af fact-rollen dw_ek_Organisation_forloeb." }
+    kontakt_enhed_sor: { DataType: NVARCHAR(25), Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.ANSVARLIG_ENHED_KONTAKT], Description: "Rå SOR-kode ved siden af fact-rollen dw_ek_Organisation_kontakt." }
+    aktionsdiagnose_kode: { DataType: NVARCHAR(20), Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.C_ADIAG] }
+    diagnosekontakt_uuid: { DataType: NVARCHAR(36), Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.C_ADIAG_KONTAKT] }
+    opgoerelseskvartal: { DataType: NVARCHAR(10), Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.OPGPER], Description: "SDS' kvartalskode 'nKyy' — datoopslaget sker på facten (dw_ek_Dato_opgoerelse)." }
+    opgoerelsesmaaned: { DataType: NVARCHAR(10), Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.OPGMAANED] }
+    sygehusregion: { DataType: NVARCHAR(10), Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.C_SGHREGION] }
+    bopaelsregion: { DataType: NVARCHAR(10), Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.C_BOREGION] }
+    speciale: { DataType: NVARCHAR(100), Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.Speciale_ansvarlig_enhed_kontakt] }
+    forloebslabel: { DataType: NVARCHAR(20), Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.FORLOEBSLABEL], Description: "ALAL-kode for forløbstypen; teksten slås op i dim.UdredningsretKlassifikation." }
+    mrk_l_n: { DataType: NVARCHAR(5), Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.MRK_L_N], Description: "Markerer forløbets udredningsplan-markør — grundlaget for årsagsteksterne (spec afsnit 7)." }
+  Notes:
+    - "Transaktionsdimension: dw_ek_Udredningsforloeb er en delt nøgle med fct.Udredningsforloeb (begge sourced fra map.Udredningsforloeb via clean_code_Udredningsforloeb) — derfor ingen dw_ek_UdredningsretEgenskaber-kolonne på facten."
+    - "Type 1: en ny leverance overskriver attributterne på den samme dw_ek_Udredningsforloeb; historikken ligger i arkivet."

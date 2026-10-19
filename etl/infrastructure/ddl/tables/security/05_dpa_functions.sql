@@ -5,7 +5,7 @@
 -- root for the full AGPL-3.0 license text.
 
 /*============================================================
-  DPA Security Functions (additive — new RBAC model, [internal ticket])
+  DPA Security Functions
   Purpose: Inline table-valued functions for DPA security
   Target:  sec schema
   Dependencies: 04_dpa_tables.sql (sec.RolleDomaene), 01_tables.sql (sec.RBOrganisation)
@@ -78,7 +78,7 @@ GO
 CREATE OR ALTER FUNCTION [sec].[HentRBOrganisation] (
     @Sikkerhedsdomaene   NVARCHAR(50)
    ,@bruger             NVARCHAR(50)
-   ,@dw_ek_Organisation INT
+   ,@dw_ek_Organisation BIGINT
 )
 RETURNS TABLE
 AS
@@ -92,60 +92,5 @@ RETURN (
    INNER JOIN [sec].[RBOrganisation] AS [sec]
        ON  [sec].[bruger] = [a].[bruger]
        AND [sec].[DW_EK_RBOrganisation] = @dw_ek_Organisation
-);
-GO
-
-
-/*------------------------------------------------------------
-  sec.BeskytPersonoplysning
-  Generic masking function for any single text column.
-------------------------------------------------------------*/
-CREATE OR ALTER    FUNCTION [sec].[BeskytPersonoplysning] (
- @Rolle                     NVARCHAR(100)
-,@Populationsansvar         NVARCHAR(100)
-,@Sikkerhedsdomaene     NVARCHAR(100)
-,@DW_EK_RBOrganisation      INT
-,@Personoplysning           NVARCHAR(250)
-,@PersonoplysningMaskeret   NVARCHAR(250)
-)
-RETURNS TABLE
-AS
-RETURN (
-   SELECT   [Personoplysning] = IIF(@Rolle = 'U' OR (@Rolle   = 'K' and @DW_EK_RBOrganisation IS NOT NULL), @Personoplysning,'Maskeret'),
-           [sec].[DPASikkerhed]
-   FROM     [sec].[HentDPASikkerhed](@Rolle, @Sikkerhedsdomaene, @Populationsansvar, @DW_EK_RBOrganisation) AS [sec]
-)
-GO
-
-
-/*------------------------------------------------------------
-  sec.BeskytDimBorger
-  Specialized masking function for the Borger dimension.
-------------------------------------------------------------*/
-CREATE OR ALTER FUNCTION [sec].[BeskytDimBorger]
-(
-    @Rolle              NVARCHAR(100),
-    @Populationsansvar  NVARCHAR(100),
-    @Sikkerhedsdomaene  NVARCHAR(100),
-    @CPRNummer          NVARCHAR(10),
-    @dw_ek_Borger       INT,
-    @fornavne           NVARCHAR(50),
-    @efternavn          NVARCHAR(50)
-)
-RETURNS TABLE
-AS
-RETURN
-(
-    SELECT
-        CPRNummer    = N'XX',
-        fornavne     = N'XX',
-        efternavn    = N'XX',
-        DPASikkerhed = s.DPASikkerhed
-    FROM [sec].[HentDPASikkerhed](
-        @Rolle,
-        @Sikkerhedsdomaene,
-        @Populationsansvar,
-        ''
-    ) AS s
 );
 GO

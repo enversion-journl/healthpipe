@@ -28,3 +28,14 @@ dso_lineage:
     hoved_start:         { DataType: DATETIME2, Source: [ils.dbo.lafth.start_] }
     hoved_slut:          { DataType: DATETIME2, Source: [ils.dbo.lafth.slut] }
     alle_maa_benytte:    { DataType: BIT, Source: [ils.dbo.lafthsgh.lnr, ils.dbo.lafthsgh.aftale], Expr: "1 = ingen lafthsgh-styringsraekker for aftalen (ILS \"Benyttes af\" blank) = alle sygehuse/lagre maa koebe ind; 0 = steering findes i bridge.AftaleLager. Spec 2026-08-31-prisloese-linjer-og-aftalelager.", Description: "Kendt begraensning: arc.ils_lafthsgh er upsert-only (detect_deletes=False) — ophaevet styring i ILS forsvinder ikke af sig selv; kraever manuel arc-oprydning eller delete-detektion paa arkivet." }
+    standard_leveringsdage: { DataType: INT, Source: [ils.dbo.lafth.deflevdage], Description: "Aftalens leveringsdage (ILS \"Aftale lev. dage\"). Maa ikke forveksles med lagerets standard_leveringsdage i dim.Lager." }
+    dw_ek_Dato_sysdato:  { Type: FK, DataType: INT, FK-Target: dim.Dato, Source: [ils.dbo.lafth.sysdato], Description: "Dato for seneste ajourfoering af aftalen i ILS." }
+    dato_tid_sysdato:    { DataType: DATETIME2, Source: [ils.dbo.lafth.sysdato], Description: "Fuldt tidsstempel for seneste ajourfoering af aftalen i ILS." }
+    bruger:              { DataType: NVARCHAR(100), Source: [ils.dbo.lafth.bruger], Description: "Brugeren der senest har ajourfoert aftalen i ILS." }
+    aktiv:               { DataType: BIT, Source: [ils.dbo.lafth.aktiv], Description: "Kildens eget aktiv-flag paa aftalen. Kan afvige fra hoved_start/hoved_slut-vinduet, fx en aftale deaktiveret foer tid." }
+    fragt_beloeb:        { DataType: DECIMAL(17,2), Source: [ils.dbo.lafth.fragtbel], Description: "Fragtbeloeb paa aftalen." }
+    sw_fragt:            { DataType: BIT, Source: [ils.dbo.lafth.sw_fragt], Description: "Om der opkraeves fragt paa aftalen." }
+    gebyr_beloeb:        { DataType: DECIMAL(17,2), Source: [ils.dbo.lafth.gebyrbel], Description: "Gebyrbeloeb paa aftalen." }
+    sw_gebyr:            { DataType: BIT, Source: [ils.dbo.lafth.sw_gebyr], Description: "Om der opkraeves gebyr paa aftalen." }
+    graense_beloeb:      { DataType: DECIMAL(17,2), Source: [ils.dbo.lafth.graensebel], Description: "Graensebeloeb for aftalens gebyrvilkaar." }
+    fragt_graense_beloeb: { DataType: DECIMAL(17,2), Source: [ils.dbo.lafth.fragtgraensebel], Description: "Graensebeloeb for aftalens fragtvilkaar." }

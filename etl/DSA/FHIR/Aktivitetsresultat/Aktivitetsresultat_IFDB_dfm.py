@@ -7,13 +7,15 @@
 """FHIR Aktivitetsresultat/SFI multi-asset (DFM) — arc.* input handle switch.
 
 Reads ``arc.ifdb_aktivitetsresultat``, spools the rows to pickle sidecars and
-hands a ``BatchedExtractRows`` view to the existing chunked pipeline in ONE
-call — the same streaming input the legacy monthly/bulk assets fed the
+hands a ``BatchedExtractRows`` view to the existing chunked pipeline in one
+call per slice — the same streaming input the legacy monthly/bulk assets fed the
 orchestrator via ``streaming_batched_extract_io_manager`` (estimat §6.4). The
 orchestrator's own 25k chunk loop, shared caches (Questionnaire store, UDF/
 speciale lookups, ResolvedRefLookup) and one-time setup therefore run once per
-asset run — not once per fetch batch. Transform logic is intentionally
-unchanged.
+slice — not once per fetch batch. A plain delta run (no ``lookback_days``, no
+``delta_column``) is cut into slices of at most ``_DELTA_SLICE_MAX_ROWS`` rows,
+each with its own checkpoint, up to the safe read point at the run's start;
+other modes are one slice.
 
 The spool is required because the orchestrator iterates the full input several
 times BEFORE its chunk loop (``_ensure_reference_dependencies`` +
@@ -35,7 +37,8 @@ from core.resources import FHIRDatabaseResource, MSSQLResource
 from DSA.FHIR.Aktivitetsresultat.orchestrator import _run_aktivitetsresultat_pipeline_chunked
 from DSA.FHIR.Aktivitetsresultat.questionnaire_outputs import _metadata_int
 from DSA.FHIR.Aktivitetsresultat.routing_glue import _sfi_mode_enabled
-from DSA.FHIR.utils.dfm_query import build_fhir_archive_query
+from DSA.FHIR.utils.dfm_query import build_fhir_archive_query, next_delta_slice_bound
+from DSA.FHIR.utils.fhir_checkpoint import advance_fhir_checkpoint
 from DSA.FHIR.utils.ifdb.posting_config import TAG_CHUNK_SIZE, TAG_MAX_WORKERS
 
 # Rows per pickle sidecar while spooling the archive cursor to disk. This is a
@@ -43,6 +46,12 @@ from DSA.FHIR.utils.ifdb.posting_config import TAG_CHUNK_SIZE, TAG_MAX_WORKERS
 # (25k, env IFDB_AKTIVITETSRESULTAT_CHUNK_SIZE): BatchedExtractRows.iter_batches
 # coalesces sidecars to that size. Legacy extract sidecars held 50k rows.
 _SPOOL_BATCH_SIZE = 10_000
+
+_ARCHIVE_TABLE = "arc.ifdb_aktivitetsresultat"
+
+# Rows per delta slice. The orchestrator resolves every reference of its input
+# up front, so its memory grows with the input; a slice never splits one archive MERGE.
+_DELTA_SLICE_MAX_ROWS = 8_000_000
 
 # Optional override for where the spool directory is created (e.g. a large
 # volume during initial full loads). Defaults to the system temp dir.
@@ -139,6 +148,80 @@ def _spool_archive_to_sidecars(
     return row_count, len(batch_files)
 
 
+def _spool_and_post(
+    context: dg.AssetExecutionContext,
+    query: str,
+    mssql_target_staging: MSSQLResource,
+    fhir_database: FHIRDatabaseResource,
+) -> tuple[
+    int,
+    int,
+    dg.MaterializeResult | None,
+    dg.MaterializeResult | None,
+    dg.MaterializeResult | None,
+]:
+    """Spool one query's rows to disk and run the pipeline once over them."""
+    obs_result: dg.MaterializeResult | None = None
+    q_result: dg.MaterializeResult | None = None
+    qr_result: dg.MaterializeResult | None = None
+
+    with tempfile.TemporaryDirectory(
+        prefix="arc_aktivitetsresultat_spool_",
+        dir=os.environ.get(_SPOOL_DIR_ENV) or None,
+    ) as spool_dir_str:
+        spool_dir = Path(spool_dir_str)
+
+        with mssql_target_staging.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute(query)
+                columns = [desc[0] for desc in cursor.description]
+                total_fetched, spool_batches = _spool_archive_to_sidecars(
+                    cursor, columns, spool_dir
+                )
+            finally:
+                cursor.close()
+
+        context.log.info(
+            f"Spooled {total_fetched} aktivitetsresultater to {spool_batches} sidecar batches"
+        )
+
+        if total_fetched > 0:
+            rows = BatchedExtractRows(spool_dir)
+            if _sfi_mode_enabled():
+                result = _run_aktivitetsresultat_pipeline_chunked(
+                    extracted_data=rows,
+                    context=context,
+                    ifdb_oracle=None,
+                    fhir_database=fhir_database,
+                    mssql_target_staging=mssql_target_staging,
+                    emit_questionnaire_outputs=True,
+                )
+                # NB: MaterializeResult is a NamedTuple (tuple subclass),
+                # so a bare isinstance(result, tuple) cannot tell a single
+                # result from the 3-tuple — check for the single first.
+                if isinstance(result, dg.MaterializeResult) or not (
+                    isinstance(result, tuple) and len(result) == 3
+                ):
+                    raise TypeError(
+                        "Expected unified SFI pipeline to return three materialization results"
+                    )
+                obs_result, q_result, qr_result = result
+            else:
+                legacy_result = _run_aktivitetsresultat_pipeline_chunked(
+                    extracted_data=rows,
+                    context=context,
+                    ifdb_oracle=None,
+                    fhir_database=fhir_database,
+                    mssql_target_staging=mssql_target_staging,
+                )
+                if not isinstance(legacy_result, dg.MaterializeResult):
+                    raise TypeError("Expected single materialization result in legacy mode")
+                obs_result = legacy_result
+
+    return total_fetched, spool_batches, obs_result, q_result, qr_result
+
+
 @dg.multi_asset(
     name="fhir_server_aktivitetsresultat_sfi_dfm",
     compute_kind="fhir",
@@ -154,7 +237,7 @@ def _spool_archive_to_sidecars(
     op_tags={TAG_CHUNK_SIZE: "500", TAG_MAX_WORKERS: "4"},
     description=(
         "Spool AKTIVITETSRESULTAT from arc.ifdb_aktivitetsresultat to disk, "
-        "run the SFI pipeline ONCE over the streamed batches (Observation/"
+        "run the SFI pipeline once per delta slice over the streamed batches (Observation/"
         "Procedure/Condition + Questionnaire/QR when SFI mode is on), and post "
         "to the FHIR server. Checkpoint owner for "
         "fhir_server.Aktivitetsresultat_SFI."
@@ -166,7 +249,7 @@ def fhir_server_aktivitetsresultat_sfi_dfm(
     fhir_database: FHIRDatabaseResource,
     config: RunModeConfig,
 ):
-    """Spool arc rows → ONE pipeline call over streamed chunks → post (DFM)."""
+    """Spool arc rows → one pipeline call per delta slice → post (DFM)."""
     dfm = DfmManager(mssql_target_staging, context)
     run_ctx = dfm.start_dfm_run(
         "fhir_server",
@@ -176,76 +259,63 @@ def fhir_server_aktivitetsresultat_sfi_dfm(
     )
 
     try:
-        query = build_fhir_archive_query(
-            "arc.ifdb_aktivitetsresultat",
-            run_ctx.checkpoint,
-            config,
-            include_deleted=True,
-        )
-        context.log.info(f"Querying arc.ifdb_aktivitetsresultat (mode={config.mode})")
+        obs_totals = dict.fromkeys(_OBS_COUNT_KEYS, 0)
+        q_totals = dict.fromkeys(_SFI_COUNT_KEYS, 0)
+        qr_totals = dict.fromkeys(_SFI_COUNT_KEYS, 0)
+        total_fetched = 0
+        spool_batches = 0
+        new_checkpoint: str | None = None
+        lower = run_ctx.checkpoint
+        sliced = config.mode == "delta" and not (config.lookback_days or config.delta_column)
+        # Rows of an archive MERGE in flight are stamped after this point; no
+        # slice may pass it, or a later slice's checkpoint would skip them.
+        ceiling = dfm.safe_reader_checkpoint(run_ctx.started_at) if sliced else None
 
-        obs_result: dg.MaterializeResult | None = None
-        q_result: dg.MaterializeResult | None = None
-        qr_result: dg.MaterializeResult | None = None
-
-        with tempfile.TemporaryDirectory(
-            prefix="arc_aktivitetsresultat_spool_",
-            dir=os.environ.get(_SPOOL_DIR_ENV) or None,
-        ) as spool_dir_str:
-            spool_dir = Path(spool_dir_str)
-
-            with mssql_target_staging.get_connection() as conn:
-                cursor = conn.cursor()
-                try:
-                    cursor.execute(query)
-                    columns = [desc[0] for desc in cursor.description]
-                    total_fetched, spool_batches = _spool_archive_to_sidecars(
-                        cursor, columns, spool_dir
+        while True:
+            upper: str | None = None
+            if sliced:
+                with mssql_target_staging.get_connection() as conn:
+                    upper = next_delta_slice_bound(
+                        conn, _ARCHIVE_TABLE, lower, _DELTA_SLICE_MAX_ROWS, ceiling
                     )
-                finally:
-                    cursor.close()
-
-            context.log.info(
-                f"Spooled {total_fetched} aktivitetsresultater to "
-                f"{spool_batches} sidecar batches"
+                if upper is None:
+                    break
+            query = build_fhir_archive_query(
+                _ARCHIVE_TABLE,
+                lower,
+                config,
+                include_deleted=True,
+                delta_upper_bound=upper,
             )
+            context.log.info(
+                f"Querying {_ARCHIVE_TABLE} (mode={config.mode}"
+                + (f", up to {upper})" if upper else ")")
+            )
+            fetched, batches, obs_result, q_result, qr_result = _spool_and_post(
+                context, query, mssql_target_staging, fhir_database
+            )
+            if sliced and fetched > _DELTA_SLICE_MAX_ROWS:
+                context.log.warning(
+                    f"One archive MERGE at {upper} holds {fetched} rows, above the slice "
+                    f"limit of {_DELTA_SLICE_MAX_ROWS}; it is read as one slice."
+                )
+            total_fetched += fetched
+            spool_batches += batches
+            for totals, result, keys in (
+                (obs_totals, obs_result, _OBS_COUNT_KEYS),
+                (q_totals, q_result, _SFI_COUNT_KEYS),
+                (qr_totals, qr_result, _SFI_COUNT_KEYS),
+            ):
+                for key, value in _read_counts(result, keys).items():
+                    totals[key] += value
 
-            if total_fetched > 0:
-                rows = BatchedExtractRows(spool_dir)
-                if _sfi_mode_enabled():
-                    result = _run_aktivitetsresultat_pipeline_chunked(
-                        extracted_data=rows,
-                        context=context,
-                        ifdb_oracle=None,
-                        fhir_database=fhir_database,
-                        mssql_target_staging=mssql_target_staging,
-                        emit_questionnaire_outputs=True,
-                    )
-                    # NB: MaterializeResult is a NamedTuple (tuple subclass),
-                    # so a bare isinstance(result, tuple) cannot tell a single
-                    # result from the 3-tuple — check for the single first.
-                    if isinstance(result, dg.MaterializeResult) or not (
-                        isinstance(result, tuple) and len(result) == 3
-                    ):
-                        raise TypeError(
-                            "Expected unified SFI pipeline to return three materialization results"
-                        )
-                    obs_result, q_result, qr_result = result
-                else:
-                    legacy_result = _run_aktivitetsresultat_pipeline_chunked(
-                        extracted_data=rows,
-                        context=context,
-                        ifdb_oracle=None,
-                        fhir_database=fhir_database,
-                        mssql_target_staging=mssql_target_staging,
-                    )
-                    if not isinstance(legacy_result, dg.MaterializeResult):
-                        raise TypeError("Expected single materialization result in legacy mode")
-                    obs_result = legacy_result
-
-        obs_totals = _read_counts(obs_result, _OBS_COUNT_KEYS)
-        q_totals = _read_counts(q_result, _SFI_COUNT_KEYS)
-        qr_totals = _read_counts(qr_result, _SFI_COUNT_KEYS)
+            slice_checkpoint = advance_fhir_checkpoint(
+                dfm, run_ctx, "Aktivitetsresultat_SFI", config, fetched, read_bound=upper
+            )
+            new_checkpoint = slice_checkpoint or new_checkpoint
+            if not sliced:
+                break
+            lower = upper
 
         context.log.info(
             f"Done: {total_fetched} fetched, "
@@ -254,25 +324,6 @@ def fhir_server_aktivitetsresultat_sfi_dfm(
             f"{obs_totals['condition_posted_count']} cond posted "
             f"({spool_batches} spool batches)"
         )
-
-        new_checkpoint: str | None = None
-        if config.should_advance_checkpoint and total_fetched > 0:
-            with mssql_target_staging.get_connection() as conn:
-                cursor = conn.cursor()
-                try:
-                    cursor.execute("SELECT CONVERT(NVARCHAR(50), SYSDATETIME(), 121)")
-                    row = cursor.fetchone()
-                    new_checkpoint = row[0] if row else None
-                finally:
-                    cursor.close()
-
-            if new_checkpoint:
-                dfm.set_checkpoint(
-                    "fhir_server",
-                    "Aktivitetsresultat_SFI",
-                    value=new_checkpoint,
-                    mode=config.mode,
-                )
 
         dfm.complete_dfm_run(
             run_ctx.log_id,

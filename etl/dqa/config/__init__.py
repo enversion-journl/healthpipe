@@ -10,7 +10,21 @@ from dqa.config.arc_subjects import ARC_SUBJECTS
 from dqa.config.dwh_subjects import DWH_SUBJECTS
 from dqa.config.fhir_subjects import FHIR_SUBJECTS
 from dqa.config.haiba_subjects import HAIBA_SUBJECTS
+from dqa.config.udredningsret_subjects import UDREDNINGSRET_SUBJECTS
 
-ALL_SUBJECTS = [*FHIR_SUBJECTS, *DWH_SUBJECTS, *HAIBA_SUBJECTS, *ARC_SUBJECTS]
+ALL_SUBJECTS = [
+    *FHIR_SUBJECTS,
+    *DWH_SUBJECTS,
+    *HAIBA_SUBJECTS,
+    *UDREDNINGSRET_SUBJECTS,
+    *ARC_SUBJECTS,
+]
 
-__all__ = ["ALL_SUBJECTS", "FHIR_SUBJECTS", "DWH_SUBJECTS", "HAIBA_SUBJECTS", "ARC_SUBJECTS"]
+__all__ = [
+    "ALL_SUBJECTS",
+    "ARC_SUBJECTS",
+    "DWH_SUBJECTS",
+    "FHIR_SUBJECTS",
+    "HAIBA_SUBJECTS",
+    "UDREDNINGSRET_SUBJECTS",
+]

@@ -43,7 +43,14 @@ Launch with an **empty config** (or omit the config entirely):
 {}
 ```
 
-All assets default to `mode: delta`, `advance_checkpoint: null` (which resolves to `true` for delta/full_load, `false` for period/ids). The `dfm_ifdb_flow_start` asset queries Oracle `JOB_LOG/JOB_STATUS` for the upper-bound timestamp automatically.
+All assets default to `mode: delta`, `advance_checkpoint: null` (which resolves to `true` for delta/full_load, `false` for period/ids). The `dfm_ifdb_flow_start` asset reads the delta ceilings from Oracle automatically (see *Two ceilings* below). It depends on `dfm_ifdb_cycle_wait`, which waits while an IFDB cycle (05, 09, 13, 17) is running: it polls every minute until every active job type has finished that cycle and no job type has `JOB_STATUS.IGANG = 1`. It accepts a complete cycle only when a second read 15 seconds later agrees, because the first job type of a cycle sets `IGANG` up to a second after the hour. The wait time is in its `cycle_wait_seconds` metadata. It fails after `cycle_wait_timeout_minutes` and names the job types that block it. It fails at once when a job type lags, no job type runs and the newest `SLUTTID` is more than 15 minutes old, because that job type failed in IFDB. `cycle_wait_timeout_minutes` is a run config field of `dfm_ifdb_cycle_wait` (`ops: dfm_ifdb_cycle_wait: config:`), with a default of 180. The value 0 turns the wait off, and the asset then does not read Oracle. The period orchestrator and the IFDB full load set 0 in any mode but delta and when they get a `flow_start_override`, because only a delta run without an override reads the ceiling from Oracle. Set 0 yourself in a manual run in any other mode or with `flow_start_override`. The examples in this guide do this.
+
+**Two ceilings.** `dfm_ifdb_flow_start` writes two rows in `meta.DFMState`, and every IFDB delta extract bounds both ends of its window on its own delta column against one of them. The extract records the ceiling it read in its own `meta.DFMState` row (`dfm/<target table>_flow_start`), and the archive merge sets its checkpoint to that value, so the next run starts where this one stopped, even if a flow start in another run has moved the ceiling meanwhile.
+
+- **Transfer ceiling** (`dfm.ifdb_transfer_ceiling`): Oracle `SYSDATE`, read just before the job status, when every active job type has finished the same cycle and none is running. It bounds the tables whose delta column IFDB stamps when it transfers the row: `IFDB_MODIFICATION_DATETIME`, `OPDATERET_TID` and `UPDATE_TIME`, and their join children. Nothing writes while the cycle is complete, so every row stamped at or before the ceiling is committed when the extract reads it. If the cycle is not complete when the flow start reads it, both ceilings keep their previous values and the asset logs a warning; the run then extracts nothing new. With no previous transfer ceiling it fails.
+- **EPJ ceiling** (`dfm.ifdb_flow_start`): `MIN(MAX(JOB_LOG.SLUTTID))` across the active job types, the cut on the EPJ clock up to which IFDB has loaded. It bounds Diagnose, Sengeenhed and Referralinformation, which carry no transfer timestamp, only the EPJ modification time (`MODTIDSPUNKT`, `REFERRAL_DATE`).
+
+Because both ends of a window are on one clock, a manual extract and archive run without a new flow start after a later IFDB cycle extracts an empty delta, and a cycle that starts while the extracts run writes only rows above the ceiling. A row that IFDB transfers late with an old EPJ time is still missed by the three tables on the EPJ ceiling, because their lower bound is on the EPJ clock too.
 
 ---
 
@@ -55,6 +62,9 @@ Reprocess a specific date range without moving the production checkpoint. Useful
 
 ```yaml
 ops:
+  dfm_ifdb_cycle_wait:
+    config:
+      cycle_wait_timeout_minutes: 0
   dfm_ifdb_flow_start:
     config:
       flow_start_override: "2025-06-30 23:59:59"
@@ -88,6 +98,9 @@ If you only need to reprocess Encounter, use the same job but skip Location conf
 
 ```yaml
 ops:
+  dfm_ifdb_cycle_wait:
+    config:
+      cycle_wait_timeout_minutes: 0
   dfm_ifdb_flow_start:
     config:
       flow_start_override: "2025-06-30 23:59:59"
@@ -113,6 +126,9 @@ Reprocess specific records by ID. Use for targeted fixes after data corrections.
 
 ```yaml
 ops:
+  dfm_ifdb_cycle_wait:
+    config:
+      cycle_wait_timeout_minutes: 0
   dfm_ifdb_flow_start:
     config:
       flow_start_override: "2026-05-27 12:00:00"
@@ -132,6 +148,9 @@ For 100+ IDs, populate a temporary table first (e.g. via SSMS), then reference i
 
 ```yaml
 ops:
+  dfm_ifdb_cycle_wait:
+    config:
+      cycle_wait_timeout_minutes: 0
   dfm_ifdb_flow_start:
     config:
       flow_start_override: "2026-05-27 12:00:00"
@@ -199,6 +218,9 @@ point `id_filter_table` straight at it:
 
 ```yaml
 ops:
+  dfm_ifdb_cycle_wait:
+    config:
+      cycle_wait_timeout_minutes: 0
   dfm_ifdb_flow_start:
     config:
       flow_start_override: "2026-06-25 12:00:00"
@@ -341,6 +363,8 @@ ops:
       scope: "staging"
 ```
 
+`ifdb_flow_start` is the EPJ ceiling. Reset the transfer ceiling the same way with `table_name: "ifdb_transfer_ceiling"`.
+
 ### Reset a DSO checkpoint
 
 ```yaml
@@ -379,12 +403,15 @@ Force a specific upper-bound timestamp instead of reading it from Oracle `JOB_LO
 
 ```yaml
 ops:
+  dfm_ifdb_cycle_wait:
+    config:
+      cycle_wait_timeout_minutes: 0
   dfm_ifdb_flow_start:
     config:
       flow_start_override: "2026-05-27 05:00:24"
 ```
 
-This sets the flow-start checkpoint to the provided value. All downstream delta extracts in the same run will use it as their upper bound ceiling (on `EPJI_MODIFICATION_DATETIME` for Encounter).
+This sets both ceilings, the transfer ceiling and the EPJ ceiling, to the provided value. All downstream delta extracts in the same run use it as their upper bound, and the archive merges set their checkpoints to it. An override above the time IFDB last finished a cycle can make the next run skip rows that a running cycle had not committed, so keep it at or below the end of a finished cycle.
 
 **When to use:**
 - Local development where Oracle `IFDB.JOB_LOG` is not available.
@@ -449,6 +476,9 @@ Or with a custom flow-start:
 
 ```yaml
 ops:
+  dfm_ifdb_cycle_wait:
+    config:
+      cycle_wait_timeout_minutes: 0
   dfm_ifdb_flow_start:
     config:
       flow_start_override: "2026-05-27 05:00:24"
@@ -466,6 +496,9 @@ Run `ifdb_archive_job` with `mode: full_load`. This extracts all rows regardless
 
 ```yaml
 ops:
+  dfm_ifdb_cycle_wait:
+    config:
+      cycle_wait_timeout_minutes: 0
   ext_encounter_ifdb:
     config:
       mode: full_load
@@ -524,6 +557,9 @@ Each chunk advances the checkpoint. After the last chunk, the checkpoint reflect
 
 ```yaml
 ops:
+  dfm_ifdb_cycle_wait:
+    config:
+      cycle_wait_timeout_minutes: 0
   dfm_ifdb_flow_start:
     config:
       flow_start_override: "2026-05-27 12:00:00"
@@ -688,7 +724,8 @@ Checkpoints live in `meta.DFMState`. Key checkpoint entries for IFDB:
 
 | Schema | Table | Scope | What it tracks |
 |--------|-------|-------|----------------|
-| `dfm` | `ifdb_flow_start` | staging | Upper-bound from `JOB_LOG.SLUTTID` |
+| `dfm` | `ifdb_transfer_ceiling` | staging | Transfer ceiling: Oracle `SYSDATE` at a complete IFDB cycle |
+| `dfm` | `ifdb_flow_start` | staging | EPJ ceiling: `MIN(MAX(JOB_LOG.SLUTTID))` |
 | `arc` | `ifdb_patient` / `ifdb_episode_of_care` / `ifdb_encounter` / `ifdb_location` | staging | Last archived timestamp per core IFDB table |
 | `arc` | `ifdb_epikrise` (+`_modtager`, `_tekst`) | staging | Last archived Epikrise (+children) |
 | `arc` | `ifdb_care_discharge_report` (+`_receiver`) | staging | Last archived Udskrivningsrapport (+receivers) |
@@ -713,9 +750,9 @@ Checkpoints live in `meta.DFMState`. Key checkpoint entries for IFDB:
 | `fhir_server` | `Appointment` / `Location_SOR` | staging | Last FHIR-posted Appointment / SOR-Location |
 | `fhir` | `Patient` / `Patient_Address` / `Encounter` / `Encounter_Location` / `EpisodeOfCare` / `Location` | staging | Last SOF extract per flat table |
 | `fhir` | `DocumentReference` / `DocumentReference_Recipient` | staging | Last SOF extract (DocumentReference tables) |
-| `fhir` | `ServiceRequest` / `ServiceRequest_tillaegskode` / `ServiceRequest_Recipient` | staging | Last SOF extract (ServiceRequest tables) |
-| `fhir` | `Condition` / `Condition_tillaegskode` | staging | Last SOF extract (Condition tables; SOF is DFM — all four producers migrated) |
-| `fhir` | `Procedure` / `Procedure_tillaegskode` | staging | Last SOF extract (Procedure tables; SOF is DFM) |
+| `fhir` | `ServiceRequest` / `ServiceRequest_SupplementaryCode` / `ServiceRequest_Recipient` | staging | Last SOF extract (ServiceRequest tables) |
+| `fhir` | `Condition` / `Condition_SupplementaryCode` | staging | Last SOF extract (Condition tables; SOF is DFM — all four producers migrated) |
+| `fhir` | `Procedure` / `Procedure_SupplementaryCode` | staging | Last SOF extract (Procedure tables; SOF is DFM) |
 | `fhir` | `Observation` / `Questionnaire` / `Questionnaire_item` / `QuestionnaireResponse` / `QuestionnaireResponse_item` | staging | Last SOF extract (SFI tables; the EVENTMARKER-Observation assets remain unregistered stubs) |
 | `fhir` | `CarePlan` / `CarePlan_Activity` | staging | Last SOF extract (CarePlan tables; the child runs `child_grain_reconcile`) |
 | `fhir` | `Appointment` | staging | Last SOF extract (Appointment table) |

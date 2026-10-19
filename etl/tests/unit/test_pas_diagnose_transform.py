@@ -172,3 +172,20 @@ class TestPasDiagnoseTransform:
         is_del = [e for e in c.extension if e.url == "urn:fhir:isDeleted"]
         assert len(is_del) == 1
         assert is_del[0].valueInteger == 0
+
+
+def test_pas_source_modification_and_ifdb_transfer_are_not_record_creation():
+    from utils.fhir.fhir_extensions import (
+        EXTENSION_PAS_DIAGNOSE_SOURCE_META,
+        EXTENSION_SOURCE_MODIFIED_AT,
+    )
+
+    c = _transform_pas_diagnose_to_fhir(
+        [_make_row(MODTIDSPUNKT="2026-01-15T10:00:00", OPDATERET_TID="2026-01-16T11:00:00")],
+        _make_context(),
+    )[0]
+    ext = {e.url: e for e in c.extension}
+    assert str(ext[EXTENSION_SOURCE_MODIFIED_AT].valueDateTime).startswith("2026-01-15")
+    meta = {e.url: e for e in ext[EXTENSION_PAS_DIAGNOSE_SOURCE_META].extension}
+    assert str(meta["opdateretTid"].valueDateTime).startswith("2026-01-16")
+    assert c.recordedDate is None

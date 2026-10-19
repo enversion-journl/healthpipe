@@ -1,0 +1,36 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fhir
+  TableName: fhir.WardUnit_Capacity
+  Domain: [FHIR]
+  Description: "FHIR Observation (sengeenhed-kapacitet) — periodiseret count disponible/normerede senge. Egne rækker; fhir.Observation whitelist'er kun SFI."
+  Grain: "Én række pr. kapacitetsperiode (type + sengeenhed + FRA)"
+  FhirResource: Observation
+
+  SourceSystems:
+    - ifdb_sengeenhed_disponible: [IFDB.SENGEENHED_DISPONIBLE]
+    - ifdb_sengeenhed_normerede: [IFDB.SENGEENHED_NORMEREDE]
+
+  Columns:
+    observation_id:          { Type: PK, DataType: NVARCHAR(255), FhirPath: "id", Description: "FHIR resource id (Aidbox UUID) — resolver-/servertildelt ved posting ud fra {type}:{ward_unit_id}:{fra_iso}." }
+    ward_unit_id:           { DataType: NVARCHAR(255), FhirPath: "subject.id", FK-Target: fhir.WardUnit, FK-Key: ward_unit_id, FK-Required: false, Description: "FHIR-tildelt sengeenhed-Location (Aidbox UUID) — resolver-tildelt ud fra SENGEENHED_ID." }
+    status:                  { DataType: NVARCHAR(50), FhirPath: "status" }
+    category_code:           { DataType: NVARCHAR(50), FhirPath: "category.coding.where(system='http://example.org/fhir/CodeSystem/observation-category').code.first()", Description: "Fast vaerdi 'bed-capacity'. Lader en aftager filtrere kapacitetsobservationer fra uden at kende kapacitetstypens kodesystem. HL7's observation-category har ingen kode for driftstal, og bindingen er extensible, saa kategorien kommer fra vores eget system som condition-category og procedure-category." }
+    capacity_type:          { DataType: NVARCHAR(50), FhirPath: "code.coding.where(system='http://example.org/fhir/CodeSystem/ward-unit-capacity-type').code.first()" }
+    capacity_type_system:   { DataType: NVARCHAR(500), FhirPath: "code.coding.where(system='http://example.org/fhir/CodeSystem/ward-unit-capacity-type').system.first()" }
+    effective_period_start:  { DataType: NVARCHAR(50), FhirPath: "effectivePeriod.start", Source: [ifdb_sengeenhed_disponible.IFDB.SENGEENHED_DISPONIBLE.FRA, ifdb_sengeenhed_normerede.IFDB.SENGEENHED_NORMEREDE.FRA] }
+    effective_period_end:    { DataType: NVARCHAR(50), FhirPath: "effectivePeriod.end", Source: [ifdb_sengeenhed_disponible.IFDB.SENGEENHED_DISPONIBLE.TIL, ifdb_sengeenhed_normerede.IFDB.SENGEENHED_NORMEREDE.TIL] }
+    count:                   { DataType: NVARCHAR(50), FhirPath: "valueInteger", Source: [ifdb_sengeenhed_disponible.IFDB.SENGEENHED_DISPONIBLE.ANTAL, ifdb_sengeenhed_normerede.IFDB.SENGEENHED_NORMEREDE.ANTAL] }
+    identifier_value:        { DataType: NVARCHAR(255), FhirPath: "identifier.where(system='urn:source:ifdb:sengeenhed_kapacitet').value.first()", Description: "Deterministisk forretningsnøgle {type}:{ward_unit_id}:{fra_iso}." }
+    dw_is_deleted:           { DataType: INT, FhirPath: "extension.where(url='urn:fhir:isDeleted').valueInteger" }
+    last_updated:            { DataType: DATETIME2, FhirPath: "r.ts" }
+    created_at:              { DataType: DATETIME2, FhirPath: "r.cts" }
+
+  Notes:
+    - "Kapacitetstypen (disponible | normerede) er et lukket, lokalt kodesaet: kilden baerer ikke typen som kode, den ligger i hvilken tabel raekken kommer fra (SENGEENHED_DISPONIBLE / SENGEENHED_NORMEREDE). Koden baeres paa ressourcen under http://example.org/fhir/CodeSystem/ward-unit-capacity-type og staar i capacity_type/capacity_type_system. Der er ikke noget kodesystem-katalog bag den: de to vaerdier er deres egen displaytekst, de aendrer sig ikke, og repoets oevrige kodesystemer er udtrukne kataloger med mange koder og en aftagerflade. Samme behandling som kategorien bed-capacity paa samme ressource."
+    - "ANTAL = 0 er en gyldig værdi (en sengeenhed kan være normeret til nul) og filtreres ikke."

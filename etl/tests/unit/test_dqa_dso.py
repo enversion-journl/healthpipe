@@ -28,6 +28,7 @@ _EXPECTED_DOMAINS = {
     "conceptmap",
     "haiba",
     "drg",
+    "udredningsret",
 }
 
 

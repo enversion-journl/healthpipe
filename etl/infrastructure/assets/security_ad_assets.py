@@ -19,6 +19,8 @@ network/VPN access to the AD endpoint. The AD credentials are read from LDAP_* e
 import os
 
 import dagster as dg
+from core.dfm_manager import DfmManager
+from core.resources import MSSQLResource
 
 
 @dg.asset(
@@ -26,13 +28,18 @@ import dagster as dg
     group_name="extract_security",
     compute_kind="python",
     tags={"domain": "security", "layer": "extract"},
-    description="Extract HealthPipe AD groups (roles/org/bopael) over LDAPS; returns rows in-memory (+ writes JSONL for audit).",
+    description=(
+        "Extract HealthPipe AD groups (roles/org) and the failed member lookups over "
+        "LDAPS; returns rows in-memory (+ writes JSONL for audit)."
+    ),
 )
 def extract_security(context: dg.AssetExecutionContext) -> dict:
     from infrastructure.security.export_healthpipe_ad_groups import run_export
 
     data = run_export()
-    counts = {k: len(v) for k, v in data.items()}
+    for warning in data["advarsler"]:
+        context.log.warning(warning)
+    counts = {k: len(v) for k, v in data.items() if k not in ("source", "advarsler")}
     context.log.info(f"AD extract row counts: {counts}")
     context.add_output_metadata({f"{k}_rows": v for k, v in counts.items()})
     return data
@@ -45,14 +52,24 @@ def extract_security(context: dg.AssetExecutionContext) -> dict:
     # cs_sor owns codesystem.SORHierarchy, which the expansion reads.
     deps=["staging_infra_security", "cs_sor"],
     tags={"domain": "security", "layer": "populate"},
-    description="TRUNCATE+INSERT extracted AD data into staging.sec.RolleDomaene / sec.RBOrganisation.",
+    description=(
+        "Load extracted AD data into staging: sec.RolleDomaene (TRUNCATE+INSERT), "
+        "sec.RBOrganisation (swap), and the historised sec.RolleDomaeneHistorik and "
+        "sec.SORTildelingHistorik."
+    ),
 )
 def populate_security(
     context: dg.AssetExecutionContext,
     extract_security: dict,
+    mssql_target_staging: MSSQLResource,
 ) -> dg.MaterializeResult:
     from infrastructure.security.load_healthpipe_ad_to_mssql import (
+        _ROLLE_DOMAENE_HISTORIK,
+        _SOR_TILDELING_HISTORIK,
+        _build_rolle_domaene_rows,
+        _build_sor_tildeling_rows,
         _connect,
+        _load_historik,
         _load_rb_organisation,
         _load_rolle_domaene,
         _min_count_ratio,
@@ -70,18 +87,55 @@ def populate_security(
 
     # ExtractTooSmallError (udtræk væsentligt mindre end sidste load) propagerer
     # bevidst uden at blive fanget her, så Dagster-runet markeres failed.
+    source = extract_security.get("source") or {}
+    base_dn = source.get("table")
+    rolle_domaene_rows = _build_rolle_domaene_rows(
+        extract_security["roller"], warn=context.log.warning
+    )
+    historik = [
+        (_ROLLE_DOMAENE_HISTORIK, rolle_domaene_rows),
+        (_SOR_TILDELING_HISTORIK, _build_sor_tildeling_rows(extract_security["org"])),
+    ]
+    historik_metrics: dict[str, dict] = {}
+    if extract_security["fejlede_opslag"]:
+        context.log.warning(
+            f"{len(extract_security['fejlede_opslag'])} AD member lookups failed; the history "
+            "tables close no rows this run and only open new keys"
+        )
     conn = _connect(host, port, db, user, password)
     try:
-        rd_ins = _load_rolle_domaene(
-            conn,
-            extract_security["roller"],
-            extract_security["bopael"],
-            dry_run=False,
-            min_ratio=min_ratio,
-        )
-        rb = _load_rb_organisation(
-            conn, extract_security["org"], dry_run=False, min_ratio=min_ratio
-        )
+        with DfmManager(mssql_target_staging, context).target_runs(
+            "sec",
+            {
+                "RolleDomaene": base_dn,
+                "RBOrganisation": base_dn,
+                **{tabel.name: base_dn for tabel, _ in historik},
+            },
+            dagster_run_id=context.run_id,
+            mode="full_load",
+            source_user=source.get("user"),
+            source_host=source.get("host"),
+        ) as rows:
+            rd_ins = _load_rolle_domaene(
+                conn, rolle_domaene_rows, dry_run=False, min_ratio=min_ratio
+            )
+            rows["RolleDomaene"] = rd_ins
+            rb = _load_rb_organisation(
+                conn, extract_security["org"], dry_run=False, min_ratio=min_ratio
+            )
+            rows["RBOrganisation"] = rb["rows_new"] if rb["swapped"] else 0
+            for tabel, tabel_rows in historik:
+                metrics = _load_historik(
+                    conn,
+                    tabel,
+                    tabel_rows,
+                    run_id=context.run_id,
+                    dry_run=False,
+                    min_ratio=min_ratio,
+                    close_rows=not extract_security["fejlede_opslag"],
+                )
+                historik_metrics[tabel.name] = metrics
+                rows[tabel.name] = metrics["closed"] + metrics["inserted"]
     finally:
         conn.close()
 
@@ -94,7 +148,13 @@ def populate_security(
         )
     else:
         rb_msg = "load skipped (empty extract) — live table untouched"
-    context.log.info(f"sec.RolleDomaene: {rd_ins} inserted; sec.RBOrganisation: {rb_msg}")
+    context.log.info(
+        f"sec.RolleDomaene: {rd_ins} inserted; sec.RBOrganisation: {rb_msg}; "
+        + "; ".join(
+            f"sec.{name}: {m['closed']} closed, {m['inserted']} inserted"
+            for name, m in historik_metrics.items()
+        )
+    )
     return dg.MaterializeResult(
         metadata={
             "rolledomaene_inserted": rd_ins,
@@ -103,6 +163,11 @@ def populate_security(
             "rborganisation_users_old": rb["users_old"],
             "rborganisation_users_new": rb["users_new"],
             "rborganisation_swapped": rb["swapped"],
+            **{
+                f"{name.lower()}_{key}": value
+                for name, m in historik_metrics.items()
+                for key, value in m.items()
+            },
         }
     )
 

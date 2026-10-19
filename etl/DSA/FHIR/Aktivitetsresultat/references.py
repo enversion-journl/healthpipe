@@ -32,8 +32,39 @@ from utils.fhir.identifier_systems import (
     SYSTEM_IFDB_EPISODE_OF_CARE_ID,
     SYSTEM_IFDB_OBJECT_ID,
     SYSTEM_IFDB_PATIENT_ID,
+    SYSTEM_SOR,
 )
 from utils.fhir.index_config import IDENTIFIER_UNIQUE_INDEX_SET
+
+
+def resolve_procedure_organizations(
+    procedure_dicts: list[tuple[str, dict]], fhir_database: FHIRDatabaseResource
+) -> None:
+    """Opløs chunkens Procedure.performer.actor uden at ændre kliniker-id'er.
+
+    Dict-stien bruger ikke den generelle Pydantic-resolver. Slå kun chunkens
+    unikke SOR-id'er op, og bevar identifieren, hvis organisationen ikke findes.
+    """
+    actors = [
+        (actor["identifier"]["value"], actor)
+        for _, procedure in procedure_dicts
+        for performer in procedure.get("performer", [])
+        if (actor := performer.get("actor", {})).get("identifier", {}).get("system") == SYSTEM_SOR
+        and actor["identifier"].get("value")
+        and not actor.get("id")
+    ]
+    if not actors:
+        return
+    resolved = fhir_database.resolve_identifier_values(
+        resource_type="Organization",
+        identifier_system=SYSTEM_SOR,
+        values=sorted({value for value, _ in actors}),
+    )
+    for value, actor in actors:
+        if resource_id := resolved.get(value):
+            actor.pop("identifier", None)
+            actor.pop("type", None)
+            actor.update(id=resource_id, resourceType="Organization")
 
 
 class ResolvedRefLookup:
@@ -880,10 +911,10 @@ def _ensure_reference_dependencies(
     if not patient_ids and not encounter_ids and not episode_ids:
         return dependency_lookups
 
+    from DSA.FHIR.Patient.patient_service import NEED_REFERENCE, ensure_patients
     from DSA.FHIR.utils.ifdb.dependency_resolver import (
         resolve_missing_encounters,
         resolve_missing_episodes_of_care,
-        resolve_missing_patients,
     )
 
     logger = dg.get_dagster_logger()
@@ -913,12 +944,13 @@ def _ensure_reference_dependencies(
         )
     if patient_ids:
         logger.info("[DEPENDENCY] Ensuring %d patients exist", len(patient_ids))
-        resolved_patients = resolve_missing_patients(
-            patient_ids=patient_ids,
+        resolved_patients = ensure_patients(
+            ifdb_patient_ids=patient_ids,
             mssql=mssql,
             fhir_database=fhir_database,
             context=context,
-        )
+            need=NEED_REFERENCE,
+        ).by_ifdb_id
         dependency_lookups["Patient"] = _as_identifier_lookup(
             SYSTEM_IFDB_PATIENT_ID,
             resolved_patients,

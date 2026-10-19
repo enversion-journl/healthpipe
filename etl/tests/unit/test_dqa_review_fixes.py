@@ -868,13 +868,17 @@ def test_arc_sensor_spec_is_weekly_only():
     # though the base job succeeds daily).
     assert arc["daily_job"] is None
     assert "dqa_arc_ifdb_weekly_job" in arc["weekly_jobs"]
-    # FHIR, ERP, DRG and HAIBA pipelines DO have a daily job.
+    # Every other pipeline DOES have a daily job. udredningsret joins them: its
+    # section-9 subjects are all DAILY because the tables only change per publish
+    # (dqa/config/udredningsret_subjects.py), so a weekly-only spec would leave
+    # them waiting for a publish that happened to land on a Saturday.
     daily = {s["name"] for s in DQA_AFTER_ETL_SENSOR_SPECS if s["daily_job"]}
     assert daily == {
         "dqa_fhir_after_etl",
         "dqa_erp_daily_after_dfm",
         "dqa_drg_after_publish",
         "dqa_haiba_after_publish",
+        "dqa_udredningsret_after_publish",
     }
 
 
@@ -1204,6 +1208,7 @@ def test_archive_reconciliation_rejects_unknown_dialect():
 
 def test_arc_subjects_pin_ifdb_oracle_and_flow_start_state():
     from dqa.config.arc_subjects import ARC_SUBJECTS
+    from DSI.oracle.ifdb_extract import IFDB_EPJ_CEILING, IFDB_TRANSFER_CEILING
 
     for s in ARC_SUBJECTS:
         (spec,) = s.checks
@@ -1223,7 +1228,10 @@ def test_arc_subjects_pin_ifdb_oracle_and_flow_start_state():
         #      the nightly cost follows the change volume. They are unbounded for
         #      DQA only because their delta expression is alias-qualified.
         if "flow_start_bound_column" in spec.params:
-            assert spec.params["flow_start_state"] == ["dfm", "ifdb_flow_start"], s.name
+            assert spec.params["flow_start_state"] in (
+                list(IFDB_TRANSFER_CEILING),
+                list(IFDB_EPJ_CEILING),
+            ), s.name
         else:
             assert s.name in {
                 "arc_ifdb_location",
@@ -1239,7 +1247,26 @@ def test_arc_subjects_pin_ifdb_oracle_and_flow_start_state():
                 "arc_bom_ifdb_aftaleressourcedeltager",
                 "arc_bom_ifdb_patientinfo",
                 "arc_bom_ifdb_orgenhed_sor",
+                # Senge og kapacitet. Grund 1 (full load) — rækkeantal målt mod
+                # kilden 2026-08-28: disponible 1.266, normerede 379,
+                # absence 78.951.
+                "arc_ifdb_sengeenhed_disponible",
+                "arc_ifdb_sengeenhed_normerede",
+                "arc_ifdb_absence",
             }, s.name
+
+
+def test_arc_subject_inline_source_exposes_its_flow_start_bound_column():
+    """A join view without the bound column fails the weekly reconciliation in Oracle."""
+    from dqa.config.arc_subjects import ARC_SUBJECTS
+
+    for s in ARC_SUBJECTS:
+        (spec,) = s.checks
+        bound_column = spec.params.get("flow_start_bound_column")
+        source_table = spec.params["source_table"]
+        if bound_column and source_table.startswith("("):
+            select_list = source_table.split(" FROM ", 1)[0]
+            assert bound_column in select_list, s.name
 
 
 def test_archive_reconciliation_commits_staging_before_capture():

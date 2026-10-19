@@ -4,6 +4,7 @@
 # This file is part of Healthpipe. See the LICENSE file in the project
 # root for the full AGPL-3.0 license text.
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import dagster as dg
@@ -19,7 +20,6 @@ from DSA.FHIR.utils.ifdb.dependency_resolver import (
     _fetch_rows_by_ids_from_ifdb,
     _raise_if_unresolved,
     resolve_missing_encounters,
-    resolve_missing_patients,
 )
 from fhir.resources.R4B.extension import Extension
 from fhir.resources.R4B.identifier import Identifier
@@ -109,6 +109,8 @@ def _observation_with_dependencies(
 class TestResolveMissingEncounters:
     @patch("DSA.FHIR.Encounter.Encounter_IFDB_dfm._post_encounters_to_fhir")
     @patch("DSA.FHIR.Encounter.Encounter_IFDB_dfm._transform_encounters_to_fhir")
+    @patch("DSA.FHIR.Encounter.Encounter_IFDB_dfm._fetch_absence_data_for_batch")
+    @patch("DSA.FHIR.Encounter.Encounter_IFDB_dfm._fetch_bed_space_data_for_batch")
     @patch("DSA.FHIR.Encounter.Encounter_IFDB_dfm._fetch_location_data_for_batch")
     @patch("DSA.FHIR.utils.ifdb.dependency_resolver._fetch_encounters_from_archive")
     @patch("DSA.FHIR.utils.ifdb.dependency_resolver.batch_resolve_references")
@@ -117,6 +119,8 @@ class TestResolveMissingEncounters:
         mock_batch_resolve: MagicMock,
         mock_fetch_rows: MagicMock,
         mock_fetch_locations: MagicMock,
+        mock_fetch_beds: MagicMock,
+        mock_fetch_absences: MagicMock,
         mock_transform: MagicMock,
         mock_post: MagicMock,
     ) -> None:
@@ -128,6 +132,8 @@ class TestResolveMissingEncounters:
             {"OBJECT_ID": "ENC-2", "PATIENT_ID": "PAT-2", "EPISODE_OF_CARE_ID": "EOC-2"}
         ]
         mock_fetch_locations.return_value = {"ENC-2": []}
+        mock_fetch_beds.return_value = {"ENC-2": []}
+        mock_fetch_absences.return_value = {"ENC-2": []}
         mock_transform.return_value = ["encounter-resource"]
 
         context = _mock_context()
@@ -164,40 +170,93 @@ class TestResolveMissingEncounters:
         )
 
 
-@patch("DSA.FHIR.utils.ifdb.dependency_resolver._persist_cpr_matched_identifiers")
-@patch("DSA.FHIR.utils.ifdb.dependency_resolver._fetch_patients_from_archive")
-@patch("DSA.FHIR.utils.ifdb.dependency_resolver.batch_resolve_references")
-def test_resolve_missing_patients_force_reloads_after_cpr_bridge(
-    mock_batch_resolve: MagicMock,
-    mock_fetch_rows: MagicMock,
-    mock_persist_bridge: MagicMock,
+def _ensure_result(**kw):
+    from DSA.FHIR.Patient.patient_service import EnsureResult
+
+    return EnsureResult(**kw)
+
+
+@patch("DSA.FHIR.utils.ifdb.dependency_resolver._fetch_bom_ifdb_patientinfo_by_cpr")
+@patch("DSA.FHIR.utils.ifdb.dependency_resolver.ensure_patients")
+def test_by_cpr_looks_unresolved_cprs_up_in_bom_and_builds_them_as_epj(
+    mock_ensure: MagicMock, mock_bom: MagicMock
 ) -> None:
-    mock_batch_resolve.side_effect = [
-        {},  # initial IFDB PATIENT_ID resolve
-        {"0101011234": "fhir-pat-1"},  # CPR resolve
-        {"NEW-PATIENT-ID": "fhir-pat-1"},  # force-reloaded IFDB PATIENT_ID resolve
+    """Two passes: the entry point first, then BOM rows for what is left."""
+    from DSA.FHIR.utils.ifdb.dependency_resolver import resolve_missing_patients_by_cpr
+
+    mock_ensure.side_effect = [
+        _ensure_result(by_cpr={"0101010101": "f-1"}, existing=1, unresolved_cprs=("0202020202",)),
+        _ensure_result(by_cpr={"0202020202": "f-2"}, written=1),
     ]
-    mock_fetch_rows.return_value = [{"PATIENT_ID": "NEW-PATIENT-ID", "CPR": "0101011234"}]
-    mock_persist_bridge.return_value = 1
-
-    context = _mock_context()
+    mock_bom.return_value = [{"CPRNR": "0202020202", "PATIENTINFOOID": 7}]
     fhir_database = MagicMock()
-    mssql = MagicMock()
 
-    resolved = resolve_missing_patients(
-        patient_ids={"NEW-PATIENT-ID"},
-        mssql=mssql,
+    resolved = resolve_missing_patients_by_cpr(
+        cprs={"0101010101", "0202020202"},
+        mssql=MagicMock(),
         fhir_database=fhir_database,
-        context=context,
+        context=_mock_context(),
+        ifdb_oracle=MagicMock(),
     )
 
-    assert resolved == {"NEW-PATIENT-ID": "fhir-pat-1"}
-    assert mock_batch_resolve.call_args_list[2].kwargs["force_reload"] is True
-    fhir_database.clear_identifier_caches.assert_not_called()
+    assert resolved == {"0101010101": "f-1", "0202020202": "f-2"}
+    assert mock_bom.call_args.args[0] == ["0202020202"]
+    second = mock_ensure.call_args_list[1].kwargs
+    assert set(second["cprs"]) == {"0202020202"}
+    assert second["bom_rows_by_cpr"]["0202020202"][0]["PATIENTINFOOID"] == 7
+    fhir_database.mark_stale.assert_called_once_with("Patient")
+
+
+@patch("DSA.FHIR.utils.ifdb.dependency_resolver._fetch_bom_ifdb_patientinfo_by_cpr")
+@patch("DSA.FHIR.utils.ifdb.dependency_resolver.ensure_patients")
+def test_by_cpr_reads_the_archive_without_oracle(
+    mock_ensure: MagicMock, mock_bom: MagicMock
+) -> None:
+    """Without Oracle only Oracle is skipped; the archive's BOM rows are still read."""
+    from DSA.FHIR.utils.ifdb.dependency_resolver import resolve_missing_patients_by_cpr
+
+    mock_ensure.return_value = _ensure_result(by_cpr={}, unresolved_cprs=("0202020202",))
+    mock_bom.return_value = []
+    resolved = resolve_missing_patients_by_cpr(
+        cprs={"0202020202"},
+        mssql=MagicMock(),
+        fhir_database=MagicMock(),
+        context=_mock_context(),
+        ifdb_oracle=None,
+    )
+    assert resolved == {}
+    mock_bom.assert_called_once()
+    assert mock_bom.call_args.args[1] is None
+    assert mock_ensure.call_count == 1
+
+
+@patch("DSA.FHIR.utils.ifdb.dependency_resolver._fetch_bom_ifdb_patientinfo_by_cpr")
+@patch("DSA.FHIR.utils.ifdb.dependency_resolver.ensure_patients")
+def test_by_cpr_passes_every_bom_row_per_cpr(mock_ensure: MagicMock, mock_bom: MagicMock) -> None:
+    """Two patientinfo rows for one CPR both reach the entry point."""
+    from DSA.FHIR.utils.ifdb.dependency_resolver import resolve_missing_patients_by_cpr
+
+    mock_ensure.side_effect = [
+        _ensure_result(by_cpr={}, unresolved_cprs=("0202020202",)),
+        _ensure_result(by_cpr={"0202020202": "f-2"}, written=1),
+    ]
+    mock_bom.return_value = [
+        {"CPRNR": "0202020202", "PATIENTINFOOID": 9},
+        {"CPRNR": "0202020202", "PATIENTINFOOID": 7},
+    ]
+    resolve_missing_patients_by_cpr(
+        cprs={"0202020202"},
+        mssql=MagicMock(),
+        fhir_database=MagicMock(),
+        context=_mock_context(),
+        ifdb_oracle=MagicMock(),
+    )
+    second = mock_ensure.call_args_list[1].kwargs
+    assert [r["PATIENTINFOOID"] for r in second["bom_rows_by_cpr"]["0202020202"]] == [9, 7]
 
 
 class TestAktivitetsresultatDependencies:
-    @patch("DSA.FHIR.utils.ifdb.dependency_resolver.resolve_missing_patients")
+    @patch("DSA.FHIR.Patient.patient_service.ensure_patients")
     @patch("DSA.FHIR.utils.ifdb.dependency_resolver.resolve_missing_encounters")
     @patch("DSA.FHIR.utils.ifdb.dependency_resolver.resolve_missing_episodes_of_care")
     def test_dict_pipeline_ensures_all_reference_dependencies(
@@ -216,7 +275,7 @@ class TestAktivitetsresultatDependencies:
         mssql = MagicMock()
         mock_resolve_eoc.return_value = {"EOC-1": "eoc-fhir-1", "EOC-2": "eoc-fhir-2"}
         mock_resolve_enc.return_value = {"ENC-1": "enc-fhir-1", "ENC-2": "enc-fhir-2"}
-        mock_resolve_pat.return_value = {"PAT-1": "pat-fhir-1"}
+        mock_resolve_pat.return_value = _ensure_result(by_ifdb_id={"PAT-1": "pat-fhir-1"})
 
         resolved = _ensure_reference_dependencies(
             rows,
@@ -241,10 +300,11 @@ class TestAktivitetsresultatDependencies:
             context=context,
         )
         mock_resolve_pat.assert_called_once_with(
-            patient_ids={"PAT-1"},
+            ifdb_patient_ids={"PAT-1"},
             mssql=mssql,
             fhir_database=fhir_database,
             context=context,
+            need="reference",
         )
         assert resolved["EpisodeOfCare"][(SYSTEM_IFDB_EPISODE_OF_CARE_ID, "EOC-1")] == "eoc-fhir-1"
         assert resolved["Encounter"][(SYSTEM_IFDB_OBJECT_ID, "ENC-2")] == "enc-fhir-2"
@@ -254,7 +314,7 @@ class TestAktivitetsresultatDependencies:
 class TestProcedureDependencies:
     @patch("DSA.FHIR.Procedure.Procedure_IFDB_AdminProc_dfm.post_resources_direct")
     @patch("DSA.FHIR.Procedure.Procedure_IFDB_AdminProc_dfm.prepare_resources_for_upsert")
-    @patch("DSA.FHIR.utils.ifdb.dependency_resolver.resolve_missing_patients")
+    @patch("DSA.FHIR.Patient.patient_service.ensure_patients")
     @patch("DSA.FHIR.utils.ifdb.dependency_resolver.resolve_missing_encounters")
     @patch("DSA.FHIR.utils.ifdb.dependency_resolver.resolve_missing_episodes_of_care")
     def test_administrative_procedure_post_resolves_all_dependencies(
@@ -298,16 +358,17 @@ class TestProcedureDependencies:
             context=context,
         )
         mock_resolve_pat.assert_called_once_with(
-            patient_ids={"PAT-1"},
+            ifdb_patient_ids={"PAT-1"},
             mssql=mssql,
             fhir_database=fhir_database,
             context=context,
+            need="reference",
         )
         assert mock_prepare.call_args.kwargs["resource_type"] == "Procedure"
 
     @patch("DSA.FHIR.Procedure.Procedure_IFDB_RisYdelse_dfm.post_resources_direct")
     @patch("DSA.FHIR.Procedure.Procedure_IFDB_RisYdelse_dfm.prepare_resources_for_upsert")
-    @patch("DSA.FHIR.utils.ifdb.dependency_resolver.resolve_missing_patients")
+    @patch("DSA.FHIR.Patient.patient_service.ensure_patients")
     @patch("DSA.FHIR.utils.ifdb.dependency_resolver.resolve_missing_encounters")
     @patch("DSA.FHIR.utils.ifdb.dependency_resolver.resolve_missing_episodes_of_care")
     def test_ris_ydelse_post_resolves_all_dependencies(
@@ -351,10 +412,11 @@ class TestProcedureDependencies:
             context=context,
         )
         mock_resolve_pat.assert_called_once_with(
-            patient_ids={"PAT-1", "PAT-2"},
+            ifdb_patient_ids={"PAT-1", "PAT-2"},
             mssql=mssql,
             fhir_database=fhir_database,
             context=context,
+            need="reference",
         )
         assert mock_prepare.call_args.kwargs["resource_type"] == "Procedure"
 
@@ -470,9 +532,11 @@ def test_patientinfo_cpr_fallback_is_per_cpr_not_all_or_nothing(monkeypatch):
 
     monkeypatch.setattr(dr, "_fetch_rows_by_ids_from_ifdb", fake_oracle)
 
+    monkeypatch.setattr(dr, "DfmManager", lambda *args: MagicMock())
+
     rows = dr._fetch_bom_ifdb_patientinfo_by_cpr(
         ["111111-1111", "222222-2222", "333333-3333"],
-        object(),
+        SimpleNamespace(user="ifdb", host="ifdb-host"),
         _mock_context(),
         mssql=object(),
     )
@@ -514,10 +578,8 @@ class TestArchiveFetcherContract:
     @pytest.mark.parametrize(
         ("fetcher_name", "expected_table"),
         [
-            ("_fetch_patients_from_archive", "arc.ifdb_patient"),
             ("_fetch_encounters_from_archive", "arc.ifdb_encounter"),
             ("_fetch_episodes_of_care_from_archive", "arc.ifdb_episode_of_care"),
-            ("_fetch_ifdb_patients_by_cpr", "arc.ifdb_patient"),
         ],
     )
     def test_archive_fetchers_pass_include_deleted(

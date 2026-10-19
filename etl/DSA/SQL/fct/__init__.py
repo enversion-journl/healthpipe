@@ -21,10 +21,14 @@ from .fct_Fakturalinje import fct_Fakturalinje
 from .fct_Finanskladdelinje import fct_Finanskladdelinje
 from .fct_Lagerbeholdning import fct_Lagerbeholdning
 from .fct_Postering import fct_Postering
+from .fct_Udredningsforloeb import fct_Udredningsforloeb
+from .fct_UdredningsretMarkoer import fct_UdredningsretMarkoer
 from .fct_Vareudlevering import fct_Vareudlevering
 
 all_assets = [
     fct_DRGKontakt,
+    fct_Udredningsforloeb,
+    fct_UdredningsretMarkoer,
     fct_AftaleVarePris,
     fct_Budget,
     fct_Faktura,
@@ -40,6 +44,8 @@ all_assets = [
 
 __all__ = [
     "fct_DRGKontakt",
+    "fct_Udredningsforloeb",
+    "fct_UdredningsretMarkoer",
     "all_assets",
     "fct_AftaleVarePris",
     "fct_apply_faktura_postering_relations",

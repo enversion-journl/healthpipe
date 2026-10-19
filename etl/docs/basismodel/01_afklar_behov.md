@@ -17,7 +17,7 @@ Dette kapitel er en tjekliste til den afklaring.
 
 | Opgave | Kendetegn | Omfang |
 |---|---|---|
-| **A. Ny datakilde** | Et kildesystem, vi ikke henter fra i dag. Kræver adgang, forbindelse, DDL-hjem, konfiguration, job og datakvalitetstjek. | Dage til uger |
+| **A. Ny datakilde** | Et kildesystem, vi ikke henter fra i dag. Kræver adgang, forbindelse, et sted til DDL'en, konfiguration, job og datakvalitetstjek. | Dage til uger |
 | **B. Tilføjelse til eksisterende datakilde** | Ny tabel eller nye kolonner fra et kildesystem, vi allerede henter fra. | Timer til dage |
 | **C. Fejlretning i en datakilde** | Data findes, men er forkerte, mangler eller er forældede. | Timer til dage |
 | **D. Andet** | Nyt view, ny nøgle, performanceproblem, nyt datakvalitetstjek, dokumentation. | Varierer |
@@ -46,14 +46,14 @@ Er data kliniske og dækket af en FHIR-ressource?
 └── Nej
     ├── Er det en færdigberegnet leverance udefra
     │   (aggregerede tal per periode/organisation/kategori,
-    │    fulde snapshots, fx SDS/SSI)?
+    │    fulde snapshots, fx fra Sundhedsdatastyrelsen)?
     │   └── Ja → dm-sporet     → kapitel 03c
     └── Ellers: transaktionelle data der skal modelleres
         dimensionelt          → kapitel 03b
 ```
 
-Er du i tvivl mellem 03b og 03c: har rækkerne en transaktions-id, og kan man
-drille ned i den enkelte hændelse? Så er det 03b. Er rækken selv tallet, og er
+Er du i tvivl mellem 03b og 03c: har rækkerne et transaktions-id, og kan man gå ned
+i den enkelte hændelse? Så er det 03b. Er rækken selv tallet, og er
 summen lavet af leverandøren, er det 03c.
 
 ### Det afklaringen skal ende med
@@ -77,14 +77,14 @@ Seks spørgsmål, som alle skal være besvaret, før du kan skrive konfiguration
 |---|---|
 | Hvad er grain? Én række per hvad? | `SELECT COUNT(*), COUNT(DISTINCT <kandidat>) FROM <tabel>` — tallene skal være ens |
 | Findes der en stabil primærnøgle? | Kildens DDL. Bekræft at nøglen ikke genbruges efter en sletning |
-| Findes der et modification timestamp? | Kig efter `modified`, `sysdato`, `*_MODIFICATION_DATETIME`, audit-heltal |
+| Findes der et modification timestamp? | Kig efter `modified`, `sysdato`, `*_MODIFICATION_DATETIME` eller en versionskolonne, der tælles op ved hver ændring |
 | Opdateres tidsstemplet ved **enhver** ændring? | Spørg systemejeren, og stikprøv rækker du ved er rettet |
-| Hvordan repræsenteres sletninger? | Sletteflag, deletion log-tabel, eller hard delete |
+| Hvordan viser kilden, at en række er slettet? | Et sletteflag i kilden (fx `DELETED`), eller hard delete — rækken forsvinder bare. Uanset hvad gemmer vi en slettemarkering (`dw_is_deleted`) i arkivet |
 | Hvor stor er tabellen, og hvor meget ændrer sig dagligt? | `SELECT COUNT(*)` plus ændringsvolumen |
 
 Vær særligt opmærksom på fjerde spørgsmål: et timestamp, der kun opdateres ved
 insert og ikke ved rettelser, får delta-hentningen til at se fejlfri ud, samtidig
-med at den taber alle opdateringer.
+med at alle rettelser bliver sprunget over — uden en fejlbesked.
 
 Svarene bliver til konfiguration: grain og primærnøgle bliver `merge_keys`,
 delta-kolonnen bliver `delta_column`, og sletteadfærden bliver `detect_deletes` /
@@ -104,21 +104,21 @@ Find laget først — hvert lag har sin egen type fejl.
 |---|---|---|
 | Data mangler helt for en periode | DSI (extract) | Er checkpointet løbet forbi? `SELECT * FROM meta.DFMState WHERE table_name = '<tabel>'` |
 | Data findes i `arc.*`, men ikke længere fremme | DSA | Er den seneste kørsel af staging/transform lykkedes? |
-| Data findes i DSA, men ikke i DSO | DSO (sync) | Watermark og `counts_match` i asset-metadata |
+| Data findes i DSA, men ikke i DSO | DSO (sync) | Sync'ens checkpoint (`scope = 'dso'`) og `counts_match` i asset-metadata |
 | Tal er for høje (dobbelttælling) | DSA | Matcher `merge_keys` det faktiske grain? Er der flere aggregeringsniveauer i samme tabel? |
 | En kolonne er altid NULL | DSI | Mangler kolonnen i `non_key_columns` på arkivets konfiguration? |
 | Nøgler falder tilbage til `-1` | DSA (map) | Bliver CleanCode'en dannet ens i pre_stg og i map-opslaget? |
-| Rækker der burde være slettet, er stadig med | DSI eller view | Er delete detection slået til? Filtrerer viewet på `dw_is_deleted = 0`? |
+| Rækker der burde være slettet, er stadig med | DSI eller view | Er delete detection slået til? Er `dw_is_deleted` sat på rækken? Har tabellen et view, og filtrerer det på `dw_is_deleted = 0`? |
 
 Tre regler for fejlretning:
 
 1. **Reproducér før du retter.** Skriv den SQL, der viser fejlen, og gem den — den
    bliver din verifikation bagefter, og ofte et nyt DQA-tjek.
 2. **Ret upstream, ikke downstream.** En fejl i arkivet skal rettes i arkivet, ikke
-   dækkes af et filter i et view. Et filter downstream skjuler fejlen for det næste
-   spor, der læser samme arkiv.
-3. **Replay flytter ikke checkpointet.** Brug DFM's `period`- eller `ids`-mode
-   til at hente de berørte data igen. Se
+   dækkes af et filter længere fremme. Et filter downstream skjuler fejlen for det
+   næste spor, der læser samme arkiv.
+3. **Replay flytter ikke checkpointet.** Skal de berørte data hentes igen (replay),
+   så brug DFM's `period`- eller `ids`-mode. Se
    [dfm_operations_guide.md](../implementation/dfm_operations_guide.md).
 
 Ender fejlen med en beslutning om, *hvordan* data skal fortolkes (og ikke bare en
@@ -129,13 +129,13 @@ programmeringsfejl), hører beslutningen til i beslutningsloggen — se
 
 | Opgave | Hvor |
 |---|---|
-| Nyt view i DSO | [04 — DSO](04_DSO_sync_til_DSO.md) |
+| Nyt view i DSO | [04 — DSO](04_DSO_sync_til_DSO.md#5-viewet--kun-når-der-er-en-grund) |
 | Ny fælles dimension | [03b](03b_DSA_arkiv_til_dimensionel_model.md) + [shared_dimensions.md](../shared_dimensions.md) |
 | Nyt datakvalitetstjek | [dqa/README.md](../architecture/dqa/README.md) |
 | Ny CodeSystem/ConceptMap (organisationshierarkier) | [codesystem_conceptmap_guide.md](../implementation/codesystem_conceptmap_guide.md) |
 | Performanceproblem i map/dim/fct | [03b](03b_DSA_arkiv_til_dimensionel_model.md), afsnittet om performance |
 | Adgangsstyring på DSO | [sikkerhedsmodel.md](../implementation/sikkerhedsmodel.md) |
-| Ændring i navngivning | [navngivningsstandard.md](../implementation/navngivningsstandard.md) |
+| Ændring i navngivning | [navngivningsstandard_basismodel.md](../implementation/navngivningsstandard_basismodel.md) |
 
 ## Konventioner i repoet
 

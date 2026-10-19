@@ -305,6 +305,7 @@ def drg_db(real_mssql_target_staging_resource):
     execute_sql_file(resource, "migrations/20260708_rename_00_meta.sql")
     execute_sql_file(resource, "tables/meta/02_dfm_state.sql")
     execute_sql_file(resource, "tables/meta/03_dfm_run_log.sql")
+    execute_sql_file(resource, "migrations/20261005_01_dfm_run_log_source_columns.sql")
     execute_sql_files_from_directory(resource, "tables/drg")
     return resource
 
@@ -455,69 +456,25 @@ def test_3_genkoersel_er_noop(drg_db, tmp_path, monkeypatch):
     )
 
 
-def test_4_retningsguard_afviser_aeldre_leverance(drg_db, tmp_path, monkeypatch):
+def test_4_aeldre_leverance_springes_over_uden_at_roere_arkivet(drg_db, tmp_path, monkeypatch):
+    """En pinnet AELDRE leverance afvises ikke laengere haardt — den springes
+    over pr. aarsskive, fordi dens datacap ikke er nyere end den, arkivet
+    allerede afspejler. Det er den samme mekanisme, der goer en M efter en U
+    korrekt, og den maa derfor ikke vaere en fejl."""
     build_delivery_a(tmp_path)
     build_delivery_b(tmp_path)
     # pin extract til den aeldre M-leverance — arkivet afspejler allerede B
     run_extract(drg_db, tmp_path, monkeypatch, on_or_before="2026-08-18")
-    with pytest.raises(ValueError, match="maa ikke merges"):
-        run_archive_all(drg_db)
 
-
-def test_5_backfill_opdaterer_men_sletter_og_reviderer_ikke(drg_db, tmp_path, monkeypatch):
-    """backfill_historical ruller vaerdier tilbage men maa hverken soft-slette
-    nyere raekker eller skrive omvendte prisrevisioner."""
-    build_delivery_a(tmp_path)
-    build_delivery_b(tmp_path)
-    revisions_before = scalar(drg_db, "SELECT COUNT(*) FROM arc.drg_pris_revision")
-    run_extract(drg_db, tmp_path, monkeypatch, on_or_before="2026-08-18")
-
-    for dataset in SOMATIK_DATASETS:
-        drg_archive._run_archive(
-            dg.build_asset_context(),
-            drg_db,
-            dataset,
-            drg_archive.DrgArchiveConfig(backfill_historical=True),
-        )
-
-    # vaerdier rullet tilbage til A's
-    assert (
-        scalar(drg_db, "SELECT TOTALPRIS_DRG FROM arc.drg_kontakt WHERE KONTAKT_VAERDI = ?", UUID_A)
-        == "100"
+    before = scalar(
+        drg_db, "SELECT TOTALPRIS_DRG FROM arc.drg_kontakt WHERE KONTAKT_VAERDI = ?", UUID_A
     )
-    # ingen omvendt revision (150 -> 100) i loggen
-    assert scalar(drg_db, "SELECT COUNT(*) FROM arc.drg_pris_revision") == revisions_before
-    # intet soft-slettet; UUID_C bestaar
-    assert (
-        scalar(drg_db, "SELECT dw_is_deleted FROM arc.drg_kontakt WHERE KONTAKT_VAERDI = ?", UUID_C)
-        == 0
-    )
-    # detect_deletes=False betyder ogsaa: ingen genoplivning — den senere
-    # soft-slettede UUID_B forbliver slettet, selv om den findes i A
-    assert (
-        scalar(drg_db, "SELECT dw_is_deleted FROM arc.drg_kontakt WHERE KONTAKT_VAERDI = ?", UUID_B)
-        == 1
-    )
-
-
-def test_6_nyeste_leverance_genindlaeses_efter_backfill(drg_db, tmp_path, monkeypatch):
-    """Efter backfill genindlaeses nyeste leverance — og revisionsloggen
-    dobbelttaeller IKKE den samme prisaendring (NOT EXISTS-vaernet)."""
-    build_delivery_b(tmp_path)
-    revisions_before = scalar(drg_db, "SELECT COUNT(*) FROM arc.drg_pris_revision")
-    run_extract(drg_db, tmp_path, monkeypatch)
     run_archive_all(drg_db)
+    after = scalar(
+        drg_db, "SELECT TOTALPRIS_DRG FROM arc.drg_kontakt WHERE KONTAKT_VAERDI = ?", UUID_A
+    )
 
-    assert (
-        scalar(drg_db, "SELECT TOTALPRIS_DRG FROM arc.drg_kontakt WHERE KONTAKT_VAERDI = ?", UUID_A)
-        == "150"
-    )
-    assert (
-        scalar(drg_db, "SELECT dw_is_deleted FROM arc.drg_kontakt WHERE KONTAKT_VAERDI = ?", UUID_B)
-        == 1
-    )
-    # 100 -> 150 for leverance 2026-08-24 findes allerede fra test 2 -> dedup
-    assert scalar(drg_db, "SELECT COUNT(*) FROM arc.drg_pris_revision") == revisions_before
+    assert str(before) == str(after), "den aeldre leverance maa ikke overskrive arkivet"
 
 
 def test_7_paritetsguard_fanger_uoploeselig_reference(drg_db, tmp_path, monkeypatch):
@@ -806,3 +763,93 @@ def test_10_konfliktende_kildedubletter_fejler(drg_db, tmp_path, monkeypatch):
             PSYK_BY_PREFIX["Psyk_kontakt"],
             drg_archive.DrgArchiveConfig(),
         )
+
+
+def test_11_registreringsid_dubletter_er_identiske(drg_db, tmp_path, monkeypatch):
+    """To diagnoseraekker der kun afviger paa kildens raekke-uuid er samme
+    registrering gentaget — mergen skal lykkes med én raekke, deterministisk
+    vinder."""
+    diagnose = DATASETS_BY_PREFIX["DIAGNOSER"]
+    kontakt_uuid = "EEEEEEEE-0000-0000-0000-000000000001"
+
+    def dublet(diagnose_id: str, vaerdi: str) -> list[str]:
+        return _row(
+            diagnose,
+            ID=diagnose_id,
+            DRGKONTAKT_ID="61",
+            DIAGNOSE="DZ032",
+            ART="ALGA02",
+            DIAGNOSE_VAERDI=vaerdi,
+            Aktivitetsaar="2023",
+        )
+
+    build_delivery(
+        tmp_path,
+        "Region_1083_DRG_T26_M_20260903120000.tar.bz2",
+        {
+            "DRGKONTAKT": [kontakt_row(kontakt_uuid, "61", "71", "2023", "1000")],
+            "DRGSGHFORLOB": [forloeb_row("71", "61", "61", "2023", "1000")],
+            "DIAGNOSER": [
+                dublet("1", "EEEEEEEE-1111-0000-0000-000000000001"),
+                dublet("2", "EEEEEEEE-1111-0000-0000-000000000002"),
+            ],
+            # brugbarheds-reglen kraever raekker i alle oevrige datasaet
+            "DIAGNOSER_TILLAEG": [
+                _row(
+                    DATASETS_BY_PREFIX["DIAGNOSER_TILLAEG"],
+                    ID="1",
+                    DIAGNOSE_ID="1",
+                    DRGKONTAKT_ID="61",
+                    TILLAEGSKODE_DIAGNOSE="TUL1",
+                    Aktivitetsaar="2023",
+                )
+            ],
+            "PROCEDURE": [procedure_row("1", "61", "EEEEEEEE-2222-0000-0000-000000000001", "2023")],
+            "PROCEDURE_TILLAEG": [
+                _row(
+                    DATASETS_BY_PREFIX["PROCEDURE_TILLAEG"],
+                    ID="1",
+                    PROCEDURE_ID="1",
+                    DRGKONTAKT_ID="61",
+                    TILLAEGSKODE_PROCEDURE="TPX1",
+                    Aktivitetsaar="2023",
+                )
+            ],
+            "INTERNE_KODER": [
+                _row(
+                    DATASETS_BY_PREFIX["INTERNE_KODER"],
+                    ID="1",
+                    DRGKONTAKT_ID="61",
+                    INTERN_KODE="IK01",
+                    INTERN_TYPE="A",
+                    Aktivitetsaar="2023",
+                )
+            ],
+            "DRGTAKSTBESKRIVELSE": [["01MA01", "Testgruppe"]],
+            "LEVERANCEINFO": [["DRG", "2026-09-03"]],
+        },
+    )
+    run_extract(drg_db, tmp_path, monkeypatch)
+    assert scalar(drg_db, "SELECT COUNT(*) FROM ext.drg_diagnose") == 2
+
+    result = drg_archive._run_archive(
+        dg.build_asset_context(), drg_db, diagnose, drg_archive.DrgArchiveConfig()
+    )
+    assert result.metadata["identiske_kildedubletter"] == 1
+    # én raekke i arkivet, og vinderen er deterministisk (hoejeste raekke-uuid)
+    assert (
+        scalar(
+            drg_db,
+            "SELECT COUNT(*) FROM arc.drg_diagnose WHERE kontakt_uuid = ?",
+            kontakt_uuid,
+        )
+        == 1
+    )
+    assert (
+        scalar(
+            drg_db,
+            "SELECT [DIAGNOSE_VAERDI] FROM arc.drg_diagnose WHERE kontakt_uuid = ?",
+            kontakt_uuid,
+        )
+        == "EEEEEEEE-1111-0000-0000-000000000002"
+    )

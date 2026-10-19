@@ -241,7 +241,7 @@ def dso_infra_ref(
             "files_executed": list(results.keys()),
             "tables": (
                 "ref.PatientToBorger, ref.Patient_Address_To_Borger, "
-                "ref.Organisation, ref.RekvirentUndtagelse"
+                "ref.Organisation, ref.RekvirentUndtagelse, ref.ILSAendringslog"
             ),
         }
     )
@@ -302,7 +302,7 @@ def dso_infra_erp(
     return dg.MaterializeResult(
         metadata={
             "files_executed": list(results.keys()),
-            "tables": "map.Kontoplan, map.Kreditor, map.Leverandoervare, map.Aftale, map.AftaleVarePris, map.Faktura, map.Fakturalinje, map.Postering, map.Lager, map.Vareudlevering, map.Rekvirent, map.ean, map.LagerbeholdningEgenskaber, map.AfdelingLagerbeholdningEgenskaber, map.Okosted, dim.Kontoplan, dim.Kreditor, dim.Leverandoervare, dim.Aftale, dim.Faktura, dim.Fakturalinje, dim.Postering, dim.Lager, dim.Vareudlevering, dim.Rekvirent, dim.ean, dim.LagerbeholdningEgenskaber, dim.AfdelingLagerbeholdningEgenskaber, dim.Okosted, fct.Faktura, fct.Fakturalinje, fct.Postering, fct.Vareudlevering, fct.Lagerbeholdning, fct.AfdelingLagerbeholdning, fct.AftaleVarePris",
+            "tables": "map.Kontoplan, map.Kreditor, map.Leverandoervare, map.Aftale, map.ILSLeverandoer, map.AftaleVarePris, map.Faktura, map.Fakturalinje, map.Postering, map.Lager, map.Vareudlevering, map.Rekvirent, map.ean, map.LagerbeholdningEgenskaber, map.AfdelingLagerbeholdningEgenskaber, map.Okosted, dim.Kontoplan, dim.Kreditor, dim.Leverandoervare, dim.Aftale, dim.ILSLeverandoer, dim.Faktura, dim.Fakturalinje, dim.Postering, dim.Lager, dim.Vareudlevering, dim.Rekvirent, dim.ean, dim.LagerbeholdningEgenskaber, dim.AfdelingLagerbeholdningEgenskaber, dim.Okosted, fct.Faktura, fct.Fakturalinje, fct.Postering, fct.Vareudlevering, fct.Lagerbeholdning, fct.AfdelingLagerbeholdning, fct.AftaleVarePris",
         }
     )
 
@@ -461,8 +461,46 @@ def dso_infra_views_drg(
 
 
 # ============================================================================
-# SECURITY (Complete copy from staging)
+# UDREDNINGSRET (dim/fct only — map/arc/ext/meta/seeds are staging-internal)
 # ============================================================================
+
+
+@dg.asset(
+    name="dso_infra_udredningsret",
+    group_name="dso_infrastructure",
+    compute_kind="mssql",
+    deps=["dso_infra_schemas", "dso_migrations"],
+    tags={"layer": "dso", "type": "infrastructure", "domain": "udredningsret"},
+    description=(
+        "Create the udredningsret dim/fct tables on DSO. Deliberately only "
+        "03_dims/04_facts: the five map tables mint IDENTITY keys on staging "
+        "and 05_seeds seeds them (absent on DSO), while arc.udredningsret_mont "
+        "(which holds the raw CPR), ext.udredningsret* and "
+        "meta.UdredningsretLeverance are pipeline "
+        "internals — none of them may exist on DSO. The -1 sentinels arrive "
+        "with the sync."
+    ),
+)
+def dso_infra_udredningsret(
+    context: dg.AssetExecutionContext,
+    mssql_target_dso: MSSQLResource,
+) -> dg.MaterializeResult:
+    """Create the udredningsret dim/fct tables on DSO."""
+
+    files = ["tables/udredningsret/03_dims.sql", "tables/udredningsret/04_facts.sql"]
+    for f in files:
+        execute_sql_file(mssql_target_dso, f, context)
+
+    context.log.info("✅ Udredningsret dim/fct tables created on DSO")
+    return dg.MaterializeResult(
+        metadata={
+            "files_executed": files,
+            "tables": (
+                "dim.UdredningsretEgenskaber, dim.UdredningsretKlassifikation, "
+                "dim.Forloebsmarkoer, fct.Udredningsforloeb, fct.UdredningsretMarkoer"
+            ),
+        }
+    )
 
 
 @dg.asset(
@@ -488,7 +526,7 @@ def dso_infra_security(
             "tables": "sec.RolleDomaene, sec.RBOrganisation",
             "functions": (
                 "sec.HentBrugerRolleDomaene, sec.BeskytDimLeverandoervare_v1, sec.HentDPASikkerhed, "
-                "sec.HentRBOrganisation, sec.BeskytPersonoplysning, sec.BeskytDimBorger"
+                "sec.HentRBOrganisation"
             ),
         }
     )
@@ -628,7 +666,9 @@ def dso_infra_views_fhir(
                 "vw_fhir.Questionnaire, vw_fhir.Questionnaire_item, "
                 "vw_fhir.QuestionnaireResponse, vw_fhir.QuestionnaireResponse_item, "
                 "fhir.SFI_datapoint_build, fhir.SFI_datapoint (occurred_at_dt), "
-                "vw_fhir.SFI_datapoint, vw_fhir.Appointment"
+                "vw_fhir.SFI_datapoint, vw_fhir.Appointment, "
+                "vw_fhir.WardUnit, vw_fhir.WardUnit_Capacity, vw_fhir.Bed, "
+                "vw_fhir.Encounter_BedSpace, vw_fhir.Encounter_Absence"
             ),
         }
     )
@@ -709,7 +749,9 @@ def dso_infra_fhir(
                 "fhir.Questionnaire, fhir.Questionnaire_item, fhir.QuestionnaireResponse, "
                 "fhir.QuestionnaireResponse_item, fhir.EpisodeOfCare, fhir.Location, "
                 "fhir.Organization, fhir.CarePlan, fhir.CarePlan_Activity, fhir.Appointment, "
-                "fhir.SFI_datapoint_store"
+                "fhir.SFI_datapoint_store, fhir.WardUnit, fhir.WardUnit_Capacity, fhir.Bed, "
+                "fhir.Encounter_BedSpace, fhir.Encounter_Absence, "
+                "fhir.Practitioner, fhir.PractitionerRole"
             ),
         }
     )

@@ -26,7 +26,10 @@ from .dim_Faktura import dim_Faktura
 from .dim_Fakturalinje import dim_Fakturalinje
 from .dim_Finanskladde import dim_Finanskladde
 from .dim_Finanskladdelinje import dim_Finanskladdelinje
+from .dim_Forloebsmarkoer import dim_Forloebsmarkoer
+from .dim_ILSBruger import dim_ILSBruger
 from .dim_ILSVare import dim_ILSVare
+from .dim_ILSLeverandoer import dim_ILSLeverandoer
 from .dim_Kontoplan import dim_Kontoplan
 from .dim_Kreditor import dim_Kreditor
 from .dim_Lager import dim_Lager
@@ -37,6 +40,8 @@ from .dim_Organisation import dim_Organisation
 from .dim_Postering import dim_Postering
 from .dim_Rekvirent import dim_Rekvirent
 from .dim_SHAK import dim_SHAK
+from .dim_UdredningsretEgenskaber import dim_UdredningsretEgenskaber
+from .dim_UdredningsretKlassifikation import dim_UdredningsretKlassifikation
 from .dim_SHAKAlike import dim_SHAKAlike
 from .dim_UNSPSC import dim_UNSPSC
 from .dim_Vareudlevering import dim_Vareudlevering
@@ -46,12 +51,17 @@ all_assets = [
     dim_DRGDiagnose,
     dim_DRGKontaktKlassifikation,
     dim_DRGKontaktEgenskaber,
+    dim_UdredningsretKlassifikation,
+    dim_UdredningsretEgenskaber,
+    dim_Forloebsmarkoer,
     dim_Aftale,
     dim_BudgetEgenskaber,
     dim_Dato,
     dim_EAN,
     dim_Faktura,
+    dim_ILSBruger,
     dim_ILSVare,
+    dim_ILSLeverandoer,
     dim_Fakturalinje,
     dim_Finanskladde,
     dim_Finanskladdelinje,
@@ -77,13 +87,18 @@ __all__ = [
     "dim_DRGDiagnose",
     "dim_DRGKontaktKlassifikation",
     "dim_DRGKontaktEgenskaber",
+    "dim_UdredningsretKlassifikation",
+    "dim_UdredningsretEgenskaber",
+    "dim_Forloebsmarkoer",
     "all_assets",
     "dim_Aftale",
     "dim_BudgetEgenskaber",
     "dim_Dato",
     "dim_EAN",
     "dim_Faktura",
+    "dim_ILSBruger",
     "dim_ILSVare",
+    "dim_ILSLeverandoer",
     "dim_Fakturalinje",
     "dim_Finanskladde",
     "dim_Finanskladdelinje",

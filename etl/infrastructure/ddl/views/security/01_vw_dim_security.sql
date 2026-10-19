@@ -245,15 +245,22 @@ FROM [dim].[Finanskladdelinje] AS f
 OUTER APPLY [sec].[HentBrugerRolleDomaene](SUSER_SNAME(), N'DPA_ERP') AS R;
 GO
 
--- vw_dim.Rekvirent (rekvirent name conditionally masked via DPA_ERP role)
+-- vw_dim.Rekvirent (rekvirent name + adresse conditionally masked via DPA_ERP role)
 --
 -- display holds the raw rekvirent name. For home patients (rtyp = HP/OHP) and relatives
--- this is personal/identifiable data (flagged by Strategisk Indkoeb, Bjarke Lyster), so
+-- this is personal/identifiable data (flagged by Strategisk Indkoeb), so
 -- the name is masked for those rekvirent types unless the caller has Rolle = 'U' in
 -- sec.RolleDomaene for Sikkerhedsdomaene DPA_ERP. All OTHER rekvirent types are
 -- organisational units and remain visible — the rekvirent dimension is core to
 -- consumption reporting (forbrugsopgoerelser), so rows are always returned (OUTER APPLY);
--- only the HP/OHP display name is column-restricted.
+-- only the HP/OHP-sensitive columns are column-restricted.
+--
+-- The address and contact columns follow the same rule. The ILS source
+-- documentation says dbo.rekv.adr and .adr2 "skal sloeres for de fleste brugere ved
+-- rtyp = HP eller OHP" — for a home patient they are the patient's own home address.
+-- kontaktperson is masked on the same rule: an HP/OHP contact is the patient or a
+-- relative. The administrative columns stay visible; masking them too would defeat
+-- the purpose of adding them. Column provenance: data_lineage/dim/dim_rekvirent.yml.
 CREATE OR ALTER VIEW [vw_dim].[Rekvirent]
 AS
 SELECT
@@ -274,6 +281,28 @@ SELECT
     rek.[rnr],
     rek.[code_sor],
     rek.[sor_relationship],
+    -- Administrative adressefelter — ikke personhenfoerbare, altid synlige
+    rek.[alternativt_rekvirentnummer],
+    rek.[land],
+    rek.[postnummer],
+    rek.[bynavn],
+    rek.[kontosted],
+    -- Hjemmepatientens egen adresse / kontaktperson — samme maske som display
+    [adresse] = CASE
+        WHEN rek.[rtyp] IN (N'HP', N'OHP') AND ISNULL(R.[Rolle], N'') <> 'U'
+            THEN N'[MASKERET]'
+        ELSE rek.[adresse]
+    END,
+    [adresse2] = CASE
+        WHEN rek.[rtyp] IN (N'HP', N'OHP') AND ISNULL(R.[Rolle], N'') <> 'U'
+            THEN N'[MASKERET]'
+        ELSE rek.[adresse2]
+    END,
+    [kontaktperson] = CASE
+        WHEN rek.[rtyp] IN (N'HP', N'OHP') AND ISNULL(R.[Rolle], N'') <> 'U'
+            THEN N'[MASKERET]'
+        ELSE rek.[kontaktperson]
+    END,
     rek.[dw_ek_Organisation],
     rek.[dw_ek_Rekvirent_parent],
     rek.[er_undtaget],

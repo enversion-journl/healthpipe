@@ -77,6 +77,26 @@ SYSTEM_IFDB_RIS_YDELSE_DIAGNOSE = (
 )
 SYSTEM_IFDB_STAFF = "urn:source:ifdb:staff"  # Practitioner staff ID
 SYSTEM_IFDB_LOCATION_ID = "urn:source:ifdb:location_id"  # LOCATION.OBJECT_ID
+SYSTEM_IFDB_SENGEENHED = "urn:source:ifdb:sengeenhed_id"  # SENGEENHED.OBJEKT_ID
+SYSTEM_IFDB_SENGEENHED_KAPACITET = (
+    "urn:source:ifdb:sengeenhed_kapacitet"  # {type}:{sengeenhed_id}:{fra_iso}
+)
+# Observation.category for sengekapacitet. HL7's observation-category har ingen
+# kode for driftstal (survey/exam/vital-signs/... er alle kliniske), og bindingen
+# er extensible, saa kategorien kommer fra vores eget system paa linje med
+# condition-category og procedure-category. Den lader en aftager filtrere
+# kapacitet fra uden at kende kapacitetstypens kodesystem.
+SYSTEM_RSD_OBSERVATION_CATEGORY = "http://example.org/fhir/CodeSystem/observation-category"
+CODE_OBSERVATION_CATEGORY_BED_CAPACITY = "bed-capacity"
+# Kapacitetstypen (disponible | normerede). Kilden baerer ikke typen som kode --
+# den ligger i, hvilken tabel raekken kommer fra -- saa kodesaettet er vores eget
+# og hoerer i samme navnerum som de oevrige egne kodninger (observation-category,
+# procedure-category, patient-rights-type). urn:source:ifdb: er forbeholdt
+# identifier-systemer, altsaa hvor en noegle kommer fra.
+SYSTEM_RSD_WARD_UNIT_CAPACITY_TYPE = "http://example.org/fhir/CodeSystem/ward-unit-capacity-type"
+SYSTEM_IFDB_BED = "urn:source:ifdb:bed_id"  # ENCOUNTER_BED_SPACE_HISTORY.BED_ID
+# HL7 location-physical-type. Used for bed Locations and Encounter.location entries.
+SYSTEM_LOCATION_PHYSICAL_TYPE = "http://terminology.hl7.org/CodeSystem/location-physical-type"
 
 # US-FHIR-07: DocumentReference (epikrise + udskrivningsrapport)
 SYSTEM_IFDB_EPIKRISE = "urn:source:ifdb:epikrise"  # EPIKRISE.OBJEKT_ID
@@ -175,6 +195,39 @@ SYSTEM_IFDB_DOCUMENT_TYPE = "urn:source:ifdb:document_type"  # DocumentReference
 # meta.tag for source-table provenance (epikrise | care_discharge_report)
 SYSTEM_IFDB_SOURCE_TABLE = "urn:source:ifdb:source_table"
 
+# =============================================================================
+# Procedure.performer.function: hvilken rolle en organisation har på proceduren.
+# Udførende enhed og stamafdeling skal kunne skelnes i den flade tabel, når begge
+# står som Organization-referencer på samme Procedure (RIS-ydelser).
+# =============================================================================
+SYSTEM_PERFORMER_FUNCTION = "http://example.org/fhir/CodeSystem/performer-function"
+PERFORMER_FUNCTION_UDFOERENDE = "udfoerende"
+PERFORMER_FUNCTION_STAMAFDELING = "stamafdeling"
+PERFORMER_FUNCTION_DISPLAYS = {
+    PERFORMER_FUNCTION_UDFOERENDE: "Udførende enhed",
+    PERFORMER_FUNCTION_STAMAFDELING: "Stamafdeling",
+}
+
+
+# =============================================================================
+# SilkeborgData E26PERS-derived identifiers and code systems (payroll source)
+# =============================================================================
+# The employment, not the person: a tjenestenummer is only unique WITHIN an
+# institution, and it is reissued to new staff, so the value is composed as
+# "{Inst}-{Tjenestenummer}".
+SYSTEM_SILKEBORGDATA_TJENESTENUMMER = "urn:source:silkeborgdata:tjenestenummer"
+# meta.tag for source-file provenance. IFDB's equivalent is a different source
+# and must not be reused.
+SYSTEM_SILKEBORGDATA_SOURCE_TABLE = "urn:source:silkeborgdata:source_table"
+# One system per source column: filtering PractitionerRole.code on the system is
+# the only way to tell the codes apart downstream, so these must never be merged.
+SYSTEM_SILKEBORGDATA_STILLINGSKODE = "urn:source:silkeborgdata:stillingskode"
+SYSTEM_SILKEBORGDATA_LEDERKODE = "urn:source:silkeborgdata:lederkode"
+# DISCO-08-shaped occupational codes. Local system: no official DISCO-08 URI or
+# OID has been verified, and the code says what someone is employed as — never
+# what they are authorised to do.
+SYSTEM_SILKEBORGDATA_DISCOKODE = "urn:source:silkeborgdata:discokode"
+
 
 # =============================================================================
 # Safe-character regex for SQL-literal interpolation
@@ -187,3 +240,18 @@ _SAFE_IDENTIFIER_SYSTEM_RE = _re.compile(r"^[A-Za-z0-9:/_.\-]+$")
 
 # Index specs (UNIQUE/GIN/SoF) have moved to `utils.fhir.index_config` to keep
 # this module focused on URI constants. Import from there.
+
+# CPR register PersonID (record 037): stable across personal number changes.
+SYSTEM_CPR_PERSON_ID = "urn:dk:cpr:personid"
+
+# CPR register code lists: country code (record 010, e.g. 5100) and municipality code.
+SYSTEM_CPR_LANDEKODE = "urn:dk:cpr:landekode"
+SYSTEM_DK_MUNICIPALITY_CODES = "http://hl7.dk/fhir/core/CodeSystem/dk-core-MunicipalityCodes"
+# HL7 v3 MaritalStatus, which dk-core-patient binds maritalStatus to.
+SYSTEM_V3_MARITAL_STATUS = "http://terminology.hl7.org/CodeSystem/v3-MaritalStatus"
+# dk-core codes for the two Danish marital statuses without an HL7 code (P, O).
+SYSTEM_DK_MARITAL_STATUS = "http://hl7.dk/fhir/core/CodeSystem/dk-marital-status"
+
+# Patient provenance: meta.source is the builder, one meta.tag per contributing source.
+SYSTEM_SOURCE_TAG = "http://example.org/fhir/CodeSystem/kilde"
+SOURCE_PATIENT_BUILDER = "http://example.org/fhir/source/patient-bygger"

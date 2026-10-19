@@ -7,8 +7,8 @@
 """Contract tests for the DFM asset's streamed archive input.
 
 The asset must spool the arc cursor to ``BatchedExtractRows``-format sidecars
-and invoke ``_run_aktivitetsresultat_pipeline_chunked`` exactly ONCE per run
-with a re-iterable, ``iter_batches``-capable object. The previous shape —
+and invoke ``_run_aktivitetsresultat_pipeline_chunked`` exactly ONCE per delta
+slice with a re-iterable, ``iter_batches``-capable object. The previous shape —
 one pipeline call per 500-row fetch batch — re-ran the orchestrator's
 one-time setup per batch and re-posted model Questionnaires (the known SFI
 timestamp-churn source), so these tests pin the single-call architecture.
@@ -79,9 +79,14 @@ class _StubDfmManager:
         self.checkpoints: list[tuple[str, str, str, str]] = []
         self.completed: list[dict] = []
         self.failed: list[str] = []
+        self.reader_bounds: list[str | None] = []
 
     def start_dfm_run(self, _schema: str, _table: str, **_kwargs) -> SimpleNamespace:
-        return SimpleNamespace(checkpoint=None, log_id=42)
+        return SimpleNamespace(checkpoint=None, log_id=42, started_at="2026-08-11 05:59:00")
+
+    def safe_reader_checkpoint(self, started_at: str | None) -> str | None:
+        self.reader_bounds.append(started_at)
+        return started_at
 
     def set_checkpoint(self, schema: str, table: str, *, value: str, mode: str) -> None:
         self.checkpoints.append((schema, table, value, mode))
@@ -116,6 +121,22 @@ def _asset_fn():
 
 
 _DESCRIPTION = [("OBJEKT_ID",), ("XML",)]
+
+
+_BOUND = "2026-08-11 05:00:00"
+
+
+def _slices(monkeypatch, *bounds: str) -> list[tuple[str | None, str | None]]:
+    """Script the delta slice bounds; records the lower bound and ceiling of every lookup."""
+    remaining = list(bounds)
+    lookups: list[tuple[str | None, str | None]] = []
+
+    def _next_bound(_conn, _table, lower, _max_rows, ceiling=None):
+        lookups.append((lower, ceiling))
+        return remaining.pop(0) if remaining else None
+
+    monkeypatch.setattr(mod, "next_delta_slice_bound", _next_bound)
+    return lookups
 
 
 def _rows(n: int) -> list[tuple]:
@@ -180,10 +201,10 @@ def test_pipeline_invoked_once_with_streaming_container(monkeypatch) -> None:
         )
 
     monkeypatch.setattr(mod, "_run_aktivitetsresultat_pipeline_chunked", _fake_pipeline)
+    _slices(monkeypatch, _BOUND)
 
     spool_cursor = _FakeCursor(_rows(3), _DESCRIPTION)
-    checkpoint_cursor = _FakeCursor([], _DESCRIPTION)
-    mssql = _FakeMSSQL([spool_cursor, checkpoint_cursor])
+    mssql = _FakeMSSQL([_FakeCursor([], _DESCRIPTION), spool_cursor, _FakeCursor([], _DESCRIPTION)])
 
     outputs = list(_asset_fn()(_fake_context(), mssql, object(), RunModeConfig(mode="delta")))
 
@@ -200,9 +221,10 @@ def test_pipeline_invoked_once_with_streaming_container(monkeypatch) -> None:
     # Spool dir is cleaned up after the run.
     assert not call["sidecar_dir"].exists()
 
-    # Checkpoint advanced once; rows_affected from the pipeline result.
+    # Checkpoint advanced once, to the slice bound; rows_affected from the result.
     assert len(stub.checkpoints) == 1
-    assert stub.checkpoints[0][:2] == ("fhir_server", "Aktivitetsresultat_SFI")
+    assert stub.checkpoints[0][:3] == ("fhir_server", "Aktivitetsresultat_SFI", _BOUND)
+    assert f"<= '{_BOUND}'" in spool_cursor.executed[0]
     assert stub.completed[0]["rows_affected"] == 3
     assert stub.failed == []
 
@@ -234,7 +256,14 @@ def test_sfi_mode_unpacks_three_results(monkeypatch) -> None:
 
     monkeypatch.setattr(mod, "_run_aktivitetsresultat_pipeline_chunked", _fake_pipeline)
 
-    mssql = _FakeMSSQL([_FakeCursor(_rows(4), _DESCRIPTION), _FakeCursor([], _DESCRIPTION)])
+    _slices(monkeypatch, _BOUND)
+    mssql = _FakeMSSQL(
+        [
+            _FakeCursor([], _DESCRIPTION),
+            _FakeCursor(_rows(4), _DESCRIPTION),
+            _FakeCursor([], _DESCRIPTION),
+        ]
+    )
     outputs = list(_asset_fn()(_fake_context(), mssql, object(), RunModeConfig(mode="delta")))
 
     assert outputs[0].metadata["posted_count"].value == 4
@@ -255,7 +284,8 @@ def test_empty_run_skips_pipeline_and_checkpoint(monkeypatch) -> None:
 
     monkeypatch.setattr(mod, "_run_aktivitetsresultat_pipeline_chunked", _fail_pipeline)
 
-    # Only ONE connection expected: the checkpoint SELECT is skipped at 0 rows.
+    # Only the slice lookup's connection: no rows left means no archive query.
+    _slices(monkeypatch)
     mssql = _FakeMSSQL([_FakeCursor([], _DESCRIPTION)])
     outputs = list(_asset_fn()(_fake_context(), mssql, object(), RunModeConfig(mode="delta")))
 
@@ -280,10 +310,80 @@ def test_pipeline_failure_cleans_spool_and_fails_run(monkeypatch) -> None:
 
     monkeypatch.setattr(mod, "_run_aktivitetsresultat_pipeline_chunked", _fake_pipeline)
 
-    mssql = _FakeMSSQL([_FakeCursor(_rows(2), _DESCRIPTION)])
+    _slices(monkeypatch, _BOUND)
+    mssql = _FakeMSSQL([_FakeCursor([], _DESCRIPTION), _FakeCursor(_rows(2), _DESCRIPTION)])
     with pytest.raises(RuntimeError, match="boom"):
         list(_asset_fn()(_fake_context(), mssql, object(), RunModeConfig(mode="delta")))
 
     assert not seen_dirs[0].exists()
     assert stub.checkpoints == []
     assert stub.failed and "boom" in stub.failed[0]
+
+
+@pytest.mark.unit
+def test_delta_backlog_is_posted_slice_by_slice_with_a_checkpoint_each(monkeypatch) -> None:
+    """A backlog is cut into slices: one pipeline call and one checkpoint per slice."""
+    stub = _StubDfmManager()
+    monkeypatch.setattr(mod, "DfmManager", lambda *_a, **_k: stub)
+    monkeypatch.setattr(mod, "_sfi_mode_enabled", lambda: False)
+    first, second = "2026-09-27 22:23:57", "2026-09-28 01:08:59"
+    lookups = _slices(monkeypatch, first, second)
+
+    calls: list[int] = []
+
+    def _fake_pipeline(*, extracted_data, **_kwargs):
+        calls.append(len(extracted_data))
+        return dg.MaterializeResult(metadata={"posted_count": dg.MetadataValue.int(len(calls))})
+
+    monkeypatch.setattr(mod, "_run_aktivitetsresultat_pipeline_chunked", _fake_pipeline)
+    slice_one = _FakeCursor(_rows(3), _DESCRIPTION)
+    slice_two = _FakeCursor(_rows(2), _DESCRIPTION)
+    mssql = _FakeMSSQL(
+        [
+            _FakeCursor([], _DESCRIPTION),
+            slice_one,
+            _FakeCursor([], _DESCRIPTION),
+            slice_two,
+            _FakeCursor([], _DESCRIPTION),
+        ]
+    )
+
+    outputs = list(_asset_fn()(_fake_context(), mssql, object(), RunModeConfig(mode="delta")))
+
+    assert calls == [3, 2]
+    # Each slice starts where the previous one ended, not at the persisted checkpoint,
+    # and none passes the safe read point taken at the run's start.
+    read_start = "2026-08-11 05:59:00"
+    assert lookups == [(None, read_start), (first, read_start), (second, read_start)]
+    assert f"> '{first}'" in slice_two.executed[0]
+    assert f"<= '{second}'" in slice_two.executed[0]
+    assert [c[2] for c in stub.checkpoints] == [first, second]
+    assert stub.completed[0]["checkpoint_after"] == second
+    assert outputs[0].metadata["fetched_count"].value == 5
+    assert outputs[0].metadata["posted_count"].value == 3
+
+
+@pytest.mark.unit
+def test_full_load_is_one_slice_and_keeps_the_read_start(monkeypatch) -> None:
+    """Outside delta there is no slicing; the checkpoint logic is unchanged."""
+    stub = _StubDfmManager()
+    monkeypatch.setattr(mod, "DfmManager", lambda *_a, **_k: stub)
+    monkeypatch.setattr(mod, "_sfi_mode_enabled", lambda: False)
+
+    def _no_slicing(*_args):
+        raise AssertionError("a full load must not be sliced")
+
+    monkeypatch.setattr(mod, "next_delta_slice_bound", _no_slicing)
+    monkeypatch.setattr(
+        mod,
+        "_run_aktivitetsresultat_pipeline_chunked",
+        lambda *, extracted_data, **_k: dg.MaterializeResult(
+            metadata={"posted_count": dg.MetadataValue.int(len(extracted_data))}
+        ),
+    )
+    spool_cursor = _FakeCursor(_rows(2), _DESCRIPTION)
+    mssql = _FakeMSSQL([spool_cursor, _FakeCursor([], _DESCRIPTION)])
+    list(_asset_fn()(_fake_context(), mssql, object(), RunModeConfig(mode="full_load")))
+
+    assert "<=" not in spool_cursor.executed[0]
+    assert stub.reader_bounds == ["2026-08-11 05:59:00"]

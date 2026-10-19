@@ -34,43 +34,40 @@ Guards, in order per table:
   3. key uniqueness      — the composite keys are measured properties, not
      SDS guarantees. CONFLICTING duplicates (same key, different values)
      fail the run rather than letting a dedup decide what the archive
-     believes; BYTE-IDENTICAL duplicates enable the engine's deterministic
-     dedup for that run only, since keeping one of two identical copies
-     loses nothing (measured: SDS shipped one such pair in T24 psyk
-     diagnoses, 2026-08-27). See drg_noegler_beslutningsnotat.md.
+     believes; CONTENT-IDENTICAL duplicates (equal apart from declared
+     registration-id columns) enable the engine's deterministic dedup for
+     that run only, since keeping one of two identical copies loses
+     nothing. See drg_noegler_beslutningsnotat.md.
   4. price revision log  — changed price columns are captured to
      arc.drg_pris_revision BEFORE the merge overwrites them (idempotent via
-     NOT EXISTS; skipped on backfill runs)
-  5. soft-delete ceiling — check_soft_delete_threshold() on the EXPECTED
-     count BEFORE the merge (the merge is not transactional with the guard,
-     and a retry after a post-merge failure would see 0 new soft-deletes),
-     plus a defense-in-depth check on the actual count after
+     NOT EXISTS)
 """
 
 import dataclasses
 import re
 from dataclasses import dataclass
+from datetime import date, datetime
 
 import dagster as dg
 from core.archive_merge import build_archive_metadata, execute_archive_merge
 from core.dfm_config import ArchiveMergeConfig, RunModeConfig
-from core.etl_thresholds import check_soft_delete_threshold
+from core.dfm_manager import DfmManager
 from core.resources import MSSQLResource
+from DSI.connectors.delivery_detection import (
+    DELIVERY_SCHEMA,
+    DELIVERY_TARGET_TYPE,
+    delivery_identity,
+)
+from DSI.csv_files.drg import CAP_DERIVED, CAP_REAL, drg_delivery_unit, manifest_table
 from DSI.csv_files.drg_datasets import DATASETS, DrgDataset
-from pydantic import Field
 from utils.sql_safety import safe_bracket_quote
 
 LEVERANCE_TABLE = "DRGLeverance"
+# meta.DRGLeverance.aktivitetsaar is NVARCHAR(4) — a key column, deliberately
+# narrow. ext's year column is NVARCHAR(500) and validated by nothing, so the
+# width is checked before anything is merged (the [internal ticket] lesson).
+MAX_AKTIVITETSAAR_WIDTH = 4
 REVISION_TABLE = "drg_pris_revision"
-
-# Soft-delete ceiling: a merge may delete at most this share of the live rows
-# INSIDE the delete scope (the delivery's own (takstsystem x year-slice)
-# slices). The absolute cap (etl_thresholds, default 1000) is the tighter
-# first guard on large tables; the ratio catches small slices where 1000 rows
-# would be the whole population. Below the floor the absolute cap acts alone
-# — otherwise test data and small year-slices would trip it.
-SOFT_DELETE_RATIO = 0.20
-RATIO_MIN_LIVE_ROWS = 1000
 
 _DATASETS_BY_TABLE = {d.ext_table: d for d in DATASETS}
 
@@ -346,13 +343,12 @@ def _rebind_scope_alias(predicate: str, *, from_alias: str, to_alias: str) -> st
     return old.sub(new, predicate)
 
 
-def build_delete_scope_predicate(conn, dataset: DrgDataset, *, alias: str = "tgt") -> str | None:
-    """Limit delete detection to the slices this delivery actually contains.
+def read_ext_slices(conn, dataset: DrgDataset) -> dict[str, list[str]]:
+    """The slices ext actually holds, as ``takstsystem -> activity years``.
 
-    Somatik: (takstsystem × activity-year) slices from ext. Psyk and the
-    tariff catalogue: takstsystem slices. Returns None if ext is empty
-    (the merge engine then turns delete detection off). ``alias`` is how
-    the MERGE (and the pre-merge counts) qualify columns.
+    Datasets with no activity-year column (psyk, the tariff catalogue, the
+    delivery log) report ``[""]`` per takstsystem: their deliveries are full
+    snapshots per takstsystem, so the takstsystem IS the slice.
     """
     cursor = conn.cursor()
     try:
@@ -366,27 +362,212 @@ def build_delete_scope_predicate(conn, dataset: DrgDataset, *, alias: str = "tgt
             )
             slices: dict[str, list[str]] = {}
             for takstsystem, aar in cursor.fetchall():
-                slices.setdefault(takstsystem, []).append(aar or "")
-            if not slices:
-                return None
-            takst_col = _qualify(alias, "takstsystem")
-            year_col = _qualify(alias, dataset.aktivitetsaar_column)
-            parts = []
-            for takstsystem in sorted(slices):
-                years = ", ".join(_sql_string_literal(y) for y in sorted(slices[takstsystem]))
-                parts.append(
-                    f"({takst_col} = {_sql_string_literal(takstsystem)} "
-                    f"AND ISNULL({year_col}, '') IN ({years}))"
-                )
-            return " OR ".join(parts)
+                year = aar or ""
+                if len(year) > MAX_AKTIVITETSAAR_WIDTH:
+                    # meta.DRGLeverance.aktivitetsaar is a narrow key column.
+                    # Catching this here fails the run BEFORE the merge; left
+                    # to record_delivery it would fail AFTER the merge
+                    # committed, leaving arc updated and its cap unrecorded.
+                    raise ValueError(
+                        f"ext.{dataset.ext_table}: aktivitetsaar er "
+                        f"{len(year)} tegn (max {MAX_AKTIVITETSAAR_WIDTH}) for "
+                        f"takstsystem {takstsystem}. Leverancen er defekt eller "
+                        f"skemaet har aendret sig — undersoeg foer indlaesning."
+                    )
+                slices.setdefault(takstsystem, []).append(year)
+            return {t: sorted(set(years)) for t, years in slices.items()}
         cursor.execute(f"SELECT DISTINCT [takstsystem] FROM [ext].{table_ident}")
-        systems = sorted(row[0] for row in cursor.fetchall())
-        if not systems:
-            return None
-        values = ", ".join(_sql_string_literal(s) for s in systems)
-        return f"{_qualify(alias, 'takstsystem')} IN ({values})"
+        return {row[0]: [""] for row in cursor.fetchall()}
     finally:
         cursor.close()
+
+
+def build_slice_predicate(
+    dataset: DrgDataset, slices: dict[str, list[str]], *, alias: str = "tgt"
+) -> str | None:
+    """A T-SQL predicate selecting exactly ``slices``.
+
+    ONE builder for both scopes on purpose. The source scope and the delete
+    scope must describe the same slice set — narrowing the source while delete
+    detection still covers a slice makes WHEN NOT MATCHED BY SOURCE soft-delete
+    that whole slice. Deriving both from one function makes them
+    impossible to drift apart.
+
+    ``alias`` is how the consumer qualifies columns: "tgt" for the MERGE's
+    delete clause, "src" for joins against the source view, "" for the
+    derived table the source scope is applied inside.
+    """
+    if not slices:
+        return None
+    if dataset.aktivitetsaar_column:
+        takst_col = _qualify(alias, "takstsystem")
+        year_col = _qualify(alias, dataset.aktivitetsaar_column)
+        parts = []
+        for takstsystem in sorted(slices):
+            years = ", ".join(_sql_string_literal(y) for y in sorted(slices[takstsystem]))
+            parts.append(
+                f"({takst_col} = {_sql_string_literal(takstsystem)} "
+                f"AND ISNULL({year_col}, '') IN ({years}))"
+            )
+        return " OR ".join(parts)
+    values = ", ".join(_sql_string_literal(t) for t in sorted(slices))
+    return f"{_qualify(alias, 'takstsystem')} IN ({values})"
+
+
+# ---------------------------------------------------------------------------
+# Delivery manifest and the slice-level cap decision ([internal ticket] tier 2)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class DeliveryManifest:
+    """One delivery this run loaded, as recorded by the extract."""
+
+    leverancetype: str
+    takstsystem: str
+    kadence: str | None
+    leverance_ts: datetime
+    filnavn: str
+    leverance_dato: date
+    cap: str | None
+    cap_kilde: str | None
+
+
+def capless_takstsystemer(manifest: dict[str, DeliveryManifest]) -> list[str]:
+    """Takstsystemer whose delivery carries no TRUSTWORTHY cap.
+
+    No cap at all (psyk ships no LEVERANCEINFO), or a derived one (the
+    packaging date overstates an M file's real cap): for these the
+    packaging-date guard stays the protection — a derived cap must not switch
+    both guards off at once.
+    """
+    return sorted(t for t, m in manifest.items() if not m.cap or m.cap_kilde == CAP_DERIVED)
+
+
+def read_manifest(conn, dataset: DrgDataset) -> dict[str, DeliveryManifest]:
+    """See :func:`read_manifest_by_type` — this is the per-dataset spelling."""
+    return read_manifest_by_type(conn, dataset.leverancetype)
+
+
+def read_manifest_by_type(conn, leverancetype: str) -> dict[str, DeliveryManifest]:
+    """What the extract loaded this run, per takstsystem.
+
+    An empty manifest means the run loaded nothing — a declared no-op, not an
+    invitation to re-merge whatever ext still holds from an earlier run.
+    """
+    table = safe_bracket_quote(manifest_table(leverancetype))
+    cursor = conn.cursor()
+    try:
+        # The manifest is created by the extract. Re-materialising an arc asset
+        # on its own against an ext from before this feature deployed is an
+        # ordinary operator action, and it must not die on "Invalid object
+        # name" — no manifest means this run loaded nothing, which is exactly
+        # the declared no-op.
+        cursor.execute(f"SELECT OBJECT_ID(N'[ext].{table}')")
+        if cursor.fetchone()[0] is None:
+            return {}
+        cursor.execute(
+            f"SELECT [leverancetype], [takstsystem], [kadence], [leverance_ts], [filnavn], "
+            f"[leverance_dato], [lpropdateringsdato], [cap_kilde] FROM [ext].{table}"
+        )
+        rows = cursor.fetchall()
+    finally:
+        cursor.close()
+    return {
+        row[1]: DeliveryManifest(
+            leverancetype=row[0],
+            takstsystem=row[1],
+            kadence=row[2],
+            leverance_ts=row[3],
+            filnavn=row[4],
+            leverance_dato=row[5],
+            cap=row[6],
+            cap_kilde=row[7],
+        )
+        for row in rows
+    }
+
+
+def recorded_caps(conn, dataset: DrgDataset) -> dict[tuple[str, str], str]:
+    """The data cap the archive reflects, per (takstsystem, aktivitetsaar).
+
+    MAX over the accepted deliveries for the slice: only slices that were
+    actually merged get a row in meta.DRGLeverance, so the maximum is the
+    newest cap the archive really stands on. Derived caps are excluded — they
+    overstate the real cap and would reject the next real delivery.
+    """
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            f"SELECT [takstsystem], [aktivitetsaar], MAX([lpropdateringsdato]) "
+            f"FROM [meta].[{LEVERANCE_TABLE}] "
+            f"WHERE [kildetabel] = ? AND [lpropdateringsdato] IS NOT NULL "
+            f"AND [cap_kilde] = ? "
+            f"GROUP BY [takstsystem], [aktivitetsaar]",
+            dataset.ext_table,
+            CAP_REAL,
+        )
+        return {(row[0], row[1] or ""): row[2] for row in cursor.fetchall() if row[2]}
+    finally:
+        cursor.close()
+
+
+def plan_merge(
+    conn, dataset: DrgDataset
+) -> tuple[dict[str, DeliveryManifest], dict[str, list[str]], list[str]]:
+    """What this run may merge: the manifest, the accepted slices, and the notes.
+
+    The manifest is read FIRST and nothing touches ext until it is non-empty.
+    A run where the extract found no new delivery leaves ext alone — it does not
+    even recreate the tables — so reading ext here would fail on a missing
+    object instead of declaring the no-op the design calls for.
+    """
+    manifest = read_manifest(conn, dataset)
+    if not manifest:
+        return manifest, {}, []
+    ext_slices = read_ext_slices(conn, dataset)
+    caps = recorded_caps(conn, dataset)
+    accepted, notes = decide_slices(ext_slices, manifest, caps)
+    return manifest, accepted, notes
+
+
+def decide_slices(
+    ext_slices: dict[str, list[str]],
+    manifest: dict[str, DeliveryManifest],
+    caps: dict[tuple[str, str], str],
+) -> tuple[dict[str, list[str]], list[str]]:
+    """Which slices this delivery may merge, and why the others were skipped.
+
+    A slice is merged when the delivery's cap is STRICTLY newer than the cap
+    the archive already reflects, or when the archive reflects none (first load
+    of that slice). A delivery with no cap at all — psyk, which ships no
+    LEVERANCEINFO — is not subject to this comparison; those slices always pass
+    and the packaging-date direction guard remains their protection.
+
+    """
+    accepted: dict[str, list[str]] = {}
+    notes: list[str] = []
+    for takstsystem in sorted(ext_slices):
+        entry = manifest.get(takstsystem)
+        if entry is None:
+            # ext still holds this takstsystem from an earlier run, but this
+            # run did not load it. The manifest is the contract — merging it
+            # would re-present stale rows as a fresh delivery.
+            notes.append(f"{takstsystem}: ikke i manifestet — ext er fra en tidligere koersel")
+            continue
+        delivery_cap = entry.cap
+        for aar in sorted(ext_slices[takstsystem]):
+            recorded = caps.get((takstsystem, aar))
+            if delivery_cap is None or recorded is None:
+                accepted.setdefault(takstsystem, []).append(aar)
+            elif delivery_cap > recorded:
+                accepted.setdefault(takstsystem, []).append(aar)
+            else:
+                notes.append(
+                    f"{takstsystem}/{aar or '-'}: springer over — leverancens cap "
+                    f"{delivery_cap} er ikke nyere end arkivets {recorded}"
+                )
+    return accepted, notes
 
 
 # ---------------------------------------------------------------------------
@@ -394,8 +575,18 @@ def build_delete_scope_predicate(conn, dataset: DrgDataset, *, alias: str = "tgt
 # ---------------------------------------------------------------------------
 
 
-def guard_delivery_direction(conn, dataset: DrgDataset, backfill: bool) -> dict[str, str]:
-    """An older delivery must never merge over a newer one — per takstsystem."""
+def guard_delivery_direction(
+    conn,
+    dataset: DrgDataset,
+    takstsystemer: list[str] | None = None,
+) -> dict[str, str]:
+    """An older delivery must never merge over a newer one — per takstsystem.
+
+    ``takstsystemer`` limits the check to those takstsystemer whose delivery
+    carries no data cap. Where a cap exists the slice-level comparison is
+    strictly better: packaging dates order M against U wrongly, because an M
+    file is packed days after the data it carries.
+    """
     cursor = conn.cursor()
     try:
         cursor.execute(
@@ -403,6 +594,8 @@ def guard_delivery_direction(conn, dataset: DrgDataset, backfill: bool) -> dict[
             f"FROM [ext].[{dataset.ext_table}] GROUP BY [takstsystem]"
         )
         ext_dates = {row[0]: row[1] for row in cursor.fetchall()}
+        if takstsystemer is not None:
+            ext_dates = {t: d for t, d in ext_dates.items() if t in set(takstsystemer)}
         cursor.execute(
             f"SELECT [takstsystem], MAX([leverance_dato]) FROM [meta].[{LEVERANCE_TABLE}] "
             f"WHERE [kildetabel] = ? GROUP BY [takstsystem]",
@@ -416,18 +609,13 @@ def guard_delivery_direction(conn, dataset: DrgDataset, backfill: bool) -> dict[
         arc_date = arc_dates.get(takstsystem)
         if arc_date is None:
             continue
-        if backfill:
-            if str(ext_date) >= str(arc_date):
-                raise ValueError(
-                    f"arc.{dataset.ext_table}/{takstsystem}: backfill kraever en AELDRE "
-                    f"leverance end arkivets ({ext_date} >= {arc_date})"
-                )
-        elif str(ext_date) < str(arc_date):
+        if str(ext_date) < str(arc_date):
             raise ValueError(
                 f"arc.{dataset.ext_table}/{takstsystem}: ext indeholder leverancen "
                 f"{ext_date}, men arkivet afspejler allerede {arc_date}. En aeldre "
-                f"leverance maa ikke merges oven i en nyere — brug backfill_historical "
-                f"hvis det er tilsigtet."
+                f"leverance maa ikke merges oven i en nyere. Skal en tidligere "
+                f"tilstand genskabes, toemmes DRG-tabellerne og genindlaeses med "
+                f"delivery_on_or_before sat."
             )
     return {t: str(d) for t, d in ext_dates.items()}
 
@@ -466,7 +654,7 @@ def guard_resolved_references(conn, dataset: DrgDataset) -> None:
         )
 
 
-def guard_key_uniqueness(conn, dataset: DrgDataset) -> int:
+def guard_key_uniqueness(conn, dataset: DrgDataset, source_scope: str | None = None) -> int:
     """Duplicates on the merge key: conflicting ones fail, identical ones don't.
 
     Uniqueness is a measured property, not an SDS guarantee. Two kinds of
@@ -476,11 +664,13 @@ def guard_key_uniqueness(conn, dataset: DrgDataset) -> int:
       information, and which one survives would decide what the archive
       believes. Fails the run; the fallback in the key memo (rebuild per
       contact) must then be activated deliberately.
-    * IDENTICAL — the same row delivered twice, byte for byte. Nothing is
-      lost by keeping one copy, and failing the whole table over it means
-      archiving nothing at all. Measured in the dev environment 2026-08-27:
-      SDS shipped one such pair in T24 psyk diagnoses — 2 rows out of
-      2,254,178, byte-identical.
+    * IDENTICAL — the same delivery content twice. Nothing is lost by
+      keeping one copy, and failing the whole table over it means archiving
+      nothing at all.
+
+    Identity is judged on the delivery CONTENT: columns declared as
+    ``registreringsid_columns`` on the dataset (per-row registration ids,
+    no content of their own) are left out of the comparison.
 
     Returns the number of key groups holding identical duplicates, so the
     caller can enable the engine's deterministic source dedup for THIS run
@@ -489,26 +679,32 @@ def guard_key_uniqueness(conn, dataset: DrgDataset) -> int:
     """
     if not dataset.merge_keys:
         return 0
+    # Only the slices this run will actually merge can break the arc key. A
+    # conflicting duplicate in a REJECTED slice must not fail the table.
+    where = f"WHERE {source_scope}" if source_scope else ""
     key_columns = ("takstsystem", *dataset.merge_keys)
     keys = ", ".join(f"[{k}]" for k in key_columns)
     all_columns = ", ".join(
-        f"[{c}]" for c in ("takstsystem", *dataset.arc_columns, "leverance_dato")
+        f"[{c}]"
+        for c in ("takstsystem", *dataset.arc_columns, "leverance_dato")
+        if c not in dataset.registreringsid_columns
     )
     view = view_name(dataset)
     cursor = conn.cursor()
     try:
-        # Groups sharing a key, split by whether the FULL rows differ.
+        # Groups sharing a key, split by whether the content columns differ.
         cursor.execute(
             f"""
             WITH dubletter AS (
                 SELECT {keys}
                 FROM [ext].[{view}]
+                {where}
                 GROUP BY {keys}
                 HAVING COUNT(*) > 1
             ),
             distinkte AS (
                 SELECT {keys}, COUNT(*) AS fulde_varianter
-                FROM (SELECT DISTINCT {all_columns} FROM [ext].[{view}]) AS unikke
+                FROM (SELECT DISTINCT {all_columns} FROM [ext].[{view}] {where}) AS unikke
                 GROUP BY {keys}
             )
             SELECT
@@ -535,7 +731,7 @@ def guard_key_uniqueness(conn, dataset: DrgDataset) -> int:
 
 
 def count_live_in_scope(conn, dataset: DrgDataset, scope_predicate: str) -> int:
-    """Live archive rows inside the delete scope — the ratio guard's denominator.
+    """Live archive rows inside the delete scope, reported as run metadata.
 
     Counted BEFORE the merge ("live population before this run's deletes").
     The predicate is built with tgt. qualifiers; here the table is queried
@@ -553,32 +749,7 @@ def count_live_in_scope(conn, dataset: DrgDataset, scope_predicate: str) -> int:
         cursor.close()
 
 
-def count_expected_soft_deletes(conn, dataset: DrgDataset, scope_predicate: str) -> int:
-    """Live archive rows in scope with no counterpart in the delivery.
-
-    Counted BEFORE the merge so the soft-delete ceiling can fire before
-    anything is committed: the merge is not transactional with the guard,
-    so a post-merge check would leave the mass-delete in the archive — and
-    a retry would see 0 new soft-deletes and go green.
-    """
-    predicate = _rebind_scope_alias(scope_predicate, from_alias="tgt", to_alias="arc_tgt")
-    on_clause = " AND ".join(
-        f"src.[{k}] = arc_tgt.[{k}]" for k in ("takstsystem", *dataset.merge_keys)
-    )
-    cursor = conn.cursor()
-    try:
-        cursor.execute(
-            f"SELECT COUNT(*) FROM [arc].[{dataset.ext_table}] AS arc_tgt "
-            f"WHERE arc_tgt.[dw_is_deleted] = 0 AND ({predicate}) "
-            f"AND NOT EXISTS (SELECT 1 FROM [ext].[{view_name(dataset)}] AS src "
-            f"WHERE {on_clause})"
-        )
-        return cursor.fetchone()[0]
-    finally:
-        cursor.close()
-
-
-def capture_price_revisions(conn, dataset: DrgDataset) -> int:
+def capture_price_revisions(conn, dataset: DrgDataset, source_scope: str | None = None) -> int:
     """Log changed price columns to arc.drg_pris_revision BEFORE the merge.
 
     The log commits in its own transaction ahead of the merge (the merge
@@ -590,6 +761,11 @@ def capture_price_revisions(conn, dataset: DrgDataset) -> int:
         return 0
     key_column = dataset.merge_keys[0]
     on_clause = " AND ".join(f"src.[{k}] = tgt.[{k}]" for k in ("takstsystem", *dataset.merge_keys))
+    # Only slices that will actually be merged may produce revisions — a
+    # rejected slice never overwrites anything, so logging a "revision" for it
+    # would record a change that never happened.
+    if source_scope:
+        on_clause += f" AND ({source_scope})"
     total = 0
     cursor = conn.cursor()
     try:
@@ -628,42 +804,80 @@ def capture_price_revisions(conn, dataset: DrgDataset) -> int:
     return total
 
 
-def record_delivery(conn, dataset: DrgDataset, ext_dates: dict[str, str], result) -> None:
-    """Upsert meta.DRGLeverance per (source table, takstsystem, delivery date).
+def record_delivery(
+    conn,
+    dataset: DrgDataset,
+    accepted: dict[str, list[str]],
+    manifest: dict[str, DeliveryManifest],
+    result,
+) -> None:
+    """Upsert meta.DRGLeverance per ACCEPTED (takstsystem, aktivitetsaar) slice.
 
-    Runs AFTER the merge commits: if registration fails the guard becomes
-    permissive (not blocking), and the next run repairs it.
+    Keyed on ``leverance_ts``, not ``leverance_dato``: two deliveries can be
+    packed on the same date — which is exactly why the delivery identity is a
+    full timestamp — and the date in the key would let the second silently
+    overwrite the first's registration.
+
+    Only accepted slices are recorded. The register is what
+    :func:`recorded_caps` reads back as "the cap this slice reflects", so a
+    slice that was rejected — or merged by a run that then failed — must leave
+    no trace, or the next delivery would be compared against a cap the archive
+    never actually received.
+
+    Runs AFTER the merge commits: if registration fails the cap stays behind
+    and the next run re-merges the slice, which is idempotent.
     """
-    single = len(ext_dates) == 1
+    rows = [(t, aar) for t in sorted(accepted) for aar in sorted(accepted[t])]
+    # Row counts are per TABLE, not per slice — attributing them to one slice
+    # is only honest when the run wrote exactly one.
+    single = len(rows) == 1
     cursor = conn.cursor()
     try:
-        for takstsystem, leverance_dato in ext_dates.items():
+        for takstsystem, aktivitetsaar in rows:
+            entry = manifest[takstsystem]
             cursor.execute(
                 f"""
                 MERGE [meta].[{LEVERANCE_TABLE}] AS tgt
-                USING (SELECT ? AS kildetabel, ? AS takstsystem, ? AS leverance_dato) AS src
+                USING (SELECT ? AS kildetabel, ? AS takstsystem, ? AS aktivitetsaar,
+                              ? AS leverance_ts) AS src
                 ON tgt.[kildetabel] = src.kildetabel
                    AND tgt.[takstsystem] = src.takstsystem
-                   AND tgt.[leverance_dato] = src.leverance_dato
+                   AND tgt.[aktivitetsaar] = src.aktivitetsaar
+                   AND tgt.[leverance_ts] = src.leverance_ts
                 WHEN MATCHED THEN UPDATE SET
+                    tgt.[kadence] = ?,
+                    tgt.[leverance_dato] = ?,
+                    tgt.[lpropdateringsdato] = ?,
+                    tgt.[cap_kilde] = ?,
                     tgt.[indlaesningstype] = ?,
                     tgt.[raekker_indsat] = ?,
                     tgt.[raekker_opdateret] = ?,
                     tgt.[raekker_soft_slettet] = ?,
                     tgt.[dw_timestamp_update] = CAST(SYSDATETIME() AS DATETIME2(0))
                 WHEN NOT MATCHED THEN INSERT
-                    ([kildetabel], [takstsystem], [leverance_dato], [indlaesningstype],
-                     [raekker_indsat], [raekker_opdateret], [raekker_soft_slettet])
-                    VALUES (src.kildetabel, src.takstsystem, src.leverance_dato,
-                            ?, ?, ?, ?);
+                    ([kildetabel], [takstsystem], [aktivitetsaar], [leverance_ts],
+                     [kadence], [leverance_dato], [lpropdateringsdato], [cap_kilde],
+                     [indlaesningstype], [raekker_indsat], [raekker_opdateret],
+                     [raekker_soft_slettet])
+                    VALUES (src.kildetabel, src.takstsystem, src.aktivitetsaar,
+                            src.leverance_ts, ?, ?, ?, ?, ?, ?, ?, ?);
                 """,
                 dataset.ext_table,
                 takstsystem,
-                leverance_dato,
+                aktivitetsaar,
+                entry.leverance_ts,
+                entry.kadence,
+                entry.leverance_dato,
+                entry.cap,
+                entry.cap_kilde,
                 "merge",
                 result.rows_inserted if single else None,
                 result.rows_updated if single else None,
                 result.rows_soft_deleted if single else None,
+                entry.kadence,
+                entry.leverance_dato,
+                entry.cap,
+                entry.cap_kilde,
                 "merge",
                 result.rows_inserted if single else None,
                 result.rows_updated if single else None,
@@ -680,17 +894,16 @@ def record_delivery(conn, dataset: DrgDataset, ext_dates: dict[str, str], result
 
 
 class DrgArchiveConfig(RunModeConfig):
-    backfill_historical: bool = Field(
-        default=False,
-        description=(
-            "Load a delivery older than what the archive already holds. "
-            "Turns off delete-detection, resurrection and the price-revision "
-            "log so newer rows are not soft-deleted and reverse revisions are "
-            "not written. Updates/inserts values only — never touches "
-            "dw_is_deleted. Always re-run the newest delivery afterwards. "
-            "Never use for a current delivery."
-        ),
-    )
+    """Run config for the DRG archive assets.
+
+    No backfill switch: DRG is a stand-alone solution whose archive can be
+    emptied and rebuilt from the deliveries on the share, so reproducing an
+    earlier state is "wipe, then load with ``delivery_on_or_before`` pinned" —
+    which leaves the delivery register consistent with what the archive
+    actually holds. A backfill that merged an older delivery over a newer one
+    could not do that: the register would still record the newer cap, and the
+    slice comparison would then refuse to re-apply the newest delivery.
+    """
 
 
 def _run_archive(
@@ -701,21 +914,49 @@ def _run_archive(
 ) -> dg.MaterializeResult:
     merge_config = MERGE_CONFIGS[dataset.ext_table]
 
-    if config.backfill_historical:
-        # An older delivery must neither soft-delete rows that arrived later
-        # nor write reverse price revisions (arc's newer value -> the old
-        # source's) into the log. detect_deletes=False also turns off the
-        # engine's resurrection, so backfill never touches dw_is_deleted —
-        # it only updates/inserts values. Always re-run the newest delivery
-        # after a backfill.
-        merge_config = dataclasses.replace(merge_config, detect_deletes=False)
-        context.log.warning(
-            "backfill_historical: delete-detection, genoplivning og "
-            "prisrevisionslog er slaaet fra for denne koersel — koer nyeste "
-            "leverance bagefter."
-        )
-
     with mssql.get_connection() as conn:
+        # The manifest first: an empty one is a DECLARED no-op, and deciding
+        # that before creating views or running guards is what makes a run
+        # with nothing new genuinely cheap.
+        manifest, accepted, skip_notes = plan_merge(conn, dataset)
+        for note in skip_notes:
+            context.log.info(note)
+        if not accepted:
+            # "superseded" and "stuck" look identical from outside — both show a
+            # checkpoint that moved with nothing merged. Naming the case makes
+            # the difference legible: the delivery WAS read and understood, and
+            # deliberately not applied because a newer one already covers every
+            # slice it carries.
+            aarsag = "tomt manifest" if not manifest else "superseded — ingen nyere aarsskiver"
+            context.log.info(f"arc.{dataset.ext_table}: intet at merge — {aarsag}")
+            # The run log is the operational record of "it ran and decided
+            # nothing", and with detection in place that is the COMMON case —
+            # so a skipped run must be as visible as a merging one. The
+            # checkpoint is deliberately not advanced: nothing was merged.
+            dfm = DfmManager(mssql, context)
+            with dfm.connection():
+                run_ctx = dfm.start_dfm_run(
+                    "arc",
+                    dataset.ext_table,
+                    dagster_run_id=context.run_id,
+                    mode=config.mode,
+                )
+                dfm.complete_dfm_run(run_ctx.log_id, rows_affected=0)
+            return dg.MaterializeResult(
+                metadata={
+                    "besluttet": "sprunget over",
+                    "aarsag": aarsag,
+                    "sprunget_over": skip_notes or ["ingen"],
+                    "leverancer": {t: m.filnavn for t, m in sorted(manifest.items())},
+                }
+            )
+
+        # Source scope and delete scope come from the SAME accepted set — see
+        # build_slice_predicate for why they must never be derived separately.
+        source_scope = build_slice_predicate(dataset, accepted, alias="")
+        source_scope_src = build_slice_predicate(dataset, accepted, alias="src")
+        merge_config = dataclasses.replace(merge_config, source_scope_predicate=source_scope)
+
         cursor = conn.cursor()
         try:
             cursor.execute(build_view_sql(dataset))
@@ -723,24 +964,33 @@ def _run_archive(
         finally:
             cursor.close()
 
-        ext_dates = guard_delivery_direction(conn, dataset, config.backfill_historical)
+        # Psyk ships no LEVERANCEINFO, so tier 2 cannot order its deliveries;
+        # the packaging-date guard stays its protection. Where a cap exists the
+        # slice comparison above IS the guard, and comparing packaging dates
+        # would reject a correct M-then-U sequence (M is packed later than the
+        # data it carries).
+        # Per takstsystem, not per run: where a trustworthy cap exists the
+        # slice comparison IS the guard, and comparing packaging dates there
+        # would reject a correct M-then-U sequence. For the rest (see
+        # capless_takstsystemer) the packaging-date guard remains the
+        # protection.
+        capless = capless_takstsystemer(manifest)
+        if capless:
+            guard_delivery_direction(conn, dataset, takstsystemer=capless)
         guard_resolved_references(conn, dataset)
-        identiske_dubletter = guard_key_uniqueness(conn, dataset)
+        identiske_dubletter = guard_key_uniqueness(conn, dataset, source_scope)
         if identiske_dubletter:
-            # The guard has proven the duplicates are byte-identical, so the
-            # engine's deterministic ROW_NUMBER dedup cannot pick a "wrong"
-            # row — there is only one row to pick. Enabled for THIS run only;
-            # a conflicting duplicate would have failed the guard above.
+            # Duplicates carry identical content and may differ only on
+            # registration-id columns; dedup picks a deterministic winner.
             merge_config = dataclasses.replace(merge_config, dedup_source_on_keys=True)
             context.log.warning(
                 f"ext.{view_name(dataset)}: {identiske_dubletter:,} noeglegrupper "
-                f"har BYTE-IDENTISKE dubletter — kilden har leveret samme raekke "
-                f"flere gange. Dedup slaaet til for denne koersel (ingen "
-                f"information tabes); konfliktende dubletter fejler fortsat."
+                f"har INDHOLDS-IDENTISKE dubletter — samme leveranceindhold "
+                f"flere gange (evt. under forskellige registrerings-id'er). "
+                f"Dedup slaaet til for denne koersel; konfliktende dubletter "
+                f"fejler fortsat."
             )
-        revisions = 0
-        if not config.backfill_historical:
-            revisions = capture_price_revisions(conn, dataset)
+        revisions = capture_price_revisions(conn, dataset, source_scope_src)
         if revisions:
             context.log.info(
                 f"arc.{REVISION_TABLE}: {revisions:,} prisaendringer logget for "
@@ -748,47 +998,17 @@ def _run_archive(
             )
 
         live_in_scope: int | None = None
-        expected_soft_deletes = 0
         if merge_config.detect_deletes:
-            scope = build_delete_scope_predicate(conn, dataset)
+            scope = build_slice_predicate(dataset, accepted, alias="tgt")
             if scope:
                 merge_config = dataclasses.replace(merge_config, delete_scope_predicate=scope)
                 context.log.info(f"delete-scope: {scope}")
                 live_in_scope = count_live_in_scope(conn, dataset, scope)
-                expected_soft_deletes = count_expected_soft_deletes(conn, dataset, scope)
-
-    # Ceiling is enforced BEFORE the merge on the expected count: the merge
-    # is not transactional with the guard, so a post-check alone would leave
-    # the mass-delete committed — and the retry would see 0 new soft-deletes
-    # and go green.
-    ratio_live = (
-        live_in_scope
-        if live_in_scope is not None and live_in_scope >= RATIO_MIN_LIVE_ROWS
-        else None
-    )
-    check_soft_delete_threshold(
-        f"arc_{dataset.ext_table}",
-        expected_soft_deletes,
-        context,
-        override=config.soft_delete_threshold,
-        live_row_count=ratio_live,
-        ratio=SOFT_DELETE_RATIO,
-    )
 
     result = execute_archive_merge(context, mssql, merge_config, config)
 
-    # Defense-in-depth: the actual count must match the expected.
-    check_soft_delete_threshold(
-        f"arc_{dataset.ext_table}",
-        result.rows_soft_deleted,
-        context,
-        override=config.soft_delete_threshold,
-        live_row_count=ratio_live,
-        ratio=SOFT_DELETE_RATIO,
-    )
-
     with mssql.get_connection() as conn:
-        record_delivery(conn, dataset, ext_dates, result)
+        record_delivery(conn, dataset, accepted, manifest, result)
 
     metadata = build_archive_metadata(
         result,
@@ -796,7 +1016,12 @@ def _run_archive(
         source_table=f"ext.{view_name(dataset)}",
         target_table=f"arc.{dataset.ext_table}",
     )
-    metadata["leverancer"] = ext_dates
+    metadata["leverancer"] = {t: m.filnavn for t, m in sorted(manifest.items())}
+    metadata["besluttet"] = "merget"
+    metadata["accepterede_skiver"] = {
+        t: ", ".join(a or "-" for a in v) for t, v in sorted(accepted.items())
+    }
+    metadata["sprunget_over"] = skip_notes or ["ingen"]
     metadata["pris_revisioner"] = revisions
     metadata["identiske_kildedubletter"] = identiske_dubletter
     if live_in_scope is not None:
@@ -828,15 +1053,79 @@ def _build_asset(dataset: DrgDataset):
     return _asset
 
 
-drg_archive_assets = [_build_asset(d) for d in DATASETS]
+def _build_gate_asset(leverancetype: str):
+    """The asset that advances the delivery checkpoints for one leverancetype.
+
+    It depends on EVERY archive table of that leverancetype, because the
+    Dagster graph is the only place where "all of them merged in this run" can
+    be read: each arc asset owns only its own ("arc", <table>) checkpoint, and
+    an archive-table checkpoint cannot carry unit granularity. If any merge
+    fails, this asset does not run, no checkpoint moves, and the next run
+    re-reads the delivery — the safe direction.
+
+    A delivery whose slices were all superseded still advances its checkpoint:
+    the file WAS evaluated and loaded, so leaving the checkpoint behind would
+    re-read it on every run until a newer one arrived.
+    """
+    arc_assets = [f"arc_{d.ext_table}" for d in DATASETS if d.leverancetype == leverancetype]
+
+    @dg.asset(
+        name=f"drg_leverance_checkpoint_{leverancetype.lower()}",
+        group_name="drg_archive",
+        compute_kind="mssql",
+        deps=arc_assets,
+        tags={"domain": "drg", "layer": "archive", "source": "drg"},
+        description=(
+            f"Advance the delivery checkpoint for each {leverancetype} unit this "
+            f"run ingested, once all {len(arc_assets)} archive tables have merged."
+        ),
+    )
+    def _asset(
+        context: dg.AssetExecutionContext,
+        mssql_target_staging: MSSQLResource,
+    ) -> dg.MaterializeResult:
+        with mssql_target_staging.get_connection() as conn:
+            manifest = read_manifest_by_type(conn, leverancetype)
+        if not manifest:
+            context.log.info(f"{leverancetype}: intet manifest — intet checkpoint at rykke")
+            return dg.MaterializeResult(metadata={"stemplede_enheder": ["ingen"]})
+
+        dfm = DfmManager(mssql_target_staging, context)
+        stamped: list[str] = []
+        with dfm.connection():
+            for takstsystem in sorted(manifest):
+                entry = manifest[takstsystem]
+                # The file's cadence letter maps back to the job's bucket: only
+                # the monthly job accepts a file without one, so None is M.
+                unit = drg_delivery_unit(leverancetype, takstsystem, entry.kadence or "M")
+                identity = delivery_identity(entry.leverance_ts)
+                dfm.set_checkpoint(
+                    DELIVERY_SCHEMA, unit, value=identity, target_type=DELIVERY_TARGET_TYPE
+                )
+                stamped.append(f"{unit} = {identity} ({entry.filnavn})")
+                context.log.info(f"checkpoint {unit} -> {identity}")
+        return dg.MaterializeResult(metadata={"stemplede_enheder": stamped})
+
+    return _asset
+
+
+drg_archive_assets = [_build_asset(d) for d in DATASETS] + [
+    _build_gate_asset(leverancetype) for leverancetype in ("DRG", "DRGPSYK")
+]
 
 __all__ = [
+    "DeliveryManifest",
     "DrgArchiveConfig",
     "MERGE_CONFIGS",
-    "build_delete_scope_predicate",
+    "build_slice_predicate",
+    "capless_takstsystemer",
+    "decide_slices",
+    "plan_merge",
+    "read_ext_slices",
+    "read_manifest",
+    "recorded_caps",
     "build_merge_config",
     "build_view_sql",
-    "count_expected_soft_deletes",
     "count_live_in_scope",
     "drg_archive_assets",
     "guard_delivery_direction",

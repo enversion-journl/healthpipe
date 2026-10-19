@@ -143,6 +143,16 @@ def pre_stg_Vareaftaler_ils(
                         lafth.ansvar,
                         lafth.[start_] AS hoved_start,
                         lafth.slut AS hoved_slut,
+                        lafth.deflevdage,
+                        lafth.sysdato,
+                        lafth.bruger,
+                        lafth.aktiv,
+                        lafth.fragtbel,
+                        lafth.sw_fragt,
+                        lafth.gebyrbel,
+                        lafth.sw_gebyr,
+                        lafth.graensebel,
+                        lafth.fragtgraensebel,
 
                         -- Agreement line data
                         laftd.[start_] AS linje_start,

@@ -24,6 +24,7 @@ dso_lineage:
     kreditornavn_sydax:    { DataType: NVARCHAR(255), Source: [sydax.Kreditor.Kreditor.Kreditornavn] }
     kreditornavn_ils:      { DataType: NVARCHAR(255), Source: [ils.dbo.lev.navn] }
     kreditornavn_mysupply: { DataType: NVARCHAR(255), Source: [mysupply.dbo.metadata.FirmaNavn] }
+    soegenavn_sydax:       { DataType: NVARCHAR(255), Source: [sydax.Kreditor.Kreditor.Soegenavn] }
     vejnavn:         { DataType: NVARCHAR(255), Source: [ils.dbo.lev.adr, mysupply.dbo.metadata.Adresse], Expr: "COALESCE-prioritet ILS -> MySupply" }
     vejnavn_ils:      { DataType: NVARCHAR(255), Source: [ils.dbo.lev.adr] }
     vejnavn_mysupply: { DataType: NVARCHAR(255), Source: [mysupply.dbo.metadata.Adresse] }

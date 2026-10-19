@@ -579,11 +579,45 @@ class TestResolveAndApplyAllReferences:
         )
 
         # Should have results for both field types
-        assert "subject" in result.field_results
-        assert "episodeOfCare" in result.field_results
+        assert ("subject", "urn:source:ifdb:patient_id") in result.field_results
+        assert ("episodeOfCare", "urn:source:ifdb:episode_of_care_id") in result.field_results
 
         # 2 patients + 1 episode = 3 total resolved
         assert result.total_resolved == 3
+
+    @patch("DSA.FHIR.utils.reference_resolver.batch_resolve_references")
+    def test_two_systems_on_one_field_keep_separate_results(
+        self, mock_batch_resolve, sample_encounters
+    ):
+        """One field, two identifier systems -> two entries, not one.
+
+        Encounter.location carries both a SOR department and a bed Location.
+        Keyed on the field name alone, the second config's result replaced the
+        first one's, and the per-field counts silently reported half the work.
+        """
+        sor_config = ReferenceFieldConfig(
+            field_name="location",
+            target_resource_type="Location",
+            identifier_system="https://sundhedsdatastyrelsen.dk/sor",
+            is_required=False,
+        )
+        bed_config = ReferenceFieldConfig(
+            field_name="location",
+            target_resource_type="Location",
+            identifier_system="urn:source:ifdb:bed_id",
+            is_required=False,
+        )
+        mock_batch_resolve.return_value = {}
+
+        result = resolve_and_apply_all_references(
+            resources=sample_encounters,
+            reference_configs=[sor_config, bed_config],
+            fhir_database=MagicMock(),
+        )
+
+        assert ("location", "https://sundhedsdatastyrelsen.dk/sor") in result.field_results
+        assert ("location", "urn:source:ifdb:bed_id") in result.field_results
+        assert len(result.field_results) == 2
 
     @patch("DSA.FHIR.utils.reference_resolver.batch_resolve_references")
     def test_resolve_with_nested_configs(
@@ -619,7 +653,7 @@ class TestResolveAndApplyAllReferences:
         )
 
         # Should have top-level and nested results
-        assert "subject" in result.field_results
+        assert ("subject", "urn:source:ifdb:patient_id") in result.field_results
         assert "extension.valueReference" in result.nested_results
 
         # 2 patients + 2 episodes = 4 total

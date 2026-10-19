@@ -26,7 +26,7 @@ from definitions import defs
 from DSA.FHIR.ServiceRequest import all_assets as servicerequest_assets
 from DSA.FHIR.SqlOnFhir.ServiceRequest_dfm import (
     sof_service_request_dfm,
-    sof_service_request_tillaegskode_dfm,
+    sof_service_request_supplementary_code_dfm,
 )
 from DSA.FHIR.utils.sql_on_fhir.sof_utils import VIEW_DEFINITIONS_DIR
 from DSO.load.sync_fhir import all_fhir_dso_sync_dfm_assets
@@ -63,12 +63,12 @@ class TestServiceRequestPipelineRegistration:
         key = AssetKey.from_user_string("sof_service_request_dfm")
         assert sof_service_request_dfm.asset_deps[key] == _SOF_PRODUCER_KEYS
 
-    def test_sof_service_request_tillaegskode_follows_its_parent(self):
+    def test_sof_service_request_supplementary_code_follows_its_parent(self):
         # The child view is derived from the parent's resources, so it follows
         # the parent SOF asset (Condition/Procedure child pattern) — the
         # producer edges are transitive through the parent.
-        key = AssetKey.from_user_string("sof_service_request_tillaegskode_dfm")
-        assert sof_service_request_tillaegskode_dfm.asset_deps[key] == {
+        key = AssetKey.from_user_string("sof_service_request_supplementary_code_dfm")
+        assert sof_service_request_supplementary_code_dfm.asset_deps[key] == {
             AssetKey.from_user_string("fhir_sof_infrastructure"),
             AssetKey.from_user_string("sof_service_request_dfm"),
         }
@@ -98,7 +98,7 @@ class TestServiceRequestPipelineRegistration:
 
     def test_dso_sync_service_request_follows_the_dfm_sof_assets(self):
         by_name = {next(iter(a.keys)).to_user_string(): a for a in all_fhir_dso_sync_dfm_assets}
-        for sof_name in ("service_request", "service_request_tillaegskode"):
+        for sof_name in ("service_request", "service_request_supplementary_code"):
             dso_name = f"dso_sync_fhir_{sof_name}_dfm"
             assert dso_name in by_name, f"Missing DFM DSO sync asset: {dso_name}"
             key = AssetKey.from_user_string(dso_name)
@@ -120,7 +120,7 @@ class TestServiceRequestPipelineRegistration:
             "arc_referralinformation_ifdb",
             "fhir_server_service_request_dfm",
             "sof_service_request_dfm",
-            "sof_service_request_tillaegskode_dfm",
+            "sof_service_request_supplementary_code_dfm",
         ]
         for key_str in required:
             key = AssetKey.from_user_string(key_str)
@@ -156,3 +156,16 @@ class TestServiceRequestPipelineRegistration:
 
         assert set(_HISTORY_FETCH_COLUMNS) <= set(HENVISNING_HISTORIK_COLUMNS)
         assert set(_REFINFO_FETCH_COLUMNS) <= set(REFERRALINFORMATION_COLUMNS)
+
+
+def test_history_extract_uses_changed_parent_instead_of_backdated_decision():
+    from core.dfm_config import RunModeConfig
+    from DSI.oracle.ifdb_extract import HENVISNING_HISTORIK_EXTRACT_CONFIG, build_oracle_where
+
+    cfg = HENVISNING_HISTORIK_EXTRACT_CONFIG
+    where = build_oracle_where(RunModeConfig(), "2026-01-01 00:00:00", cfg, "2026-01-02 00:00:00")
+    assert "h.OPDATERET_TID >" in where
+    assert "h.OPDATERET_TID <=" in where
+    assert "BESLUT_TIDSPUNKT" not in where
+    assert "h.OBJEKT_ID = hist.HENVISNING_ID" in cfg.select_from_expr
+    assert build_oracle_where(RunModeConfig(mode="full_load"), "2026-01-01", cfg) is None

@@ -17,7 +17,7 @@ dso_lineage:
 
   Columns:
     careplan_id:      { Type: PK, DataType: NVARCHAR(255), FhirPath: "id" }
-    patient_id:       { DataType: NVARCHAR(255), FhirPath: "subject.getReferenceKey(Patient)", FK-Target: fhir.Patient, FK-Key: patient_id, FK-Required: true, Description: "FHIR-tildelt Patient-reference (Aidbox UUID) — resolver-tildelt ved posting ud fra IFDB.EVENTMARKER.patient_id_ifdb; ikke direkte projiceret fra kilden." }
+    patient_id:       { DataType: NVARCHAR(255), FhirPath: "subject.getReferenceKey(Patient)", FK-Target: fhir.Patient, FK-Key: patient_id, FK-Required: true, Source: [ifdb.IFDB.EVENTMARKER.PATIENT_ID], Description: "FHIR-tildelt Patient-reference (Aidbox UUID) — resolver-tildelt ved posting ud fra IFDB.EVENTMARKER.patient_id_ifdb; ikke direkte projiceret fra kilden." }
     status:           { DataType: NVARCHAR(50), FhirPath: "status" }
     intent:           { DataType: NVARCHAR(50), FhirPath: "intent" }
     category_code:    { DataType: NVARCHAR(100), FhirPath: "category[0].coding[0].code", Description: "Altid 'alle_markoerer' i system http://example.org/fhir/CodeSystem/patient-rights-type. De oevrige patientrettighedskategorier (kraeftpakke, udredningsret, behandlingsret, maksimale ventetider) havde ingen producent i repoet og er pensioneret." }

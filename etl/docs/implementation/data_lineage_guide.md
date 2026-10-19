@@ -59,6 +59,8 @@ Alle lineage-filer deler ét format under `dso_lineage`-nøglen.
 | `Extensions` | Nej | Mapping `kolonne/alias: extension-URL` — FHIR-extensions som kolonnernes `FhirPath` refererer | Dokumentation |
 | `Temporal` | Nej | `period` når tabellens grain bærer historik via `period.start` (FHIR sidecars) | Dokumentation |
 | `NonProjectedFhirFields` | Nej | Liste af FHIR-felter på ressourcen som bevidst ikke projiceres til flat-tabellen | Dokumentation |
+| `ConsumerView` | Nej | Aftagerviewet (`vw_fhir.<Navn>`), når det ikke hedder det samme som tabellen (fx `fhir.SFI_datapoint_store` → `vw_fhir.SFI_datapoint`) | Dokumentation; kontrakttesten kræver, at viewet findes |
+| `ViewColumns` | Nej | Mapping `kolonne: {...}` for kolonner, som `vw_fhir`-aftagerviewet lægger til ved opslag (fx kodetekster fra `codesystem.IFDBConcept`), og som derfor ikke står i den flade tabel. Samme kolonnefelter som `Columns` | Dokumentation; ignoreres af lineage↔DDL-verifieren. En test holder listen lig viewets tilføjede kolonner |
 | `Privacy` | Nej | Sikkerheds-/adgangsnotat for tabellen | Vises i detalje-panelet (gul boks) |
 | `Notes` | Nej | Liste af frie noter (designvalg, gotchas) | Vises som punktliste i detalje-panelet |
 
@@ -80,13 +82,13 @@ Hver nøgle under `Columns` er et kolonnenavn. Værdien er en dict med valgfri f
 | `FK-None` | `true` når en relationship-formet kolonne (`*_id` / `dw_ek_*`) bevidst IKKE er en flat-tabel-reference (kilde-/forretnings-id) | Opfylder CI's krav om eksplicit FK-intent uden at generere DQA-check |
 | `FhirPath` | FHIR-ressource-sti for `fhir`-kolonner | Dokumentation |
 
-Hver relationship-formet kolonne (FHIR `*_id`, DWH non-PK `dw_ek_*`) skal deklarere præcis én intent: `Type: PK`, `Type: FK`/`FK-Target`, eller `FK-None: true` — CI fejler ellers (`data_lineage/tools/lineage_ddl_check`).
+Hver relationship-formet kolonne (FHIR `*_id`, DWH non-PK `dw_ek_*`) skal deklarere præcis én intent: `Type: PK`, `Type: FK`/`FK-Target`, eller `FK-None: true` — CI fejler ellers (`data_lineage/tools/lineage_ddl_check`). Et `FK-Target` skal desuden pege på en `TableName` i lineage-filerne — for en FHIR-tabel en `fhir.*`-tabel (store og små bogstaver ignoreres), ellers fejler CI også.
 
 ---
 
 ## FK-navngivningskonvention (dim/fct)
 
-Kolonnenavne følger [`navngivningsstandard.md`](navngivningsstandard.md):
+Kolonnenavne følger [`navngivningsstandard_basismodel.md`](navngivningsstandard_basismodel.md):
 snake_case med PascalCase på tabelreferencer. Entitetsnøgler bruger præfikset `dw_ek_`
 (lowercase); versionsnøgler i type 2-dimensioner bruger `dw_sk_`.
 
@@ -185,14 +187,14 @@ python -m scripts.validate_erp_grain --partition-key 2025-01-15
 
 ## FHIR-referencekonvention
 
-FHIR-tabeller bruger ikke `dw_ek_`-mønstret. I stedet udledes relationer automatisk fra `{ressource}_id`-navngivningen:
+FHIR-tabeller bruger ikke `dw_ek_`-mønstret. Et eksplicit `FK-Target` vinder; ellers udledes relationen automatisk fra `{ressource}_id`-navngivningen:
 
 - `patient_id` → `fhir.Patient`
 - `encounter_id` → `fhir.Encounter`
 - `episode_of_care_id` → `fhir.EpisodeOfCare`
 - `managing_organization_id` → `fhir.Organization` (præfikset `managing_` fjernes)
 
-Selvreferencerende kolonner (fx `patient_id` i `fhir.Patient`) og kildesystem-ID'er (`ifdb_*`) springes over. Kolonner der ikke matcher en eksisterende FHIR-tabel ignoreres.
+Selvreferencerende kolonner (fx `patient_id` i `fhir.Patient`) og kildesystem-ID'er (`ifdb_*`) springes over. Kolonner der ikke matcher en eksisterende FHIR-tabel ignoreres; et `FK-Target` uden en matchende FHIR-tabel logger en advarsel.
 
 FHIR-kolonner behøver ikke `Type: FK` — relationen udledes automatisk.
 

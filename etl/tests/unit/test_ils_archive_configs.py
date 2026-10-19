@@ -13,7 +13,7 @@ import pytest
 pytestmark = pytest.mark.unit
 
 EXPECTED_TABLES = {
-    # Pattern A — full load (14)
+    # Pattern A — full load (15)
     "ils_vareart",
     "ils_varegrp",
     "ils_varetype",
@@ -25,6 +25,7 @@ EXPECTED_TABLES = {
     "ils_lgr",
     "ils_rekv",
     "ils_rekvgrp",
+    "ils_postdi",
     "ils_lafth",
     "ils_lafthsgh",
     "ils_zz_oper",
@@ -38,6 +39,8 @@ EXPECTED_TABLES = {
     "ils_indkfak",
     # Pattern C — manual exclusion list (1)
     "ils_rekvundtagne",
+    # Pattern D — append-only log, delta on Dato (1)
+    "ils_changelog",
 }
 
 PATTERN_A_TABLES = {
@@ -52,6 +55,7 @@ PATTERN_A_TABLES = {
     "ils_lgr",
     "ils_rekv",
     "ils_rekvgrp",
+    "ils_postdi",
     "ils_lafth",
     "ils_lafthsgh",
     "ils_zz_oper",
@@ -66,6 +70,7 @@ PATTERN_DELTA_TABLES = {
     "ils_indkfak",
 }
 PATTERN_C_TABLES = {"ils_rekvundtagne"}
+PATTERN_D_TABLES = {"ils_changelog"}
 
 # arc tables that predate the ILS DFM migration and are archived elsewhere.
 ALREADY_ARCHIVED = {"ils_lgrbeh", "ils_afdlgrbeh", "ils_unspsc", "ils_vare"}
@@ -85,7 +90,7 @@ def ils_dfm_archive_assets():
     return ils_dfm_archive_assets
 
 
-def test_extract_configs_cover_22_tables(ils_dfm_extract_configs):
+def test_extract_configs_cover_24_tables(ils_dfm_extract_configs):
     targets = {c.target_table for c in ils_dfm_extract_configs}
     assert targets == EXPECTED_TABLES
 
@@ -114,7 +119,7 @@ def test_rekvundtagne_extract_uses_cross_db_select(ils_dfm_extract_configs):
 
 def test_delta_tables_use_sysdato_and_read_checkpoint_from_arc(ils_dfm_extract_configs):
     for c in ils_dfm_extract_configs:
-        if c.is_full_load:
+        if c.is_full_load or c.target_table in PATTERN_D_TABLES:
             continue
         assert c.target_table in PATTERN_DELTA_TABLES, c.target_table
         assert c.delta_column == "sysdato", c.target_table
@@ -126,13 +131,19 @@ def test_delta_tables_use_sysdato_and_read_checkpoint_from_arc(ils_dfm_extract_c
         assert table == c.target_table, c.target_table
 
 
+def test_changelog_extract_looks_back_over_day_grain_dato(ils_dfm_extract_configs):
+    """A day-grain Dato with `Dato > checkpoint` drops rows logged later that day."""
+    cfg = next(c for c in ils_dfm_extract_configs if c.target_table == "ils_changelog")
+    assert cfg.lookback_days >= 1
+
+
 def test_extract_source_schema_is_dbo(ils_dfm_extract_configs):
     for c in ils_dfm_extract_configs:
         assert c.source_schema == "dbo", c.target_table
 
 
-def test_archive_assets_are_22(ils_dfm_archive_assets):
-    assert len(ils_dfm_archive_assets) == 22
+def test_archive_assets_are_24(ils_dfm_archive_assets):
+    assert len(ils_dfm_archive_assets) == 24
 
 
 def test_archive_assets_all_in_ils_archive_group(ils_dfm_archive_assets):
@@ -172,6 +183,13 @@ def test_archive_merge_keys():
             assert cfg.upstream_is_full_load is True, cfg.target_table
         else:
             assert cfg.merge_keys == ("prrowid",), cfg.target_table
+        if cfg.target_table == "ils_changelog":
+            assert cfg.upstream_is_full_load is False
+            # The extract's lookback is subtracted from this checkpoint.
+            assert "MAX([Dato])" in cfg.checkpoint_query
+            assert "[arc].[ils_changelog]" in cfg.checkpoint_query
+            # ext DATETIME2 vs arc datetime: the pro2 stamps never compare equal.
+            assert not {"pro2created", "pro2modified"} & set(cfg.change_detect_columns)
 
 
 def test_merge_key_never_in_non_key_columns():

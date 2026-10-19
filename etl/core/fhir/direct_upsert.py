@@ -57,6 +57,8 @@ class UpsertResult(tuple[int, int, list[str]]):
     """
 
     recovered: int
+    skipped: int
+    withheld: int
 
     def __new__(
         cls,
@@ -64,9 +66,13 @@ class UpsertResult(tuple[int, int, list[str]]):
         failures: int,
         failed_ids: list[str],
         recovered: int = 0,
+        skipped: int = 0,
+        withheld: int = 0,
     ) -> UpsertResult:
         result = tuple.__new__(cls, (successes, failures, failed_ids))
         result.recovered = recovered
+        result.skipped = skipped
+        result.withheld = withheld
         return result
 
 
@@ -188,7 +194,20 @@ def _safe_error_label(exc: BaseException) -> str:
 # definition unknown, so it is treated as if it could carry a CPR. Matched
 # case-insensitively, so the same check serves both resource_type ("Patient")
 # and the derived table_name ("patient" == resource_type.lower()).
-_PERSON_REFERABLE_TYPES = frozenset({"patient", "unknownresource"})
+#
+# Practitioner holds the employee's own CPR as its business identifier and has a
+# UNIQUE index on exactly that expression, so a unique violation renders the CPR
+# in the error DETAIL. PractitionerRole normally carries no CPR — the reference
+# resolver clears the identifier once it has a logical id — but an UNRESOLVED
+# optional reference keeps the raw CPR in the payload, which a serializer error
+# would then render. Staff CPR is no less personal than a patient's. This is
+# also why the episode segment of PractitionerRole's own tjenestenummer
+# identifier is a date, not a CPR derivative: a hash of a CPR is not a
+# pseudonym — 10 digits with a date structure are broken by exhaustive search —
+# so that segment must never become one.
+_PERSON_REFERABLE_TYPES = frozenset(
+    {"patient", "practitioner", "practitionerrole", "unknownresource"}
+)
 
 
 def _carries_person_identifier(resource_type_or_table: str) -> bool:
@@ -299,6 +318,9 @@ def batch_upsert_resources(
     resource_type: str,
     batch_size: int = 2000,
     invalidate_cache: bool = True,
+    *,
+    identity_safe: bool = False,
+    create_only: Sequence[bool] | None = None,
 ) -> UpsertResult:
     """
     Directly insert or update FHIR resources into the database.
@@ -323,6 +345,20 @@ def batch_upsert_resources(
         resource content (for Patient resources the CPR).
     """
     import uuid
+
+    if identity_safe:
+        from core.fhir.identity_upsert import batch_upsert_by_identity
+
+        return batch_upsert_by_identity(
+            self,
+            resources,
+            resource_type,
+            create_only=create_only if create_only is not None else [False] * len(resources),
+            batch_size=batch_size,
+            invalidate_cache=invalidate_cache,
+        )
+    if create_only is not None:
+        raise ValueError("create_only requires identity_safe=True")
 
     if not resources:
         return UpsertResult(0, 0, [])

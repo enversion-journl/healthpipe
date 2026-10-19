@@ -57,6 +57,7 @@ from tests.fixtures.dagster_instance import (  # noqa: F401
     dagster_instance,
     test_dagster_home,
 )
+from tests.fixtures.lpr3 import archive_db, lpr3_db  # noqa: F401
 from tests.fixtures.resources import *  # noqa: F401, F403
 from tests.fixtures.resources import is_safe_environment
 

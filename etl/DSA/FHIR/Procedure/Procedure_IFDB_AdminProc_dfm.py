@@ -54,6 +54,7 @@ from core.resources import (
 )
 from DSA.FHIR.utils.codings import build_unique_ordered_codings
 from DSA.FHIR.utils.dfm_query import build_fhir_archive_query
+from DSA.FHIR.utils.fhir_checkpoint import advance_fhir_checkpoint
 from DSA.FHIR.utils.ifdb.arc_lookup import chunked_in_fetch_grouped
 from DSA.FHIR.utils.ifdb.fhir_posting import (
     post_resources_direct,
@@ -89,11 +90,14 @@ from utils.fhir.fhir_extensions import (
     EXTENSION_SOURCE_MODIFIED_AT,
 )
 from utils.fhir.identifier_systems import (
+    PERFORMER_FUNCTION_DISPLAYS,
+    PERFORMER_FUNCTION_UDFOERENDE,
     SYSTEM_IFDB_ADMINISTRATIVE_PROCEDURE,
     SYSTEM_IFDB_EPISODE_OF_CARE_ID,
     SYSTEM_IFDB_OBJECT_ID,
     SYSTEM_IFDB_PATIENT_ID,
     SYSTEM_IFDB_STAFF,
+    SYSTEM_PERFORMER_FUNCTION,
     SYSTEM_SKS,
     SYSTEM_SOR,
 )
@@ -127,10 +131,37 @@ PROCEDURE_NESTED_REFERENCE_CONFIGS = [
         is_required=False,
         description="Episode of care reference from extension",
     ),
+    # Udførende enhed (LOCATION_SORCODE) opløses til Organization/<id>, så den
+    # flade tabel kan joine til fhir.Organization ligesom ServiceRequest gør.
+    # Kliniker-referencen (SYSTEM_IFDB_STAFF) står ikke i mappingen: der findes
+    # ingen Practitioner-ressourcer at opløse mod, så den bevares som
+    # identifier-reference og projiceres direkte (practitioner_id).
+    NestedReferenceFieldConfig(
+        field_path="performer.actor",
+        identifier_system_to_type={
+            SYSTEM_SOR: "Organization",
+        },
+        is_required=False,
+        description="Udførende enhed (SOR) som Organization-reference",
+    ),
 ]
 
 
 BATCH_SIZE = 10_000
+
+
+def _performer_function(code: str) -> CodeableConcept:
+    """Rolle for en organisation på proceduren (udførende enhed, stamafdeling)."""
+    return CodeableConcept(
+        coding=[
+            Coding(
+                system=SYSTEM_PERFORMER_FUNCTION,
+                code=code,
+                display=PERFORMER_FUNCTION_DISPLAYS[code],
+            )
+        ],
+        text=PERFORMER_FUNCTION_DISPLAYS[code],
+    )
 
 
 def _str_or_none(value: Any) -> str | None:
@@ -269,6 +300,7 @@ def _transform_adm_procedure_to_fhir(
             ),
             supplement_code_key="SUPPL_CODE",
             supplement_display_key="SUPPL_TEXT",
+            supplement_sequence_key="IDX",
         )
 
         procedure_code = CodeableConcept(
@@ -348,6 +380,7 @@ def _transform_adm_procedure_to_fhir(
             from fhir.resources.R4B.procedure import ProcedurePerformer
 
             actor_ref = Reference(
+                type="Practitioner",
                 display=str(user_name) if user_name else None,
                 identifier=(
                     Identifier(
@@ -377,11 +410,13 @@ def _transform_adm_procedure_to_fhir(
             performer_list.append(
                 ProcedurePerformer(
                     actor=Reference(
+                        type="Organization",
                         identifier=Identifier(
                             system=SYSTEM_SOR,
                             value=_normalize_oracle_id(location_sorcode),
                         ),
                     ),
+                    function=_performer_function(PERFORMER_FUNCTION_UDFOERENDE),
                 )
             )
 
@@ -488,10 +523,10 @@ def _post_adm_procedure_to_fhir(
                 eoc_ids_needed.add(str(ext.valueReference.identifier.value))
 
     if resolve_missing_dependencies and mssql:
+        from DSA.FHIR.Patient.patient_service import NEED_REFERENCE, ensure_patients
         from DSA.FHIR.utils.ifdb.dependency_resolver import (
             resolve_missing_encounters,
             resolve_missing_episodes_of_care,
-            resolve_missing_patients,
         )
 
         if eoc_ids_needed:
@@ -514,11 +549,12 @@ def _post_adm_procedure_to_fhir(
 
         if patient_ids_needed:
             logger.info(f"[DEPENDENCY] Ensuring {len(patient_ids_needed)} patients exist")
-            resolve_missing_patients(
-                patient_ids=patient_ids_needed,
+            ensure_patients(
+                ifdb_patient_ids=patient_ids_needed,
                 mssql=mssql,
                 fhir_database=fhir_database,
                 context=context,
+                need=NEED_REFERENCE,
             )
 
     procedures = prepare_resources_for_upsert(
@@ -645,21 +681,9 @@ def fhir_server_procedure_admin_proc_dfm(
             f"Done: {total_fetched} fetched, {total_posted} posted in {batch_num} batches"
         )
 
-        new_checkpoint: str | None = None
-        if config.should_advance_checkpoint and total_fetched > 0:
-            with mssql_target_staging.get_connection() as conn:
-                cursor = conn.cursor()
-                try:
-                    cursor.execute("SELECT CONVERT(NVARCHAR(50), SYSDATETIME(), 121)")
-                    row = cursor.fetchone()
-                    new_checkpoint = row[0] if row else None
-                finally:
-                    cursor.close()
-
-            if new_checkpoint:
-                dfm.set_checkpoint(
-                    "fhir_server", "Procedure_AdminProc", value=new_checkpoint, mode=config.mode
-                )
+        new_checkpoint = advance_fhir_checkpoint(
+            dfm, run_ctx, "Procedure_AdminProc", config, total_fetched
+        )
 
         dfm.complete_dfm_run(
             run_ctx.log_id,

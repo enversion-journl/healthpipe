@@ -15,6 +15,8 @@ Data source: https://api.nemhandel.dk/nemhandel-api/search/receiverList
 
 import dagster as dg
 import requests
+from core.dfm_manager import DfmManager
+from core.dfm_source import http_source
 from core.resources import MSSQLResource
 from dagster import AssetExecutionContext
 
@@ -162,11 +164,24 @@ def extract_ean_nemhandel(
     mssql_target_staging: MSSQLResource,
 ) -> dg.MaterializeResult:
     """Populate ext.ean_nemhandel from NemHandelsregisteret."""
-    participants = fetch_nemhandel_participants(context=context)
-    ext_rows = rows_for_ext(participants)
+    dfm = DfmManager(mssql_target_staging, context)
+    run_ctx = dfm.start_dfm_run(
+        "ext",
+        "ean_nemhandel",
+        dagster_run_id=context.run_id,
+        mode="full_load",
+        **http_source(NEMHANDEL_RECEIVER_LIST_URL),
+    )
+    try:
+        participants = fetch_nemhandel_participants(context=context)
+        ext_rows = rows_for_ext(participants)
 
-    with mssql_target_staging.get_connection() as conn:
-        row_count = _write_to_ext_table(conn, ext_rows, context)
+        with mssql_target_staging.get_connection() as conn:
+            row_count = _write_to_ext_table(conn, ext_rows, context)
+        dfm.complete_dfm_run(run_ctx.log_id, rows_affected=row_count)
+    except Exception as exc:
+        dfm.fail_dfm_run(run_ctx.log_id, error_message=str(exc))
+        raise
 
     return dg.MaterializeResult(
         metadata={

@@ -13,13 +13,31 @@ and writes the result to stg.dim_Rekvirent in the staging database.
 
 Property-to-column mapping is configured via PROPERTY_COLUMN_MAP. To add more
 properties as columns, simply extend the dict.
+
+The address and contact columns do NOT come from the CodeSystem: they are
+joined in from arc.ils_rekv / arc.ils_postdi after the bulk insert — see
+KONTAKTINFO_COLUMN_TYPES, build_kontaktinfo_update_sql and the rationale in
+DSA/SQL/common/rekvirent_kontaktinfo.py.
 """
+
+from collections.abc import Sequence
 
 import dagster as dg
 from core.dfm_config import RunModeConfig
 from core.dfm_manager import DfmManager
 from core.resources import MSSQLResource
+from DSA.SQL.common.ils_clean_code_shared import sql_norm_code
+from DSA.SQL.common.rekvirent_kontaktinfo import (
+    KONTAKTINFO_COLUMN_TYPES,
+    KONTAKTINFO_COLUMNS,
+    REKV_SOURCE_COLUMNS,
+)
 
+# Property key in codesystem.RekvirentProperties -> column in stg/dim.Rekvirent.
+#
+# Every key here MUST be written by cs_rekvirent. A key that is pivoted without
+# being written yields a column that is always NULL — enforced by
+# test_every_pivoted_property_is_actually_written.
 PROPERTY_COLUMN_MAP: dict[str, str] = {
     "entityType": "entity_type",
     "sgh": "sgh",
@@ -27,6 +45,103 @@ PROPERTY_COLUMN_MAP: dict[str, str] = {
     "rtyp": "rtyp",
     "rnr": "rnr",
 }
+
+# Base (non-property) staging columns, written by the bulk insert.
+_BASE_COLUMNS: tuple[str, ...] = (
+    "clean_code_Rekvirent",
+    "code",
+    "display",
+    "parent_code",
+    "level",
+)
+_TRAILING_COLUMNS: tuple[str, ...] = ("code_sor", "sor_relationship")
+
+
+def build_kontaktinfo_column_ddl() -> str:
+    """CREATE TABLE fragment for the joined address and contact columns."""
+    return ", ".join(f"[{col}] {sql_type}" for col, sql_type in KONTAKTINFO_COLUMN_TYPES.items())
+
+
+def build_staging_insert_sql(prop_columns: Sequence[str] | None = None) -> str:
+    """Bulk INSERT with an explicit column list.
+
+    The column list is not decoration: the address and contact columns are
+    filled in by ``build_kontaktinfo_update_sql`` afterwards, so an
+    ``INSERT ... VALUES`` without column names would miscount the moment the
+    table gained more columns than the tuple has values.
+    """
+    if prop_columns is None:
+        prop_columns = list(PROPERTY_COLUMN_MAP.values())
+    columns = (*_BASE_COLUMNS, *prop_columns, *_TRAILING_COLUMNS)
+    column_list = ", ".join(f"[{col}]" for col in columns)
+    placeholders = ", ".join(["?"] * len(columns))
+    return f"INSERT INTO [stg].[dim_Rekvirent] ({column_list}) VALUES ({placeholders})"
+
+
+def build_kontaktinfo_update_sql() -> str:
+    """UPDATE that pulls the address details in from the ILS archive.
+
+    Two deduplications, both necessary:
+
+    * ``arc.ils_rekv`` has prrowid as its PK but (sgh, rnr) as the logical key.
+      Without ROW_NUMBER, ``UPDATE ... FROM`` would pick an arbitrary row on
+      duplicates — SQL Server reports no error, it just picks one.
+    * ``arc.ils_postdi`` has duplicates on (land, postdi), e.g. (DK, 1172).
+      Strategisk Indkoeb resolves this in its own extracts by
+      keeping the town that sorts first alphabetically; the same rule is applied
+      here, so the warehouse and its extracts return the same town.
+
+    An INNER JOIN against rekv: rows with no dbo.rekv row (region, hospital,
+    requisitioner group, requisitioner type) keep NULL, which is exactly the
+    LEFT JOIN result.
+    """
+    sgh_stg = sql_norm_code("stg.[sgh]")
+    rnr_stg = sql_norm_code("stg.[rnr]")
+    sgh_rekv = sql_norm_code("[sgh]")
+    rnr_rekv = sql_norm_code("[rnr]")
+
+    # The source calls them adr/postdi; the dimension names them for what they
+    # are. The translation happens here — provenance is documented in data_lineage.
+    rekv_columns = ",\n            ".join(f"[{src}]" for _, src in REKV_SOURCE_COLUMNS)
+    set_clauses = ",\n        ".join(
+        f"stg.[{col}] = NULLIF(LTRIM(RTRIM(r.[{src}])), '')" for col, src in REKV_SOURCE_COLUMNS
+    )
+
+    return f"""
+    WITH rekv_dedup AS (
+        SELECT
+            {sgh_rekv} AS sgh_key,
+            {rnr_rekv} AS rnr_key,
+            {rekv_columns},
+            ROW_NUMBER() OVER (
+                PARTITION BY {sgh_rekv}, {rnr_rekv}
+                ORDER BY [pro2modified] DESC, [prrowid] ASC
+            ) AS rn
+        FROM [arc].[ils_rekv]
+    ),
+    by_dedup AS (
+        SELECT
+            NULLIF(LTRIM(RTRIM([land])), '')   AS land_key,
+            NULLIF(LTRIM(RTRIM([postdi])), '') AS postdi_key,
+            MIN(NULLIF(LTRIM(RTRIM([navn])), '')) AS bynavn
+        FROM [arc].[ils_postdi]
+        GROUP BY
+            NULLIF(LTRIM(RTRIM([land])), ''),
+            NULLIF(LTRIM(RTRIM([postdi])), '')
+    )
+    UPDATE stg
+    SET
+        {set_clauses},
+        stg.[bynavn] = b.bynavn
+    FROM [stg].[dim_Rekvirent] stg
+    INNER JOIN rekv_dedup r
+        ON r.rn = 1
+       AND r.sgh_key = {sgh_stg}
+       AND r.rnr_key = {rnr_stg}
+    LEFT JOIN by_dedup b
+        ON b.land_key   = NULLIF(LTRIM(RTRIM(r.[land])), '')
+       AND b.postdi_key = NULLIF(LTRIM(RTRIM(r.[postdi])), '');
+"""
 
 
 def _build_hierarchy_lookup(cursor) -> dict[str, str]:
@@ -77,13 +192,14 @@ def _load_sor_mapping(cursor) -> dict[str, tuple[str, str]]:
 
 @dg.asset(
     name="stg_dim_Rekvirent",
-    deps=["cs_rekvirent", "cm_rekvirent_to_sor"],
+    deps=["cs_rekvirent", "cm_rekvirent_to_sor", "arc_ils_rekv", "arc_ils_postdi"],
     group_name="erp_staging",
     compute_kind="mssql",
     description=(
         "Stage Rekvirent dimension from codesystem + ConceptMap tables. "
         "Reads codesystem.rekvirent_* and conceptmap.rekvirent_to_sor, "
-        "then writes stg.dim_Rekvirent with pivoted property columns."
+        "then writes stg.dim_Rekvirent with pivoted property columns and "
+        "adresse-/kontaktkolonner joinet ind fra arc.ils_rekv / arc.ils_postdi."
     ),
 )
 def stg_dim_Rekvirent(
@@ -101,6 +217,7 @@ def stg_dim_Rekvirent(
 
     row_count = 0
     mapped_count = 0
+    kontaktinfo_rows = 0
 
     try:
         with mssql_target_staging.get_connection() as conn:
@@ -226,14 +343,13 @@ def stg_dim_Rekvirent(
                         [level] INT,
                         {prop_col_defs},
                         [code_sor] VARCHAR(50),
-                        [sor_relationship] VARCHAR(50)
+                        [sor_relationship] VARCHAR(50),
+                        {build_kontaktinfo_column_ddl()}
                     );
                 """
                 )
 
-                num_cols = 5 + len(prop_columns) + 2
-                placeholders = ", ".join(["?"] * num_cols)
-                insert_sql = f"INSERT INTO [stg].[dim_Rekvirent] VALUES ({placeholders})"
+                insert_sql = build_staging_insert_sql(prop_columns)
 
                 if hasattr(cursor, "fast_executemany"):
                     cursor.fast_executemany = True
@@ -250,6 +366,12 @@ def stg_dim_Rekvirent(
                 """
                 )
 
+                # Address and contact details from the ILS archive. The join
+                # normalises (sgh, rnr) on both sides, so no index helps it —
+                # it scans arc.ils_rekv, which is fine at that table's size.
+                cursor.execute(build_kontaktinfo_update_sql())
+                kontaktinfo_rows = cursor.rowcount
+
                 conn.commit()
 
                 cursor.execute("SELECT COUNT(*) FROM [stg].[dim_Rekvirent]")
@@ -258,7 +380,10 @@ def stg_dim_Rekvirent(
                 cursor.close()
 
         mapped_count = sum(1 for r in rows if r[-2] is not None)
-        context.log.info(f"stg.dim_Rekvirent: {row_count} rows ({mapped_count} mapped to SOR)")
+        context.log.info(
+            f"stg.dim_Rekvirent: {row_count} rows ({mapped_count} mapped to SOR, "
+            f"{kontaktinfo_rows} enriched from arc.ils_rekv)"
+        )
         dfm.complete_dfm_run(run_ctx.log_id, rows_affected=row_count)
     except Exception as exc:
         dfm.fail_dfm_run(run_ctx.log_id, error_message=str(exc))
@@ -271,6 +396,8 @@ def stg_dim_Rekvirent(
             "raw_row_count": len(row_candidates),
             "sor_mapped": mapped_count,
             "property_columns": prop_columns,
+            "kontaktinfo_columns": list(KONTAKTINFO_COLUMNS),
+            "kontaktinfo_rows_enriched": kontaktinfo_rows,
             "duplicate_clean_codes_removed": duplicate_clean_codes_removed,
             "duplicate_clean_codes_replaced": duplicate_clean_codes_replaced,
             "mode": config.mode,

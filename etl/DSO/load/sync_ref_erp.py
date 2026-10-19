@@ -4,7 +4,7 @@
 # This file is part of Healthpipe. See the LICENSE file in the project
 # root for the full AGPL-3.0 license text.
 
-"""DSO sync for ERP ref.RekvirentUndtagelse (exclusion list for reelt forbrug)."""
+"""DSO sync for ERP ref tables: RekvirentUndtagelse and ILSAendringslog."""
 
 import dagster as dg
 from core.resources import MSSQLResource
@@ -16,20 +16,13 @@ from DSO.load.sync_utils import (
 )
 
 
-@dg.asset(
-    name="dso_sync_ref_RekvirentUndtagelse",
-    group_name="erp_dso_sync",
-    compute_kind="mssql",
-    deps=["ref_RekvirentUndtagelse"],
-    tags={"domain": "erp", "layer": "dso_sync", "type": "ref"},
-    description="Sync ref.RekvirentUndtagelse from staging to DSO",
-)
-def dso_sync_ref_RekvirentUndtagelse(
+def _sync_ref_table(
     context: dg.AssetExecutionContext,
     mssql_target_dso: MSSQLResource,
     mssql_source_staging: MSSQLResource,
+    config_key: str,
 ) -> dg.MaterializeResult:
-    config = SHARED_DIMS_REF_CONFIGS["ref_RekvirentUndtagelse"]
+    config = SHARED_DIMS_REF_CONFIGS[config_key]
     result = sync_table_via_linked_server(
         context,
         mssql_target_dso,
@@ -65,6 +58,41 @@ def dso_sync_ref_RekvirentUndtagelse(
     return dg.MaterializeResult(metadata=metadata)
 
 
+@dg.asset(
+    name="dso_sync_ref_RekvirentUndtagelse",
+    group_name="erp_dso_sync",
+    compute_kind="mssql",
+    deps=["ref_RekvirentUndtagelse"],
+    tags={"domain": "erp", "layer": "dso_sync", "type": "ref"},
+    description="Sync ref.RekvirentUndtagelse from staging to DSO",
+)
+def dso_sync_ref_RekvirentUndtagelse(
+    context: dg.AssetExecutionContext,
+    mssql_target_dso: MSSQLResource,
+    mssql_source_staging: MSSQLResource,
+) -> dg.MaterializeResult:
+    return _sync_ref_table(
+        context, mssql_target_dso, mssql_source_staging, "ref_RekvirentUndtagelse"
+    )
+
+
+@dg.asset(
+    name="dso_sync_ref_ILSAendringslog",
+    group_name="erp_dso_sync",
+    compute_kind="mssql",
+    deps=["ref_ILSAendringslog"],
+    tags={"domain": "erp", "layer": "dso_sync", "type": "ref"},
+    description="Sync ref.ILSAendringslog (ILS changelog as-is) from staging to DSO",
+)
+def dso_sync_ref_ILSAendringslog(
+    context: dg.AssetExecutionContext,
+    mssql_target_dso: MSSQLResource,
+    mssql_source_staging: MSSQLResource,
+) -> dg.MaterializeResult:
+    return _sync_ref_table(context, mssql_target_dso, mssql_source_staging, "ref_ILSAendringslog")
+
+
 all_dso_sync_ref_erp_assets = [
     dso_sync_ref_RekvirentUndtagelse,
+    dso_sync_ref_ILSAendringslog,
 ]

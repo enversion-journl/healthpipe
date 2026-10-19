@@ -41,19 +41,18 @@ class TestBuildSql:
         assert "INTO [stg].[dim_UNSPSC]" in BUILD_SQL
         assert "DROP TABLE IF EXISTS [stg].[dim_UNSPSC]" in BUILD_SQL
 
-    def test_has_all_five_delta_legs(self):
+    def test_has_all_four_delta_legs(self):
         assert "[arc].[kmd_uddata_unspsc]" in BUILD_SQL
         assert "[arc].[ils_unspsc]" in BUILD_SQL
         assert "[arc].[ils_vare]" in BUILD_SQL
-        assert "[arc].[unspsc_udbudskategori]" in BUILD_SQL
         # 3 ILS-ben: unspsc, unspc, unspsc2
         assert "[unspsc]" in BUILD_SQL
         assert "[unspc]" in BUILD_SQL
         assert "[unspsc2]" in BUILD_SQL
 
     def test_every_leg_filters_on_update_timestamp(self):
-        # Ét delta-filter pr. arc-kilde-ben (KMD + 3 ILS + udbud = 5)
-        assert BUILD_SQL.count("[dw_timestamp_update] > CAST(@wm AS DATETIME2)") == 5
+        # Ét delta-filter pr. arc-kilde-ben (KMD + 3 ILS = 4)
+        assert BUILD_SQL.count("[dw_timestamp_update] > CAST(@wm AS DATETIME2)") == 4
 
     def test_kmd_leg_filters_iscurrent(self):
         assert "[DW_IsCurrent] = 1" in BUILD_SQL
@@ -65,10 +64,8 @@ class TestBuildSql:
         assert "GROUP BY" in BUILD_SQL
         assert "MAX(KMD)" in BUILD_SQL
         assert "MAX(ILS)" in BUILD_SQL
-        assert "MAX(Udbud)" in BUILD_SQL
         assert "AS dw_source_kmd" in BUILD_SQL
         assert "AS dw_source_ils" in BUILD_SQL
-        assert "AS dw_source_udbud" in BUILD_SQL
 
     def test_creates_clustered_index(self):
         assert "CREATE CLUSTERED INDEX" in BUILD_SQL

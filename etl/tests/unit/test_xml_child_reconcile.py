@@ -367,6 +367,32 @@ def test_empty_parent_list_does_not_touch_the_database():
     assert retired == 0
 
 
+def test_pensioneret_diagnose_mister_clinical_status_og_abatement():
+    """En diagnose i entered-in-error må ikke beholde clinicalStatus (con-5) eller abatement.
+
+    Før rettelsen satte oprydningen kun verificationStatus, og en pensioneret
+    SFI-diagnose stod derfor som «active» og slettet på én gang.
+    """
+    sql, params = crr._status_set_sql(FAMILY_XML_CONDITION.status_kind)
+    for felt in (
+        "clinicalStatus",
+        "abatementDateTime",
+        "abatementAge",
+        "abatementPeriod",
+        "abatementRange",
+        "abatementString",
+    ):
+        assert f"- '{felt}'" in sql
+    assert "'{verificationStatus}'" in sql
+    assert '"entered-in-error"' in params[0]
+
+
+def test_status_familier_roeres_kun_paa_status():
+    sql, params = crr._status_set_sql(FAMILY_DELOP.status_kind)
+    assert sql == "jsonb_set(resource, '{status}', %s::jsonb)"
+    assert params == ['"entered-in-error"']
+
+
 class TestChildValueErFormatetsEjer:
     """Formatparitet: child_value() danner PRÆCIS de literale formater, alle
     kaldesteder dannede før centraliseringen. Ændres et format her, skal det

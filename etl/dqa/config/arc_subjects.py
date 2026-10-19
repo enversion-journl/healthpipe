@@ -31,6 +31,7 @@ from __future__ import annotations
 
 from dqa.model import Cadence, CheckSpecification, DqaSubject, ReplaySpec, Severity, Track
 from DSI.oracle.ifdb_archive import (
+    ABSENCE_ARCHIVE_CONFIG,
     ADM_PROCEDURE_SUPPL_CODES_ARCHIVE_CONFIG,
     ADMINISTRATIVE_PROCEDURE_ARCHIVE_CONFIG,
     AKTIVITETSRESULTAT_ARCHIVE_CONFIG,
@@ -43,6 +44,7 @@ from DSI.oracle.ifdb_archive import (
     DIAGNOSE_ARCHIVE_CONFIG,
     DIAGNOSE_TILLAEGSKODE_ARCHIVE_CONFIG,
     ENCOUNTER_ARCHIVE_CONFIG,
+    ENCOUNTER_BED_SPACE_HISTORY_ARCHIVE_CONFIG,
     EOC_ARCHIVE_CONFIG,
     EVENTMARKER_ARCHIVE_CONFIG,
     HENVISNING_ARCHIVE_CONFIG,
@@ -55,8 +57,12 @@ from DSI.oracle.ifdb_archive import (
     PATIENT_ARCHIVE_CONFIG,
     REFERRALINFORMATION_ARCHIVE_CONFIG,
     RIS_YDELSE_ARCHIVE_CONFIG,
+    SENGEENHED_ARCHIVE_CONFIG,
+    SENGEENHED_DISPONIBLE_ARCHIVE_CONFIG,
+    SENGEENHED_NORMEREDE_ARCHIVE_CONFIG,
 )
 from DSI.oracle.ifdb_extract import (
+    ABSENCE_EXTRACT_CONFIG,
     ADM_PROCEDURE_SUPPL_CODES_EXTRACT_CONFIG,
     ADMINISTRATIVE_PROCEDURE_EXTRACT_CONFIG,
     AKTIVITETSRESULTAT_EXTRACT_CONFIG,
@@ -68,6 +74,7 @@ from DSI.oracle.ifdb_extract import (
     BOM_IFDB_PATIENTINFO_EXTRACT_CONFIG,
     DIAGNOSE_EXTRACT_CONFIG,
     DIAGNOSE_TILLAEGSKODE_EXTRACT_CONFIG,
+    ENCOUNTER_BED_SPACE_HISTORY_EXTRACT_CONFIG,
     ENCOUNTER_EXTRACT_CONFIG,
     EOC_EXTRACT_CONFIG,
     EVENTMARKER_EXTRACT_CONFIG,
@@ -81,6 +88,9 @@ from DSI.oracle.ifdb_extract import (
     PATIENT_EXTRACT_CONFIG,
     REFERRALINFORMATION_EXTRACT_CONFIG,
     RIS_YDELSE_EXTRACT_CONFIG,
+    SENGEENHED_DISPONIBLE_EXTRACT_CONFIG,
+    SENGEENHED_EXTRACT_CONFIG,
+    SENGEENHED_NORMEREDE_EXTRACT_CONFIG,
 )
 
 _RES = "mssql_target_staging"  # arc.* live on the Staging server (DSA)
@@ -120,7 +130,7 @@ _ARC = [
     (
         "arc_ifdb_location",
         "arc.ifdb_location",
-        "(SELECT l.OBJECT_ID, l.PERIOD_START, e.EPJI_MODIFICATION_DATETIME "
+        "(SELECT l.OBJECT_ID, l.PERIOD_START, e.IFDB_MODIFICATION_DATETIME "
         "FROM IFDB.LOCATION l "
         "INNER JOIN IFDB.ENCOUNTER e ON e.OBJECT_ID = l.OBJECT_ID) loc",
         LOCATION_ARCHIVE_CONFIG,
@@ -200,7 +210,10 @@ _ARC = [
     (
         "arc_ifdb_henvisning_historik",
         "arc.ifdb_henvisning_historik",
-        "IFDB.HENVISNING_HISTORIK",
+        # The bound column OPDATERET_TID lives on HENVISNING, so the join is projected.
+        "(SELECT hist.HENVISNING_ID, hist.ORDNING, h.OPDATERET_TID "
+        "FROM IFDB.HENVISNING_HISTORIK hist "
+        "INNER JOIN IFDB.HENVISNING h ON h.OBJEKT_ID = hist.HENVISNING_ID) hh",
         HENVISNING_HISTORIK_ARCHIVE_CONFIG,
         HENVISNING_HISTORIK_EXTRACT_CONFIG,
     ),
@@ -277,6 +290,47 @@ _ARC = [
         BOM_IFDB_ORGENHED_SOR_ARCHIVE_CONFIG,
         BOM_IFDB_ORGENHED_SOR_EXTRACT_CONFIG,
         ["OID"],
+    ),
+    # Senge og kapacitet
+    (
+        "arc_ifdb_sengeenhed",
+        "arc.ifdb_sengeenhed",
+        "IFDB.SENGEENHED",
+        SENGEENHED_ARCHIVE_CONFIG,
+        SENGEENHED_EXTRACT_CONFIG,
+    ),
+    (
+        "arc_ifdb_sengeenhed_disponible",
+        "arc.ifdb_sengeenhed_disponible",
+        "IFDB.SENGEENHED_DISPONIBLE",
+        SENGEENHED_DISPONIBLE_ARCHIVE_CONFIG,
+        SENGEENHED_DISPONIBLE_EXTRACT_CONFIG,
+    ),
+    (
+        "arc_ifdb_sengeenhed_normerede",
+        "arc.ifdb_sengeenhed_normerede",
+        "IFDB.SENGEENHED_NORMEREDE",
+        SENGEENHED_NORMEREDE_ARCHIVE_CONFIG,
+        SENGEENHED_NORMEREDE_EXTRACT_CONFIG,
+    ),
+    (
+        "arc_ifdb_encounter_bed_space_history",
+        "arc.ifdb_encounter_bed_space_history",
+        # Samme join som extractet, så DQA afstemmer mod netop de rækker
+        # delta-vinduet kan levere — ikke mod hele kildetabellen.
+        "(SELECT b.OBJECT_ID, b.PERIOD_START_REGISTRATION, "
+        "e.IFDB_MODIFICATION_DATETIME "
+        "FROM IFDB.ENCOUNTER_BED_SPACE_HISTORY b "
+        "INNER JOIN IFDB.ENCOUNTER e ON e.OBJECT_ID = b.OBJECT_ID) ebsh",
+        ENCOUNTER_BED_SPACE_HISTORY_ARCHIVE_CONFIG,
+        ENCOUNTER_BED_SPACE_HISTORY_EXTRACT_CONFIG,
+    ),
+    (
+        "arc_ifdb_absence",
+        "arc.ifdb_absence",
+        "IFDB.ABSENCE",
+        ABSENCE_ARCHIVE_CONFIG,
+        ABSENCE_EXTRACT_CONFIG,
     ),
 ]
 

@@ -130,7 +130,7 @@ def _history_row(**overrides: object) -> dict:
         "VENTEGRUPPE": "VG",
         "EKSPERTOMRAADE": "EXP",
         "TREATMENTRIGHT": "TR",
-        "FAELLESVISITATION": 1,
+        "FAELLESVISITATION": "default",
         "DIAGNOSE_ID": "PAS-1",
     }
     row.update(overrides)
@@ -810,3 +810,159 @@ def test_all_patients_resolved_changes_nothing():
     assert post.call_count == 1
     assert result is posted, "ingen udtagne: resultatet går uændret igennem"
     assert "unresolved_patient_skipped" not in (result.metadata or {})
+
+
+# ---------------------------------------------------------------------------
+# Henvisningsstatus: IFDB-status må kun oversættes, når den kliniske betydning er kendt
+# ---------------------------------------------------------------------------
+
+_STATUS_PREFIX = "PASHenvisning_ks.ur.Henvisningsstatus."
+
+
+@pytest.mark.parametrize(
+    ("suffix", "tekst", "expected"),
+    [
+        ("Afsluttet", "Afsluttet", "unknown"),
+        ("Sendt", "Sendt", "active"),
+        ("SendtIngenKvittering", "Sendt (ingen kvittering)", "active"),
+        ("Videresendt", "Videresendt", "active"),
+        ("Modtaget", "Modtaget", "active"),
+        ("Visiteret", "Visiteret", "active"),
+        ("Omvisiteret", "Omvisiteret", "active"),
+        ("Uvisiteret", "Uvisiteret", "active"),
+        ("Haandteret", "Håndteret", "active"),
+        ("Fejlet", "Fejlet", "unknown"),
+    ],
+)
+def test_henvisning_status_oversaetter_alle_ti_kildevaerdier(suffix, tekst, expected):
+    row = {"SLETTET": "0", "STATUS_KODE": _STATUS_PREFIX + suffix, "STATUS_KODETEKST": tekst}
+    assert sr_mod._map_henvisning_status(row) == expected
+
+
+def test_henvisning_status_kodetekst_bruges_naar_koden_mangler():
+    row = {"SLETTET": "0", "STATUS_KODE": None, "STATUS_KODETEKST": "Sendt (ingen kvittering)"}
+    assert sr_mod._map_henvisning_status(row) == "active"
+
+
+def test_henvisning_status_slettet_vinder():
+    row = {
+        "SLETTET": "1",
+        "STATUS_KODE": _STATUS_PREFIX + "Afsluttet",
+        "STATUS_KODETEKST": "Afsluttet",
+    }
+    assert sr_mod._map_henvisning_status(row) == "entered-in-error"
+
+
+def test_henvisning_status_fhir_koder_gaar_igennem_uaendret():
+    assert (
+        sr_mod._map_henvisning_status({"SLETTET": "0", "STATUS_KODE": "completed"}) == "completed"
+    )
+
+
+def test_henvisning_status_ukendt_vaerdi_bliver_unknown():
+    assert (
+        sr_mod._map_henvisning_status({"SLETTET": "0", "STATUS_KODE": _STATUS_PREFIX + "NyVaerdi"})
+        == "unknown"
+    )
+
+
+def test_henvisning_source_meta_baerer_afsendelsesdato():
+    row = {"AFSENDELSESDATO": "2026-03-01 10:00:00", "STATUS_KODE": _STATUS_PREFIX + "Sendt"}
+    exts = sr_mod._build_henvisning_source_meta(row, None, None)
+    meta = next(e for e in exts if e.url == sr_mod.EXTENSION_HENVISNING_SOURCE_META)
+    assert "afsendelsesdato" in {p.url for p in meta.extension}
+
+
+@pytest.mark.parametrize(
+    "reason,expected",
+    [
+        ("PASHenvisning_ks.ur.Afslutningsaarsag.Annulleret", "revoked"),
+        (None, "unknown"),
+        ("UkendtAfslutningsaarsag", "unknown"),
+    ],
+)
+def test_closed_referral_requires_documented_reason(reason, expected):
+    assert (
+        sr_mod._map_henvisning_status(
+            {"STATUS_KODE": _STATUS_PREFIX + "Afsluttet", "AFSLUTNINGSAARSAG_KODE": reason}
+        )
+        == expected
+    )
+
+
+@pytest.mark.parametrize("new_order", [10, 10.0, "10", "10.0"])
+def test_higher_history_sequence_wins_over_backdated_decision(new_order):
+    rows = [
+        _history_row(ORDNING="9", BESLUT_TIDSPUNKT="2025-03-01"),
+        _history_row(ORDNING=new_order, BESLUT_TIDSPUNKT="2025-01-01"),
+    ]
+    assert _latest_history_by_henvisning(rows)["HENV-1"]["ORDNING"] == new_order
+
+
+def test_reopening_reinstates_previous_referral_information(monkeypatch):
+    rows = [
+        _history_row(ORDNING=1, HANDLING="VISITERING", DIAGNOSE_ID="CURRENT"),
+        _history_row(ORDNING=2, HANDLING="AFSLUTNING", DIAGNOSE_ID=None),
+        _history_row(ORDNING=3, HANDLING="GENAABNING", DIAGNOSE_ID=None),
+        _history_row(ORDNING=4, HANDLING="AFSLUTNING", DIAGNOSE_ID=None),
+        _history_row(ORDNING=5, HANDLING="GENAABNING", DIAGNOSE_ID=None),
+    ]
+    expected = {"HENV-1": rows[0]}
+    assert _latest_history_by_henvisning(rows) == expected
+    monkeypatch.setattr(sr_mod, "chunked_in_fetch_grouped", lambda *a, **k: {"HENV-1": rows})
+    assert sr_mod._fetch_latest_history_for_batch(["HENV-1"], object()) == expected
+
+
+def test_incomplete_reopening_history_is_not_clinical_evidence():
+    assert _latest_history_by_henvisning([_history_row(HANDLING="GENAABNING")]) == {}
+
+
+def test_referral_dates_and_named_visitation_list_are_preserved():
+    """Henvisningsdatoen er oprettelsen og hoerer i authoredOn; resten er kildefelter.
+
+    Feltet baar tidligere HENVISNINGSDATO med fallback til AFSENDELSESDATO — to
+    forskellige fakta i ét felt, som ingen aftager kunne skelne. Fallbacket er
+    vaek, men datoen selv hoerer stadig i det native felt: modtagelse,
+    afsendelse og administrativ lukning dokumenterer hverken oprettelse eller
+    udfoerelse og bliver derfor staaende som kildefelter.
+    """
+    req = _transform_henvisning_to_service_requests(
+        [_henvisning_row(SLUTDATO="2025-01-10T12:00:00")],
+        _MockContext(),
+        _latest_history_by_henvisning([_history_row()]),
+        {},
+    )[0]
+    assert req.authoredOn is not None, "henvisningsdatoen skal staa i det native felt"
+    assert req.occurrencePeriod is None
+    parts = _source_meta_parts(req, EXTENSION_HENVISNING_SOURCE_META)
+    assert parts["henvisningsdato"].valueDateTime
+    assert parts["slutdato"].valueDateTime
+    hist = {e.url: e for e in parts["latestHistory"].extension}
+    assert hist["faellesvisitation"].valueString == "default"
+    assert hist["faellesvisitation"].valueBoolean is None
+
+
+def test_requested_referral_fields_survive_without_organisation_resolution():
+    row = {c: "SYNTHETIC" for c in sr_mod._HENVISNING_RAW_FIELDS}
+    extensions = sr_mod._build_henvisning_source_meta(row, None, None)
+    parts = {e.url: e for e in extensions[1].extension}
+    for url in sr_mod._HENVISNING_RAW_FIELDS.values():
+        assert parts[url].valueString == "SYNTHETIC"
+
+
+def test_treating_department_is_not_invented_as_requester():
+    req = _transform_henvisning_to_service_requests(
+        [
+            _henvisning_row(
+                HENVIST_FRA_AFDELING_SORKODE=None,
+                AFSENDER_AFDELING_SORKODE=None,
+                BEHANDLER_AFDELING_SORKODE="SYNTHETIC-TREATING",
+            )
+        ],
+        _MockContext(),
+        {},
+        {},
+    )[0]
+    assert req.requester is None
+    parts = _source_meta_parts(req, EXTENSION_HENVISNING_SOURCE_META)
+    assert parts["behandlerAfdelingSorkode"].valueString == "SYNTHETIC-TREATING"

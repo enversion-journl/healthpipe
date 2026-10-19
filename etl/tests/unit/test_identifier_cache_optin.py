@@ -276,30 +276,26 @@ class TestIdentifierLookupFacade:
         assert load_or_build.call_args.kwargs["ttl_seconds"] == 3600
 
     def test_resolve_identifier_values_uses_canonical_lookup(self, resource, tmp_path):
-        # NOTE: combos in IDENTIFIER_UNIQUE_INDEX_SET (e.g. Patient +
-        # urn:source:ifdb:patient_id) intentionally BYPASS the in-process cache
-        # and always hit live Postgres via the indexed direct path. The
-        # canonical-cache facade is only exercised for NON-indexed combos, so
-        # this test uses one.
+        # Practitioner always uses live lookup; other non-indexed resources retain the cache facade.
         system = "urn:test:nonindexed-alias"
         cache = SharedIdentifierCache.build_from_dict(
             {
-                (system, "P1"): "patient-uuid-1",
-                (system, "P2"): "patient-uuid-2",
+                (system, "P1"): "practitioner-uuid-1",
+                (system, "P2"): "practitioner-uuid-2",
             },
-            str(tmp_path / "patient_values.sqlite"),
+            str(tmp_path / "practitioner_values.sqlite"),
         )
-        resource._identifier_caches[("Patient", frozenset([system]))] = cache
+        resource._identifier_caches[("Practitioner", frozenset([system]))] = cache
 
         resolved = resource.resolve_identifier_values(
-            resource_type="Patient",
+            resource_type="Practitioner",
             identifier_system=system,
             values=["P1", "P2", "missing"],
         )
 
         assert resolved == {
-            "P1": "patient-uuid-1",
-            "P2": "patient-uuid-2",
+            "P1": "practitioner-uuid-1",
+            "P2": "practitioner-uuid-2",
         }
 
     def test_resolve_identifier_values_direct_uses_established_identifier_scan_query(

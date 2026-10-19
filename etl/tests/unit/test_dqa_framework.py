@@ -147,7 +147,7 @@ class TestProcedureAfstemning:
 
         cols = {s.params.get("column") for s in referential_specs("fhir.Procedure")}
         assert "part_of_id" in cols
-        tk = {s.params.get("column") for s in referential_specs("fhir.Procedure_tillaegskode")}
+        tk = {s.params.get("column") for s in referential_specs("fhir.Procedure_SupplementaryCode")}
         assert "procedure_id" in tk
 
 
@@ -158,7 +158,10 @@ class TestIndeksnavne:
     en fuld indeksscanning pr. opslag i oprydningen (33 ms mod 0,05 ms)."""
 
     def test_afkortede_indeksnavne_kolliderer_ikke(self):
-        from infrastructure.assets.fhir_ifdb_infrastructure import _prefix_index_name
+        from infrastructure.assets.fhir_ifdb_infrastructure import (
+            _prefix_index_name,
+            _unique_index_name,
+        )
         from utils.fhir.identifier_index_names import sanitize_system_for_identifier
         from utils.fhir.index_config import (
             IDENTIFIER_PREFIX_INDEX_SPECS,
@@ -167,8 +170,7 @@ class TestIndeksnavne:
 
         navne: dict[str, tuple] = {}
         for rt, system in IDENTIFIER_UNIQUE_INDEX_SPECS:
-            tbl, safe = rt.lower(), sanitize_system_for_identifier(system)
-            navn = f"idx_{tbl}_{safe}_uniq"[:63]
+            navn = _unique_index_name(rt, system)[:63]
             assert navn not in navne, f"kollision: {navn} ({navne[navn]} vs {(rt, system)})"
             navne[navn] = (rt, system, "uniq")
         for rt, system in IDENTIFIER_PREFIX_INDEX_SPECS:
@@ -176,6 +178,50 @@ class TestIndeksnavne:
             navn = _prefix_index_name(tbl, safe)[:63]
             assert navn not in navne, f"kollision: {navn} ({navne[navn]} vs {(rt, system)})"
             navne[navn] = (rt, system, "prefix")
+
+    def test_practitionerrole_uniqnavn_afkortes_ikke(self):
+        """Navnet skal vaere det samme, foer og efter Postgres har set det.
+
+        Bliver det afkortet, slaar oprydningen af INVALID indekser aldrig op
+        paa den gemte raekke, og CREATE ... IF NOT EXISTS no-opper derefter mod
+        det afkortede navn — saa et mislykket byg meldes som succes paa hver
+        eneste foelgende koersel, mens indekset haandhaever ingenting.
+        """
+        from infrastructure.assets.fhir_ifdb_infrastructure import _unique_index_name
+        from utils.fhir.identifier_systems import SYSTEM_SILKEBORGDATA_TJENESTENUMMER
+
+        navn = _unique_index_name("PractitionerRole", SYSTEM_SILKEBORGDATA_TJENESTENUMMER)
+        assert navn == navn[:63], f"{navn} er {len(navn)} tegn og bliver afkortet"
+        assert navn.endswith("_uniq"), "kendetegnet _uniq maa ikke kunne klippes af"
+
+    def test_override_afloeser_det_afkortede_navn(self):
+        """Det gamle, afkortede navn skal kunne ryddes op, ikke blive staaende.
+
+        dev har indekset under det afkortede navn fra 2026-09-22. Uden
+        oprydning staar to unikke indekser paa samme udtryk.
+        """
+        from infrastructure.assets.fhir_ifdb_infrastructure import (
+            _legacy_truncated_unique_index_name,
+        )
+        from utils.fhir.identifier_systems import SYSTEM_CPR, SYSTEM_SILKEBORGDATA_TJENESTENUMMER
+
+        gammelt = _legacy_truncated_unique_index_name(
+            "PractitionerRole", SYSTEM_SILKEBORGDATA_TJENESTENUMMER
+        )
+        assert gammelt == "idx_practitionerrole_urn_source_silkeborgdata_tjenestenummer_un"
+        # Par uden override har intet gammelt navn og skal ikke droppe noget.
+        assert _legacy_truncated_unique_index_name("Practitioner", SYSTEM_CPR) is None
+
+    def test_overrides_er_gyldige_og_daekker_kun_kendte_par(self):
+        from utils.fhir.index_config import (
+            IDENTIFIER_UNIQUE_INDEX_NAME_OVERRIDES,
+            IDENTIFIER_UNIQUE_INDEX_SPECS,
+        )
+
+        specs = set(IDENTIFIER_UNIQUE_INDEX_SPECS)
+        for par, navn in IDENTIFIER_UNIQUE_INDEX_NAME_OVERRIDES.items():
+            assert par in specs, f"{par} er ikke i IDENTIFIER_UNIQUE_INDEX_SPECS"
+            assert len(navn) <= 63, f"{navn} er selv over graensen"
 
     def test_praefiksnavne_beholder_kendetegnet_efter_afkortning(self):
         from infrastructure.assets.fhir_ifdb_infrastructure import _prefix_index_name

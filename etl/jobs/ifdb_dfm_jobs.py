@@ -47,15 +47,20 @@ fhir_quality_dfm_assets = dg.AssetSelection.groups("fhir_quality_dfm")
 dfm_operations_assets = dg.AssetSelection.groups("dfm_operations")
 
 _IFDB_RESOURCES = (
-    "Patient, EpisodeOfCare, Encounter, Location, Location_SOR, DocumentReference, "
-    "Condition, Procedure, ServiceRequest, Aktivitetsresultat/SFI, Appointment, CarePlan"
+    "Patient, EpisodeOfCare, Encounter, Location, Location_SOR, Location_WardUnit, "
+    "Location_Bed, Observation_WardUnitCapacity, DocumentReference, Condition, "
+    "Procedure, ServiceRequest, Aktivitetsresultat/SFI, Appointment, CarePlan"
 )
+
+# Built between the archive and the FHIR producers, which read it.
+patient_identity_assets = dg.AssetSelection.assets("ref_patient_identity")
 
 # Borger chain after Patient SOF — explicit keys so `ref` / shared_dimensions_dso_sync
 # do not pull Organisation (or other shared dims) into the FHIR DFM jobs.
 borger_dim_assets = dg.AssetSelection.assets(
     "ref_patient_borger",
     "ref_patient_address_borger",
+    "ref_KommuneToPopulationsansvar",
     "dim_Borger",
     "dso_sync_dim_borger",
 )
@@ -93,7 +98,9 @@ fhir_ifdb_dfm_job = dg.define_asset_job(
 
 ifdb_dfm_full_job = dg.define_asset_job(
     name="ifdb_dfm_full_job",
-    selection=ifdb_archive_assets | fhir_ifdb_dfm_assets | fhir_sof_dfm_assets,
+    selection=(
+        ifdb_archive_assets | patient_identity_assets | fhir_ifdb_dfm_assets | fhir_sof_dfm_assets
+    ),
     executor_def=_dfm_multiprocess_executor,
     description=("Full DFM pipeline: extract from Oracle → archive → FHIR server → SOF."),
 )
@@ -106,6 +113,7 @@ ifdb_dfm_daily_job = dg.define_asset_job(
     name="ifdb_dfm_daily_job",
     selection=(
         ifdb_archive_assets
+        | patient_identity_assets
         | fhir_ifdb_dfm_assets
         | fhir_sof_dfm_assets
         | fhir_dso_sync_dfm_assets
@@ -116,7 +124,8 @@ ifdb_dfm_daily_job = dg.define_asset_job(
     executor_def=_dfm_multiprocess_executor,
     description=(
         f"The nightly IFDB → FHIR pipeline for {_IFDB_RESOURCES}: "
-        "Oracle → ext → arc → FHIR server → SOF fhir.* → DSO sync, then the "
+        "Oracle → ext → arc → identity union (ref.PatientIdentity) → FHIR server "
+        "→ SOF fhir.* → DSO sync, then the "
         "Borger chain (ref_patient_borger → ref_patient_address_borger → "
         "dim_Borger → dso_sync_dim_borger) and the SFI_datapoint refresh. "
         "Triggered by ifdb_dfm_daily_schedule at 06:00 CET."

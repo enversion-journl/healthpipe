@@ -18,6 +18,7 @@ import os
 import time
 import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +35,18 @@ from DSA.FHIR.utils.sql_on_fhir.period_keys import (
     normalize_fhir_datetime,
     parse_fhir_datetime,
 )
+from utils.fhir.identifier_systems import (
+    SYSTEM_IFDB_HENVISNING_ID,
+    SYSTEM_IFDB_REHABILITATION_PLAN,
+    SYSTEM_IFDB_RIS_YDELSE,
+)
+from utils.fhir.protection import ADDRESS_PROTECTED_TEXT
+
+_SERVICE_REQUEST_SOURCE_TABLES = {
+    SYSTEM_IFDB_HENVISNING_ID: "HENVISNING",
+    SYSTEM_IFDB_RIS_YDELSE: "RIS_YDELSE",
+    SYSTEM_IFDB_REHABILITATION_PLAN: "REHABILITATION_PLAN",
+}
 
 # Directory containing ViewDefinition JSON files
 VIEW_DEFINITIONS_DIR = (
@@ -94,6 +107,15 @@ SOF_DEFAULT_BACKFILL_MIN_RATIO = 0.10
 # rækker med samme nøgle lander i samme portion (dedup pr. portion er så korrekt).
 SOF_STAGE_BATCH_COLUMN = "__sof_batch"
 
+# Delta slices: a delta window is cut into slices of at most this many resources,
+# each with its own checkpoint. 0 switches slicing or the time budget off.
+SOF_SLICE_MAX_RESOURCES_ENV = "SOF_SLICE_MAX_RESOURCES"
+SOF_SLICE_MAX_RESOURCES_TAG = "sof/slice_max_resources"
+SOF_DEFAULT_SLICE_MAX_RESOURCES = 1_000_000
+SOF_SLICE_TIME_BUDGET_MINUTES_ENV = "SOF_SLICE_TIME_BUDGET_MINUTES"
+SOF_SLICE_TIME_BUDGET_MINUTES_TAG = "sof/slice_time_budget_minutes"
+SOF_DEFAULT_SLICE_TIME_BUDGET_MINUTES = 60
+
 
 @dataclass(frozen=True)
 class SofBackfillPlan:
@@ -126,6 +148,66 @@ def _sof_setting(context: Any, tag: str, env: str, default: str) -> str:
     """Run-tag før miljøvariabel før default."""
     value = _sof_run_tags(context).get(tag) or os.environ.get(env)
     return str(value).strip() if value is not None and str(value).strip() else default
+
+
+def sof_slice_settings(context: Any) -> tuple[int, float]:
+    """Resources per delta slice and the slicing time budget in seconds; 0 means unlimited."""
+
+    def _number(tag: str, env: str, default: int) -> int:
+        raw = _sof_setting(context, tag, env, str(default))
+        try:
+            return max(0, int(raw))
+        except ValueError:
+            raise ValueError(f"{tag} / {env} must be a whole number, got {raw!r}") from None
+
+    max_resources = _number(
+        SOF_SLICE_MAX_RESOURCES_TAG, SOF_SLICE_MAX_RESOURCES_ENV, SOF_DEFAULT_SLICE_MAX_RESOURCES
+    )
+    budget_minutes = _number(
+        SOF_SLICE_TIME_BUDGET_MINUTES_TAG,
+        SOF_SLICE_TIME_BUDGET_MINUTES_ENV,
+        SOF_DEFAULT_SLICE_TIME_BUDGET_MINUTES,
+    )
+    return max_resources, budget_minutes * 60.0
+
+
+def _ts_checkpoint(value: Any) -> str:
+    """A resource ts as the ISO string the checkpoint stores."""
+    if isinstance(value, datetime):
+        return (value.astimezone(UTC) if value.tzinfo else value).isoformat()
+    return str(value)
+
+
+def next_sof_slice_bound(
+    fhir_database: FHIRDatabaseResource, resource_table: str, lower: str, max_resources: int
+) -> str | None:
+    """Exclusive upper ts bound of the next delta slice from ``lower``; None when fewer than
+    ``max_resources`` resources are left.
+
+    The bound is one microsecond past the ts of resource number ``max_resources``, so a slice
+    never splits resources that share one ts: when the first ts alone holds more than
+    ``max_resources``, the slice is that one ts.
+    """
+    sql = (
+        f"SELECT r.ts + interval '1 microsecond' FROM {resource_table} r "
+        "WHERE r.ts >= %s ORDER BY r.ts OFFSET %s LIMIT 1"
+    )
+    with fhir_database.get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(sql, [lower, max_resources - 1])
+            row = cursor.fetchone()
+    return _ts_checkpoint(row[0]) if row and row[0] is not None else None
+
+
+def count_sof_resources_from(
+    fhir_database: FHIRDatabaseResource, resource_table: str, lower: str
+) -> int:
+    """Resources with ts at or after ``lower``: what a delta from there still has to read."""
+    with fhir_database.get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(f"SELECT count(*) FROM {resource_table} r WHERE r.ts >= %s", [lower])
+            row = cursor.fetchone()
+    return int(row[0]) if row else 0
 
 
 def _sof_target_row_estimate(cursor: Any, table_name: str) -> int:
@@ -393,6 +475,20 @@ SOF_RESOURCE_CONFIGS: dict[str, dict[str, Any]] = {
         # dw_is_deleted is set by child-grain reconcile, not the resource.
         "resurrect_soft_deleted": True,
         "child_grain_reconcile": True,
+        # A protected patient's extract is one row carrying the marker. The earlier
+        # address rows, soft-deleted by the reconcile, must not keep the address.
+        "child_grain_mask": {
+            "marker_column": "address_line",
+            "marker_value": ADDRESS_PROTECTED_TEXT,
+            "cleared_columns": [
+                "address_postal_code",
+                "address_city",
+                "address_country",
+                "municipality_code",
+                "region_code",
+                "kvhx",
+            ],
+        },
     },
     "encounter_view": {
         "view_name": "encounter_view",
@@ -529,15 +625,20 @@ SOF_RESOURCE_CONFIGS: dict[str, dict[str, Any]] = {
         # Knivtid lander som DATETIME2 og ikke som streng, fordi den skal kunne
         # regnes paa. Ressourcen baerer et tidspunkt med dansk zoneangivelse, saa
         # normaliseringen her bevarer det tidspunkt der blev registreret.
-        "normalized_datetime_columns": ["knivtid_start", "knivtid_slut"],
+        "normalized_datetime_columns": [
+            "knivtid_start",
+            "knivtid_slut",
+            "epji_created_at",
+            "epji_modified_at",
+        ],
     },
-    "procedure_tillaegskode_view": {
-        "view_name": "procedure_tillaegskode_view",
+    "procedure_supplementary_code_view": {
+        "view_name": "procedure_supplementary_code_view",
         "resource_table": "procedure",
         "id_column": "procedure_id",
-        "mssql_table": "Procedure_tillaegskode",
-        "primary_keys": ["procedure_id", "tillaegskode_kode", "tillaegskode_system"],
-        "null_sentinel_columns": ["tillaegskode_kode", "tillaegskode_system"],
+        "mssql_table": "Procedure_SupplementaryCode",
+        "primary_keys": ["procedure_id", "supplementary_code", "supplementary_code_system"],
+        "null_sentinel_columns": ["supplementary_code", "supplementary_code_system"],
         "deduplicate_by_pk": True,
         "dedup_tiebreak_columns": ["last_updated", "created_at"],
         # dw_is_deleted is not projected by this view: dqa_fhir_server_cleanup
@@ -555,14 +656,20 @@ SOF_RESOURCE_CONFIGS: dict[str, dict[str, Any]] = {
         "primary_keys": ["service_request_id"],
         # Absent isDeleted extension must land 0, not NULL -- see patient_view.
         "boolean_false_default_columns": ["dw_is_deleted"],
+        "normalized_datetime_columns": [
+            "modtaget",
+            "afsendelsesdato",
+            "henvisningsdato",
+            "slutdato",
+        ],
     },
-    "servicerequest_tillaegskode_view": {
-        "view_name": "servicerequest_tillaegskode_view",
+    "servicerequest_supplementary_code_view": {
+        "view_name": "servicerequest_supplementary_code_view",
         "resource_table": "servicerequest",
         "id_column": "service_request_id",
-        "mssql_table": "ServiceRequest_tillaegskode",
-        "primary_keys": ["service_request_id", "tillaegskode_kode", "tillaegskode_system"],
-        "null_sentinel_columns": ["tillaegskode_kode", "tillaegskode_system"],
+        "mssql_table": "ServiceRequest_SupplementaryCode",
+        "primary_keys": ["service_request_id", "supplementary_code", "supplementary_code_system"],
+        "null_sentinel_columns": ["supplementary_code", "supplementary_code_system"],
         "deduplicate_by_pk": True,
         "dedup_tiebreak_columns": ["last_updated", "created_at"],
         # dw_is_deleted is not projected by this view: dqa_fhir_server_cleanup
@@ -601,19 +708,49 @@ SOF_RESOURCE_CONFIGS: dict[str, dict[str, Any]] = {
         # Absent isDeleted extension must land 0, not NULL -- see patient_view.
         "boolean_false_default_columns": ["dw_is_deleted"],
     },
-    "condition_tillaegskode_view": {
-        "view_name": "condition_tillaegskode_view",
+    "condition_supplementary_code_view": {
+        "view_name": "condition_supplementary_code_view",
         "resource_table": "condition",
         "id_column": "condition_id",
-        "mssql_table": "Condition_tillaegskode",
-        "primary_keys": ["condition_id", "tillaegskode_kode", "tillaegskode_system"],
-        "null_sentinel_columns": ["tillaegskode_kode", "tillaegskode_system"],
+        "mssql_table": "Condition_SupplementaryCode",
+        "primary_keys": ["condition_id", "supplementary_code", "supplementary_code_system"],
+        "null_sentinel_columns": ["supplementary_code", "supplementary_code_system"],
         "deduplicate_by_pk": True,
         "dedup_tiebreak_columns": ["last_updated", "created_at"],
         # dw_is_deleted is not projected by this view: dqa_fhir_server_cleanup
         # sets it to 1, and this MERGE is the only thing that writes 0 back.
         # Without it a retired row stays invisible even when the resource
         # returns.
+        "resurrect_soft_deleted": True,
+        "child_grain_reconcile": True,
+    },
+    "condition_henvisning_view": {
+        "view_name": "condition_henvisning_view",
+        "resource_table": "condition",
+        "id_column": "condition_id",
+        "mssql_table": "Condition_henvisning",
+        "primary_keys": ["condition_id", "henvisning_id"],
+        "null_sentinel_columns": ["henvisning_id"],
+        "deduplicate_by_pk": True,
+        "dedup_tiebreak_columns": ["last_updated", "created_at"],
+        # Same soft-delete contract as Condition_tillaegskode: the view does not
+        # project dw_is_deleted; MERGE-match writes 0 back, reconcile retires rows
+        # whose kobling vanished from a still-live parent.
+        "resurrect_soft_deleted": True,
+        "child_grain_reconcile": True,
+    },
+    "observation_speciale_view": {
+        "view_name": "observation_speciale_view",
+        "resource_table": "observation",
+        "id_column": "observation_id",
+        "mssql_table": "Observation_Speciale",
+        "primary_keys": ["observation_id", "speciale_kode"],
+        "null_sentinel_columns": ["speciale_kode"],
+        "deduplicate_by_pk": True,
+        "dedup_tiebreak_columns": ["last_updated", "created_at"],
+        # Samme soft-delete-kontrakt som Condition_henvisning: viewet projicerer
+        # ikke dw_is_deleted; MERGE-match skriver 0 tilbage, og reconcile
+        # pensionerer raekker, hvis speciale forsvinder fra en levende foraelder.
         "resurrect_soft_deleted": True,
         "child_grain_reconcile": True,
     },
@@ -624,6 +761,89 @@ SOF_RESOURCE_CONFIGS: dict[str, dict[str, Any]] = {
         "mssql_table": "Appointment",
         "primary_keys": ["appointment_id"],
         # Absent isDeleted extension must land 0, not NULL -- see patient_view.
+        "boolean_false_default_columns": ["dw_is_deleted"],
+    },
+    "ward_unit_view": {
+        "view_name": "ward_unit_view",
+        "resource_table": "location",
+        "id_column": "ward_unit_id",
+        "mssql_table": "WardUnit",
+        "primary_keys": ["ward_unit_id"],
+        "boolean_false_default_columns": ["dw_is_deleted"],
+    },
+    "ward_unit_capacity_view": {
+        "view_name": "ward_unit_capacity_view",
+        "resource_table": "observation",
+        "id_column": "observation_id",
+        "mssql_table": "WardUnit_Capacity",
+        "primary_keys": ["observation_id"],
+        "boolean_false_default_columns": ["dw_is_deleted"],
+    },
+    "bed_view": {
+        "view_name": "bed_view",
+        "resource_table": "location",
+        "id_column": "bed_id",
+        "mssql_table": "Bed",
+        "primary_keys": ["bed_id"],
+        # The bed carries the archive's delete flag in urn:fhir:isDeleted, and
+        # the view projects it — same route as ward_unit_view. That covers the
+        # resurrect case too: the MERGE writes the projected value, so a bed
+        # that returns is written back as live. Absent extension must land 0.
+        "boolean_false_default_columns": ["dw_is_deleted"],
+    },
+    "encounter_bed_space_view": {
+        "view_name": "encounter_bed_space_view",
+        "resource_table": "encounter",
+        "id_column": "encounter_id",
+        "mssql_table": "Encounter_BedSpace",
+        "primary_keys": ["encounter_id", "location_id", "location_period_start"],
+        "null_sentinel_columns": ["location_id", "location_period_start"],
+        "validation_trigger_column": "location_id",
+        "required_columns_when_trigger_present": ["location_period_start"],
+        "deduplicate_by_pk": True,
+        "dedup_tiebreak_columns": ["last_updated", "created_at", "location_period_end"],
+        # dw_is_deleted is not projected by this view: dqa_fhir_server_cleanup
+        # sets it to 1, and this MERGE is the only thing that writes 0 back.
+        # Without it a retired row stays invisible even when the resource
+        # returns.
+        "resurrect_soft_deleted": True,
+        # A bed stay dropped from the source disappears from Encounter.location,
+        # so the MERGE alone never touches the stale row. The child-affected
+        # delta re-emits the parent; the reconcile is what retires the row.
+        "child_grain_reconcile": True,
+    },
+    "encounter_absence_view": {
+        "view_name": "encounter_absence_view",
+        "resource_table": "encounter",
+        "id_column": "encounter_id",
+        "mssql_table": "Encounter_Absence",
+        "primary_keys": ["encounter_id", "period_start"],
+        "null_sentinel_columns": ["period_start"],
+        # dw_is_deleted is not projected by this view: dqa_fhir_server_cleanup
+        # sets it to 1, and this MERGE is the only thing that writes 0 back.
+        # Without it a retired row stays invisible even when the resource
+        # returns.
+        "resurrect_soft_deleted": True,
+        # A soft-deleted absence is left out of the extension list, so the
+        # rewritten Encounter carries one period fewer. Only the reconcile
+        # retires the row the source no longer has.
+        "child_grain_reconcile": True,
+    },
+    "practitioner_view": {
+        "view_name": "practitioner_view",
+        "resource_table": "practitioner",
+        "id_column": "practitioner_id",
+        "mssql_table": "Practitioner",
+        "primary_keys": ["practitioner_id"],
+        # Absent isDeleted extension must land 0, not NULL -- see patient_view.
+        "boolean_false_default_columns": ["dw_is_deleted"],
+    },
+    "practitionerrole_view": {
+        "view_name": "practitionerrole_view",
+        "resource_table": "practitionerrole",
+        "id_column": "practitioner_role_id",
+        "mssql_table": "PractitionerRole",
+        "primary_keys": ["practitioner_role_id"],
         "boolean_false_default_columns": ["dw_is_deleted"],
     },
     "questionnaire_view": {
@@ -733,6 +953,24 @@ def _build_questionnaire_response_key_normalization_sql(source_table: str) -> st
                 OR ISNULL(qr.[questionnaire_version], N'')
                     <> ISNULL({exprs["questionnaire_version"]}, N'')
             );
+
+        -- source_model_name/_version: skemaets navn og version fra fhir.Questionnaire.
+        -- ViewDefinitionen kan ikke aflede dem (Aidbox materialiserer ikke substring/indexOf),
+        -- så de sættes her ud fra den netop normaliserede canonical/version.
+        UPDATE qr
+        SET
+            [source_model_name] = q.[name],
+            [source_model_version] = q.[version],
+            [dw_timestamp_update] = CAST(SYSDATETIME() AS datetime2(0))
+        FROM [fhir].[QuestionnaireResponse] AS qr
+        INNER JOIN {source_table} AS src
+            ON src.[qr_id] = qr.[qr_id]
+        INNER JOIN [fhir].[Questionnaire] AS q
+            ON q.[url] = qr.[questionnaire_canonical]
+            AND ISNULL(q.[version], N'') = ISNULL(qr.[questionnaire_version], N'')
+        WHERE
+            ISNULL(qr.[source_model_name], N'') <> ISNULL(q.[name], N'')
+            OR ISNULL(qr.[source_model_version], N'') <> ISNULL(q.[version], N'');
     """
 
 
@@ -1055,6 +1293,35 @@ def build_child_grain_mark_deleted_sql(
     )
 
 
+def build_child_grain_mask_sql(
+    table_name: str,
+    parent_id_column: str,
+    mask: dict[str, Any],
+    *,
+    source_table: str = "#SofTemp",
+) -> tuple[str, list[str]]:
+    """Mask every row, soft-deleted included, of a parent whose staged extract carries the marker."""
+    marker = f"[{mask['marker_column']}]"
+    cleared = [f"[{column}]" for column in mask["cleared_columns"]]
+    assignments = ", ".join(
+        [f"tgt.{marker} = ?"]
+        + [f"tgt.{column} = NULL" for column in cleared]
+        + ["tgt.[dw_timestamp_update] = CAST(SYSDATETIME() AS datetime2(0))"]
+    )
+    unmasked = " OR ".join(
+        [f"tgt.{marker} IS NULL", f"tgt.{marker} <> ?"]
+        + [f"tgt.{column} IS NOT NULL" for column in cleared]
+    )
+    sql = (
+        f"UPDATE tgt SET {assignments} "
+        f"FROM [fhir].[{table_name}] AS tgt "
+        f"WHERE tgt.[{parent_id_column}] IN ("
+        f"SELECT s.[{parent_id_column}] FROM {source_table} AS s WHERE s.{marker} = ?"
+        f") AND ({unmasked})"
+    )
+    return sql, [mask["marker_value"]] * 3
+
+
 def build_resource_grain_mark_deleted_sql(
     table_name: str,
     id_column: str,
@@ -1263,6 +1530,7 @@ def extract_and_merge_sof_view(
             ),
         )
     reconcile_deletes = child_grain_reconcile or resource_grain_reconcile
+    child_grain_mask = table_cfg.get("child_grain_mask") if table_cfg else None
     full_load = partition_start is None
     parent_ids: list[Any] = []
 
@@ -1350,6 +1618,15 @@ def extract_and_merge_sof_view(
             false_default_indexes = [
                 idx for idx, col in enumerate(columns) if col in false_default_names
             ]
+            # Historiske ServiceRequests mangler sourceTable-extensionen.
+            # Afled værdien inden staging, så sammenligning og skrivning bruger
+            # samme payload, og genindlæsning ikke flytter DSO-vandmærket.
+            source_table_indexes = (
+                (columns.index("source_table"), columns.index("identifier_system"))
+                if table_name == "ServiceRequest"
+                and {"source_table", "identifier_system"}.issubset(columns)
+                else None
+            )
 
             unparseable_count = 0
             unparseable_samples: list[str] = []
@@ -1428,7 +1705,12 @@ def extract_and_merge_sof_view(
                         # TIMING: row preparation (sentinel substitution + tuple build)
                         _t_prep_start = time.perf_counter()
                         prepared_rows: list[tuple[Any, ...]] = []
-                        if sentinel_indexes or normalize_indexes or false_default_indexes:
+                        if (
+                            sentinel_indexes
+                            or normalize_indexes
+                            or false_default_indexes
+                            or source_table_indexes is not None
+                        ):
                             for row in chunk:
                                 row_values = list(row)
                                 for sentinel_idx in sentinel_indexes:
@@ -1447,6 +1729,12 @@ def extract_and_merge_sof_view(
                                 for idx in false_default_indexes:
                                     if row_values[idx] is None:
                                         row_values[idx] = 0
+                                if source_table_indexes is not None:
+                                    source_idx, system_idx = source_table_indexes
+                                    if row_values[source_idx] is None:
+                                        row_values[source_idx] = _SERVICE_REQUEST_SOURCE_TABLES.get(
+                                            row_values[system_idx]
+                                        )
                                 prepared_rows.append(tuple(row_values))
                         else:
                             prepared_rows = [tuple(row) for row in chunk]
@@ -1743,6 +2031,19 @@ def extract_and_merge_sof_view(
                                     f"[SOF_TIMING] merge_done elapsed={_t_merge_total:.2f}s "
                                     f"rows_affected={rows_affected:,} batches={merge_batches}"
                                 )
+                            if child_grain_mask:
+                                mask_sql, mask_params = build_child_grain_mask_sql(
+                                    table_name,
+                                    id_column,
+                                    child_grain_mask,
+                                    source_table=stage_table,
+                                )
+                                mssql_cursor.execute(mask_sql, mask_params)
+                                if context:
+                                    context.log.info(
+                                        f"Protection mask: {mssql_cursor.rowcount} earlier "
+                                        f"fhir.{table_name} row(s) of protected parents masked"
+                                    )
                             if table_name == "QuestionnaireResponse":
                                 _t_normalize_start = time.perf_counter()
                                 mssql_cursor.execute(
@@ -2175,11 +2476,9 @@ def _get_target_column_types(
 
 
 # tempdb inherits the SERVER INSTANCE collation, which can differ from the staging
-# database's collation. It does on QA/Prod: the instance is still
-# SQL_Latin1_General_CP1_CI_AS while the staging DB was moved to
-# Danish_Norwegian_CI_AS. A #/## temp char column therefore lands in the instance
-# collation, and the MERGE against the (now Danish) fhir.* target raises "Cannot
-# resolve the collation conflict". COLLATE DATABASE_DEFAULT pins temp char columns
+# database's collation. A #/## temp char column then lands in the instance
+# collation, and the MERGE against the fhir.* target raises "Cannot resolve the
+# collation conflict". COLLATE DATABASE_DEFAULT pins temp char columns
 # to the staging DB's own collation so src and tgt align -- a no-op when the instance
 # and DB collations already match, and only legal on character types.
 _TEMP_COLLATE = " COLLATE DATABASE_DEFAULT"

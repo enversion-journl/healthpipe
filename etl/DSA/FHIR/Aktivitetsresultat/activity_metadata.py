@@ -190,3 +190,45 @@ def _build_speciale_extensions_dict(speciale_rows: list[dict[str, Any]]) -> list
     if not parts:
         return []
     return [{"url": EXTENSION_AKTIVITETSUDFOERELSE_SPECIALE, "extension": parts}]
+
+
+def build_aktivitetsudfoerelse_extensions(
+    row_dict: dict[str, Any],
+    udf_lookup: dict[str, dict[str, Any]] | None,
+    speciale_lookup: dict[str, list[dict[str, Any]]] | None,
+) -> list[dict]:
+    """Saml de extensions, der stammer fra aktivitetsudfoerelsen bag en raekke.
+
+    Baade SFI-stien og fallback-stien bygger Observations fra de samme raekker,
+    og begge skal baere de samme extensions. Da sammensaetningen kun stod ét
+    sted — i fallback-stien — blev specialer og aktivitetstype-hierarki hentet
+    for hver chunk og derefter kastet vaek, fordi SFI-byggeren aldrig fik
+    opslagene. Derfor ligger sammensaetningen her, hvor begge stier kan kalde
+    den, i stedet for at vaere skrevet af to gange.
+    """
+    extensions: list[dict] = []
+
+    if udf_lookup:
+        udf_id_norm = _normalize_oracle_id(row_dict.get("UDFOERELSE_ID"))
+        if udf_id_norm is not None:
+            udf_row = udf_lookup.get(udf_id_norm)
+            if udf_row:
+                extensions.extend(_build_udf_extensions_dict(udf_row))
+            if speciale_lookup:
+                extensions.extend(
+                    _build_speciale_extensions_dict(speciale_lookup.get(udf_id_norm, []))
+                )
+
+    # Hierarkiet afhaenger kun af aktivitetstypekoden, ikke af et opslag.
+    extensions.extend(_build_level_extensions_dict(row_dict.get("AKTIVITETTYPE_KODE")))
+
+    return extensions
+
+
+def apply_aktivitetsudfoerelse_extensions(
+    observation: dict,
+    extensions: list[dict],
+) -> None:
+    """Laeg raekkens extensions paa en Observation uden at fjerne dens egne."""
+    if extensions:
+        observation["extension"] = observation.get("extension", []) + extensions

@@ -21,11 +21,17 @@ from core.resources import FHIRDatabaseResource
 from DSA.FHIR.utils.sql_on_fhir.sof_utils import check_sof_required_indexes
 from utils.fhir.identifier_index_names import sanitize_system_for_identifier
 from utils.fhir.index_config import (
+    ALIAS_GIN_EXPRESSION,
+    ALIAS_GIN_OPCLASS,
+    ALIAS_GIN_OPTIONS,
     FAR_CODESYSTEMCONCEPT_INDEXES,
+    IDENTIFIER_ALIAS_GIN_RESOURCES,
     IDENTIFIER_PREFIX_INDEX_SPECS,
+    IDENTIFIER_UNIQUE_INDEX_NAME_OVERRIDES,
     IDENTIFIER_UNIQUE_INDEX_SPECS,
     SOF_TS_RESOURCES,
     TXID_BTREE_RESOURCES,
+    alias_gin_index_name,
 )
 
 # Safe-character validation for identifier system constants lives in
@@ -68,12 +74,83 @@ def _drop_invalid_index_if_exists(cur: Any, index_name: str, logger: Any) -> Non
         cur.execute(f"DROP INDEX IF EXISTS {index_name}")
 
 
+ALIAS_REFERENCE_TABLE = "pg_temp.alias_index_reference"
+ALIAS_REFERENCE_INDEX = "alias_index_reference_idx"
+
+_INDEX_FACTS_SQL = (
+    "SELECT pg_get_expr(i.indexprs, i.indrelid), "
+    "ARRAY(SELECT o.opcname FROM unnest(i.indclass::oid[]) AS k(oid) "
+    "JOIN pg_opclass o ON o.oid = k.oid), "
+    "COALESCE(c.reloptions, ARRAY[]::text[]) "
+    "FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid "
+    "WHERE i.indexrelid = to_regclass(%s)"
+)
+
+
+def _alias_index_is_current(cur: Any, index_name: str) -> bool:
+    """Does the alias index have the configured expression, opclass and options?
+
+    PostgreSQL stores the expression in its own normalised form, so the facts are
+    compared with an index built from the same DDL on an empty temporary table.
+    """
+    cur.execute(f"CREATE TEMP TABLE IF NOT EXISTS {ALIAS_REFERENCE_TABLE} (resource jsonb)")
+    cur.execute(
+        f"CREATE INDEX IF NOT EXISTS {ALIAS_REFERENCE_INDEX} ON {ALIAS_REFERENCE_TABLE} "
+        f"USING gin (({ALIAS_GIN_EXPRESSION}) {ALIAS_GIN_OPCLASS}) WITH ({ALIAS_GIN_OPTIONS})"
+    )
+    cur.execute(_INDEX_FACTS_SQL, (f"pg_temp.{ALIAS_REFERENCE_INDEX}",))
+    reference = cur.fetchone()
+    cur.execute(_INDEX_FACTS_SQL, (index_name,))
+    existing = cur.fetchone()
+    return existing is None or tuple(existing) == tuple(reference)
+
+
+def _unique_index_name(resource_type: str, identifier_system: str) -> str:
+    """Navnet paa det unikke identifier-indeks — aldrig laengere end 63 tegn.
+
+    Postgres afkorter identifikatorer til 63 tegn uden at fejle, og et afkortet
+    navn goer to ting lydloest forkerte: ``_drop_invalid_index_if_exists``
+    slaar op paa det fulde navn og rammer aldrig raekken, og
+    ``CREATE ... IF NOT EXISTS`` no-opper derefter mod det gemte navn, saa et
+    mislykket byg rapporteres som succes paa hver eneste foelgende koersel.
+
+    Derfor afkortes her ikke: par, hvis genererede navn ikke er inden for
+    graensen, faar et eksplicit, kortere navn i
+    ``IDENTIFIER_UNIQUE_INDEX_NAME_OVERRIDES``. Laengden haandhaeves ved
+    import af ``utils.fhir.index_config``.
+    """
+    override = IDENTIFIER_UNIQUE_INDEX_NAME_OVERRIDES.get((resource_type, identifier_system))
+    if override:
+        return override
+    table_name = resource_type.lower()
+    system_safe = sanitize_system_for_identifier(identifier_system)
+    return f"idx_{table_name}_{system_safe}_uniq"
+
+
+def _legacy_truncated_unique_index_name(resource_type: str, identifier_system: str) -> str | None:
+    """Det navn, et override har afloest, som Postgres faktisk gemte det.
+
+    Er indekset allerede bygget under det afkortede navn (dev har det fra
+    2026-09-22), skal den gamle raekke vaek, naar den nye er paa plads —
+    ellers staar to unikke indekser paa samme udtryk og koster dobbelt
+    skrive-I/O paa hver upsert for evigt. ``None``, naar der ikke er noget
+    gammelt navn, eller naar det gamle navn er det nye.
+    """
+    if (resource_type, identifier_system) not in IDENTIFIER_UNIQUE_INDEX_NAME_OVERRIDES:
+        return None
+    table_name = resource_type.lower()
+    system_safe = sanitize_system_for_identifier(identifier_system)
+    gammelt = f"idx_{table_name}_{system_safe}_uniq"[:63]
+    if gammelt == _unique_index_name(resource_type, identifier_system):
+        return None
+    return gammelt
+
+
 def _create_unique_identifier_index(
     cur: Any, resource_type: str, identifier_system: str, logger: Any
 ) -> str:
     table_name = resource_type.lower()
-    system_safe = sanitize_system_for_identifier(identifier_system)
-    index_name = f"idx_{table_name}_{system_safe}_uniq"
+    index_name = _unique_index_name(resource_type, identifier_system)
     system_filter = json.dumps([{"system": identifier_system}])
 
     _drop_invalid_index_if_exists(cur, index_name, logger)
@@ -173,6 +250,8 @@ def fhir_ifdb_database_indexes(
       4. far.codesystemconcept btree indexes for the hybrid terminology engine
          (skipped with a warning when the far schema is absent, i.e. the FHIR
          server does not run BOX_FHIR_TERMINOLOGY_ENGINE=hybrid)
+      5. GIN alias indexes over resource->'identifier' for the resource types
+         whose lookups must see every identifier, not only the first per system
 
     Uses a single connection in autocommit mode so that each DDL statement is
     its own transaction. This is required for CREATE INDEX CONCURRENTLY (avoids
@@ -236,8 +315,7 @@ def fhir_ifdb_database_indexes(
             else:
                 for resource_type, identifier_system in unique_index_specs:
                     table_name = resource_type.lower()
-                    system_safe = sanitize_system_for_identifier(identifier_system)
-                    index_name = f"idx_{table_name}_{system_safe}_uniq"
+                    index_name = _unique_index_name(resource_type, identifier_system)
 
                     try:
                         logger.info(
@@ -250,6 +328,33 @@ def fhir_ifdb_database_indexes(
                         indexes_created.append(f"{resource_type}:{identifier_system}:unique")
                         tables_to_analyze.add(table_name)
                         logger.info(f"[INDEXING] Created UNIQUE index for {resource_type}")
+
+                        # Foerst naar det nye navn staar, ryddes det afkortede
+                        # op: raekkefoelgen er omvendt af praefiks-indeksernes,
+                        # fordi dette indeks haandhaever unikhed og ikke maa
+                        # vaere fravaerende i mellemtiden.
+                        gammelt_navn = _legacy_truncated_unique_index_name(
+                            resource_type, identifier_system
+                        )
+                        if gammelt_navn:
+                            # Egen try: en fejlet oprydning maa ikke melde det
+                            # nyoprettede indeks som sprunget over.
+                            try:
+                                cur.execute(
+                                    "SELECT 1 FROM pg_class WHERE relname = %s", (gammelt_navn,)
+                                )
+                                if cur.fetchone():
+                                    logger.info(
+                                        f"[INDEXING] Dropping superseded truncated unique "
+                                        f"index {gammelt_navn}"
+                                    )
+                                    cur.execute(f"DROP INDEX CONCURRENTLY IF EXISTS {gammelt_navn}")
+                                    indexes_dropped.append(gammelt_navn)
+                            except Exception as exc:
+                                logger.warning(
+                                    f"[INDEXING] Failed to drop superseded truncated unique "
+                                    f"index {gammelt_navn}: {exc}"
+                                )
                     except Exception as exc:
                         # Treat UNIQUE-index DDL failures as warnings, not
                         # fatal. The most common cause is historic duplicate
@@ -340,8 +445,9 @@ def fhir_ifdb_database_indexes(
                         f"[INDEXING] Creating btree index {index_name} "
                         f"on {resource_type}(ts) INCLUDE (cts)"
                     )
+                    _drop_invalid_index_if_exists(cur, index_name, logger)
                     cur.execute(
-                        f"CREATE INDEX IF NOT EXISTS {index_name} "
+                        f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {index_name} "
                         f"ON {table_name} (ts) INCLUDE (cts)"
                     )
                     indexes_created.append(f"{resource_type}:ts_cts")
@@ -384,6 +490,36 @@ def fhir_ifdb_database_indexes(
                         error_msg = f"Failed to create FAR terminology index {index_name}: {exc}"
                         logger.error(f"[INDEXING] {error_msg}")
                         errors.append(error_msg)
+
+            # --- Phase 5: GIN alias indexes (every identifier value) ---
+            for resource_type in IDENTIFIER_ALIAS_GIN_RESOURCES:
+                table_name = resource_type.lower()
+                index_name = alias_gin_index_name(table_name)
+                try:
+                    _drop_invalid_index_if_exists(cur, index_name, logger)
+                    # An index with another expression, opclass or options is rebuilt.
+                    if not _alias_index_is_current(cur, index_name):
+                        logger.info(
+                            f"[INDEXING] Rebuilding {index_name}: definition is out of date"
+                        )
+                        cur.execute(f"DROP INDEX CONCURRENTLY IF EXISTS {index_name}")
+                    logger.info(
+                        f"[INDEXING] Creating GIN alias index {index_name} "
+                        f"on {resource_type} identifier values"
+                    )
+                    cur.execute(
+                        f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {index_name} "
+                        f"ON {table_name} USING gin "
+                        f"(({ALIAS_GIN_EXPRESSION}) {ALIAS_GIN_OPCLASS}) "
+                        f"WITH ({ALIAS_GIN_OPTIONS})"
+                    )
+                    indexes_created.append(f"{resource_type}:identifier_alias")
+                    tables_to_analyze.add(table_name)
+                    logger.info(f"[INDEXING] Created GIN alias index for {resource_type}")
+                except Exception as exc:
+                    error_msg = f"Failed to create GIN alias index for {resource_type}: {exc}"
+                    logger.error(f"[INDEXING] {error_msg}")
+                    errors.append(error_msg)
 
             # --- Single ANALYZE pass per table ---
             for table_name in sorted(tables_to_analyze):

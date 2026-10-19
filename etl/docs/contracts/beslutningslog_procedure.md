@@ -235,3 +235,32 @@ hovedoperation. *Aftager:* tæl aldrig "operationer" uden at vælge niveau.
 udførende afdeling, og rækkefølgen blandt tillægskoder. Bevidst valg: kolonner
 bygges, når en opgørelse er navngivet — hvad der allerede er kolonner, står i
 lineage. **Sig til, hvis en opgørelse skal kunne køre uden at læse JSON.**
+
+## Organisation og kodetekster på aftagerfladen
+
+**Organisationen hentes gennem referencen; den kopieres ikke.** Udførende enhed
+og stamafdeling står som performer med hver sin funktionskode, og navn, SOR-kode,
+type og overordnet enhed hentes i organisationstabellen. Alternativet — at skrive
+dem ned på hver procedure — blev fravalgt, fordi de to steder kan nå at pege hver
+sin vej, og så er der ingen at tro på. *Aftager:* join til organisationstabellen
+på `performer_organization_id` og `stamafdeling_organization_id`.
+
+**Kildesystemets egne afdelingskoder bliver derimod stående som kolonner.**
+Grænsen mellem »hent ved opslag« og »behold som kolonne« er målt, ikke skønnet:
+de seks koder findes hverken i SOR eller i SHAK — nul træffere for alle seks — så
+de kan ikke oversættes til en organisation. De er kildens egne fakta, ikke en
+kopi af opslagsdata. *Aftager:* de seks kolonner er kildesystemets interne koder
+og kan ikke joines til organisationstabellen.
+
+**Seks kodetekster er flyttet til kodesystemet; resten bliver stående rå.**
+Kravet er entydighed: teksten skal være entydigt bestemt af koden, og koden skal
+være fuldt kvalificeret, så den bærer sin egen liste. Seks felter opfyldte det;
+statuskode og statustekst gjorde ikke og står derfor som to rå kolonner.
+*Aftager:* teksten joines på i aftagerviewet under sit oprindelige navn —
+opslaget er ikke synligt for den, der læser viewet.
+
+**Kildens statuskode leveres ved siden af FHIR-statussen.** Kolonnen `status` er
+en FHIR-oversættelse af sletteflaget og skelner kun mellem gennemført og
+tilbagekaldt registrering; den er ikke kildens egen statuskode. Den står i
+`status_code` med sin tekst i `status_text`. *Aftager:* brug `status_code`, hvis
+du vil vide, hvad kildesystemet selv kaldte tilstanden.

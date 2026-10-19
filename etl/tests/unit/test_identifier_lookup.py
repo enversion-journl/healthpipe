@@ -73,7 +73,7 @@ class TestIndexedPathBranch:
 
             reset_targeted_lookup_counters()
 
-            spec = IDENTIFIER_UNIQUE_INDEX_SPECS[0]
+            spec = next(s for s in IDENTIFIER_UNIQUE_INDEX_SPECS if s[0] != "Patient")
             rt, system = spec
 
             result = _resolve_identifier_values_direct(
@@ -208,7 +208,7 @@ class TestSafeIdentifierSystemRE:
         resource = _build_resource()
 
         unsafe_system = "urn:bad'; DROP TABLE"
-        fake_index_set = frozenset([("Patient", unsafe_system)])
+        fake_index_set = frozenset([("Encounter", unsafe_system)])
 
         conn_patch, _ = _patch_connection([])
         with (
@@ -228,7 +228,7 @@ class TestSafeIdentifierSystemRE:
             with pytest.raises(ValueError, match="safe-character check"):
                 _resolve_identifier_values_direct(
                     resource,
-                    resource_type="Patient",
+                    resource_type="Encounter",
                     identifier_system=unsafe_system,
                     values=["V1"],
                 )

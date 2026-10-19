@@ -27,7 +27,11 @@ from .map_Faktura import map_Faktura
 from .map_Fakturalinje import map_Fakturalinje
 from .map_Finanskladde import map_Finanskladde
 from .map_Finanskladdelinje import map_Finanskladdelinje
+from .map_Forloebsmarkoer import map_Forloebsmarkoer
+from .map_Helbredsforloeb import map_Helbredsforloeb
+from .map_ILSBruger import map_ILSBruger
 from .map_ILSVare import map_ILSVare
+from .map_ILSLeverandoer import map_ILSLeverandoer
 from .map_Kontoplan import map_Kontoplan
 from .map_Kreditor import map_Kreditor
 from .map_Lager import map_Lager
@@ -38,6 +42,9 @@ from .map_Okosted import map_Okosted
 from .map_Postering import map_Postering
 from .map_Rekvirent import map_Rekvirent
 from .map_SHAK import map_SHAK
+from .map_Udredningsforloeb import map_Udredningsforloeb
+from .map_UdredningsretKlassifikation import map_UdredningsretKlassifikation
+from .map_UdredningsretMarkoer import map_UdredningsretMarkoer
 from .map_SHAKAlike import map_SHAKAlike
 from .map_UNSPSC import map_UNSPSC
 from .map_Vareudlevering import map_Vareudlevering
@@ -49,13 +56,20 @@ all_assets = [
     map_DRGDiagnoseGruppe,
     map_DRGKontaktKlassifikation,
     map_DRGKontakt,
+    map_Helbredsforloeb,
+    map_Udredningsforloeb,
+    map_UdredningsretKlassifikation,
+    map_Forloebsmarkoer,
+    map_UdredningsretMarkoer,
     map_Aftale,
     map_AftaleVarePris,
     map_Budget,
     map_BudgetEgenskaber,
     map_EAN,
     map_Faktura,
+    map_ILSBruger,
     map_ILSVare,
+    map_ILSLeverandoer,
     map_Fakturalinje,
     map_Finanskladde,
     map_Finanskladdelinje,
@@ -83,6 +97,11 @@ __all__ = [
     "map_DRGDiagnoseGruppe",
     "map_DRGKontaktKlassifikation",
     "map_DRGKontakt",
+    "map_Helbredsforloeb",
+    "map_Udredningsforloeb",
+    "map_UdredningsretKlassifikation",
+    "map_Forloebsmarkoer",
+    "map_UdredningsretMarkoer",
     "all_assets",
     "map_Aftale",
     "map_AftaleVarePris",
@@ -90,7 +109,9 @@ __all__ = [
     "map_BudgetEgenskaber",
     "map_EAN",
     "map_Faktura",
+    "map_ILSBruger",
     "map_ILSVare",
+    "map_ILSLeverandoer",
     "map_Fakturalinje",
     "map_Finanskladde",
     "map_Finanskladdelinje",

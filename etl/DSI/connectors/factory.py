@@ -22,6 +22,7 @@ from collections.abc import Callable, Sequence
 from typing import Any
 
 import dagster as dg
+from core.dfm_source import resource_source
 from DSI.connectors.extract_config import DfmExtractConfig
 
 # ---------------------------------------------------------------------------
@@ -29,7 +30,7 @@ from DSI.connectors.extract_config import DfmExtractConfig
 # ---------------------------------------------------------------------------
 
 
-def _append_where_to_select_from_expr(select_from_expr: str, where_clause: str) -> str:
+def _append_where_to_select_from_expr(select_from_expr: str, where_clause: str | None) -> str:
     """Append a predicate to a select_from_expr, using AND if it already has WHERE.
 
     Whitespace-insensitive match on a top-level WHERE token. We do not parse
@@ -48,6 +49,23 @@ def _append_where_to_select_from_expr(select_from_expr: str, where_clause: str) 
     if has_top_where:
         return f"{select_from_expr} AND ({where_clause})"
     return f"{select_from_expr} WHERE {where_clause}"
+
+
+def build_oracle_extract_query(extract_config: DfmExtractConfig, where_clause: str | None) -> str:
+    """The SELECT an Oracle DFM extract runs against the source, WHERE applied.
+
+    The one place this query is assembled. Anything that must see exactly the
+    rows an extract fetched — such as a backfill window's reconciliation —
+    builds its source with this function instead of a copy.
+    """
+    if extract_config.select_from_expr:
+        query = extract_config.select_from_expr
+    else:
+        col_list = ", ".join(extract_config.columns)
+        query = (
+            f"SELECT {col_list} FROM {extract_config.source_schema}.{extract_config.source_table}"
+        )
+    return _append_where_to_select_from_expr(query, where_clause)
 
 
 def _execute_dfm_mssql_extract(
@@ -78,6 +96,9 @@ def _execute_dfm_mssql_extract(
         dagster_run_id=context.run_id,
         mode=effective_mode,
         checkpoint_from=extract_config.checkpoint_from,
+        **resource_source(
+            source_resource, f"{extract_config.source_schema}.{extract_config.source_table}"
+        ),
     )
     checkpoint = run_ctx.checkpoint
     context.log.info(
@@ -252,6 +273,7 @@ def _execute_dfm_oracle_extract(
             dagster_run_id=context.run_id,
             mode=effective_mode,
             checkpoint_from=extract_config.checkpoint_from,
+            **resource_source(source_resource, source_label),
         )
         checkpoint = run_ctx.checkpoint
         context.log.info(
@@ -259,14 +281,13 @@ def _execute_dfm_oracle_extract(
         )
 
         try:
-            upper_bound: str | None = None
-            if extract_config.flow_start_from and effective_mode == "delta":
+            ceiling: str | None = None
+            if extract_config.flow_start_from:
                 fs_schema, fs_table = extract_config.flow_start_from
-                upper_bound = dfm.get_checkpoint(fs_schema, fs_table)
-                if upper_bound:
-                    context.log.info(
-                        f"Flow-start upper bound from {fs_schema}.{fs_table}: {upper_bound}"
-                    )
+                ceiling = dfm.get_checkpoint(fs_schema, fs_table)
+                if ceiling:
+                    context.log.info(f"Flow-start ceiling from {fs_schema}.{fs_table}: {ceiling}")
+            upper_bound = ceiling if effective_mode == "delta" else None
 
             where_clause = where_builder(run_config, checkpoint, extract_config, upper_bound)
             if where_clause:
@@ -279,12 +300,7 @@ def _execute_dfm_oracle_extract(
                     "Oracle extracts require an explicit 'columns' tuple."
                 )
 
-            if extract_config.select_from_expr:
-                query = extract_config.select_from_expr
-            else:
-                col_list = ", ".join(columns)
-                query = f"SELECT {col_list} FROM {source_label}"
-            query = _append_where_to_select_from_expr(query, where_clause)
+            query = build_oracle_extract_query(extract_config, where_clause)
             context.log.info(f"Oracle extract SQL:\n{query}")
 
             ext_table = extract_config.target_table
@@ -452,6 +468,11 @@ def _execute_dfm_oracle_extract(
                         cur.close()
 
             context.log.info(f"Extracted {total_rows:,} rows from {source_label} → ext.{ext_table}")
+            # A delta archive merge reads this row as its flow_start_key checkpoint.
+            if ceiling:
+                dfm.set_checkpoint(
+                    *extract_config.used_ceiling_key, value=ceiling, mode=effective_mode
+                )
             dfm.complete_dfm_run(run_ctx.log_id, rows_affected=total_rows)
         except Exception as exc:
             dfm.fail_dfm_run(run_ctx.log_id, error_message=str(exc))

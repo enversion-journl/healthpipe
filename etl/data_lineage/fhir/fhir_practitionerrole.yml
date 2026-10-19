@@ -1,0 +1,70 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fhir
+  TableName: fhir.PractitionerRole
+  Domain: [FHIR]
+  Description: "FHIR PractitionerRole fra SilkeborgDatas lønudtræk E26PERS. Én række pr. ansættelses-episode, hvor episoden er afgrænset af Inst + Tjenestenummer og dens første leverance-periode. En person kan have flere samtidige ansættelser (2.066 personer i seneste leverance), så dette er ikke én række pr. person, og et tjenestenummer kan over tid være genbrugt af flere personer, hvor hver episode får sin egen række."
+  Grain: "Én række pr. ansættelses-episode (Inst + Tjenestenummer + episodens første leverance-periode)"
+  FhirResource: PractitionerRole
+
+  Extensions:
+    # Organisatorisk enhed uden reference-mål: Inst og Afdelingskode er hverken
+    # SOR eller SHAK, så organization/location kan ikke bruges.
+    inst:               "urn:source:silkeborgdata:inst"
+    afdelingskode:      "urn:source:silkeborgdata:afdelingskode"
+    # Statuskode/Jobstatuskode bæres rå og oversættes ikke. PractitionerRole har
+    # intet status-element i R4B, og en status er ikke en rolle, så code er heller
+    # ikke hjemstedet — derfor extension, samme form som Inst/Afdelingskode.
+    role_statuskode:    "urn:source:silkeborgdata:statuskode"
+    role_jobstatuskode: "urn:source:silkeborgdata:jobstatuskode"
+    role_statusdato:    "urn:source:silkeborgdata:statusdato"
+    role_tjenestekode:  "urn:source:silkeborgdata:tjenestekode"
+    role_omraadekode:   "urn:source:silkeborgdata:omraadekode"
+    dw_is_deleted:      "urn:fhir:isDeleted"
+
+  SourceSystems:
+    - silkeborgdata:    [arc.silkeborgdata_e26_pers]
+
+  Columns:
+    # ------------------------------------------------------------------
+    # Identitet og relation
+    # ------------------------------------------------------------------
+    practitioner_role_id:       { Type: PK, DataType: NVARCHAR(255), FhirPath: "id", Description: "FHIR resource id (Aidbox). Ikke deterministisk — opløses ved upsert ud fra tjenestenummer-identifieren. Fordi id'et opløses ud fra identifier-værdien, opretter en ændret episode-startdato en NY ressource frem for at opdatere den gamle." }
+    identifier_tjenestenummer:  { DataType: NVARCHAR(50), FhirPath: "identifier.where(system='urn:source:silkeborgdata:tjenestenummer').value", Source: [silkeborgdata.arc.silkeborgdata_e26_pers.Tjenestenummer], FK-None: true, Expr: "Komposit '{Inst}-{Tjenestenummer}-{YYYYMMDD}' (system: identifier_systems.SYSTEM_SILKEBORGDATA_TJENESTENUMMER). Inst SKAL med: 12.027 tjenestenumre optræder under mere end én institution. Inst er altid 2 tegn, så SUBSTRING(.,4,5) giver det bare nummer. Tredje led er episodens første leverance-periode (MIN(Udtraeksdato) for gruppen Inst+Tjenestenummer+person), læst som SUBSTRING(.,10,8) i formatet YYYYMMDD." }
+    practitioner_id:            { DataType: NVARCHAR(255), FhirPath: "practitioner.getReferenceKey(Practitioner)", FK-Target: fhir.Practitioner, FK-Key: practitioner_id, FK-Required: false, Description: "Resolver-tildelt ud fra CPR ved posting. Peger på den CPR der overlevede en eventuel CPR-rettelse, så referencen aldrig rammer en ressource der ikke blev oprettet." }
+
+    # ------------------------------------------------------------------
+    # Organisatorisk enhed — extensions, ikke referencer (ingen SOR-mapping)
+    # ------------------------------------------------------------------
+    inst:                       { DataType: NVARCHAR(2), FhirPath: "extension('urn:source:silkeborgdata:inst').valueCoding.code", Source: [silkeborgdata.arc.silkeborgdata_e26_pers.Inst], FK-None: true, Description: "SD's egen 2-tegns institutionskode (34 værdier). Ikke SOR, så PractitionerRole.organization udgår." }
+    afdelingskode:              { DataType: NVARCHAR(4), FhirPath: "extension('urn:source:silkeborgdata:afdelingskode').valueCoding.code", Source: [silkeborgdata.arc.silkeborgdata_e26_pers.Afdelingskode], FK-None: true, Description: "SD-intern afdelingskode (2.581 værdier). Hverken SOR eller SHAK, så .location udgår. En afdelingskode er en organisatorisk enhed, ikke en rolle — derfor extension frem for code." }
+
+    # ------------------------------------------------------------------
+    # Rollekoder — hver kilde har sit eget system, så de kan skilles ad.
+    # Filtrér ALTID på system, aldrig på position: FHIR garanterer ikke
+    # rækkefølgen i et gentaget element.
+    # ------------------------------------------------------------------
+    role_stillingskode:         { DataType: NVARCHAR(4), FhirPath: "code.coding.where(system='urn:source:silkeborgdata:stillingskode').code", Source: [silkeborgdata.arc.silkeborgdata_e26_pers.Stillingskode], Description: "328 koder (system: identifier_systems.SYSTEM_SILKEBORGDATA_STILLINGSKODE)." }
+    role_stilling_text:         { DataType: NVARCHAR(100), FhirPath: "code.where(coding.system='urn:source:silkeborgdata:stillingskode').text", Source: [silkeborgdata.arc.silkeborgdata_e26_pers.Stilling], Description: "Fritekst-stillingsbetegnelse som konceptets .text — ikke coding.display: 2.565 distinkte værdier mod 328 koder, altså mere granulær end koden." }
+    role_lederkode:             { DataType: NVARCHAR(2), FhirPath: "code.coding.where(system='urn:source:silkeborgdata:lederkode').code", Source: [silkeborgdata.arc.silkeborgdata_e26_pers.Lederkode], Description: "Egen CodeableConcept (system: identifier_systems.SYSTEM_SILKEBORGDATA_LEDERKODE). Fyldt på 1.991 af 78.464 roller (2,5 %), så den mangler normalt. Målt pr. arkivrække er fyldningen 3,3 % — de to tal måler hver sin ting og modsiger ikke hinanden." }
+    specialty_disco:            { DataType: NVARCHAR(6), FhirPath: "specialty.coding.where(system='urn:source:silkeborgdata:discokode').code", Source: [silkeborgdata.arc.silkeborgdata_e26_pers.Discokode], Expr: "DISCO-08-formet fagkode i specialty, ikke code — den siger 'ansat som', aldrig 'autoriseret som'. 999999 er kildens uoplyst-markør og giver absent." }
+
+    # ------------------------------------------------------------------
+    # Periode, status og proveniens
+    # ------------------------------------------------------------------
+    period_start:               { DataType: DATE, FhirPath: "period.start", Source: [silkeborgdata.arc.silkeborgdata_e26_pers.Ansaettelsesdato], Expr: "Absent når datoen er en mangler-markør (0001-01-01, 2050-06-01, 2099-12-31) eller ligger efter rækkens egen leveranceperiode." }
+    role_statuskode:            { DataType: NVARCHAR(1), FhirPath: "extension('urn:source:silkeborgdata:statuskode').valueCoding.code", Source: [silkeborgdata.arc.silkeborgdata_e26_pers.Statuskode], FK-None: true, Expr: "Kildens statuskode, båret RÅ og uoversat. Kun 2 værdier i hele arkivet (1 og 3), 100 % fyldt. Ingen kodeliste og ingen conceptmap: forbrugerne kender koderne fra lønsystemet. En ukendt værdi er data, ikke en fejl, så der advares ikke." }
+    role_jobstatuskode:         { DataType: NVARCHAR(1), FhirPath: "extension('urn:source:silkeborgdata:jobstatuskode').valueCoding.code", Source: [silkeborgdata.arc.silkeborgdata_e26_pers.Jobstatuskode], FK-None: true, Expr: "Som role_statuskode. 5 værdier, 100 % fyldt." }
+    role_tjenestekode:          { DataType: NVARCHAR(1), FhirPath: "extension('urn:source:silkeborgdata:tjenestekode').valueCoding.code", Source: [silkeborgdata.arc.silkeborgdata_e26_pers.Tjenestekode], FK-None: true, Expr: "Lønadministrativ kode, båret RÅ og uoversat. 13 værdier i arkivet, kun 10 i seneste periode — tre er gået ud af brug. Fyldt 89,6 %; i seneste periode er 0 på 86,8 % og 10,1 % mangler, så den informative hale er ca. 3 % af rollerne (samme størrelsesorden som role_lederkode). 0 gemmes uændret: om det betyder 'ingen' vides ikke, og at gøre det absent ville påstå det." }
+    role_omraadekode:           { DataType: NVARCHAR(1), FhirPath: "extension('urn:source:silkeborgdata:omraadekode').valueCoding.code", Source: [silkeborgdata.arc.silkeborgdata_e26_pers.Omraadekode], FK-None: true, Expr: "Lønadministrativ kode, båret RÅ og uoversat. 100 % fyldt, 3 værdier, 1 på 90,1 % af seneste periode. Skifter over tid på 21,4 % af ansættelserne, så kolonnen er et øjebliksbillede af en TILSTAND — historikken findes kun i arc.silkeborgdata_e26_pers." }
+    role_statusdato:            { DataType: DATE, FhirPath: "extension('urn:source:silkeborgdata:statusdato').valueDate", Source: [silkeborgdata.arc.silkeborgdata_e26_pers.Statusdato], FK-None: true, Expr: "Hvornår statussen trådte i kraft — statuskodens tidsanker. Samme validitetsport som period_start: absent for de 1.328 rækker med 0001-01-01. IKKE mappet til period.end, da det ville påstå at en bestemt statuskode betyder 'fratrådt'." }
+    active:                     { DataType: BIT, FhirPath: "active", Source: [silkeborgdata.arc.silkeborgdata_e26_pers.Udtraeksdato], Expr: "1 når ansættelsen findes i den nyeste leverance. BIT af samme grund som fhir.Practitioner.active — se den for hvad flaget betyder og ikke betyder. Ansættelsesstatus læses i role_statuskode/role_jobstatuskode, ikke her." }
+    source_table:               { DataType: NVARCHAR(100), FhirPath: "meta.tag.where(system='urn:source:silkeborgdata:source_table').code", Expr: "Konstant 'silkeborgdata_e26_pers'" }
+    dw_is_deleted:              { DataType: INT, FhirPath: "extension('urn:fhir:isDeleted').valueInteger", Expr: "Altid 0 fra transformen — kilden sletter aldrig." }
+    last_updated:               { DataType: DATETIME2, FhirPath: "r.ts", Description: "Sat af FHIR-serveren, ikke af kilden." }
+    created_at:                 { DataType: DATETIME2, FhirPath: "r.cts", Description: "Sat af FHIR-serveren, ikke af kilden." }

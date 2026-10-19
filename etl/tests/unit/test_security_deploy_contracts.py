@@ -6,8 +6,8 @@
 
 """Deploy-safety contracts for the AD security chain.
 
-The code-server image ships only etl/ — these two failure modes pass
-every local test and die only in the deployed container / DSO infra run.
+The code-server image ships only etl/ — this failure mode passes
+every local test and dies only in the deployed container.
 """
 
 from pathlib import Path
@@ -28,17 +28,3 @@ def test_security_ad_assets_import_from_shipped_package():
         "modules from there resolves locally but raises ModuleNotFoundError "
         "on the deployed extract_security asset"
     )
-
-
-@pytest.mark.unit
-def test_no_deployed_security_view_reads_medicinadministration():
-    # vw_fct.Medicinadministration is not deployed; the DPA medicin view must
-    # stay in views/security/_reference/, outside the non-recursive *.sql glob
-    # that dso_infra_views_security executes.
-    deployed = list((_ROOT / "infrastructure" / "ddl" / "views" / "security").glob("*.sql"))
-    assert deployed, "views/security deploy glob found no files"
-    for path in deployed:
-        assert "Medicinadministration" not in path.read_text(encoding="utf-8"), (
-            f"{path.name} reads vw_fct.Medicinadministration (not deployed) — "
-            "keep it in views/security/_reference/"
-        )

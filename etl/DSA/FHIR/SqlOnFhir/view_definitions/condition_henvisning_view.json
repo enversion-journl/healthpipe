@@ -1,0 +1,29 @@
+{
+  "resourceType": "ViewDefinition",
+  "name": "condition_henvisning_view",
+  "resource": "Condition",
+  "status": "active",
+  "select": [
+    {
+      "column": [
+        {
+          "name": "condition_id",
+          "path": "id"
+        },
+        {
+          "name": "source_identifier_value",
+          "path": "identifier.value.first()"
+        }
+      ]
+    },
+    {
+      "forEach": "extension.where(url='http://example.org/fhir/StructureDefinition/pasDiagnoseSourceMeta').extension.where(url='henvisningId')",
+      "column": [
+        {
+          "name": "henvisning_id",
+          "path": "valueString"
+        }
+      ]
+    }
+  ]
+}

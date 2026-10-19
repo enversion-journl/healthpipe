@@ -234,3 +234,87 @@ def test_fhir_server_reconciliation_scopes_to_active_rows_with_delete_column():
     outcome, cursor = _fsr("dw_is_deleted", "encounter", [(5,), (0,), (0,)])
     sql = _all_sql(cursor)
     assert "IS NULL OR" in sql and "<> 1" in sql
+
+
+class TestBoundColumnResolvesInTheSource:
+    """The reconciliation's bound column must exist where it is queried.
+
+    ``archive_reconciliation`` builds «SELECT ... FROM <source_table>» and puts the
+    extract's ``upper_bound_column`` in a CASE over that FROM, with its alias
+    stripped. If the extract qualifies the column because it lives on a JOINED
+    table, the column is not in the source and Oracle answers ORA-00904 — and the
+    whole weekly archive reconciliation fails. The fix is a derived table that
+    projects the bound column next to the merge keys.
+    """
+
+    def test_a_qualified_bound_needs_a_derived_source(self) -> None:
+        from dqa.config.arc_subjects import _ARC
+
+        offenders: list[str] = []
+        for spec in _ARC:
+            name, _table, source, _archive_cfg, extract_cfg = spec[:5]
+            bound = getattr(extract_cfg, "upper_bound_column", None)
+            if not bound or "." not in bound:
+                continue  # unqualified: the column sits on the source table itself
+            derived = source.lstrip().startswith("(SELECT")
+            projected = bound.split(".")[-1] in source
+            if not (derived and projected):
+                offenders.append(f"{name}: extract bounds on {bound!r}, source is {source!r}")
+        assert not offenders, "bound column cannot resolve in the source: " + "; ".join(offenders)
+
+    def test_a_derived_source_carries_the_merge_keys(self) -> None:
+        """Otherwise staging the source keys fails."""
+        from dqa.config.arc_subjects import _ARC
+
+        offenders: list[str] = []
+        for spec in _ARC:
+            name, _table, source, archive_cfg = spec[:4]
+            if not source.lstrip().startswith("(SELECT"):
+                continue
+            for key in archive_cfg.merge_keys:
+                if key not in source:
+                    offenders.append(f"{name}: key {key} is not projected")
+        assert not offenders, "derived source lacks keys: " + "; ".join(offenders)
+
+
+class TestMissingOnly:
+    """A bounded source against an unbounded archive makes the extra direction noise."""
+
+    @staticmethod
+    def _run(params: dict, fetchone: list) -> list[str]:
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+
+        from dqa.checks.archive_reconciliation import archive_reconciliation
+
+        executed: list[str] = []
+        cur = MagicMock()
+        cur.execute.side_effect = lambda sql, *a, **k: executed.append(sql)
+        cur.fetchone.side_effect = fetchone
+        conn = MagicMock()
+        conn.cursor.return_value = cur
+        scur = MagicMock()
+        # One source key plus its within_bound flag, as the staging query returns them.
+        scur.fetchmany.side_effect = [[("1", 1)], []]
+        sconn = MagicMock()
+        sconn.cursor.return_value = scur
+        resources = SimpleNamespace(mssql_target_staging=MagicMock(), ifdb_oracle=MagicMock())
+        resources.mssql_target_staging.get_connection.return_value.__enter__.return_value = conn
+        resources.ifdb_oracle.get_connection.return_value.__enter__.return_value = sconn
+        subject = SimpleNamespace(
+            name="arc_x", table="arc.ifdb_x", resource_key="mssql_target_staging", replay=None
+        )
+        spec = SimpleNamespace(
+            params={"source_table": "IFDB.X", "key_columns": ["OBJEKT_ID"], **params}
+        )
+        archive_reconciliation(MagicMock(), subject, spec, resources)
+        return executed
+
+    def test_skips_the_full_archive_anti_join(self) -> None:
+        # Two counts only: source keys, then missing keys.
+        executed = self._run({"missing_only": True}, [(1, 1), (0,)])
+        assert not any("LEFT JOIN" in sql for sql in executed)
+
+    def test_without_it_the_extra_direction_still_runs(self) -> None:
+        executed = self._run({}, [(1, 1), (0,), (5, 0, 0)])
+        assert any("LEFT JOIN" in sql for sql in executed)

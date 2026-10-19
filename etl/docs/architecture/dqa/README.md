@@ -280,8 +280,9 @@ Key points:
   (e.g. the `PERIOD_START` Oracle DATE) are `str()`'d to match the NVARCHAR archive.
 - **Flow-start bound** (delta tables only): when `flow_start_bound_column` is set
   (from the extract config's `upper_bound_column`), each key is staged with a
-  `within_bound` flag = 1 if its upper-bound column ≤ the last DFM flow-start
-  (`meta.DFMState` `dfm/ifdb_flow_start`). `missing_in_arc` counts only
+  `within_bound` flag = 1 if its upper-bound column ≤ the ceiling the extract
+  reads (`flow_start_state`, the extract's `flow_start_from`: `dfm/ifdb_transfer_ceiling`
+  or `dfm/ifdb_flow_start`). `missing_in_arc` counts only
   within-bound keys (so rows newer than the last archive run aren't false gaps);
   `extra/vanished` ignores the flag and compares against the **full** live key set
   (else a key still in IFDB but modified after flow-start would be a false
@@ -492,9 +493,13 @@ whole subsystem (`dqa/dso.py`) is **derived from `DSO.load.sync_configs.ALL_SYNC
   whole platform even though the check runs on DSO.
 - **Jobs**: one per domain — `dqa_dso_fhir_job`, `dqa_dso_erp_job`,
   `dqa_dso_shared_job`, `dqa_dso_security_job`, `dqa_dso_codesystem_job`,
-  `dqa_dso_conceptmap_job` (anchors `dqa_dso_<domain>`, group `dqa_dso`, cadence
+  `dqa_dso_conceptmap_job`, `dqa_dso_haiba_job`, `dqa_dso_drg_job`,
+  `dqa_dso_udredningsret_job` (anchors `dqa_dso_<domain>`, group `dqa_dso`, cadence
   `dso`). Kept separate from the `dqa_<track>_<cadence>` jobs; run after the
-  DSO-sync.
+  DSO-sync. The domain list comes from `_dso_subjects()` in `dso.py`, and every
+  domain but `fhir` needs a Saturday cron in `schedules._DSO_WEEKLY_CRONS` —
+  without one the job is built but never triggered
+  (`tests/unit/test_dqa_scheduling.py` guards that).
 - **Detection only** — no capture/replay yet (deferred until DSO-sync is migrated
   to DFM, per the remediation note above).
 

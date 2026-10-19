@@ -1,0 +1,30 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fhir
+  TableName: fhir.Procedure_SupplementaryCode
+  Domain: [FHIR]
+  Description: "Supplerende procedurekoder på Procedure — child-tabel i eget grain."
+  Grain: "Én række pr. tillægskode pr. Procedure — PK: procedure_id + supplementary_code + supplementary_code_system"
+  FhirResource: Procedure
+
+  SourceSystems:
+    - ifdb_aktivitetsresultat: [IFDB.AKTIVITETSRESULTAT]
+    - ifdb_administrative_procedure: [IFDB.ADMINISTRATIVE_PROCEDURE]
+    - ifdb_administrative_procedure_suppl: [IFDB.ADM_PROCEDURE_SUPPL_CODES]
+    - ifdb_ris_ydelse: [IFDB.RIS_YDELSE]
+
+  Columns:
+    procedure_id:            { Type: PK, DataType: NVARCHAR(255), FhirPath: "id", FK-Target: fhir.Procedure, FK-Key: procedure_id, FK-Required: true }
+    source_identifier_value: { DataType: NVARCHAR(255), FhirPath: "identifier.value.first()", FK-None: true, Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.OBJEKT_ID, ifdb_administrative_procedure.IFDB.ADMINISTRATIVE_PROCEDURE.OBJECT_ID, ifdb_administrative_procedure_suppl.IFDB.ADM_PROCEDURE_SUPPL_CODES.PARENT_OBJECT_ID, ifdb_ris_ydelse.IFDB.RIS_YDELSE.OBJEKT_ID], Description: "Forældre-procedurens kildenøgle, båret med ned i child-grainet så tillægskoden kan spores til sin kilderække." }
+    supplementary_code:         { Type: PK, DataType: NVARCHAR(255), FhirPath: "code", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML, ifdb_administrative_procedure_suppl.IFDB.ADM_PROCEDURE_SUPPL_CODES.SUPPL_CODE, ifdb_ris_ydelse.IFDB.RIS_YDELSE.XML] }
+    supplementary_code_system:  { Type: PK, DataType: NVARCHAR(500), FhirPath: "system" }
+    supplementary_code_display: { DataType: NVARCHAR(500), FhirPath: "display", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML, ifdb_administrative_procedure_suppl.IFDB.ADM_PROCEDURE_SUPPL_CODES.SUPPL_TEXT, ifdb_ris_ydelse.IFDB.RIS_YDELSE.XML], Description: "Tillægskodens tekst, læst fra samme kilde som koden." }
+    idx:                        { DataType: INT, FhirPath: "extension.where(url='http://example.org/fhir/StructureDefinition/codingSequence').valueInteger.first()", Source: [ifdb_administrative_procedure_suppl.IFDB.ADM_PROCEDURE_SUPPL_CODES.IDX], Description: "Kildens rækkefølge af tillægskoder (1 = første). Kun administrative procedurer; NULL for RIS og aktivitetsresultater." }
+    dw_is_deleted:           { DataType: INT, Description: "Slettet-flag (0 = live, 1 = slettet). Warehouse-styret: foraeldre-ressourcen baerer urn:fhir:isDeleted, men dette grain projicerer ikke feltet. Saettes af child-grain reconcile, naar koden ikke laengere findes under den levende foraelder, og af dqa_fhir_server_cleanup ved hard-delete i Aidbox; nulstilles ved MERGE-match (resurrect_soft_deleted). NOT NULL DEFAULT 0." }
+    last_updated:            { DataType: DATETIME2, FhirPath: "r.ts" }
+    created_at:              { DataType: DATETIME2, FhirPath: "r.cts" }

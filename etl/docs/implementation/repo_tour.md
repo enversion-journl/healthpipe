@@ -234,6 +234,12 @@ ifdb_dfm_daily_schedule = dg.ScheduleDefinition(
 | `erp_dso_sync` / `shared_dimensions_dso_sync` | Sync to DSO | DSO |
 | `erp_views` | ERP presentation views (SQL DDL) | Infrastructure |
 | `dwh_organisation` / `dwh_okosted` / `dwh_shak` | Organisation, Økosted and SHAK dimensions | DSA |
+| `udredningsret_extract` / `udredningsret_archive` / `udredningsret_borger` | SDS udredningsret: file-drop extract, archive merge on business keys, Patient stubs (`udredningsret_ingest_job`) | DSI / DSA |
+| `udredningsret_pre_staging` / `udredningsret_staging` | SDS udredningsret publish chain (`udredningsret_publish_job`): scope table, pre-staging and staging | DSA |
+| `udredningsret_map` | SDS udredningsret key minting (`map.Helbredsforloeb`, `Udredningsforloeb`, `UdredningsretKlassifikation`, `Forloebsmarkoer`, `UdredningsretMarkoer`), append-only | DSA |
+| `udredningsret_dimension` | SDS udredningsret dims: `UdredningsretKlassifikation`, `UdredningsretEgenskaber` (shared PK), `Forloebsmarkoer` | DSA |
+| `udredningsret_fact` | SDS udredningsret facts: `fct.Udredningsforloeb`, `fct.UdredningsretMarkoer` | DSA |
+| `udredningsret_dso_sync` | SDS udredningsret CPR-free dim/fct sync to DSO (three dims, then `fct.Udredningsforloeb`, then `fct.UdredningsretMarkoer` — FK order on DSO); all watermark on `dw_timestamp_update`. No maps, no `arc`/`ext`/`meta` | DSO |
 | `staging_infrastructure` / `dso_infrastructure` | DDL and schema setup | Infrastructure |
 | `dqa_fhir` / `dqa_dwh` / `dqa_arc` / `dqa_dso` | Data quality checks per track | DQA |
 
@@ -259,7 +265,7 @@ from DSI.oracle import all_epji_archive_assets, all_ifdb_archive_assets
 
 - **Absolute imports only**, from the package root: `core.*`, `DSA.*`, `DSI.*`,
   `DSO.*`, `utils.*`. Never relative imports, never the old `etl_pipelines.*` path.
-- **Naming** follows [navngivningsstandard.md](navngivningsstandard.md) — tables in
+- **Naming** follows [navngivningsstandard_basismodel.md](navngivningsstandard_basismodel.md) — tables in
   PascalCase, everything else snake_case, `dw_*` prefixes for warehouse columns.
 
 ## Related documentation

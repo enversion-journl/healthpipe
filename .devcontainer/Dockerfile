@@ -7,7 +7,8 @@
 # Public Healthpipe development image. Built locally by `docker compose`
 # (referenced from .devcontainer/docker-compose.yml). Toolchain only —
 # project dependencies are installed by the devcontainer postCreateCommand.
-FROM mcr.microsoft.com/devcontainers/base:ubuntu-24.04
+ARG DEV_BASE_IMAGE=mcr.microsoft.com/devcontainers/base:ubuntu-24.04
+FROM ${DEV_BASE_IMAGE}
 
 # Python 3.12 + OpenSSH
 RUN apt-get update && apt-get install -y software-properties-common openssh-server \

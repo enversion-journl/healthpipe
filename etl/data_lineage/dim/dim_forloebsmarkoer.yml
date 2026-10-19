@@ -1,0 +1,35 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: dimension
+  TableName: dim.Forloebsmarkoer
+  Domain: [Udredningsret]
+  Description: >
+    Fælles kodedimension for forløbsmarkører: ét medlem pr. distinkt
+    markørkode i arkivet (433 koder målt), uafhængigt af forløb og
+    helbredsforløb. Teksten kommer fra SKS-kataloget; en kode uden
+    katalogrække er stadig et normalt medlem med teksten 'Ukendt' og
+    tekst_kilde 'ukendt' (beslutning U7) — aldrig en hård fejl. gruppe og
+    gruppe_tekst er SDS' bilag 1-gruppering af koderne, med 'oevrige' til alt
+    uden for de syv grupper.
+  Grain: "Ét medlem pr. distinkt forløbsmarkør-kode (normaliseret til versaler uden mellemrum)."
+  SCD: type1
+
+  SourceSystems:
+    - sds_udredningsret: [LPR_Udredningsret.UdredningsretMont]
+
+  Columns:
+    dw_ek_Forloebsmarkoer: { Type: PK, DataType: INT, Description: "Entitetsnøgle fra map.Forloebsmarkoer." }
+    clean_code_Forloebsmarkoer: { DataType: VARCHAR(50), Expr: "FORLOEBSMARKOER_{versalskrevet, trimmet markørkode}" }
+    kode: { DataType: NVARCHAR(20), Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.FORLOEBSMARKOER], Description: "Markørkoden som leveret, trimmet og versalskrevet — samme normalisering som nøglen." }
+    tekst: { DataType: NVARCHAR(500), Expr: "codesystem.SKSConcept.display slået op på koden (LEFT JOIN); uden katalogmatch 'Ukendt'." }
+    gruppe: { DataType: NVARCHAR(40), Expr: "CASE over koden (MARKOER_GRUPPER, første match vinder): henvist_udredning, udredning_start, endeligt_udredt, udredningsplan, afbrudt, kraeftpakke_slut_beslutning, behandling_start, ellers oevrige." }
+    gruppe_tekst: { DataType: NVARCHAR(100), Expr: "Dansk tekst til gruppen — samme grene som gruppe." }
+    tekst_kilde: { DataType: NVARCHAR(30), Expr: "'SKS' når koden findes i kataloget, ellers 'ukendt' — så en foreløbig tekst kan skelnes fra en katalogtekst." }
+  Notes:
+    - "Ikke delta-scoped: dimensionen dannes over hele arkivets levende rækker, fordi kodemængden er lille og skal være komplet for begge facts."
+    - "Sentinel -1 ('UNKNOWN', tekst 'Ukendt') bærer markører uden kode; en blank kode får ingen clean_code og opløses derfor til sentinel'en."

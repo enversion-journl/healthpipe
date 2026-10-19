@@ -25,7 +25,9 @@ dso_lineage:
     - land
 
   SourceSystems:
-    - datafordeler: [CPR.Person, CPR.Adresse, CPR.Adressehistorik, CPR.Sundhedskort]
+    # "datafordeler" er CPR-registerets filudtræk (U12160P og U12170P), ikke Datafordelerens
+    # tjenester; id'et er nøglen, ejerskabstabellen mapper til CPR-kilden.
+    - datafordeler: [CPR.Person, CPR.Adresse, CPR.Adressehistorik]
     - ifdb:         [IFDB.PATIENT_OPLYSNINGER_COLUMNA]
 
   SourcePriority: [datafordeler, ifdb]
@@ -40,6 +42,7 @@ dso_lineage:
     # ------------------------------------------------------------------
     dw_sk_Borger:           { Type: PK,         DataType: INT,            Expr: "Carried from ref.Patient_Address_To_Borger (no local IDENTITY). Bærer T2-versionering fra adresse-historik." }
     dw_ek_Borger:           { Type: BusinessFK, DataType: INT,            Expr: "INT IDENTITY tildelt i ref.PatientToBorger ud fra fhir.Patient.patient_id. Genbruges uændret på alle T2-versioner." }
+    fhir_Patient_id:        { DataType: NVARCHAR(255), Expr: "fhir.Patient.patient_id — FHIR resource id'et bag borgeren. Ens på alle T2-versioner. NULL på sentinel -1, -2 og -99." }
 
     # ------------------------------------------------------------------
     # Identifiers (Type 1) — mindst én af cpr_nummer / x_ecpr_nummer / d_ecpr_nummer skal være udfyldt (håndhæves af ref.PatientToBorger)
@@ -53,16 +56,16 @@ dso_lineage:
     # ------------------------------------------------------------------
     # Navn (Type 1 — name:official slice fra dk-core)
     # ------------------------------------------------------------------
-    fornavne:               { DataType: NVARCHAR(500), Source: [datafordeler.CPR.Person.Fornavne, ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.FORNAVNE],                            Description: "name:official.given (alle fornavne joinet med space)" }
-    efternavn:              { DataType: NVARCHAR(255), Source: [datafordeler.CPR.Person.Efternavn, ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.EFTERNAVN],                          Description: "name:official.family" }
-    adresseringsnavn:       { DataType: NVARCHAR(500), Source: [datafordeler.CPR.Person.Adresseringsnavn],                                                                   Description: "name:official.text — Datafordeler planlagt" }
+    fornavne:               { DataType: NVARCHAR(500), Source: [datafordeler.CPR.Person.Fornavne, ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.FORNAVNE],                            Description: "name:official.given (alle fornavne joinet med space). Tom for en borger med navne- og adressebeskyttelse." }
+    efternavn:              { DataType: NVARCHAR(255), Source: [datafordeler.CPR.Person.Efternavn, ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.EFTERNAVN],                          Description: "name:official.family. 'Navnebeskyttet' for en borger med navne- og adressebeskyttelse." }
+    adresseringsnavn:       { DataType: NVARCHAR(500), Source: [datafordeler.CPR.Person.Adresseringsnavn],                                                                   Description: "name:official.text. 'Navnebeskyttet' for en borger med navne- og adressebeskyttelse." }
 
     # ------------------------------------------------------------------
     # Demografi (Type 1)
     # ------------------------------------------------------------------
     foedselsdato:           { DataType: DATE,          Source: [datafordeler.CPR.Person.Foedselsdato, ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.FOEDSELSDATO] }
     koen_navn:               { DataType: NVARCHAR(20),  Source: [datafordeler.CPR.Person.Koen, ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.KOEN_KODE],                               Description: "FHIR gender: male/female/other/unknown" }
-    active:                 { DataType: BIT,           Source: [datafordeler.CPR.Person.Status, ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.PERSON_STATUSKODE],                     Description: "Patient.active (false hvis status 80/90)" }
+    active:                 { DataType: BIT,           Source: [datafordeler.CPR.Person.Status, ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.PERSON_STATUSKODE],                     Description: "Patient.active. CPR's statuskode: 01, 03, 05 og 07 er aktive; 20-90 er inaktive (80 = udrejst, 90 = død)." }
     deceased:               { DataType: BIT,           Source: [datafordeler.CPR.Person.Status, ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.PERSON_STATUSKODE],                     Description: "Patient.deceasedBoolean (status 90)" }
 
     # ------------------------------------------------------------------
@@ -74,8 +77,8 @@ dso_lineage:
     # ------------------------------------------------------------------
     # Civilstand (Type 1 — INGEN periode; ved behov for historik bygges separat sidecar)
     # ------------------------------------------------------------------
-    civil_status_kode:        { DataType: NVARCHAR(8),   Source: [datafordeler.CPR.Person.Civilstand],                                                                          Description: "maritalStatus.coding.code — Datafordeler planlagt" }
-    civil_status:            { DataType: NVARCHAR(100), Source: [datafordeler.CPR.Person.CivilstandTekst],                                                                    Description: "maritalStatus.coding.display" }
+    civil_status_kode:        { DataType: NVARCHAR(8),   Source: [datafordeler.CPR.Person.Civilstand],                                                                          Description: "Civilstandens kode efter dk-core (HL7 v3 MaritalStatus eller dk-core's P og O). Tom for en død borger; døden står i deceased." }
+    civil_status:            { DataType: NVARCHAR(100), Source: [datafordeler.CPR.Person.CivilstandTekst],                                                                    Description: "CPR's danske betegnelse for civilstanden (maritalStatus.text)." }
 
     # ------------------------------------------------------------------
     # statsborgerskab (Type 1 — INGEN periode)
@@ -88,7 +91,7 @@ dso_lineage:
     # ------------------------------------------------------------------
     dato_tid_tilflytning:    { DataType: DATETIME2,     Source: [datafordeler.CPR.Adressehistorik.Tilflytningsdato] }
     dato_tid_fraflytning:    { DataType: DATETIME2,     Source: [datafordeler.CPR.Adressehistorik.Fraflytningsdato] }
-    gade:                   { DataType: NVARCHAR(500), Source: [datafordeler.CPR.Adresse.Vejnavn, ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.VEJ] }
+    gade:                   { DataType: NVARCHAR(500), Source: [datafordeler.CPR.Adresse.Vejnavn, ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.VEJ], Description: "'Adressebeskyttet' for en borger med navne- og adressebeskyttelse; de øvrige adressefelter, også kommune_id, er da tomme." }
     postnr:                 { DataType: VARCHAR(10),   Source: [datafordeler.CPR.Adresse.Postnummer, ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.POSTNR] }
     postdistrikt:           { DataType: NVARCHAR(255), Source: [datafordeler.CPR.Adresse.Postdistrikt, ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.STEDNAVN] }
     kommune_id:              { DataType: VARCHAR(8),    Source: [datafordeler.CPR.Adresse.Kommunekode, ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.KOMMUNEKODE] }
@@ -113,8 +116,8 @@ dso_lineage:
     # ------------------------------------------------------------------
     # Egen læge (Type 1)
     # ------------------------------------------------------------------
-    laege_navn:              { DataType: NVARCHAR(500), Source: [datafordeler.CPR.Sundhedskort.LaegeNavn, ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.LAEGENAVN] }
-    laege_nummer:            { DataType: VARCHAR(50),   Source: [datafordeler.CPR.Sundhedskort.Ydernummer, ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.LAEGENUMMER],                 Description: "Ydernummer — system: identifier_systems.SYSTEM_YDERNUMMER" }
+    laege_navn:              { DataType: NVARCHAR(500), Source: [ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.LAEGENAVN],                                                              Description: "Kun EPJ. CPR-filudtrækket leverer ikke Sundhedskort." }
+    laege_nummer:            { DataType: VARCHAR(50),   Source: [ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.LAEGENUMMER],                                                            Description: "Ydernummer — system: identifier_systems.SYSTEM_YDERNUMMER. Kun EPJ; CPR-filudtrækket leverer ikke Sundhedskort." }
 
     # ------------------------------------------------------------------
     # Distrikt (region lokal — Type 1)
@@ -127,20 +130,25 @@ dso_lineage:
     # ------------------------------------------------------------------
     # Privacy / kontekst-flags (Type 1)
     # ------------------------------------------------------------------
-    adressebeskyttelse:     { DataType: BIT, Source: [datafordeler.CPR.Person.Adressebeskyttelse, ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.HAR_ADRESSEBESKYTTELSE],              Description: "Type 1 — gælder borgeren, ikke pr. adresse. NOT NULL DEFAULT 0 (absent FHIR extension = 0)." }
+    adressebeskyttelse:     { DataType: BIT, Source: [datafordeler.CPR.Person.Adressebeskyttelse, ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.HAR_ADRESSEBESKYTTELSE],              Description: "1 = borgeren har navne- og adressebeskyttelse i CPR-registeret eller i EPJ. Navn og adresse er da erstattet af standardtekster. Type 1 — gælder borgeren, ikke pr. adresse. NOT NULL DEFAULT 0 (absent FHIR extension = 0)." }
     onsker_diskretion:       { DataType: BIT, Source: [ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.OENSKER_DISKRETION] }
     medcom_testperson:      { DataType: BIT, Source: [ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.MEDCOM_TESTPERSON] }
 
     # ------------------------------------------------------------------
     # Audit / temporal
     # ------------------------------------------------------------------
-    opdateret_fra_cpr:        { DataType: DATETIME2,    Source: [ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.MODTIDSPUNKT],                                                          Description: "Tidspunkt for sidste CPR-opdatering (Type 1 metadata, skaber IKKE T2)" }
+    opdateret_fra_cpr:        { DataType: DATETIME2,    Source: [datafordeler.CPR.Person.Produktionsdato],                                                                     Description: "= fhir.Patient.cpr_updated: produktionsdatoen på den seneste CPR-leverance, der ændrede registrets felter på borgeren (Type 1, skaber ikke T2). NULL for en borger, registret ikke kender." }
     dw_valid_from:           { DataType: DATETIME2(0), Expr: "= ref.Patient_Address_To_Borger.dw_valid_from (sentinel 1900-01-01 for første version pr. patient)" }
     dw_valid_to:             { DataType: DATETIME2(0), Expr: "= ref.Patient_Address_To_Borger.dw_valid_to (sentinel 9999-12-31 23:59:59 for åben aktuel version; non-overlap garanteret via LEAD over address_period_start)" }
     dw_is_current:           { DataType: BIT,          Expr: "= ref.Patient_Address_To_Borger.dw_is_current (1 hvor dw_valid_to = 9999-12-31 23:59:59)" }
     dw_is_deleted:           { DataType: BIT,          Source: [ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.SLETTET],                                                               Description: "Følger fhir.Patient — borger slettet i kilden" }
     dw_timestamp_insert:    { DataType: DATETIME2(0), Expr: "SYSDATETIME() ved insert" }
     dw_timestamp_update:    { DataType: DATETIME2(0), Expr: "SYSDATETIME() ved opdatering" }
+
+    # ------------------------------------------------------------------
+    # Populationsansvar (Type 1)
+    # ------------------------------------------------------------------
+    populationsansvar:      { DataType: NVARCHAR(50), Source: [datafordeler.CPR.Adresse.Kommunekode, ifdb.IFDB.PATIENT_OPLYSNINGER_COLUMNA.KOMMUNEKODE], Expr: "ref.KommuneToPopulationsansvar.populationsansvar for fhir.Patient.municipality_code", Description: "Sygehuset med populationsansvar for borgerens aktuelle bopælskommune (SLB, EGS, SHS eller OUH). Ens på alle versioner af borgeren og udfyldt også for en borger med navne- og adressebeskyttelse. NULL for en borger, der bor uden for regionens kommuner eller ikke har en gældende adresse." }
 
   Notes:
     - "dw_ek_Borger og dw_sk_Borger er INT-surrogater. Mapping mellem dem og FHIR-resource-id (fhir.Patient.patient_id) lever i ref.PatientToBorger (entity-mapping) og ref.Patient_Address_To_Borger (version-mapping med non-overlap-garanterede T2-intervaller via LEAD over address_period_start). Mappingen ligger IKKE her og IKKE i fhir.Patient."
@@ -150,4 +158,5 @@ dso_lineage:
     - "Build-flow: dim.Borger bygges via patient-scoped delta MERGE i DSA/SQL/dim/borger.py fra fhir.Patient + ref.PatientToBorger + ref.Patient_Address_To_Borger + fhir.Patient_Address. Keyed on dw_sk_Borger (carried from ref.Patient_Address_To_Borger). Delta via DfmManager: kun patienter med nyere dw_timestamp_update/Insert i ref-tabellerne re-merges."
     - "Sync-mode i DSO/load/sync_configs.py: 'merge' (Type 2 SCD; dw_sk_Borger carried from ref.Patient_Address_To_Borger)."
     - "TVF/indeks: dbo.GetBorgerSK_TVF og IX_Dim_Borger_Temporal beholder INT-parameter på dw_ek_Borger (modsat tidligere foreslået NVARCHAR-migration). Detaljer afventer ref.PatientToBorger-implementeringen."
-    - "Sentinelrækker (-1 = ukendt, -2 = N/A) defineres centralt i infrastructure/ddl/tables/shared_dimensions/02_dims.sql — ikke her. DDL'en skal opdateres til at indeholde begge rækker når denne lineage-ændring lander."
+    - "Sentinelrækker (-1 = ukendt, -2 = N/A, -99 = maskeret) defineres centralt i infrastructure/ddl/tables/shared_dimensions/02_dims.sql — ikke her."
+    - "Populationsansvar: koblingen kommune → sygehus ligger i ref.KommuneToPopulationsansvar. dim.Borger sætter kolonnen på alle versioner i hver kørsel, så en ændret kobling slår igennem uden, at borgeren ændres."

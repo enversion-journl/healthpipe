@@ -396,5 +396,12 @@ def _status_set_sql(status_kind: StatusKind) -> tuple[str, list[Any]]:
                 ]
             }
         )
-        return "jsonb_set(resource, '{verificationStatus}', %s::jsonb)", [payload]
+        # En diagnose i entered-in-error må ikke have clinicalStatus (FHIR con-5),
+        # og uden clinicalStatus må den heller ikke have abatement (con-4).
+        # Samme form som byggeren giver en slettet diagnose.
+        base = (
+            "(resource - 'clinicalStatus' - 'abatementDateTime' - 'abatementAge'"
+            " - 'abatementPeriod' - 'abatementRange' - 'abatementString')"
+        )
+        return f"jsonb_set({base}, '{{verificationStatus}}', %s::jsonb)", [payload]
     return "jsonb_set(resource, '{status}', %s::jsonb)", [json.dumps("entered-in-error")]

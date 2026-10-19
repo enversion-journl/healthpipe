@@ -12,6 +12,7 @@ feed archive-shaped rows (EVENT_CODE, TIME as the archived string, DELETED) and
 pin what the transform derives from them.
 """
 
+import json
 from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -28,6 +29,7 @@ from DSA.FHIR.CarePlan.CarePlan_IFDB_dfm import (
     _stage_careplans,
     _transform_careplan_to_fhir,
 )
+from DSA.FHIR.utils.sql_on_fhir.sof_utils import load_view_definitions
 from fhir.resources.R4B.careplan import CarePlan, CarePlanActivity
 from fhir.resources.R4B.identifier import Identifier
 from fhir.resources.R4B.reference import Reference
@@ -64,6 +66,37 @@ def _make_marker(
 
 def _logger() -> SimpleNamespace:
     return SimpleNamespace(info=lambda *a, **k: None, warning=lambda *a, **k: None)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("staff_id,expected", [("STAFF1", ["STAFF1"]), (None, [])])
+def test_staff_projection_on_actual_builder_output(staff_id, expected):
+    """Viewets practitioner_id vælger på identifier-system, ikke på type.
+
+    Byggeren sætter ikke Reference.type på medarbejderen, så projektionen skal
+    finde den på urn:source:ifdb:staff. Stien læses fra ViewDefinitionen, og
+    udvælgelsen efterlignes i Python uden en FHIRPath-motor.
+    """
+    data = _build_alle_markoerer_careplan_dict(
+        patient_id="syntetisk-patient", markers=[_make_marker(staff_id=staff_id)]
+    )
+    resource = json.loads(_transform_careplan_to_fhir(data).json())
+    view = next(v for v in load_view_definitions() if v["name"] == "careplan_activity_view")
+    selection = next(s for s in view["select"] if s.get("forEach") == "activity")
+    path = next(c["path"] for c in selection["column"] if c["name"] == "practitioner_id")
+    assert path == (
+        "detail.performer.where(identifier.system = 'urn:source:ifdb:staff')"
+        ".identifier.value.first()"
+    )
+    performers = resource["activity"][0].get("detail", {}).get("performer", [])
+    for performer in performers:
+        assert "type" not in performer, "byggeren sætter ikke type; stien må ikke afhænge af den"
+    values = [
+        p["identifier"]["value"]
+        for p in performers
+        if p.get("identifier", {}).get("system") == "urn:source:ifdb:staff"
+    ]
+    assert values[:1] == expected
 
 
 # ─── Basic happy path ────────────────────────────────────────────────

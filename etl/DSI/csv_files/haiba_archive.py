@@ -35,12 +35,28 @@ inferred from MAX(arc.leverance_dato). That column is only rewritten when a
 row's values change, and the case tables can go weeks without one — so the
 column would leave the archive looking older than it is, and
 ``guard_delivery_direction`` would let a stale pinned extract through.
+
+The extract's manifest (ext.<table>_leverance_manifest) is the merge contract:
+empty means the run loaded nothing — a declared no-op, not an invitation to
+re-merge whatever ext still holds from an earlier run. After a MERGE the
+delivery checkpoints in meta.DFMState are advanced from the manifest, one per
+(HAI type, kind) — only then, so a failed merge leaves them unmoved and the
+next extract run re-reads the delivery.
 """
+
+from dataclasses import dataclass
+from datetime import date, datetime
 
 import dagster as dg
 from core.archive_merge import build_archive_metadata, execute_archive_merge
 from core.dfm_config import ArchiveMergeConfig, RunModeConfig
+from core.dfm_manager import DfmManager
 from core.resources import MSSQLResource
+from DSI.connectors.delivery_detection import (
+    DELIVERY_SCHEMA,
+    DELIVERY_TARGET_TYPE,
+    delivery_identity,
+)
 from DSI.csv_files.haiba import (
     AGG_INFEKTION,
     AGG_ORTOPAEDI,
@@ -48,8 +64,11 @@ from DSI.csv_files.haiba import (
     CASES_SSI,
     DELIVERY_COLUMN,
     HaibaSchema,
+    haiba_delivery_unit,
+    manifest_table,
 )
 from pydantic import Field
+from utils.sql_safety import safe_bracket_quote
 
 
 class HaibaArchiveConfig(RunModeConfig):
@@ -191,6 +210,67 @@ WHERE NOT EXISTS (
     SELECT 1 FROM [arc].[{table}] AS tgt WHERE {on_clause}
 );
 """
+
+
+@dataclass(frozen=True)
+class HaibaDeliveryManifest:
+    """One HAI type's delivery as the extract recorded it this run."""
+
+    hai_type: str
+    kind: str
+    filnavn: str
+    leverance_dato: date
+    fil_mtime: datetime
+
+
+def read_manifest(mssql: MSSQLResource, schema: HaibaSchema) -> dict[str, HaibaDeliveryManifest]:
+    """What the extract loaded this run, per HAI type.
+
+    A missing table (an ext from before delivery detection deployed) reads the
+    same as an empty one: this run loaded nothing.
+    """
+    table = safe_bracket_quote(manifest_table(schema))
+    with mssql.get_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(f"SELECT OBJECT_ID(N'[ext].{table}', N'U')")
+            if cursor.fetchone()[0] is None:
+                return {}
+            cursor.execute(
+                f"SELECT [hai_type], [kind], [filnavn], [{DELIVERY_COLUMN}], [fil_mtime] "
+                f"FROM [ext].{table}"
+            )
+            rows = cursor.fetchall()
+        finally:
+            cursor.close()
+    return {row[0]: HaibaDeliveryManifest(*row) for row in rows}
+
+
+def advance_delivery_checkpoints(
+    context: dg.AssetExecutionContext,
+    mssql: MSSQLResource,
+    manifest: dict[str, HaibaDeliveryManifest],
+    mode: str,
+) -> list[str]:
+    """Advance the delivery checkpoint for every HAI type this run merged.
+
+    Only called after the MERGE has committed: the checkpoint promises "this
+    delivery is in arc", so a failed merge leaves it unmoved and the next run
+    re-reads the delivery — the safe direction.
+    """
+    dfm = DfmManager(mssql, context)
+    stamped: list[str] = []
+    with dfm.connection():
+        for hai_type in sorted(manifest):
+            entry = manifest[hai_type]
+            unit = haiba_delivery_unit(hai_type, entry.kind)
+            identity = delivery_identity(entry.leverance_dato, entry.fil_mtime)
+            dfm.set_checkpoint(
+                DELIVERY_SCHEMA, unit, value=identity, mode=mode, target_type=DELIVERY_TARGET_TYPE
+            )
+            stamped.append(f"{unit} = {identity} ({entry.filnavn})")
+            context.log.info(f"checkpoint {unit} -> {identity}")
+    return stamped
 
 
 def _max_delivery(mssql: MSSQLResource, schema_name: str, table: str) -> str | None:
@@ -409,6 +489,32 @@ def _run_archive(
     merge_config: ArchiveMergeConfig,
 ) -> dg.MaterializeResult:
     backfill = getattr(config, "backfill_historical", False)
+
+    manifest = read_manifest(mssql, schema)
+    if not manifest:
+        context.log.info(
+            f"arc.{schema.ext_table}: empty manifest — the extract loaded "
+            f"nothing this run, so there is nothing to merge"
+        )
+        # The run log still records the skipped run; the delivery checkpoints
+        # are deliberately not advanced — nothing was merged.
+        dfm = DfmManager(mssql, context)
+        with dfm.connection():
+            run_ctx = dfm.start_dfm_run(
+                "arc", schema.ext_table, dagster_run_id=context.run_id, mode=config.mode
+            )
+            dfm.complete_dfm_run(run_ctx.log_id, rows_affected=0)
+        return dg.MaterializeResult(
+            metadata={
+                "besluttet": dg.MetadataValue.text("sprunget over"),
+                "aarsag": dg.MetadataValue.text("tomt manifest — ingen ny leverance"),
+                "row_count": dg.MetadataValue.int(0),
+                "mode": dg.MetadataValue.text(config.mode),
+                "source_table": dg.MetadataValue.text(f"ext.{schema.ext_table}"),
+                "target_table": dg.MetadataValue.text(f"arc.{schema.ext_table}"),
+            }
+        )
+
     ext_max, arc_max = guard_delivery_direction(context, mssql, schema, backfill)
 
     if backfill:
@@ -429,15 +535,25 @@ def _run_archive(
         # the metadata below.
         _record_deliveries(mssql, schema, "merge")
 
+    # Honours the dry-run contract: advance_checkpoint=False must leave the
+    # delivery checkpoints unmoved, or the next extract skips this delivery.
+    stamped: list[str] = []
+    if config.should_advance_checkpoint:
+        stamped = advance_delivery_checkpoints(context, mssql, manifest, config.mode)
+    else:
+        context.log.info("advance_checkpoint=False — delivery checkpoints left unmoved")
+
     metadata = build_archive_metadata(
         result,
         config,
         source_table=f"ext.{schema.ext_table}",
         target_table=f"arc.{schema.ext_table}",
     )
+    metadata["besluttet"] = dg.MetadataValue.text("merget")
     metadata["sds_revisions_logged"] = dg.MetadataValue.int(revisions)
     metadata["leverance_dato"] = dg.MetadataValue.text(ext_max or "-")
     metadata["forrige_leverance"] = dg.MetadataValue.text(arc_max or "(tom)")
+    metadata["stemplede_enheder"] = dg.MetadataValue.json(stamped or ["ingen"])
     return dg.MaterializeResult(metadata=metadata)
 
 
@@ -465,6 +581,8 @@ def _run_backfill(
 
     # Recorded for the history, not as a watermark: the guard reads MAX, and a
     # backfill date is older than what is already there, so it cannot move it.
+    # The delivery checkpoints are not touched either — regressing one to the
+    # pinned delivery would make the next run re-ingest the current one.
     if ext_max:
         _record_deliveries(mssql, schema, "backfill")
 
@@ -490,7 +608,8 @@ def _build_asset(schema: HaibaSchema, merge_config: ArchiveMergeConfig):
         deps=[f"ext_{schema.ext_table}"],
         tags={"domain": "haiba", "layer": "archive", "source": "haiba"},
         description=(
-            f"MERGE ext.{schema.ext_table} into arc.{schema.ext_table}. Mirrors "
+            f"MERGE ext.{schema.ext_table} into arc.{schema.ext_table}, or declare "
+            f"a no-op when the extract's manifest is empty. Mirrors "
             f"the newest delivery: rows SDS no longer publishes are soft-deleted."
             + (
                 " Measure changes are logged to arc.haiba_agg_revision first."
@@ -524,9 +643,12 @@ haiba_archive_assets = [
 __all__ = [
     "AGG_INFEKTION_CONFIG",
     "HaibaArchiveConfig",
+    "HaibaDeliveryManifest",
     "AGG_ORTOPAEDI_CONFIG",
     "CASES_INFEKTION_CONFIG",
     "CASES_SSI_CONFIG",
+    "advance_delivery_checkpoints",
+    "read_manifest",
     "arc_haiba_agg_infektion",
     "arc_haiba_agg_ortopaedi",
     "arc_haiba_cases_infektion",

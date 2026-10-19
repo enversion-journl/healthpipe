@@ -21,7 +21,7 @@
         {"name": "gender", "path": "gender"},
         {"name": "birth_date", "path": "birthDate"},
         {"name": "marital_status_code", "path": "maritalStatus.coding.code.first()"},
-        {"name": "marital_status_display", "path": "maritalStatus.coding.display.first()"},
+        {"name": "marital_status_display", "path": "maritalStatus.text.first()"},
         {"name": "gp_display", "path": "generalPractitioner.display.first()"},
         {"name": "gp_identifier", "path": "generalPractitioner.identifier.where(system='urn:oid:1.2.208.176.1.4').value.first()"},
         {"name": "citizenship_code", "path": "extension('http://hl7.org/fhir/StructureDefinition/patient-citizenship').extension('code').valueCodeableConcept.coding.code.first()"},
@@ -29,6 +29,7 @@
         {"name": "mother_ssn", "path": "extension('http://example.org/fhir/StructureDefinition/motherIdentifier').valueIdentifier.value.first()"},
         {"name": "father_ssn", "path": "extension('http://example.org/fhir/StructureDefinition/fatherIdentifier').valueIdentifier.value.first()"},
         {"name": "address_protection", "path": "extension('http://example.org/fhir/StructureDefinition/address-protection').valueBoolean.first()"},
+        {"name": "municipality_code", "path": "extension('http://example.org/fhir/StructureDefinition/residenceMunicipality').valueCodeableConcept.coding.code.first()"},
         {"name": "discretion_flag", "path": "extension('http://example.org/fhir/StructureDefinition/discretionFlag').valueBoolean.first()"},
         {"name": "medcom_test_person", "path": "meta.tag.where(code='test').exists()"},
         {"name": "district_code", "path": "extension('http://example.org/fhir/StructureDefinition/district').extension('code').valueString.first()"},
@@ -36,7 +37,14 @@
         {"name": "social_district_code", "path": "extension('http://example.org/fhir/StructureDefinition/social-district').extension('code').valueString.first()"},
         {"name": "social_district_text", "path": "extension('http://example.org/fhir/StructureDefinition/social-district').extension('text').valueString.first()"},
         {"name": "modtidspunkt", "path": "extension('http://example.org/fhir/StructureDefinition/modtidspunkt').valueDateTime.first()"},
-        {"name": "dw_is_deleted", "path": "extension('urn:fhir:isDeleted').valueInteger.first()"}
+        {"name": "cpr_updated", "path": "extension('http://example.org/fhir/StructureDefinition/cprUpdated').valueDate.first()"},
+        {"name": "dw_is_deleted", "path": "extension('urn:fhir:isDeleted').valueInteger.first()"},
+        {"name": "meta_source", "path": "meta.source"},
+        {"name": "source_cpr", "path": "meta.tag.where(system='http://example.org/fhir/CodeSystem/kilde' and code='CPR').exists()"},
+        {"name": "source_ifdb", "path": "meta.tag.where(system='http://example.org/fhir/CodeSystem/kilde' and code='IFDB').exists()"},
+        {"name": "source_haiba", "path": "meta.tag.where(system='http://example.org/fhir/CodeSystem/kilde' and code='HAIBA').exists()"},
+        {"name": "source_sdsdrg", "path": "meta.tag.where(system='http://example.org/fhir/CodeSystem/kilde' and code='SDSDRG').exists()"},
+        {"name": "source_sdsudred", "path": "meta.tag.where(system='http://example.org/fhir/CodeSystem/kilde' and code='SDSUDRED').exists()"}
       ]
     }
   ]

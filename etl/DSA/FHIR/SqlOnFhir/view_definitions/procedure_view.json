@@ -63,10 +63,6 @@
           "path": "bodySite.coding.code.first()"
         },
         {
-          "name": "body_site_display",
-          "path": "bodySite.first().text"
-        },
-        {
           "name": "source_system",
           "path": "identifier.system.first()"
         },
@@ -99,8 +95,88 @@
           "path": "meta.tag.where(system = 'http://example.org/fhir/CodeSystem/resource-flag' and code = 'lpr3-ignored').exists()"
         },
         {
+          "name": "status_code",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/procedureSourceMeta').extension.where(url='statusCode').valueString.first()"
+        },
+        {
+          "name": "status_text",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/procedureSourceMeta').extension.where(url='statusText').valueString.first()"
+        },
+        {
+          "name": "performer_organization_id",
+          "path": "performer.where(function.coding.code = 'udfoerende').actor.id.first()"
+        },
+        {
+          "name": "stamafdeling_organization_id",
+          "path": "performer.where(function.coding.code = 'stamafdeling').actor.id.first()"
+        },
+        {
+          "name": "practitioner_id",
+          "path": "performer.actor.where(type = 'Practitioner').identifier.value.first()"
+        },
+        {
+          "name": "practitioner_display",
+          "path": "performer.actor.where(type = 'Practitioner').display.first()"
+        },
+        {
+          "name": "practitioner_role_code",
+          "path": "performer.where(actor.type = 'Practitioner').function.coding.code.first()"
+        },
+        {
+          "name": "practitioner_role_display",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/procedureSourceMeta').extension.where(url='userRoleName').valueString.first()"
+        },
+        {
+          "name": "epji_created_at",
+          "path": "extension('http://example.org/fhir/StructureDefinition/sourceCreatedAt').valueDateTime.first()"
+        },
+        {
+          "name": "epji_modified_at",
+          "path": "extension('http://example.org/fhir/StructureDefinition/sourceModifiedAt').valueDateTime.first()"
+        },
+        {
+          "name": "ifdb_modified_at",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/procedureSourceMeta').extension.where(url='ifdbModifiedAt').valueString.first()"
+        },
+        {
+          "name": "used_contrast_code",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/procedureSourceMeta').extension.where(url='usedContrastCode').valueString.first()"
+        },
+        {
+          "name": "used_contrast_text",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/procedureSourceMeta').extension.where(url='usedContrastText').valueString.first()"
+        },
+        {
+          "name": "staff_category_code",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/procedureSourceMeta').extension.where(url='staffCategoryCode').valueString.first()"
+        },
+        {
           "name": "dw_is_deleted",
           "path": "extension('urn:fhir:isDeleted').valueInteger.first()"
+        },
+        {
+          "name": "location_code",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/procedureLocationMeta').extension.where(url='code').valueString.first()"
+        },
+        {
+          "name": "location_orgcode",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/procedureLocationMeta').extension.where(url='orgCode').valueString.first()"
+        },
+        {
+          "name": "stamafdeling_kode",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/risYdelseLocationMeta').extension.where(url='stamafdelingKode').valueString.first()"
+        },
+        {
+          "name": "stamafdeling_orgkode",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/risYdelseLocationMeta').extension.where(url='stamafdelingOrgkode').valueString.first()"
+        },
+        {
+          "name": "udfoert_enhed_kode",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/risYdelseLocationMeta').extension.where(url='udfoertEnhedKode').valueString.first()"
+        },
+        {
+          "name": "udfoert_enhed_orgkode",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/risYdelseLocationMeta').extension.where(url='udfoertEnhedOrgkode').valueString.first()"
         }
       ]
     }

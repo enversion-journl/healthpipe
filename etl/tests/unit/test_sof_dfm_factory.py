@@ -61,10 +61,16 @@ def _compute_fn(asset):
     return getattr(compute, "decorated_fn", compute)
 
 
-def _build(monkeypatch, *, config_key: str = "patient_view", extract=None):
+def _build(monkeypatch, *, config_key: str = "patient_view", extract=None, bounds=()):
+    """``bounds`` are the slice bounds the FHIR server answers with, then None."""
     stub = _StubDfmManager()
     monkeypatch.setattr(mod, "DfmManager", lambda *_a, **_k: stub)
     calls: list[dict] = []
+    remaining = list(bounds)
+    monkeypatch.setattr(
+        mod, "next_sof_slice_bound", lambda *_a, **_k: remaining.pop(0) if remaining else None
+    )
+    monkeypatch.setattr(mod, "count_sof_resources_from", lambda *_a, **_k: 123)
 
     def _default_extract(*_args, **kwargs):
         calls.append({"kwargs": kwargs, "read_at": datetime.now(UTC)})
@@ -145,3 +151,85 @@ def test_view_config_columns_are_forwarded_to_the_extract(monkeypatch) -> None:
     kwargs = calls[0]["kwargs"]
     assert kwargs["null_sentinel_columns"] == cfg.get("null_sentinel_columns")
     assert kwargs["normalized_datetime_columns"] == cfg["normalized_datetime_columns"]
+
+
+def _windows(calls: list[dict]) -> list[tuple]:
+    return [(c["kwargs"]["partition_start"], c["kwargs"]["partition_end"]) for c in calls]
+
+
+@pytest.mark.unit
+def test_large_delta_is_read_in_slices_each_with_its_own_checkpoint(monkeypatch) -> None:
+    asset, stub, calls = _build(monkeypatch, bounds=["B1", "B2"])
+
+    result = _compute_fn(asset)(_fake_context(), None, None, RunModeConfig(mode="delta"))
+
+    assert _windows(calls) == [
+        ("2026-01-01T00:00:00+00:00", "B1"),
+        ("B1", "B2"),
+        ("B2", None),
+    ]
+    values = [value for _, _, value, _ in stub.checkpoints]
+    assert values[:2] == ["B1", "B2"]
+    # The open last window keeps the stamp-before-read rule.
+    assert datetime.fromisoformat(values[2]) <= calls[2]["read_at"]
+    assert result.metadata["slices"] == 3
+    assert stub.completed[0]["rows_affected"] == 9
+
+
+@pytest.mark.unit
+def test_finished_slices_keep_their_checkpoint_when_a_later_slice_fails(monkeypatch) -> None:
+    seen: list[tuple] = []
+
+    def _fails_on_second(*_args, **kwargs):
+        seen.append((kwargs["partition_start"], kwargs["partition_end"]))
+        if len(seen) == 2:
+            raise RuntimeError("slice exploded")
+        return 7, 3
+
+    asset, stub, _ = _build(monkeypatch, extract=_fails_on_second, bounds=["B1", "B2"])
+
+    with pytest.raises(RuntimeError, match="slice exploded"):
+        _compute_fn(asset)(_fake_context(), None, None, RunModeConfig(mode="delta"))
+
+    assert [value for _, _, value, _ in stub.checkpoints] == ["B1"]
+    assert stub.failed == ["slice exploded"]
+
+
+@pytest.mark.unit
+def test_time_budget_stops_between_slices_and_reports_the_backlog(monkeypatch) -> None:
+    asset, stub, calls = _build(monkeypatch, bounds=["B1", "B2", "B3"])
+    monkeypatch.setattr(mod, "sof_slice_settings", lambda _context: (1_000_000, 60.0))
+    clock = iter([0.0, 0.0, 0.0, 20.0, 20.0, 20.0, 45.0, 45.0])
+    monkeypatch.setattr(mod.time, "monotonic", lambda: next(clock))
+
+    result = _compute_fn(asset)(_fake_context(), None, None, RunModeConfig(mode="delta"))
+
+    # Two slices fit; the third would not, and the open window is left for the next run.
+    assert _windows(calls) == [("2026-01-01T00:00:00+00:00", "B1"), ("B1", "B2")]
+    assert [value for _, _, value, _ in stub.checkpoints] == ["B1", "B2"]
+    assert result.metadata["backlog_resources"] == 123
+    assert stub.completed[0]["checkpoint_after"] == "B2"
+
+
+@pytest.mark.unit
+def test_slicing_can_be_switched_off(monkeypatch) -> None:
+    asset, _, calls = _build(monkeypatch, bounds=["B1"])
+    monkeypatch.setattr(mod, "sof_slice_settings", lambda _context: (0, 0.0))
+
+    _compute_fn(asset)(_fake_context(), None, None, RunModeConfig(mode="delta"))
+
+    assert _windows(calls) == [("2026-01-01T00:00:00+00:00", None)]
+
+
+@pytest.mark.unit
+def test_period_mode_is_never_sliced(monkeypatch) -> None:
+    asset, _, calls = _build(monkeypatch, bounds=["B1"])
+
+    _compute_fn(asset)(
+        _fake_context(),
+        None,
+        None,
+        RunModeConfig(mode="period", date_from="2026-02-01", date_to="2026-02-02"),
+    )
+
+    assert _windows(calls) == [("2026-02-01", "2026-02-02")]

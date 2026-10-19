@@ -25,8 +25,8 @@ Er kildesystemet allerede sat op, spring til del 2.
 Alt i dette kapitel følger af fem regler. Brydes en af dem, viser fejlen sig langt
 downstream, og typisk som forkerte tal frem for som en fejlmeddelelse.
 
-1. **`ext.*` er flygtig, `arc.*` er permanent.** Hver kørsel sletter og genskaber
-   sin `ext`-tabel. Kun MERGE'en ind i arkivet gemmer noget.
+1. **`ext.*` er en landing zone, `arc.*` er permanent.** Hver kørsel sletter sin
+   `ext`-tabel og opretter den igen. Kun MERGE'en ind i arkivet gemmer noget.
 2. **Downstream assets læser `arc.*` — aldrig `ext.*`.** Intet staging-, FHIR- eller
    DQA-asset må referere `ext`. `ext` findes udelukkende som kilde til MERGE'en.
 3. **Modelleringslogik hører ikke til i DSI.** Det typiske mønster er, at `arc.*` er en
@@ -43,8 +43,7 @@ downstream, og typisk som forkerte tal frem for som en fejlmeddelelse.
    danner for at kunne arkivere korrekt; forretningsbetydningen ligger stadig i
    CleanCoden downstream.
 4. **Én arkivtabel per kildetabel.** Joins der beriger eller denormaliserer hører
-   til downstream. (Den ene undtagelse — at hente et sletteflag fra en følgetabel — er
-   beskrevet under [Sletninger](#sletninger).)
+   til downstream.
 5. **Arkivet bærer historikken.** Fordi `arc.*` har den fulde historik, kan ethvert
    downstream-lag bygges op igen uden at røre kildesystemet. Arkivet er samtidig
    det, der gør det muligt at opdage rækker, som er forsvundet fra kilden, og at
@@ -67,9 +66,9 @@ Kildenavnet står **først** i tabelnavnet. To ældre afvigelser findes i koden
 
 **Kildens egne navne bevares som kilden har stavet dem.** `ext`- og `arc`-tabeller
 er en spejling: vi translittererer ikke og omdøber ikke kildens identifikatorer.
-`ae`/`oe`/`aa`-reglen gælder først fra arkivet og downstream. Kolonner **vi** selv
+`ae`/`oe`/`aa`-reglen gælder de navne, vi selv giver. Kolonner **vi** selv
 tilføjer (`dw_*`, afledte `*_uuid`/`*_noegle`) følger derimod
-[navngivningsstandarden](../implementation/navngivningsstandard.md).
+[navngivningsstandarden](../implementation/navngivningsstandard_basismodel.md).
 
 ## Faste kolonner på `arc.*`
 
@@ -96,7 +95,8 @@ Tabellerne kommer i del 2.
 
 En ny datakilde kan ikke kobles på fra repoet alene. Selve forbindelsen —
 MSSQL-connector, Oracle-database, filleverance eller hvad kilden kræver — sættes op
-i **Nomad**, hvor Dagster-deploymentets environment variables lever. Første skridt
+i **Nomad** — det system, der kører Dagster-deploymentet, og hvor dets environment
+variables ligger. Første skridt
 er derfor en aftale, ikke kode:
 
 1. **Skaf oplysningerne hos systemejeren:** host, port, database, en **read-only**
@@ -183,6 +183,15 @@ For en Oracle-kilde hedder modparterne `DSI/oracle/{kilde}_extract.py` og
 | `DSI/mssql/archive/sydax_archive_configs.py` | Arkiv-side, inkl. `_make_arc_asset()`-factoryen |
 | `DSI/oracle/ifdb_extract.py` / `ifdb_archive.py` | Oracle-kilde |
 | `DSI/csv_files/haiba.py` / `haiba_archive.py` | Fildrop/CSV-leverance |
+| `DSI/csv_files/_sds_tar.py` | Fælles streaming af SDS' `tar.bz2`-leverancer (DRG, udredningsret, LPR3) |
+
+SDS leverer som komprimerede tar-arkiver. Det maskineri, alle tre kilder deler —
+streaming direkte fra tar uden udpakning, den chunkede `ExtWriter` med `discard()`
+på fejlstien, `SDP_ExportLog` som kontroltotal, `ext`-DDL og værnet mod forkert
+tegnkodning (mojibake) —
+ligger i `_sds_tar.py`. Kildemodulerne (`drg.py`, `udredningsret.py`) beholder det
+kildespecifikke: filnavnemønstre, per-række-vagter, leverancedetektion og
+fejlbeskeder.
 
 `_make_arc_asset()` udleder assettets navn, dets `ext_*`-afhængighed og dets tags
 fra konfigurationen. Når den er på plads, er "tilføj en tabel" ét element i en liste
@@ -191,7 +200,7 @@ og intet andet.
 Extract- og arkiv-assets hører til **samme group** (`{kilde}_archive`), så ét
 job-udvalg dækker hele kilden.
 
-### 6. Eksportér assets
+### 6. Registrér assets
 
 Assets når `definitions.py` gennem `__init__.py`-kæden:
 `DSI/mssql/extract/__init__.py` (læg din liste ind i `all_factory_extract_assets`)
@@ -215,9 +224,10 @@ slettede frem for at stå tilbage som forældede.
 Opret `dqa/config/arc_{kilde}_subjects.py` efter mønstret i
 `dqa/config/arc_subjects.py`, og læg listen ind i `ALL_SUBJECTS` i
 `dqa/config/__init__.py`. Sætter du `source="{kilde}"`, får kilden automatisk sine
-egne anchor-assets, sit eget ugentlige job og sin egen tidsplan.
+egne anchor assets (de assets, DQA-tjekkene er knyttet til), sit eget ugentlige job
+og sin egen tidsplan.
 
-Tag `key_columns` **fra selve `ArchiveMergeConfig`-objektet** i stedet for at taste
+Tag `key_columns` **fra selve `ArchiveMergeConfig`-objektet** i stedet for at skrive
 dem af. Det er dét, der forhindrer DQA i at glide fra arkivets faktiske grain, når
 en merge-nøgle ændres.
 
@@ -232,9 +242,9 @@ efter mønstret `mock_ils_mssql_resource` / `real_ils_mssql_resource`.
 - [ ] `.env.template` opdateret med pladsholdere for de variabler, resourcen kræver
 - [ ] `docs/source_systems/{kilde}/` oprettet
 - [ ] Resource-klasse tilføjet i `core/resources.py` og registreret i `definitions.py`
-- [ ] Arkivets DDL-hjem besluttet (eksisterende domæne, eller ny mappe + `staging_infra_{kilde}`)
+- [ ] Besluttet hvor arkivets DDL skal ligge (eksisterende domæne, eller ny mappe + `staging_infra_{kilde}`)
 - [ ] `{kilde}_extract_configs.py` og `{kilde}_archive_configs.py` oprettet
-- [ ] Assets eksporteret gennem `__init__.py`-kæden
+- [ ] Assets registreret gennem `__init__.py`-kæden
 - [ ] `jobs/{kilde}_jobs.py` tilføjet og registreret; tidsplan besluttet
 - [ ] `dqa/config/arc_{kilde}_subjects.py` oprettet og tilføjet `ALL_SUBJECTS`
 - [ ] Testfixtures tilføjet
@@ -256,7 +266,7 @@ flowchart TD
     ARC["<b>5 · ArchiveMergeConfig</b> — <i>kilde_archive_configs.py</i><br/>merge_keys + non_key_columns dækker hver kildekolonne"]
     DQA["<b>6 · DQA-subject</b> — <i>dqa/config/arc_kilde_subjects.py</i>"]
     RUN["<b>7 · Push, og materialisér på Dev</b><br/>staging_infra → ext_* → arc_*"]
-    VER{"Anden kørsel = no-op?<br/>Grain holder?"}
+    VER{"Henter anden kørsel ingenting?<br/>Grain holder?"}
     OK(["Færdig"])
 
     U --> L --> DDL --> EXT --> ARC --> DQA --> RUN --> VER
@@ -282,7 +292,7 @@ den iagttagelse til i `etl/docs/source_systems/{kilde}/`.
 
 | Vælg | Når |
 |---|---|
-| `is_full_load=True` | Små lookup-tabeller (under ca. 100.000 rækker), eller når der ikke findes et troværdigt modification timestamp. Enklere og selvhelbredende: hver kørsel læser alt igen. |
+| `is_full_load=True` | Små lookup-tabeller (under ca. 100.000 rækker), eller når der ikke findes et troværdigt modification timestamp. Enklere, og fejl retter sig selv: hver kørsel læser alt igen. |
 | Delta | Store tabeller eller tabeller med meget ændring, hvor der findes et pålideligt modification timestamp. |
 
 Bemærk: et *extract* med full load er ikke et *arkiv* med full load. Arkivet
@@ -341,9 +351,9 @@ ENCOUNTER_EXTRACT_CONFIG = DfmExtractConfig(
     columns=ENCOUNTER_COLUMNS,
     column_types=ENCOUNTER_COLUMN_TYPES,
     index_keys=("OBJECT_ID",),
-    upper_bound_column="EPJI_MODIFICATION_DATETIME",
-    flow_start_from=("dfm", "ifdb_flow_start"),
-    description="IFDB Encounter (delta on IFDB_MODIFICATION_DATETIME, upper bound on EPJI_MODIFICATION_DATETIME).",
+    upper_bound_column="IFDB_MODIFICATION_DATETIME",
+    flow_start_from=IFDB_TRANSFER_CEILING,
+    description="IFDB Encounter (delta on IFDB_MODIFICATION_DATETIME).",
 )
 ```
 
@@ -364,18 +374,27 @@ typerne ikke kan komme ud af trit. Kopiér det mønster frem for at vedligeholde
 lister.
 
 **De sidste to felter styrer, hvor langt kørslen læser.** `flow_start_from` peger
-på et fælles *flow start*-checkpoint, som alle IFDB-tabeller deler
-(`dfm.ifdb_flow_start`); det bliver kørslens loft. `upper_bound_column` siger,
-hvilken kolonne loftet gælder for, når det ikke er delta-kolonnen. Resultatet for
-Encounter er:
+på et fælles loft i `meta.DFMState`, som `dfm_ifdb_flow_start` skriver før
+udtrækket; det bliver kørslens øvre grænse. `upper_bound_column` siger, hvilken
+kolonne loftet gælder for. Resultatet for Encounter er:
 
 ```sql
-IFDB_MODIFICATION_DATETIME > checkpoint     -- hvor vi slap
-AND EPJI_MODIFICATION_DATETIME <= flow_start -- fælles loft for hele IFDB
+IFDB_MODIFICATION_DATETIME > checkpoint  -- hvor vi slap
+AND IFDB_MODIFICATION_DATETIME <= loft   -- overførselsloftet
 ```
 
-Pointen er konsistens: alle IFDB-tabeller læser op til det samme punkt, så de
-FHIR-ressourcer, der bygges af flere tabeller, passer sammen.
+IFDB har to ure: EPJ-tidspunktet, hvor rækken blev ændret i EPJ
+(`EPJI_MODIFICATION_DATETIME`, `MODTIDSPUNKT`), og overførselstidspunktet, hvor IFDB
+skrev den (`IFDB_MODIFICATION_DATETIME`, `OPDATERET_TID`, `UPDATE_TIME`). Derfor er
+der to lofter: **overførselsloftet** (`IFDB_TRANSFER_CEILING`, Oracles `SYSDATE` ved
+en færdig IFDB-cyklus) og **EPJ-loftet** (`IFDB_EPJ_CEILING`,
+`MIN(MAX(JOB_LOG.SLUTTID))`). Begge grænser lægges på delta-kolonnen og mod loftet
+på samme ur. Kun tabeller uden en overførselskolonne bruger EPJ-loftet.
+
+Pointen er konsistens: alle IFDB-tabeller på samme ur læser op til det samme punkt, så de
+FHIR-ressourcer, der bygges af flere tabeller, passer sammen. Et loft på et andet
+ur end den nedre grænse ville dele en IFDB-cyklus i to eller læse forrige cyklus
+igen ved hver kørsel.
 
 Fuld feltreference: [dfm_extract_factory_guide.md](../implementation/dfm_extract_factory_guide.md).
 
@@ -394,7 +413,7 @@ ENCOUNTER_ARCHIVE_CONFIG = ArchiveMergeConfig(
     target_table="ifdb_encounter",
     merge_keys=_ENCOUNTER_MERGE_KEY,
     non_key_columns=_ENCOUNTER_NON_KEY,
-    flow_start_key=_IFDB_FLOW_START_KEY,
+    flow_start_key=ENCOUNTER_EXTRACT_CONFIG.used_ceiling_key,
     strategy="upsert",
     update_only_on_change=True,
     detect_deletes=False,
@@ -403,9 +422,9 @@ ENCOUNTER_ARCHIVE_CONFIG = ArchiveMergeConfig(
 ```
 
 `merge_keys` + `non_key_columns` skal tilsammen nævne **hver eneste kildekolonne**,
-arkivet bærer. Det, der udelades, bliver stille aldrig skrevet. Audit-kolonnerne
-hører derimod ikke med: MERGE'en tilføjer dem selv, og nævner du dem her, forsøger
-den at læse dem fra `ext`, hvor de ikke findes.
+arkivet bærer. Det, der udelades, bliver aldrig skrevet — og der kommer ingen
+fejlbesked. Audit-kolonnerne hører derimod ikke med: MERGE'en tilføjer dem selv,
+og nævner du dem her, forsøger den at læse dem fra `ext`, hvor de ikke findes.
 
 Læg mærke til, at `non_key_columns` er udledt af den **samme** `ENCOUNTER_COLUMNS`,
 som extract-konfigurationen bruger, minus merge-nøglen. Fordelen er konkret: en
@@ -421,8 +440,10 @@ kolonne, der tilføjes ét sted, kan ikke blive glemt det andet.
 Efter MERGE'en skriver arkivet et nyt checkpoint. Værdien findes i denne
 rækkefølge:
 
-1. **`flow_start_key`** — læser det fælles flow start og bruger det som
-   checkpoint. Det er den **samme værdi**, som extractet brugte som loft, og derfor
+1. **`flow_start_key`** — læser det loft, extractet brugte, og bruger det som
+   checkpoint. Extractet gemmer loftet i sin egen række i `meta.DFMState`
+   (`used_ceiling_key`, dvs. rækken `dfm/<måltabel>_flow_start`), så en flow start i en senere
+   kørsel ikke kan flytte det. Derfor
    ender arkivet præcis dér, hvor kørslen holdt op med at læse — næste delta-vindue
    hverken springer rækker over eller genlæser dem. IFDB bruger
    den — derfor har Encounter ingen `checkpoint_query`.
@@ -445,8 +466,8 @@ Valget mellem de to er ikke en smagssag. Har kilden et flow start, skal
 checkpointet komme derfra — så bruger extract og arkiv det samme tal. Har den ikke,
 må værdien aflæses af data med en `checkpoint_query`.
 
-En `period`-kørsel med slutdato er undtagelsen: den pinner checkpointet til
-periodens slutning, så en portionsvis historisk genindlæsning kan genoptages. Det
+En `period`-kørsel med slutdato er undtagelsen: den låser checkpointet til
+periodens slutning, så en historisk genindlæsning i bidder kan genoptages. Det
 sker dog kun, hvis kørslen overhovedet må rykke checkpointet — og det må `period`
 og `ids` som udgangspunkt ikke. Se
 [dfm_operations_guide.md](../implementation/dfm_operations_guide.md).
@@ -460,7 +481,6 @@ håndteres bevidst.
 |---|---|
 | Kilden laver hard delete, og extract er et **full load** | `detect_deletes=True` + `upstream_is_full_load=True` |
 | Kilden har sin egen sletteflag-kolonne | `source_delete_column="DELETED"` |
-| Kilden har en separat deletion log-tabel (kun Oracle) | `select_from_expr=` med et `LEFT JOIN`, der producerer `dw_is_deleted` |
 | Rækker slettes aldrig | Behold standardværdierne |
 
 Der er en sikkerhedsspærre indbygget:
@@ -499,7 +519,7 @@ Tjek derefter fem ting:
 2. **Checkpointet er rykket.**
    ```sql
    SELECT * FROM [meta].[DFMState] WHERE [table_name] = 'ifdb_encounter';
-   SELECT TOP 20 * FROM [meta].[DFMRunLog] ORDER BY [start_time] DESC;
+   SELECT TOP 20 * FROM [meta].[DFMRunLog] ORDER BY [run_started_at] DESC;
    ```
    `DFMState`-rækken oprettes automatisk ved første kørsel — der er ikke noget at
    oprette i hånden.
@@ -511,13 +531,13 @@ Tjek derefter fem ting:
    tal skal være ens. Er de forskellige, matcher `merge_keys` ikke det faktiske
    grain, og enhver downstream-join vil dobbelttælle.
 5. **Replay virker.** Kør én ad-hoc `period`- eller `ids`-kørsel, og bekræft at
-   tabellens checkpoint **ikke** flyttede sig. Det er dét, der gør, at driften
-   kan reparere data uden en fuld re-extract.
+   tabellens checkpoint **ikke** flyttede sig. Det er den mekanisme, der bruges
+   til at genkøre data, når noget skal rettes — uden en fuld re-extract.
 
 ### 8. Test
 
 En ny tabel er en tilføjelse til en konfigurationsliste og udløser ikke en unit
-test — en test, der påstår at en konfigurationsværdi er lig en aftastet kopi af sig
+test — en test, der påstår at en konfigurationsværdi er lig en afskrevet kopi af sig
 selv, fanger ingen fejl. Verifikationen i trin 7 og DQA-afstemningen er dét, der
 dækker den.
 
@@ -551,7 +571,7 @@ Skriv en test, når tabellen tvang dig til at tilføje *logik*: et selvskrevet
 | Delete detection "gør ingenting" | Slået fra ved en delta-kørsel — se advarslen i logs |
 | Oracle-arkivets MERGE er ekstremt langsom | `column_types` mangler, så nøglekolonner blev `NVARCHAR(MAX)` og kan ikke indekseres |
 | Id'er matcher ikke downstream efter Oracle-extract | Numerisk id blev til teksten `"123.0"` — tjek at kolonnen står i `column_types` |
-| Assettet dukker ikke op i Dagster | Ikke eksporteret gennem `__init__.py`-kæden, eller konfigurationen blev aldrig lagt i listen |
+| Assettet dukker ikke op i Dagster | Ikke registreret gennem `__init__.py`-kæden, eller konfigurationen blev aldrig lagt i listen |
 
 ## Videre herfra
 
@@ -567,7 +587,7 @@ ind](03c_DSA_arkiv_til_dmskema.md#regler-for-at-hente-en-filleverance-ind) i 03c
 først. De gælder uanset hvilket spor du derefter vælger, også når kilden ender
 dimensionelt.
 
-Uddybende referencedokumentation (endnu ikke oversat):
+Uddybende referencedokumentation (på engelsk):
 [dfm_design.md](../architecture/dfm_design.md) (hvorfor DFM ser sådan ud),
 [dsi_etl_guide.md](../implementation/dsi_etl_guide.md) (den engelske originaludgave
 af dette kapitel med flere kodeeksempler).

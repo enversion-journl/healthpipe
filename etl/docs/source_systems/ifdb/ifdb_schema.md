@@ -652,12 +652,14 @@ Most clinical tables reference `PATIENT_OPLYSNINGER_COLUMNA.PATIENT_ID`:
 
 ### Audit Fields
 Most tables include audit fields:
-- `MODTIDSPUNKT`: Receipt timestamp
+- `MODTIDSPUNKT`: last modification time in EPJ-I (EPJ clock)
 - `SLETTET`: Deleted flag
 - `OPRET_TIDSPUNKT`: Creation timestamp
-- `OPDATERET_TID`: Update timestamp
-- `EPJI_MODIFICATION_DATETIME`: EPJ-I source system modification timestamp — use as **upper-bound column** for DFM extract flow-start ceiling (reflects when the source change occurred)
-- `IFDB_MODIFICATION_DATETIME`: IFDB integration layer modification timestamp — use as **delta column** for DFM extract checkpoint filtering
+- `OPDATERET_TID`: time IFDB transferred the row (IFDB clock)
+- `EPJI_MODIFICATION_DATETIME`: last modification time in EPJ-I (EPJ clock)
+- `IFDB_MODIFICATION_DATETIME`: time IFDB transferred the row (IFDB clock)
+
+The two clocks differ. A cycle starts at 05, 09, 13 or 17; `JOB_LOG.SLUTTID` is the cut on the EPJ clock up to which the cycle loads (a few seconds past the hour), and IFDB stamps the transferred rows from the cut until the cycle ends, minutes later. A table with an IFDB-clock column uses it as the DFM delta column, bounded by the transfer ceiling; a table with only an EPJ-clock column (`DIAGNOSE`, `SENGEENHED`) uses the EPJ ceiling. See *Two ceilings* in `docs/implementation/dfm_operations_guide.md`.
 
 ## XML Data Integration
 

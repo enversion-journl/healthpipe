@@ -37,6 +37,14 @@ SELECT *
 FROM [dim].[Aftale];
 GO
 
+-- vw_dim.ILSLeverandoer (Type 1 — one row per ILS supplier number, lnr)
+-- Pass-through; giro = 'Person' rows are unmasked (masking is datamart responsibility).
+CREATE OR ALTER VIEW [vw_dim].[ILSLeverandoer]
+AS
+SELECT *
+FROM [dim].[ILSLeverandoer];
+GO
+
 -- vw_dim.Vareudlevering
 CREATE OR ALTER VIEW [vw_dim].[Vareudlevering]
 AS
@@ -66,6 +74,21 @@ GO
 
 -- vw_dim.Rekvirent is defined in views/security/01_vw_dim_security.sql
 -- (rekvirent name for HP/OHP home patients is column-restricted).
+
+-- vw_dim.ILSBruger
+-- Presents the generic dim.ILSBruger columns under their ILS headings.
+CREATE OR ALTER VIEW [vw_dim].[ILSBruger]
+AS
+SELECT
+    [dw_ek_ILSBruger],
+    [BrugerID]    = [bruger_id],
+    [ILSinit]     = [initialer],
+    [Navn]        = [name_text],
+    [Sygehus]     = [primaer_sygehus],
+    [Sygehusnavn] = [primaer_sygehus_navn],
+    [Aktiv]       = [active]
+FROM [dim].[ILSBruger];
+GO
 
 -- vw_dim.ean
 CREATE OR ALTER VIEW [vw_dim].[ean]

@@ -28,6 +28,7 @@ from core.dfm_config import RunModeConfig
 from core.dfm_manager import DfmManager
 from core.resources import MSSQLResource
 from dagster import AssetExecutionContext, AssetKey, MaterializeResult, asset
+from DSA.SQL.common.dato_dimension import dato_key, dato_tid
 
 # Attributes that constitute a change. Without a change guard the MERGE would
 # update every row on every run, and dw_timestamp_update would stop being a
@@ -47,6 +48,21 @@ _CHANGE_CHECK = """
                 OR ISNULL(CAST(tgt.hoved_slut AS datetime2(0)), '1900-01-01') <>
                    ISNULL(CAST(src.hoved_slut AS datetime2(0)), '1900-01-01')
                 OR ISNULL(tgt.alle_maa_benytte, 1) <> ISNULL(src.alle_maa_benytte, 1)
+                OR ISNULL(tgt.standard_leveringsdage, -1) <> ISNULL(src.standard_leveringsdage, -1)
+                OR ISNULL(tgt.dw_ek_Dato_sysdato, -1) <> ISNULL(src.dw_ek_Dato_sysdato, -1)
+                OR ISNULL(CAST(tgt.dato_tid_sysdato AS datetime2(0)), '1900-01-01') <>
+                   ISNULL(CAST(src.dato_tid_sysdato AS datetime2(0)), '1900-01-01')
+                OR ISNULL(tgt.bruger, '') <> ISNULL(src.bruger, '')
+                -- BIT columns compare through a sentinel OUTSIDE the BIT domain:
+                -- with ISNULL(..., 0) a NULL <-> 0 transition is invisible, and the
+                -- post-migration backfill would never lift NULL to a source 0.
+                OR ISNULL(CAST(tgt.aktiv AS TINYINT), 255) <> ISNULL(CAST(src.aktiv AS TINYINT), 255)
+                OR ISNULL(tgt.fragt_beloeb, -1) <> ISNULL(src.fragt_beloeb, -1)
+                OR ISNULL(CAST(tgt.sw_fragt AS TINYINT), 255) <> ISNULL(CAST(src.sw_fragt AS TINYINT), 255)
+                OR ISNULL(tgt.gebyr_beloeb, -1) <> ISNULL(src.gebyr_beloeb, -1)
+                OR ISNULL(CAST(tgt.sw_gebyr AS TINYINT), 255) <> ISNULL(CAST(src.sw_gebyr AS TINYINT), 255)
+                OR ISNULL(tgt.graense_beloeb, -1) <> ISNULL(src.graense_beloeb, -1)
+                OR ISNULL(tgt.fragt_graense_beloeb, -1) <> ISNULL(src.fragt_graense_beloeb, -1)
 """
 
 MERGE_SQL = f"""
@@ -69,6 +85,17 @@ MERGE_SQL = f"""
             tgt.hoved_start = src.hoved_start,
             tgt.hoved_slut = src.hoved_slut,
             tgt.alle_maa_benytte = src.alle_maa_benytte,
+            tgt.standard_leveringsdage = src.standard_leveringsdage,
+            tgt.dw_ek_Dato_sysdato = src.dw_ek_Dato_sysdato,
+            tgt.dato_tid_sysdato = src.dato_tid_sysdato,
+            tgt.bruger = src.bruger,
+            tgt.aktiv = src.aktiv,
+            tgt.fragt_beloeb = src.fragt_beloeb,
+            tgt.sw_fragt = src.sw_fragt,
+            tgt.gebyr_beloeb = src.gebyr_beloeb,
+            tgt.sw_gebyr = src.sw_gebyr,
+            tgt.graense_beloeb = src.graense_beloeb,
+            tgt.fragt_graense_beloeb = src.fragt_graense_beloeb,
             tgt.dw_timestamp_update = CAST(SYSDATETIME() AS datetime2(0))
 
     WHEN NOT MATCHED BY TARGET THEN
@@ -85,6 +112,17 @@ MERGE_SQL = f"""
             hoved_start,
             hoved_slut,
             alle_maa_benytte,
+            standard_leveringsdage,
+            dw_ek_Dato_sysdato,
+            dato_tid_sysdato,
+            bruger,
+            aktiv,
+            fragt_beloeb,
+            sw_fragt,
+            gebyr_beloeb,
+            sw_gebyr,
+            graense_beloeb,
+            fragt_graense_beloeb,
             dw_timestamp_insert,
             dw_timestamp_update
         )
@@ -101,6 +139,17 @@ MERGE_SQL = f"""
             src.hoved_start,
             src.hoved_slut,
             src.alle_maa_benytte,
+            src.standard_leveringsdage,
+            src.dw_ek_Dato_sysdato,
+            src.dato_tid_sysdato,
+            src.bruger,
+            src.aktiv,
+            src.fragt_beloeb,
+            src.sw_fragt,
+            src.gebyr_beloeb,
+            src.sw_gebyr,
+            src.graense_beloeb,
+            src.fragt_graense_beloeb,
             CAST(SYSDATETIME() AS datetime2(0)),
             CAST(SYSDATETIME() AS datetime2(0))
         )
@@ -166,7 +215,7 @@ def dim_Aftale(
                     )
 
                 cursor.execute(
-                    """
+                    f"""
                 DROP TABLE IF EXISTS #Aftale_Source;
 
                 SELECT
@@ -181,7 +230,18 @@ def dim_Aftale(
                     s.aftale_ansvarlig,
                     s.hoved_start,
                     s.hoved_slut,
-                    s.alle_maa_benytte
+                    s.alle_maa_benytte,
+                    s.standard_leveringsdage,
+                    {dato_key('s.sysdato')} AS dw_ek_Dato_sysdato,
+                    {dato_tid('s.sysdato')} AS dato_tid_sysdato,
+                    s.bruger,
+                    s.aktiv,
+                    s.fragt_beloeb,
+                    s.sw_fragt,
+                    s.gebyr_beloeb,
+                    s.sw_gebyr,
+                    s.graense_beloeb,
+                    s.fragt_graense_beloeb
                 INTO #Aftale_Source
                 FROM [stg].[dim_Aftale_ils] s
                 LEFT JOIN [map].[Aftale] m

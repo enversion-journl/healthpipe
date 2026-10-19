@@ -24,6 +24,7 @@ CODESYSTEM_PASCAL = {
     "rekvirent": "Rekvirent",
     "lager": "Lager",
     "okosted": "Okosted",
+    "ifdb": "IFDB",
 }
 
 _KIND_PASCAL = {"concept": "Concept", "properties": "Properties", "hierarchy": "Hierarchy"}

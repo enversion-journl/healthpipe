@@ -85,6 +85,29 @@ DQA_AFTER_ETL_SENSOR_SPECS: list[dict] = [
         "default_status": dg.DefaultSensorStatus.STOPPED,
     },
     {
+        "name": "dqa_udredningsret_after_publish",
+        # udredningsret_publish_job rebuilds the udredningsret DSA layer AND runs
+        # the udredningsret DSO sync. Its DQA surface is the DWH track with no
+        # source split (spec section 8): the ten section-9 subjects in
+        # dqa/config/udredningsret_subjects.py plus the two lineage-derived fact
+        # subjects (dwh_udredningsforloeb, dwh_udredningsretmarkoer) all live in
+        # dqa_dwh_daily_job / dqa_dwh_weekly_job. The section-9 subjects are all
+        # DAILY on purpose ("after every publish" — publishes are delivery-driven);
+        # the weekly job is requested for the facts' referential_integrity tier,
+        # which is the only udredningsret check family that needs a Saturday.
+        #
+        # STOPPED, for the same reason dqa_drg_after_publish is: the udredningsret
+        # sentinel caps have not been validated against a real run yet, and the
+        # section-9 counts need one publish worth of dqa.Results before their
+        # baselines mean anything. It is also the SAME job DRG's sensor requests,
+        # so leaving this one RUNNING would quietly start the DRG checks that were
+        # deliberately parked. Enable both together once the baselines are read.
+        "monitored": ["udredningsret_publish_job"],
+        "daily_job": "dqa_dwh_daily_job",
+        "weekly_jobs": ["dqa_dwh_weekly_job"],
+        "default_status": dg.DefaultSensorStatus.STOPPED,
+    },
+    {
         "name": "dqa_haiba_after_publish",
         # dm.HAIBA_* only changes when the publish job ran (delivery-driven,
         # sensor-requested), so every HAIBA check runs at DAILY cadence and

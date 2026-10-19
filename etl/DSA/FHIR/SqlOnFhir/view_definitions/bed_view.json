@@ -1,0 +1,24 @@
+{
+  "resourceType": "ViewDefinition",
+  "name": "bed_view",
+  "resource": "Location",
+  "status": "active",
+  "where": [
+    {"path": "identifier.where(system='urn:source:ifdb:bed_id').exists()"}
+  ],
+  "select": [
+    {
+      "column": [
+        {"name": "bed_id", "path": "id"},
+        {"name": "name", "path": "name"},
+        {"name": "status", "path": "status"},
+        {"name": "physical_type", "path": "physicalType.coding.code.first()"},
+        {"name": "part_of_location_id", "path": "partOf.id"},
+        {"name": "identifier_value", "path": "identifier.where(system='urn:source:ifdb:bed_id').value.first()"},
+        {"name": "room", "path": "extension.where(url='urn:source:ifdb:bed_room').valueString.first()"},
+        {"name": "ward_unit_code", "path": "extension.where(url='urn:source:ifdb:bed_space_ward_unit_code').valueString.first()"},
+        {"name": "dw_is_deleted", "path": "extension('urn:fhir:isDeleted').valueInteger.first()"}
+      ]
+    }
+  ]
+}

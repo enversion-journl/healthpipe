@@ -1,0 +1,24 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fhir
+  TableName: fhir.Condition_henvisning
+  Domain: [FHIR]
+  Description: "Kobling fra PAS-diagnose til henvisning — child-tabel i eget grain. En diagnose kan pege på flere henvisninger (op til 24 i kilden)."
+  Grain: "Én række pr. (diagnose, henvisning) — PK: condition_id + henvisning_id"
+  FhirResource: Condition
+
+  SourceSystems:
+    - ifdb_pas_diagnose_henvisning_ref: [IFDB.PAS_DIAGNOSE_HENVISNING_REF]
+
+  Columns:
+    condition_id:            { Type: PK, DataType: NVARCHAR(255), FhirPath: "id", FK-Target: fhir.Condition, FK-Key: condition_id, FK-Required: true }
+    source_identifier_value: { DataType: NVARCHAR(255), FhirPath: "identifier.value.first()", Source: [ifdb_pas_diagnose_henvisning_ref.IFDB.PAS_DIAGNOSE_HENVISNING_REF.DIAGNOSE_ID], FK-None: true, Description: "Kildens diagnose-id (PAS_DIAGNOSE.OBJEKT_ID)." }
+    henvisning_id:           { Type: PK, DataType: NVARCHAR(255), FhirPath: "valueString", Source: [ifdb_pas_diagnose_henvisning_ref.IFDB.PAS_DIAGNOSE_HENVISNING_REF.HENVISNING_ID], FK-None: true, Description: "Kildens henvisnings-id (HENVISNING.OBJEKT_ID). Kobles til fhir.ServiceRequest via identifier_value, hvor identifier_system = 'urn:source:ifdb:henvisning'." }
+    dw_is_deleted:           { DataType: INT, Description: "Slettet-flag (0 = live, 1 = slettet). Warehouse-styret: foraeldre-ressourcen baerer urn:fhir:isDeleted, men dette grain projicerer ikke feltet. Saettes af child-grain reconcile, naar koblingen ikke laengere findes under den levende foraelder, og af dqa_fhir_server_cleanup ved hard-delete i Aidbox; nulstilles ved MERGE-match (resurrect_soft_deleted). NOT NULL DEFAULT 0." }
+    last_updated:            { DataType: DATETIME2, FhirPath: "r.ts" }
+    created_at:              { DataType: DATETIME2, FhirPath: "r.cts" }

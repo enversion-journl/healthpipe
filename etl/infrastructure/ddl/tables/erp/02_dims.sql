@@ -85,6 +85,7 @@ BEGIN
         [kreditornavn_sydax] NVARCHAR(255) NULL,
         [kreditornavn_ils] NVARCHAR(255) NULL,
         [kreditornavn_mysupply] NVARCHAR(255) NULL,
+        [soegenavn_sydax] NVARCHAR(255) NULL,
         [vejnavn] NVARCHAR(255) NULL,
         [vejnavn_ils] NVARCHAR(255) NULL,
         [vejnavn_mysupply] NVARCHAR(255) NULL,
@@ -175,6 +176,19 @@ BEGIN
         [hoved_start] DATETIME2 NULL,
         [hoved_slut] DATETIME2 NULL,
         [alle_maa_benytte] BIT NOT NULL CONSTRAINT [DF_Aftale_alle_maa_benytte] DEFAULT 1,
+        [standard_leveringsdage] INT NULL,
+        [dw_ek_Dato_sysdato] INT NOT NULL CONSTRAINT [DF_Aftale_dw_ek_Dato_sysdato] DEFAULT -1,
+        [dato_tid_sysdato] DATETIME2 NULL,
+        [bruger] NVARCHAR(100) NULL,
+        -- The source's own active flag on the agreement (dbo.lafth.aktiv), which
+        -- can differ from the hoved_start/hoved_slut window.
+        [aktiv] BIT NULL,
+        [fragt_beloeb] DECIMAL(17,2) NULL,
+        [sw_fragt] BIT NULL,
+        [gebyr_beloeb] DECIMAL(17,2) NULL,
+        [sw_gebyr] BIT NULL,
+        [graense_beloeb] DECIMAL(17,2) NULL,
+        [fragt_graense_beloeb] DECIMAL(17,2) NULL,
         [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Aftale_dw_timestamp_insert] DEFAULT SYSDATETIME(),
         [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Aftale_dw_timestamp_update] DEFAULT SYSDATETIME(),
         CONSTRAINT [PK_Dim_Aftale] PRIMARY KEY CLUSTERED ([dw_ek_Aftale] ASC)
@@ -199,6 +213,68 @@ BEGIN
     EXEC('
         INSERT INTO [dim].[Aftale] (
             [dw_ek_Aftale], [clean_code_Aftale], [aftale_nummer], [dw_timestamp_insert]
+        ) VALUES (
+            -1, N''UNKNOWN'', N''UNKNOWN'', CAST(SYSDATETIME() AS DATETIME2)
+        )
+    ');
+END
+GO
+
+-- dim.ILSLeverandoer (Type 1 — one row per ILS supplier number, dbo.lev.lnr)
+-- dim.Kreditor is CVR grain: several lnr share one CVR, and lnr without a CVR
+-- (home patients, employees, foreign creditors) cannot be represented there.
+-- dim.Kreditor is an outrigger of this dimension: dw_ek_Kreditor is the first
+-- code on the lev row that matches a CVR in map.Kreditor (se_nr, then cvr_nr,
+-- then lnr for DK suppliers — recorded in kreditor_match_kilde), else -1.
+-- giro = 'Person' rows are never matched (their se_nr is a birth date or CPR).
+-- No dw_is_deleted: arc.ils_lev keeps rows the source removes
+-- (detect_deletes=False); aktiv is the status as last seen in ILS.
+-- giro = 'Person' rows are unmasked here; masking is datamart responsibility.
+IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dim].[ILSLeverandoer]') AND type = 'U')
+BEGIN
+    CREATE TABLE [dim].[ILSLeverandoer](
+        [dw_ek_ILSLeverandoer] INT NOT NULL,
+        [clean_code_ILSLeverandoer] NVARCHAR(255) NOT NULL,
+        [leverandoernummer] NVARCHAR(100) NULL,
+        [dw_ek_Kreditor] INT NOT NULL CONSTRAINT [DF_ILSLeverandoer_dw_ek_Kreditor] DEFAULT -1,
+        [kreditor_match_kilde] NVARCHAR(10) NULL,
+        [leverandoernavn] NVARCHAR(80) NULL,
+        [adresse] NVARCHAR(80) NULL,
+        [adresse2] NVARCHAR(80) NULL,
+        [land] NVARCHAR(6) NULL,
+        [postnummer] NVARCHAR(10) NULL,
+        [giro] NVARCHAR(16) NULL,
+        [aktiv] BIT NULL,
+        [standard_leveringsdage] INT NULL,
+        [dw_ek_Dato_oprettet] INT NOT NULL CONSTRAINT [DF_ILSLeverandoer_dw_ek_Dato_oprettet] DEFAULT -1,
+        [dato_tid_oprettet] DATETIME2 NULL,
+        [opr_bruger] NVARCHAR(50) NULL,
+        [dw_ek_Dato_ajourfoert] INT NOT NULL CONSTRAINT [DF_ILSLeverandoer_dw_ek_Dato_ajourfoert] DEFAULT -1,
+        [dato_tid_ajourfoert] DATETIME2 NULL,
+        [ajourfoert_bruger] NVARCHAR(50) NULL,
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_ILSLeverandoer_dw_timestamp_insert] DEFAULT SYSDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_ILSLeverandoer_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        CONSTRAINT [PK_Dim_ILSLeverandoer] PRIMARY KEY CLUSTERED ([dw_ek_ILSLeverandoer] ASC)
+    ) ON [PRIMARY];
+END
+GO
+
+-- CVR-level roll-up: all lnr under one dim.Kreditor.
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'[dim].[ILSLeverandoer]') AND name = 'IX_Dim_ILSLeverandoer_Kreditor')
+   AND EXISTS (SELECT 1 FROM sys.objects WHERE object_id = OBJECT_ID(N'[dim].[ILSLeverandoer]') AND type = 'U')
+BEGIN
+    CREATE NONCLUSTERED INDEX [IX_Dim_ILSLeverandoer_Kreditor] ON [dim].[ILSLeverandoer]
+    ([dw_ek_Kreditor] ASC)
+    INCLUDE ([leverandoernummer], [aktiv]);
+END
+GO
+
+-- Insert UNKNOWN row if not exists - dynamic SQL avoids compile-time column resolution
+IF NOT EXISTS (SELECT 1 FROM [dim].[ILSLeverandoer] WHERE [dw_ek_ILSLeverandoer] = -1)
+BEGIN
+    EXEC('
+        INSERT INTO [dim].[ILSLeverandoer] (
+            [dw_ek_ILSLeverandoer], [clean_code_ILSLeverandoer], [leverandoernummer], [dw_timestamp_insert]
         ) VALUES (
             -1, N''UNKNOWN'', N''UNKNOWN'', CAST(SYSDATETIME() AS DATETIME2)
         )
@@ -507,11 +583,22 @@ BEGIN
         [entity_type] [nvarchar](200),
         [sgh] [nvarchar](200),
         [lgr] [nvarchar](200),
-        [adr] [nvarchar](200),
+        -- Warehouse attributes from dbo.lgr. The source columns are recorded in
+        -- data_lineage/dim/dim_lager.yml, not in the column names.
+        [adresse] [nvarchar](200),
         [land] [nvarchar](200),
-        [postdi] [nvarchar](200),
-        [tlf] [nvarchar](200),
+        [postnummer] [nvarchar](200),
+        [telefon] [nvarchar](200),
+        -- Requisitioners tied to the warehouse. lagerejer is used for goods
+        -- movements into it, svind to record shrinkage (Strategisk Indkoeb).
+        [lagerejer_rekvirentnummer] [nvarchar](200),
+        [svind_rekvirentnummer] [nvarchar](200),
+        [standard_leveringsdage] [int],
+        -- The source's own active flag on the warehouse (dbo.lgr.aktiv).
+        [aktiv] [bit],
         [code_sor] [varchar](50),
+        [dw_ek_Rekvirent_lagerejer] [int] NOT NULL CONSTRAINT [DF_Lager_dw_ek_Rekvirent_lagerejer] DEFAULT -1,
+        [dw_ek_Rekvirent_svind] [int] NOT NULL CONSTRAINT [DF_Lager_dw_ek_Rekvirent_svind] DEFAULT -1,
         [dw_ek_Organisation] [int] NOT NULL CONSTRAINT [DF_Lager_dw_ek_Organisation] DEFAULT -1,
         [dw_ek_Lager_parent] [int] CONSTRAINT [DF_Lager_dw_ek_Lager_parent] DEFAULT -1,
         [dw_timestamp_insert] [datetime2](7) NOT NULL CONSTRAINT [DF_Lager_dw_timestamp_insert] DEFAULT SYSDATETIME(),
@@ -578,6 +665,18 @@ BEGIN
         [rnr] [nvarchar](200),
         [code_sor] [varchar](50),
         [sor_relationship] [varchar](50),
+        -- Address and contact details from dbo.rekv, plus bynavn from dbo.postdi.
+        -- Only populated for leaf rows (entity_type = 'rekvirent').
+        -- adresse/adresse2/kontaktperson are masked for rtyp HP/OHP in vw_dim.Rekvirent.
+        -- The source columns are listed in data_lineage/dim/dim_rekvirent.yml.
+        [alternativt_rekvirentnummer] [nvarchar](16),
+        [adresse] [nvarchar](80),
+        [adresse2] [nvarchar](80),
+        [land] [nvarchar](6),
+        [postnummer] [nvarchar](10),
+        [bynavn] [nvarchar](58),
+        [kontaktperson] [nvarchar](80),
+        [kontosted] [nvarchar](34),
         [dw_ek_Organisation] [int] NOT NULL CONSTRAINT [DF_Rekvirent_dw_ek_Organisation] DEFAULT -1,
         [dw_ek_Rekvirent_parent] [int] CONSTRAINT [DF_Rekvirent_dw_ek_Rekvirent_parent] DEFAULT -1,
         [er_undtaget] [bit] NOT NULL CONSTRAINT [DF_Rekvirent_er_undtaget] DEFAULT 0,
@@ -836,6 +935,69 @@ BEGIN
 END
 GO
 
+-- dim.ILSBruger
+-- ILS users from zz_oper, one row per initials.
+IF NOT EXISTS (
+    SELECT * FROM sys.objects
+    WHERE object_id = OBJECT_ID(N'[dim].[ILSBruger]') AND type = 'U'
+) BEGIN
+CREATE TABLE [dim].[ILSBruger] (
+    [dw_ek_ILSBruger]       INT            NOT NULL,
+    [clean_code_ILSBruger]  NVARCHAR(100)  NULL,
+    [initialer]             NVARCHAR(6)    NULL,
+    [bruger_id]             NVARCHAR(20)   NULL,
+    [identifier_staff]      NVARCHAR(50)   NULL,
+    [name_text]             NVARCHAR(60)   NULL,
+    [active]                BIT            NULL,
+    [primaer_sygehus]       NVARCHAR(16)   NULL,
+    [primaer_sygehus_navn]  NVARCHAR(80)   NULL,
+    [source_table]          NVARCHAR(100)  NULL,
+    [dw_timestamp_insert]   DATETIME2      NOT NULL CONSTRAINT [DF_ILSBruger_dw_timestamp_insert] DEFAULT SYSDATETIME(),
+    [dw_timestamp_update]   DATETIME2      NOT NULL CONSTRAINT [DF_ILSBruger_dw_timestamp_update] DEFAULT SYSDATETIME(),
+    CONSTRAINT [PK_Dim_ILSBruger] PRIMARY KEY CLUSTERED ([dw_ek_ILSBruger] ASC)
+) ON [PRIMARY];
+END
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE object_id = OBJECT_ID(N'[dim].[ILSBruger]') AND name = 'IX_Dim_ILSBruger_clean_code'
+)
+BEGIN
+    CREATE UNIQUE NONCLUSTERED INDEX [IX_Dim_ILSBruger_clean_code]
+    ON [dim].[ILSBruger] ([clean_code_ILSBruger] ASC)
+    WHERE [clean_code_ILSBruger] IS NOT NULL
+    ON [PRIMARY];
+END
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE object_id = OBJECT_ID(N'[dim].[ILSBruger]') AND name = 'IX_Dim_ILSBruger_identifier_staff'
+)
+BEGIN
+    CREATE NONCLUSTERED INDEX [IX_Dim_ILSBruger_identifier_staff]
+    ON [dim].[ILSBruger] ([identifier_staff] ASC)
+    WHERE [identifier_staff] IS NOT NULL
+    ON [PRIMARY];
+END
+GO
+
+-- Insert UNKNOWN row (DW_EK = -1) - dynamic SQL avoids compile-time column resolution
+IF NOT EXISTS (SELECT 1 FROM [dim].[ILSBruger] WHERE [dw_ek_ILSBruger] = -1)
+BEGIN
+    EXEC('
+        INSERT INTO [dim].[ILSBruger] (
+            [dw_ek_ILSBruger], [clean_code_ILSBruger], [initialer], [name_text],
+            [source_table], [dw_timestamp_insert], [dw_timestamp_update]
+        ) VALUES (
+            -1, N''UNKNOWN'', N''UKENDT'', N''Ukendt ILS-bruger'',
+            N''ils_zz_oper'', CAST(SYSDATETIME() AS DATETIME2), CAST(SYSDATETIME() AS DATETIME2)
+        )
+    ');
+END
+GO
+
 -- dim.Finanskladde
 IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dim].[Finanskladde]') AND type = 'U')
 BEGIN
@@ -977,13 +1139,6 @@ BEGIN
         [unspsc_level_3_beskrivelse_kmd]     NVARCHAR(400) NULL,
         [unspsc_level_4_kode_kmd]            NVARCHAR(50)  NULL,
         [unspsc_level_4_beskrivelse_kmd]     NVARCHAR(400) NULL,
-        [dw_source_udbud]                    BIT           NOT NULL CONSTRAINT [DF_UNSPSC_dw_source_udbud] DEFAULT 0,
-        [beskrivelse_udbud]                  NVARCHAR(255) NULL,
-        [udbudstype]                         NVARCHAR(255) NULL,
-        [udbudskategori_niveau_1]            NVARCHAR(255) NULL,
-        [udbudskategori_niveau_2]            NVARCHAR(255) NULL,
-        [udbudskategori_niveau_3]            NVARCHAR(255) NULL,
-        [udbudskategori_niveau_4]            NVARCHAR(255) NULL,
         [dw_timestamp_insert]                DATETIME2     NOT NULL CONSTRAINT [DF_UNSPSC_dw_timestamp_insert] DEFAULT SYSDATETIME(),
         [dw_timestamp_update]                DATETIME2     NOT NULL CONSTRAINT [DF_UNSPSC_dw_timestamp_update] DEFAULT SYSDATETIME(),
         CONSTRAINT [PK_Dim_UNSPSC] PRIMARY KEY CLUSTERED ([dw_ek_UNSPSC] ASC)
@@ -1198,6 +1353,13 @@ BEGIN
 END
 GO
 
+IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dim].[ILSLeverandoer]') AND type = 'U')
+   AND EXISTS (SELECT 1 FROM [dim].[ILSLeverandoer] WHERE [dw_ek_ILSLeverandoer] IS NULL)
+BEGIN
+    THROW 50000, 'Null dw_ek_ILSLeverandoer found in dim.ILSLeverandoer', 1;
+END
+GO
+
 IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dim].[Vareudlevering]') AND type = 'U')
    AND EXISTS (SELECT 1 FROM [dim].[Vareudlevering] WHERE [dw_ek_Vareudlevering] IS NULL)
 BEGIN
@@ -1244,6 +1406,13 @@ IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dim].[ILSVar
    AND EXISTS (SELECT 1 FROM [dim].[ILSVare] WHERE [dw_ek_ILSVare] IS NULL)
 BEGIN
     THROW 50000, 'Null dw_ek_ILSVare found in dim.ILSVare', 1;
+END
+GO
+
+IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dim].[ILSBruger]') AND type = 'U')
+   AND EXISTS (SELECT 1 FROM [dim].[ILSBruger] WHERE [dw_ek_ILSBruger] IS NULL)
+BEGIN
+    THROW 50000, 'Null dw_ek_ILSBruger found in dim.ILSBruger', 1;
 END
 GO
 

@@ -25,12 +25,23 @@ import re
 from pathlib import Path
 
 import pytest
+from DSA.SQL.common.rekvirent_kontaktinfo import (
+    KONTAKTINFO_COLUMNS,
+    KONTAKTINFO_PII_COLUMNS,
+)
 
 _DDL_ROOT = Path(__file__).resolve().parents[2] / "infrastructure" / "ddl"
 _SECURITY_VIEW = _DDL_ROOT / "views" / "security" / "01_vw_dim_security.sql"
 _ERP_VIEW = _DDL_ROOT / "views" / "erp" / "01_vw_dim.sql"
 _DPA_ERP_DOMAIN = "N'DPA_ERP'"
 _MASK = "N'[MASKERET]'"
+
+# Derived from the shared contract rather than hand-listed, so a column moved
+# between the masked and visible halves cannot silently pass both tests.
+_REKVIRENT_PII_COLUMNS = KONTAKTINFO_PII_COLUMNS
+_REKVIRENT_VISIBLE_COLUMNS = tuple(
+    c for c in KONTAKTINFO_COLUMNS if c not in KONTAKTINFO_PII_COLUMNS
+)
 
 
 def _view_block(sql: str, view: str) -> str:
@@ -91,3 +102,31 @@ class TestErpPiiDimMasking:
         assert re.search(
             r"\[rtyp\]\s+IN\s*\(\s*N'HP'\s*,\s*N'OHP'\s*\)", block
         ), "vw_dim.Rekvirent must condition masking on rtyp IN ('HP','OHP')."
+
+    @pytest.mark.parametrize("col", _REKVIRENT_PII_COLUMNS)
+    def test_rekvirent_masks_address_and_contact_for_home_patients(self, col):
+        """adr/adr2 carry the home patient's own address, and kontakt is a named
+        contact person. Strategisk Indkoeb flagged adr/adr2 as
+        "skal sloeres for de fleste brugere ved rtyp = HP eller OHP"; kontakt is masked
+        on the same rule because a HP/OHP contact is the patient or a relative.
+        Adding these columns to dim.Rekvirent without extending the mask would leak
+        home addresses to every DSO reader."""
+        block = _view_block(_SECURITY_VIEW.read_text(), "Rekvirent")
+        assert f"[{col}] = CASE" in block, f"vw_dim.Rekvirent must wrap {col} in a masking CASE."
+        masked = re.search(
+            r"\[" + col + r"\]\s*=\s*CASE(.*?)END",
+            block,
+            re.DOTALL,
+        )
+        assert masked, f"vw_dim.Rekvirent must mask {col}."
+        assert re.search(
+            r"\[rtyp\]\s+IN\s*\(\s*N'HP'\s*,\s*N'OHP'\s*\)", masked.group(1)
+        ), f"{col} must be masked on rtyp IN ('HP','OHP'), same rule as display."
+        assert _MASK in masked.group(1), f"{col} must be replaced by [MASKERET]."
+
+    @pytest.mark.parametrize("col", _REKVIRENT_VISIBLE_COLUMNS)
+    def test_rekvirent_exposes_non_sensitive_address_columns(self, col):
+        """The non-PII half must stay readable — masking everything would make the
+        change pointless for the consumption reporting it was requested for."""
+        block = _view_block(_SECURITY_VIEW.read_text(), "Rekvirent")
+        assert f"rek.[{col}]" in block, f"vw_dim.Rekvirent must expose {col} unmasked."

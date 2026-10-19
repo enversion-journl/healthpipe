@@ -28,7 +28,6 @@ from core.dfm_manager import DfmManager
 from core.resources import FHIRDatabaseResource, MSSQLResource
 from DSA.FHIR.DocumentReference.document_reference_common import (
     SOURCE_TABLE_EPIKRISE,
-    advance_fhir_checkpoint,
     append_subfield,
     build_metadata_only_content,
     build_recipients_extension,
@@ -37,6 +36,7 @@ from DSA.FHIR.DocumentReference.document_reference_common import (
     map_document_reference_status,
 )
 from DSA.FHIR.utils.dfm_query import build_fhir_archive_query
+from DSA.FHIR.utils.fhir_checkpoint import advance_fhir_checkpoint
 from DSA.FHIR.utils.ifdb.fhir_posting import prepare_resources_for_upsert
 from DSA.FHIR.utils.ifdb.patient_cpr_fallback import build_patient_cpr_fallback
 from DSA.FHIR.utils.ifdb.posting_config import TAG_CHUNK_SIZE, TAG_MAX_WORKERS
@@ -589,7 +589,7 @@ def fhir_server_documentreference_epikrise_dfm(
         )
 
         new_checkpoint = advance_fhir_checkpoint(
-            dfm, mssql_target_staging, "DocumentReference_Epikrise", config, total_fetched
+            dfm, run_ctx, "DocumentReference_Epikrise", config, total_fetched
         )
         dfm.complete_dfm_run(
             run_ctx.log_id, checkpoint_after=new_checkpoint, rows_affected=total_posted

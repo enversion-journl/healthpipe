@@ -177,10 +177,20 @@ _DFM_DSO_SYNC_SPECS: list[tuple[str, str, str]] = [
     # PAS-diagnose, ServiceRequest, Aktivitetsresultat/SFI) and the final two
     # are themselves DFM-based.
     ("fhir_condition", "condition", "Condition"),
-    ("fhir_condition_tillaegskode", "condition_tillaegskode", "Condition_tillaegskode"),
+    (
+        "fhir_condition_supplementary_code",
+        "condition_supplementary_code",
+        "Condition_SupplementaryCode",
+    ),
+    ("fhir_condition_henvisning", "condition_henvisning", "Condition_henvisning"),
+    ("fhir_observation_speciale", "observation_speciale", "Observation_Speciale"),
     ("fhir_observation", "observation", "Observation"),
     ("fhir_procedure", "procedure", "Procedure"),
-    ("fhir_procedure_tillaegskode", "procedure_tillaegskode", "Procedure_tillaegskode"),
+    (
+        "fhir_procedure_supplementary_code",
+        "procedure_supplementary_code",
+        "Procedure_SupplementaryCode",
+    ),
     ("fhir_questionnaire", "questionnaire", "Questionnaire"),
     ("fhir_questionnaire_item", "questionnaire_item", "Questionnaire_item"),
     ("fhir_questionnaire_response", "questionnaire_response", "QuestionnaireResponse"),
@@ -191,11 +201,16 @@ _DFM_DSO_SYNC_SPECS: list[tuple[str, str, str]] = [
     ),
     ("fhir_service_request", "service_request", "ServiceRequest"),
     (
-        "fhir_service_request_tillaegskode",
-        "service_request_tillaegskode",
-        "ServiceRequest_tillaegskode",
+        "fhir_service_request_supplementary_code",
+        "service_request_supplementary_code",
+        "ServiceRequest_SupplementaryCode",
     ),
     ("fhir_appointment", "appointment", "Appointment"),
+    ("fhir_ward_unit", "ward_unit", "WardUnit"),
+    ("fhir_ward_unit_capacity", "ward_unit_capacity", "WardUnit_Capacity"),
+    ("fhir_bed", "bed", "Bed"),
+    ("fhir_encounter_bed_space", "encounter_bed_space", "Encounter_BedSpace"),
+    ("fhir_encounter_absence", "encounter_absence", "Encounter_Absence"),
     # Both producers (epikrise, udskrivningsrapport) are on the DFM path, so the
     # SOF assets have no partitioned counterpart to race with.
     ("fhir_documentreference", "documentreference", "DocumentReference"),
@@ -208,15 +223,32 @@ _DFM_DSO_SYNC_SPECS: list[tuple[str, str, str]] = [
     # what emptied _DSO_SYNC_SPECS above.
     ("fhir_careplan", "careplan", "CarePlan"),
     ("fhir_careplan_activity", "careplan_activity", "CarePlan_Activity"),
+    # SilkeborgData is deliberately NOT here — see the list below.
 ]
 
+# SilkeborgData owns its chain end to end in silkeborgdata_daily_job, so its two
+# syncs get their own group rather than the shared one the IFDB jobs select. In
+# the shared group they would run on IFDB's schedule, where nothing guarantees
+# that the SD archive, resources and SOF extraction had all succeeded first —
+# and a sync is the last link, so it is exactly where that matters.
+_DFM_DSO_SYNC_SPECS_SILKEBORGDATA: list[tuple[str, str, str]] = [
+    ("fhir_practitioner", "practitioner", "Practitioner"),
+    ("fhir_practitioner_role", "practitioner_role", "PractitionerRole"),
+]
+_SILKEBORGDATA_DSO_GROUP = "fhir_silkeborgdata_dso"
 
-def _create_dso_sync_dfm(config_key: str, sof_name: str, mssql_table: str) -> dg.AssetsDefinition:
+
+def _create_dso_sync_dfm(
+    config_key: str,
+    sof_name: str,
+    mssql_table: str,
+    group_name: str = "fhir_dso_sync_dfm",
+) -> dg.AssetsDefinition:
     config = FHIR_SYNC_CONFIGS[config_key]
 
     @dg.asset(
         name=f"dso_sync_fhir_{sof_name}_dfm",
-        group_name="fhir_dso_sync_dfm",
+        group_name=group_name,
         compute_kind="mssql",
         # dso_infra_fhir applies the DSO fhir.* tables + their migrations (e.g.
         # the item_key occurrence-grain PK widening); depend on it so the MERGE
@@ -237,6 +269,9 @@ def _create_dso_sync_dfm(config_key: str, sof_name: str, mssql_table: str) -> dg
 
 all_fhir_dso_sync_dfm_assets = [
     _create_dso_sync_dfm(cfg_key, sof, tbl) for cfg_key, sof, tbl in _DFM_DSO_SYNC_SPECS
+] + [
+    _create_dso_sync_dfm(cfg_key, sof, tbl, group_name=_SILKEBORGDATA_DSO_GROUP)
+    for cfg_key, sof, tbl in _DFM_DSO_SYNC_SPECS_SILKEBORGDATA
 ]
 
 all_fhir_dso_sync_assets = (

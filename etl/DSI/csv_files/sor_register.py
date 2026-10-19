@@ -35,6 +35,8 @@ from collections.abc import Iterable, Iterator
 from urllib.request import Request, urlopen
 
 import dagster as dg
+from core.dfm_manager import DfmManager
+from core.dfm_source import http_source
 from core.org_config import DATA_DIR
 from core.resources import MSSQLResource
 from dagster import AssetExecutionContext
@@ -324,8 +326,10 @@ def extract_sor_register(
 ) -> dg.MaterializeResult:
     load_type = _LOAD_TYPE_ALIASES.get(config.load_type, config.load_type)
     if load_type == LOAD_TYPE_CURRENT:
+        source_url = DAILY_CSV_URL
         raw_rows = _iter_daily_rows(context)
     elif load_type == LOAD_TYPE_ALL_HISTORICAL:
+        source_url = COMPLETE_ZIP_URL
         raw_rows = _iter_complete_rows(context)
     else:
         raise ValueError(
@@ -334,8 +338,21 @@ def extract_sor_register(
         )
 
     stats = {"skipped": 0, "duplicates": 0, "codes": 0}
-    with mssql_target_staging.get_connection() as conn:
-        row_count = _write_to_ext_table(conn, _iter_ext_rows(raw_rows, stats), context)
+    dfm = DfmManager(mssql_target_staging, context)
+    run_ctx = dfm.start_dfm_run(
+        "ext",
+        "sor_register",
+        dagster_run_id=context.run_id,
+        mode="full_load",
+        **http_source(source_url),
+    )
+    try:
+        with mssql_target_staging.get_connection() as conn:
+            row_count = _write_to_ext_table(conn, _iter_ext_rows(raw_rows, stats), context)
+        dfm.complete_dfm_run(run_ctx.log_id, rows_affected=row_count)
+    except Exception as exc:
+        dfm.fail_dfm_run(run_ctx.log_id, error_message=str(exc))
+        raise
 
     if stats["skipped"]:
         context.log.warning(f"Skipped {stats['skipped']} rows with empty SOR ID")

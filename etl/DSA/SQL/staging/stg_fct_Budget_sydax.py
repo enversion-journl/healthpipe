@@ -20,8 +20,7 @@ Includes omkostningsstednummer and clean_code_Kontoplan for map lookups in FctUp
 
 from core.resources import MSSQLResource
 from dagster import AssetExecutionContext, AssetKey, MaterializeResult, asset
-
-from etl.DSA.SQL.common.dato_dimension import dato_key, dato_tid
+from DSA.SQL.common.dato_dimension import dato_key, dato_tid
 
 
 @asset(

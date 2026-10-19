@@ -23,7 +23,7 @@ til UUID-referencer, der beregnes i ext-views af drg_archive.py.
 Undtagelse: psyk DW_EK_Helbredsforloeb beholdes som analytisk attribut
 (psyk-skemaet har ingen forloebs-UUID); aldrig join-noegle.
 
-NAVNGIVNING AF ARC-TABELLER (besluttet af Jacob, 2026-08-27): `ext_table`
+NAVNGIVNING AF ARC-TABELLER (besluttet 2026-08-27): `ext_table`
 SPEJLER KILDEN. Derfor `drg_sghforlob` (SDS' fil heder DRGSGHFORLOB, uden
 oe) over for `drgpsyk_forloeb` (SDS' fil heder Psyk_forloeb, med oe) — de
 to leverancetyper staver forloeb forskelligt hos SDS, og arkivet gengiver
@@ -63,6 +63,8 @@ class DrgDataset:
     arc_added: tuple[ArcColumn, ...] = ()  # oploeste UUID-referencer m.m.
     merge_keys: tuple[str, ...] = ()  # + takstsystem; tom => insert_only
     revision_columns: tuple[str, ...] = ()  # prislog i arc.drg_pris_revision
+    # raekke-id'er uden leveranceindhold; dublet-guarden ignorerer dem
+    registreringsid_columns: tuple[str, ...] = ()
     aktivitetsaar_column: str | None = None  # driver aarsskive-scoped deletes
     insert_only: bool = False
 
@@ -73,7 +75,7 @@ class DrgDataset:
         return tuple(a.name for a in self.arc_added) + kept
 
 
-MIN_VALUE_WIDTH = 500  # HAIBA-lektie [internal ticket]: ext og arc SKAL have samme bredde
+MIN_VALUE_WIDTH = 500  # HAIBA-lektie: ext og arc SKAL have samme bredde
 
 DATASETS: tuple[DrgDataset, ...] = (
     DrgDataset(
@@ -605,6 +607,7 @@ DATASETS: tuple[DrgDataset, ...] = (
             "ART",
             "SIDEANGIVELSE",
         ),
+        registreringsid_columns=("DIAGNOSE_VAERDI",),
         aktivitetsaar_column="Aktivitetsaar",
     ),
     DrgDataset(

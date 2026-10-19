@@ -17,8 +17,11 @@ ext_insert_method=executemany run tag. Covers:
   3. Run-tag escape hatch — ext_insert_method=executemany is the only route to
      the legacy path.
   4. bulkcopy_insert extra_columns parameter (audit columns default, opt-out).
+  5. Flow-start ceiling — applied as the upper bound in delta mode only, and
+     recorded under the config's used_ceiling_key for the archive merge.
 """
 
+import dataclasses
 from contextlib import contextmanager
 from types import SimpleNamespace
 
@@ -92,7 +95,7 @@ class FakeDfmManager:
     def connection(self):
         yield
 
-    def start_dfm_run(self, layer, table, dagster_run_id, mode, checkpoint_from):
+    def start_dfm_run(self, layer, table, dagster_run_id, mode, checkpoint_from, **source):
         return SimpleNamespace(checkpoint=None, log_id=42)
 
     def get_checkpoint(self, schema, table):
@@ -128,6 +131,8 @@ class FakeOracleCursor:
 class FakeOracleResource:
     def __init__(self, batches: list[list[tuple]]):
         self.cursor = FakeOracleCursor(batches)
+        self.user = "fake-user"
+        self.host = "fake-host"
 
     @contextmanager
     def get_connection(self):
@@ -568,3 +573,57 @@ class TestTimeoutDuplicateGuard:
                 extra_columns=(),
                 expected_rows_before=100,
             )
+
+
+# ---------------------------------------------------------------------------
+# 5. Flow-start ceiling
+# ---------------------------------------------------------------------------
+
+
+class CeilingDfmManager(FakeDfmManager):
+    """FakeDfmManager whose DFMState holds one flow-start ceiling."""
+
+    def __init__(self, resource, context):
+        super().__init__(resource, context)
+        self.state = {("dfm", "test_ceiling"): "2026-10-05 13:34:23"}
+
+    def get_checkpoint(self, schema, table):
+        return self.state.get((schema, table))
+
+    def set_checkpoint(self, schema, table, *, value=None, mode="delta"):
+        self.state[(schema, table)] = value
+
+
+class TestFlowStartCeiling:
+    @pytest.mark.parametrize(
+        ("mode", "expected_upper_bound"),
+        [
+            ("delta", "2026-10-05 13:34:23"),
+            ("full_load", None),
+        ],
+    )
+    def test_ceiling_is_recorded_for_the_archive_merge(
+        self, monkeypatch, mode, expected_upper_bound
+    ):
+        """The archive merge must checkpoint at the ceiling this extract read, not a later one."""
+        import core.dfm_manager
+        from DSI.connectors.factory import _execute_dfm_oracle_extract
+
+        FakeDfmManager.instances = []
+        monkeypatch.setattr(core.dfm_manager, "DfmManager", CeilingDfmManager)
+        config = dataclasses.replace(EXTRACT_CONFIG, flow_start_from=("dfm", "test_ceiling"))
+        upper_bounds = []
+
+        _execute_dfm_oracle_extract(
+            FakeContext(),
+            FakeOracleResource([[("1", "a")]]),
+            FakeMssqlResource(FakeMssqlServer()),
+            SimpleNamespace(mode=mode),
+            config,
+            "IFDB",
+            lambda run_config, checkpoint, cfg, upper_bound: upper_bounds.append(upper_bound),
+        )
+
+        dfm = FakeDfmManager.instances[0]
+        assert upper_bounds == [expected_upper_bound]
+        assert dfm.state[config.used_ceiling_key] == "2026-10-05 13:34:23"

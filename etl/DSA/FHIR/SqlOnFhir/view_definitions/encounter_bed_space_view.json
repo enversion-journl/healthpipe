@@ -1,0 +1,23 @@
+{
+  "resourceType": "ViewDefinition",
+  "name": "encounter_bed_space_view",
+  "resource": "Encounter",
+  "status": "active",
+  "select": [
+    {
+      "column": [
+        {"name": "encounter_id", "path": "id"}
+      ]
+    },
+    {
+      "forEach": "location.where(physicalType.coding.where(code='bd').exists())",
+      "column": [
+        {"name": "location_id", "path": "location.id"},
+        {"name": "location_status", "path": "status"},
+        {"name": "location_period_start", "path": "period.start"},
+        {"name": "location_period_end", "path": "period.end"},
+        {"name": "ward_unit_code", "path": "extension.where(url='urn:source:ifdb:bed_space_ward_unit_code').valueString.first()"}
+      ]
+    }
+  ]
+}

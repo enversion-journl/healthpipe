@@ -10,6 +10,14 @@ dso_lineage:
   Domain: [FHIR]
   Description: "FHIR CarePlan Activity — alle markørforløbsaktiviteter"
   Grain: "Én række pr. aktivitet (hændelsesmarkør) i en behandlingsplan"
+  Privacy: >
+    practitioner_id er klinikerens medarbejder-id fra kilden. Kolonnen fandtes
+    før denne leverance, men var altid NULL, fordi opslaget pegede på
+    Practitioner-ressourcer, der ikke findes; den bærer nu kildens id. Det er
+    en personoplysning om en ansat, ikke om en patient. Adgangen følger DSO's
+    almindelige adgangsstyring og er IKKE kolonnebegrænset eller maskeret; om
+    det er tilstrækkeligt, er et udestående punkt, der skal afgøres af
+    dataejeren før udrulning til QA og produktion.
   FhirResource: CarePlan
 
   SourceSystems:
@@ -24,7 +32,7 @@ dso_lineage:
     markoerkode:         { DataType: NVARCHAR(255), FhirPath: "activity.outcomeCodeableConcept[0].coding[0].code", Source: [ifdb.IFDB.EVENTMARKER.EVENT_CODE] }
     markoer_display:     { DataType: NVARCHAR(500), FhirPath: "activity.outcomeCodeableConcept[0].coding[0].display", Source: [ifdb.IFDB.EVENTMARKER.EVENT_CODE], Description: "Afledt af EVENT_CODE: '<type>: <kode>', ellers kun koden. EVENT_TEXT lander i activity.detail.description, som viewet ikke projicerer." }
     organization_id:     { DataType: NVARCHAR(255), FhirPath: "activity.detail.performer.getReferenceKey(Organization)", FK-Target: fhir.Organization, FK-Key: organization_id, FK-Required: false }
-    practitioner_id:     { DataType: NVARCHAR(255), FhirPath: "activity.detail.performer.getReferenceKey(Practitioner)", FK-None: true, Description: "Altid NULL. EVENTMARKER.RESPONSIBLE_STAFF_PERSID bevares som bar Identifier paa performer, men opløses ikke: Practitioner kommer fra et andet kildesystem med et andet identifier-system, saa en kobling kraever en crosswalk." }
+    practitioner_id:     { DataType: NVARCHAR(255), FhirPath: "activity.detail.performer.where(identifier.system = 'urn:source:ifdb:staff').identifier.value.first()", FK-None: true, Description: "EVENTMARKER.RESPONSIBLE_STAFF_PERSID som kilde-id under urn:source:ifdb:staff. Historiske referencer har ingen type og vælges derfor efter identifier-system. Ikke en FHIR-nøgle: fhir.Practitioner findes nu, men er CPR-nøglet fra SilkeborgData og deler ingen værdier med IFDB's staff-id — en kobling kræver derfor en crosswalk mellem kildesystemerne." }
     activity_timestamp:  { DataType: NVARCHAR(50), FhirPath: "activity.detail.scheduledPeriod.start", Source: [ifdb.IFDB.EVENTMARKER.TIME] }
     dw_is_deleted:       { DataType: INT, Description: "Slettet-flag (0 = live, 1 = slettet). Warehouse-styret: resourcen baerer ingen urn:fhir:isDeleted-extension, og viewet projicerer ikke feltet. Saettes til 1 af dqa_fhir_server_cleanup naar foraeldre-resourcen er hard-slettet i Aidbox, og af child-grain reconcile naar en markoer forsvinder fra en fortsat levende CarePlan; nulstilles til 0 ved MERGE-match. NOT NULL DEFAULT 0, saa '= 0' betyder 'findes stadig under foraeldren'." }
     last_updated:        { DataType: DATETIME2, FhirPath: "r.ts" }
