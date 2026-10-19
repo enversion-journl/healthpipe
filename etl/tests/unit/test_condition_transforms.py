@@ -222,7 +222,7 @@ def _condition_with_identifiers(
 class TestDiagnosePosting:
     @patch("DSA.FHIR.Condition.Condition_IFDB_Diagnose_dfm.post_resources_direct")
     @patch("DSA.FHIR.Condition.Condition_IFDB_Diagnose_dfm.prepare_resources_for_upsert")
-    @patch("DSA.FHIR.utils.ifdb.dependency_resolver.resolve_missing_patients")
+    @patch("DSA.FHIR.Patient.patient_service.ensure_patients")
     def test_post_resolves_patients_and_uses_diagnose_identifier_system(
         self,
         mock_resolve_missing_patients: MagicMock,
@@ -250,10 +250,11 @@ class TestDiagnosePosting:
 
         assert result == "posted"
         mock_resolve_missing_patients.assert_called_once_with(
-            patient_ids={"P-1", "P-2"},
+            ifdb_patient_ids={"P-1", "P-2"},
             mssql=mssql,
             fhir_database=fhir_database,
             context=mock_dagster_context,
+            need="reference",
         )
         assert mock_prepare.call_args.kwargs["resource_type"] == "Condition"
         assert mock_prepare.call_args.kwargs["preferred_id_systems"] == [SYSTEM_IFDB_DIAGNOSE]
@@ -262,7 +263,7 @@ class TestDiagnosePosting:
 class TestPasDiagnosePosting:
     @patch("DSA.FHIR.Condition.Condition_IFDB_PasDiagnose_dfm.post_resources_direct")
     @patch("DSA.FHIR.Condition.Condition_IFDB_PasDiagnose_dfm.prepare_resources_for_upsert")
-    @patch("DSA.FHIR.utils.ifdb.dependency_resolver.resolve_missing_patients")
+    @patch("DSA.FHIR.Patient.patient_service.ensure_patients")
     @patch("DSA.FHIR.utils.ifdb.dependency_resolver.resolve_missing_encounters")
     def test_post_resolves_patient_and_encounter_dependencies(
         self,
@@ -302,10 +303,11 @@ class TestPasDiagnosePosting:
 
         assert result == "posted"
         mock_resolve_missing_patients.assert_called_once_with(
-            patient_ids={"P-10", "P-11"},
+            ifdb_patient_ids={"P-10", "P-11"},
             mssql=mssql,
             fhir_database=fhir_database,
             context=mock_dagster_context,
+            need="reference",
         )
         mock_resolve_missing_encounters.assert_called_once_with(
             encounter_ids={"ENC-1", "ENC-2"},

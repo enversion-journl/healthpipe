@@ -43,7 +43,7 @@ Den hører til her, hvis de fleste af disse gælder:
 
 Har rækkerne derimod en identitet — noget, der kan opdateres og genkendes igen —
 hører kilden til i [03b](03b_DSA_arkiv_til_dimensionel_model.md). Aggregering, vi
-selv kan lave, hører til i views og datamarter — ikke i ingest-laget.
+selv kan lave, hører til i datamarterne — ikke i ingest-laget.
 
 > **Modeksemplet er DRG.** Det er samme slags kilde som HAIBA — fulde
 > filsnapshots fra SDS, med revisioner og genleverancer — men hver række *er* en
@@ -156,7 +156,8 @@ delete i arkivet. Derfor disse guards:
    filnavne, antal og datoer hører i logs og rapporter.
 
 9. **Ukendte kolonner skal fejle højlydt.** Leverandøren ændrer skema uden varsel;
-   stille droppede kolonner bliver til stille forkerte KPI'er.
+   kolonner, der forsvinder uden en fejlbesked, bliver til forkerte KPI'er, som
+   ingen opdager.
 
 ## Regler i dm-laget
 
@@ -170,27 +171,27 @@ Fra her er kapitlet skrevet ud fra HAIBA alene.
 11. **Typning sker i rebuild'en**, ikke i et stg-lag:
     `TRY_CONVERT(<type>, NULLIF(src, ''))` med en **tæller af konverteringstab pr.
     kolonne**. Arkivet forbliver utypet tekst, så et formatskifte fra leverandøren
-    dukker op som et talt tab i stedet for en stille NULL.
+    dukker op som et talt tab i stedet for en NULL, ingen opdager.
 
 12. **`dw_is_deleted` bæres med, filtreres aldrig væk i dm.** Soft deleted rækker
-    bliver revisionssporet, når leverandøren trækker historik tilbage. Aftagerne
-    læser `vw_dm.*`, hvor `dw_is_deleted = 0` er standardfiltret; sporet læses
-    direkte fra dm-tabellerne.
+    er sporet af, hvad leverandøren har trukket tilbage. Derfor får dm-tabellerne
+    et view, hvor `dw_is_deleted = 0` er standardfiltret (`vw_dm.*`); sporet kan
+    fortsat læses direkte fra dm-tabellerne.
 
 13. **Personidentifikatorer når aldrig dm.** Bærer kildens grain et CPR-nummer eller
     lignende, lever det kun i map-tabellens CleanCode og i `arc` — begge interne til
     staging og aldrig synkroniseret. Personen bæres videre som sin `dw_ek_*`, så der
     ikke er behov for adgangsbegrænsning på DSO.
 
-## Views: aggregeringsniveauer uden dobbelttælling
+## Aggregeringsniveauer uden dobbelttælling
 
 Blandede niveauer i samme tabel betyder, at en nøgen `SUM()` over det hele er forkert
-per konstruktion. Konsumentlaget skal gøre den sikre læsning til standarden:
+per konstruktion. Den sikre læsning skal derfor være standarden:
 
-- Filtrér soft deleted rækker i standardviewet.
-- Gør niveaukolonnen (regionskode, markør for landstotal, rolle) til en del af
-  ethvert dokumenteret forespørgselsmønster. Overvej niveauspecifikke views, hvis
-  aftagerne bliver ved med at snuble i det.
+- Filtrér soft deleted rækker fra i dm-tabellens view.
+- Bær niveaukolonnen (regionskode, markør for landstotal, rolle) hele vejen, og
+  dokumentér i lineage-filen, hvordan den skal bruges i en forespørgsel. Overvej
+  views per niveau, hvis aftagerne bliver ved med at snuble i det.
 
 > **Eksempel (HAIBA):** `vw_dm.HAIBA_*` filtrerer `dw_is_deleted = 0`.
 > Regionskoderne 8888/9999 markerer landsaggregater, hvis SOR-nøgle er
@@ -221,7 +222,7 @@ flowchart TD
     PRO["<b>1 · Profilér leverancerne</b><br/>grains · niveauer · revisionsadfærd · filnavns-metadata<br/><i>volumenregnestykket afgør arkivets revisionsstrategi</i>"]
     EXT["<b>2 · ext + arc</b> — <i>DSI/csv_files/kilde.py og kilde_archive.py</i><br/>ingest-guards og leveranceregister"]
     DM["<b>3 · dm-sporet</b> — <i>DSA/SQL/dm/kilde.py</i><br/>map tildeler dw_ek · fakta + Egenskaber genopbygges fuldt<br/><i>typning med TRY_CONVERT og konverteringstab-tæller</i>"]
-    VW["<b>4 · Views</b> — <i>ddl/views/kilde/01_vw_dm.sql</i><br/>dw_is_deleted = 0 som standard · dokumentér niveaukolonnerne"]
+    VW["<b>4 · Viewet</b> — <i>ddl/views/kilde/01_vw_dm.sql</i><br/>dw_is_deleted = 0 som standard · dokumentér niveaukolonnerne"]
     DQA["<b>5 · DQA</b> — <i>dqa/config/kilde_subjects.py</i><br/>freshness per kategori · kontroltotaler · rækkeparitet"]
     LIN["<b>6 · Lineage-YAML</b> — <i>data_lineage/dm/</i><br/>DFM-run-logning med mode låst til full_load"]
     VER{"Rækkeparitet arc ↔ fakta ↔ Egenskaber?<br/>Kontroltotaler stemmer?"}
@@ -238,7 +239,8 @@ flowchart TD
 3. **dm-sporet:** `map` tildeler nøgler, faktatabellen og `Egenskaber`-tabellen
    genopbygges fuldt, fælles dimensioner slås op med `-1`-sentinel, og
    konverteringstab tælles.
-4. **Views**, der gør den sikre læsning til standarden; dokumentér niveaukolonnerne.
+4. **Viewet**, der gør den sikre læsning til standarden (`dw_is_deleted = 0`),
+   og en beskrivelse af niveaukolonnerne i lineage-filen.
 5. **DQA:** freshness per kategori (uden fast kategoriliste), kontroltotaler (kun
    leveranceafstemt), rækkeparitet fakta↔arc og fakta↔Egenskaber, tegnsætssanitet.
 6. **Lineage-YAML** per dm-tabel i `data_lineage/dm/`, og DFM-run-logning med mode
@@ -261,7 +263,7 @@ bede om publiceringen, når en ny leverance er landet.
 Rebuild'en fejler hårdt ved: manglende rækkeparitet mellem arc, fakta og
 Egenskaber, og ved en tom faktatabel selvom kilden har rækker. Den advarer, hvis en
 kørsel tildeler nye nøgler til mere end en tærskelværdi af kildens rækker — et ændret
-CleanCode-format ville ellers stille give hele historikken nye nøgler.
+CleanCode-format ville ellers give hele historikken nye nøgler — uden en fejlbesked.
 
 ## Skabeloner
 
@@ -271,6 +273,7 @@ Ingest — begge er værd at læse, de løser samme problem på to kildeformer:
 |---|---|
 | `DSI/csv_files/haiba.py` | Extract af CSV-leverance, inkl. guards (læs modulets docstring) |
 | `DSI/csv_files/haiba_archive.py` | Arkiv med revisionslog og leveranceregister |
+| `DSI/csv_files/_sds_tar.py` | Fælles streaming af SDS' tar-leverancer: `ExtWriter`, eksportlog, `ext`-DDL |
 | `DSI/csv_files/drg.py` | Extract af tar-leverance streamet fra drev, eksportlog-afstemning, breddevalidering |
 | `DSI/csv_files/drg_archive.py` | Arkiv med årsafgrænset delete detection |
 
@@ -284,10 +287,10 @@ dm-laget:
 
 ## Videre herfra
 
-- Ud til rapporteringsdatabasen: [04 — DSO](04_DSO_sync_til_DSO.md)
+- Ud til DSO-databasen: [04 — DSO](04_DSO_sync_til_DSO.md)
 - Dokumentation: [05 — Udfyld dokumentation](05_udfyld_dokumentation.md)
 
-Uddybende (endnu ikke oversat):
+Uddybende (på engelsk):
 [kpi_aggregat_data_guide.md](../implementation/kpi_aggregat_data_guide.md) — den
 engelske originaludgave; [sql_etl_guide.md, afsnittet The Datamart Path
 (dm)](../implementation/sql_etl_guide.md#the-datamart-path-dm) — lagene i HAIBA-kæden

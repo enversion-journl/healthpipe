@@ -29,11 +29,11 @@ sof_procedure_dfm = create_sof_dfm_asset(
 
 # The child view is derived from the parent's resources, so it follows the
 # parent rather than re-reading the producers.
-sof_procedure_tillaegskode_dfm = create_sof_dfm_asset(
-    asset_name="sof_procedure_tillaegskode_dfm",
-    config_key="procedure_tillaegskode_view",
-    checkpoint_resource="Procedure_tillaegskode",
+sof_procedure_supplementary_code_dfm = create_sof_dfm_asset(
+    asset_name="sof_procedure_supplementary_code_dfm",
+    config_key="procedure_supplementary_code_view",
+    checkpoint_resource="Procedure_SupplementaryCode",
     deps=["fhir_sof_infrastructure", "sof_procedure_dfm"],
 )
 
-__all__ = ["sof_procedure_dfm", "sof_procedure_tillaegskode_dfm"]
+__all__ = ["sof_procedure_dfm", "sof_procedure_supplementary_code_dfm"]

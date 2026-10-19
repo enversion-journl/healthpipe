@@ -10,7 +10,7 @@ udredningsret (LPR_Udredningsret), tar.bz2 deliveries on the NGC share.
 SDS drops a FULL snapshot from 2018-07 every Monday (`U`) and once a month
 (`M`) as `Region_1083_LPR_Udredningsret_<U|M>_<timestamp>.tar.bz2`; U and M
 are the same track packaged at different times, so the NEWEST usable file is
-authoritative regardless of cadence (decision B6/B7 on [internal ticket]). The
+authoritative regardless of cadence (decision B6/B7). The
 share keeps only ~3 months, so a delayed run is a real loss — hence the
 staleness alarm.
 
@@ -18,11 +18,11 @@ The share is a read-only CIFS mount located through UDREDNINGSRET_BASE_DIR —
 resolved per run, and an unset variable is a hard error, never a fallback (an
 unmounted share and "no new deliveries" must not look alike).
 
-DELIVERY DETECTION ([internal ticket] pattern, level 1): the extract reads NOTHING when
+DELIVERY DETECTION (delivery-detection pattern, level 1): the extract reads NOTHING when
 the newest file on the share is one it has already ingested. The unit is the
 single track (`udredningsret_leverance_1083`), the identity is the filename's
 packaging timestamp, and the checkpoint lives in meta.DFMState under
-("dfm", <unit>) — see core/dfm_delivery.py. Only the archive-side gate asset
+("dfm", <unit>), using DfmManager.get_checkpoint/set_checkpoint. Only the archive-side gate asset
 (udredningsret_archive.py) advances it, once the delivery is reflected in arc;
 a run without a new file writes an EMPTY manifest and leaves ext untouched as
 the debugging surface for the last delivery. A pinned run
@@ -45,8 +45,6 @@ GDPR: the files carry raw CPR — row contents are never logged or reported,
 only file names, counts and delivery dates.
 """
 
-import csv
-import io
 import os
 import re
 import tarfile
@@ -56,9 +54,28 @@ from datetime import date, datetime
 from typing import TypedDict
 
 import dagster as dg
-from core.dfm_delivery import delivery_identity, delivery_unit, is_new_delivery
 from core.dfm_manager import DfmManager
+from core.dfm_source import share_connection
 from core.resources import MSSQLResource
+from DSI.csv_files._sds_tar import (
+    DEFAULT_ENCODING,
+    DELIMITER,
+    INSERT_CHUNK_SIZE,
+    ExtWriter,
+    dataset_prefix,
+    execute_statements,
+    export_log_deviations,
+    ext_create_sql,
+    has_mojibake,
+    iter_members,
+    open_member_csv,
+    parse_archive_timestamp,
+    parse_export_log,
+    run_writers,
+    schema_drift,
+    source_dir,
+    source_encoding,
+)
 from DSI.csv_files.udredningsret_datasets import (
     DATASET_PREFIX,
     DATASETS,
@@ -75,9 +92,6 @@ from pydantic import Field
 BASE_DIR_ENV = "UDREDNINGSRET_BASE_DIR"
 ENCODING_ENV = "UDREDNINGSRET_FILE_ENCODING"
 
-DEFAULT_ENCODING = "cp1252"
-DELIMITER = ";"
-INSERT_CHUNK_SIZE = 1000
 KADENCE_COLUMN = "kadence"
 TIMESTAMP_COLUMN = "leverance_tidsstempel"
 DELIVERY_COLUMN = "leverance_dato"
@@ -85,7 +99,7 @@ DELIVERY_COLUMN = "leverance_dato"
 # One delivery track for the whole source (U and M are the same snapshot), so
 # the DFM unit carries only the region. Checkpoint value: the filename's
 # packaging timestamp as ISO, e.g. "2026-09-07T19:35:44".
-DELIVERY_UNIT = delivery_unit("udredningsret", REGION)
+DELIVERY_UNIT = f"udredningsret_leverance_{REGION}"
 
 # Per-run contract between extract and archive: exactly one row when a delivery
 # was loaded, no rows when the run was a declared no-op. Lives in ext (volatile,
@@ -100,10 +114,6 @@ MAX_DELIVERY_AGE_DAYS = 10
 # a high share means a shifted column or a changed format, not replacement CPRs
 # (measured 2026-09-07: 0 of 8,171,604).
 MAX_CPR_FORMAT_DEVIATION = 0.01
-
-# Encoding sanity (DRG lesson [internal ticket]): U+FFFD and its UTF-8 bytes misread as
-# cp1252 are unambiguous corruption markers.
-_MOJIBAKE_MARKERS = ("�", "ï¿½")
 
 ARCHIVE_RE = re.compile(
     r"^Region_1083_LPR_Udredningsret_(?P<kadence>[UM])_(?P<timestamp>\d{14})\.tar\.bz2$"
@@ -128,23 +138,20 @@ def udredningsret_dir(override: str | None = None) -> str:
     acr-watcher registration. It is validated exactly like the variable and
     never defaulted: a scheduled run passes None and fails hard when unset.
     """
-    root = (override or os.getenv(BASE_DIR_ENV, "")).strip()
-    if not root:
-        raise ValueError(
-            f"{BASE_DIR_ENV} is unset or empty. The share is mounted per code-server — "
-            f"the variable is registered on the acr-watcher (and the branch slug in "
-            f"SMB_SHARE_BRANCHES) before the code-server gets /mnt/ftproot."
-        )
-    if not os.path.isdir(root):
-        raise ValueError(
-            f"{BASE_DIR_ENV}={root!r} is not a directory. The CIFS share is probably "
-            f"not mounted in this allocation."
-        )
-    return root
+    return source_dir(
+        BASE_DIR_ENV,
+        hint_unset=(
+            "The share is mounted per code-server — the variable is registered on the "
+            "acr-watcher (and the branch slug in SMB_SHARE_BRANCHES) before the "
+            "code-server gets /mnt/ftproot."
+        ),
+        hint_not_dir="The CIFS share is probably not mounted in this allocation.",
+        override=override,
+    )
 
 
 def udredningsret_encoding() -> str:
-    return os.getenv(ENCODING_ENV, "").strip() or DEFAULT_ENCODING
+    return source_encoding(ENCODING_ENV, DEFAULT_ENCODING)
 
 
 @dataclass(frozen=True)
@@ -166,7 +173,7 @@ class UdredningsretArchiveFile:
     @property
     def identity(self) -> str:
         """The DFM delivery identity: the packaging timestamp, fixed-width ISO."""
-        return delivery_identity(self.timestamp)
+        return self.timestamp.isoformat(timespec="seconds")
 
 
 class UdredningsretDirConfig(dg.Config):
@@ -196,10 +203,10 @@ def parse_archive_name(name: str) -> tuple[str, datetime] | None:
     match = ARCHIVE_RE.match(name)
     if not match:
         return None
-    try:
-        return match["kadence"], datetime.strptime(match["timestamp"], "%Y%m%d%H%M%S")
-    except ValueError:
+    timestamp = parse_archive_timestamp(match["timestamp"])
+    if timestamp is None:
         return None
+    return match["kadence"], timestamp
 
 
 def discover_archives(root: str) -> list[UdredningsretArchiveFile]:
@@ -219,15 +226,10 @@ def discover_archives(root: str) -> list[UdredningsretArchiveFile]:
 
 
 def _dataset_prefix(csv_filename: str) -> str | None:
-    match = DATA_MEMBER_RE.match(csv_filename)
-    return match["prefix"] if match else None
+    return dataset_prefix(csv_filename, DATA_MEMBER_RE)
 
 
-def _parse_export_log(text: str) -> dict[str, int]:
-    rows: dict[str, int] = {}
-    for record in csv.DictReader(text.splitlines(), delimiter=DELIMITER):
-        rows[record["FilNavn"]] = int(record["AntalRaekker"])
-    return rows
+_parse_export_log = parse_export_log
 
 
 def is_usable(archive: UdredningsretArchiveFile, encoding: str) -> str | None:
@@ -272,7 +274,7 @@ def select_candidates(
     """
     if on_or_before is not None:
         return [a for a in archives if a.delivery_date <= on_or_before]
-    return [a for a in archives if is_new_delivery(checkpoint, a.identity)]
+    return [a for a in archives if checkpoint is None or a.identity > checkpoint]
 
 
 def select_newest(
@@ -320,13 +322,12 @@ def validate_member_schema(
     dataset: UdredningsretDataset, columns: list[str], filename: str
 ) -> None:
     """The header against the dataset's columns — fail loudly on schema drift."""
-    unknown = [c for c in columns if c not in dataset.source_columns]
+    unknown, missing = schema_drift(columns, dataset.source_columns)
     if unknown:
         raise ValueError(
             f"{filename}: unknown columns {unknown} — SDS has changed the schema. "
             f"Update udredningsret_datasets.py (and the arc DDL) before loading."
         )
-    missing = [c for c in dataset.source_columns if c not in columns]
     if missing:
         raise ValueError(
             f"{filename}: mandatory columns are missing: {missing} — SDS has changed the "
@@ -335,18 +336,15 @@ def validate_member_schema(
 
 
 def _ext_create_sql(dataset: UdredningsretDataset) -> str:
-    lines = [
-        f"[{KADENCE_COLUMN}] NVARCHAR(1) NOT NULL",
-        f"[{TIMESTAMP_COLUMN}] DATETIME2(0) NOT NULL",
-    ]
-    for name in dataset.source_columns:
-        lines.append(f"[{name}] NVARCHAR({VALUE_WIDTH}) NULL")
-    lines.append(f"[{DELIVERY_COLUMN}] DATE NOT NULL")
-    lines.append("[dw_timestamp_insert] DATETIME2(0) NOT NULL DEFAULT GETDATE()")
-    lines.append("[dw_timestamp_update] DATETIME2(0) NOT NULL DEFAULT GETDATE()")
-    return (
-        f"DROP TABLE IF EXISTS [ext].[{dataset.ext_table}];\n"
-        f"CREATE TABLE [ext].[{dataset.ext_table}] (\n    " + ",\n    ".join(lines) + "\n);"
+    """Every source column is NVARCHAR(VALUE_WIDTH) NULL — ext and arc share
+    one width so they can never diverge (HAIBA lesson)."""
+    return ext_create_sql(
+        dataset.ext_table,
+        [
+            f"[{KADENCE_COLUMN}] NVARCHAR(1) NOT NULL",
+            f"[{TIMESTAMP_COLUMN}] DATETIME2(0) NOT NULL",
+        ],
+        [(name, VALUE_WIDTH, False) for name in dataset.source_columns],
     )
 
 
@@ -368,76 +366,26 @@ def manifest_create_sql() -> str:
     )
 
 
-def _execute_statements(conn, sql: str) -> None:
-    cursor = conn.cursor()
-    try:
-        for statement in sql.split(";\n"):
-            if statement.strip():
-                cursor.execute(statement)
-        conn.commit()
-    finally:
-        cursor.close()
+_execute_statements = execute_statements
 
 
-class _ExtWriter:
-    """Chunked writer for one ext table."""
+class _ExtWriter(ExtWriter):
+    """Chunked writer for one ext table.
+
+    INSERT_CHUNK_SIZE is read from THIS module at construction time, so a test
+    that patches udredningsret.INSERT_CHUNK_SIZE still takes effect.
+    """
 
     def __init__(self, conn, dataset: UdredningsretDataset, context: dg.AssetExecutionContext):
-        self.dataset = dataset
-        self.context = context
-        self.cursor = conn.cursor()
-        if hasattr(self.cursor, "fast_executemany"):
-            self.cursor.fast_executemany = True
-        columns = [KADENCE_COLUMN, TIMESTAMP_COLUMN, *dataset.source_columns, DELIVERY_COLUMN]
-        placeholders = ", ".join("?" for _ in columns)
-        column_sql = ", ".join(f"[{c}]" for c in columns)
-        self.insert_sql = (
-            f"INSERT INTO [ext].[{dataset.ext_table}] ({column_sql}) VALUES ({placeholders})"
+        super().__init__(
+            conn,
+            dataset.ext_table,
+            [KADENCE_COLUMN, TIMESTAMP_COLUMN, *dataset.source_columns, DELIVERY_COLUMN],
+            context,
+            chunk_size=INSERT_CHUNK_SIZE,
+            row_word="rows",
         )
-        self.buffer: list[tuple] = []
-        self.total = 0
-
-    def add(self, row: tuple) -> None:
-        self.buffer.append(row)
-        if len(self.buffer) >= INSERT_CHUNK_SIZE:
-            self.flush()
-
-    def flush(self) -> None:
-        if self.buffer:
-            self.cursor.executemany(self.insert_sql, self.buffer)
-            self.total += len(self.buffer)
-            if self.total % 500_000 < INSERT_CHUNK_SIZE:
-                self.context.log.info(f"ext.{self.dataset.ext_table}: {self.total:,} rows")
-            self.buffer.clear()
-
-    def discard(self) -> None:
-        """Drop buffered rows without sending them — the error path (review F19).
-
-        Flushing on the way out of a failed load would issue one more INSERT,
-        and if THAT fails (e.g. truncation) its SQL error replaces the real
-        cause (mojibake, CPR format, export-log mismatch) as the raised
-        exception. The connection is closed without commit anyway.
-        """
-        self.buffer.clear()
-
-    def close(self) -> None:
-        self.flush()
-        self.cursor.close()
-
-
-class _NonSeekableReader(io.RawIOBase):
-    """tarfile's stream-mode file objects lack seekable(), which TextIOWrapper requires."""
-
-    def __init__(self, fileobj):
-        self._fileobj = fileobj
-
-    def readable(self) -> bool:
-        return True
-
-    def readinto(self, buffer) -> int:
-        data = self._fileobj.read(len(buffer))
-        buffer[: len(data)] = data
-        return len(data)
+        self.dataset = dataset
 
 
 class MemberStats(TypedDict):
@@ -456,10 +404,7 @@ def _stream_data_member(
     filename: str,
 ) -> MemberStats:
     """Stream one CSV from the tar into its ext table."""
-    text = io.TextIOWrapper(
-        io.BufferedReader(_NonSeekableReader(handle)), encoding=encoding, newline=""
-    )
-    reader = csv.reader(text, delimiter=DELIMITER)
+    reader = open_member_csv(handle, encoding, DELIMITER)
     header = next(reader, None)
     if header is None:
         raise ValueError(f"{filename}: the file is empty (no header)")
@@ -492,7 +437,7 @@ def _stream_data_member(
         values: list[str | None] = []
         for spec_index, src_index in enumerate(positions):
             value = raw[src_index].strip()
-            if value and (_MOJIBAKE_MARKERS[0] in value or _MOJIBAKE_MARKERS[1] in value):
+            if has_mojibake(value):
                 mojibake[dataset.source_columns[spec_index]] += 1
             values.append(value or None)
         if cpr_index is not None and not _CPR_RE.match(raw[cpr_index].strip()):
@@ -563,49 +508,36 @@ def load_archive_into_ext(
     lpr_dato: str | None = None
     context.log.info(f"reading {archive.filename}")
 
-    with tarfile.open(archive.path, mode="r|bz2") as tar:
-        for member in tar:
-            if not member.isfile():
-                continue
-            base = os.path.basename(member.name)
-            handle = tar.extractfile(member)
-            if handle is None:
-                continue
-            if base.startswith("Metadata_"):
-                continue  # the schema is validated against the data file's own header
-            if base.startswith("SDP_ExportLog"):
-                export_log = _parse_export_log(handle.read().decode(encoding))
-                continue
-            prefix = _dataset_prefix(base)
-            if prefix is None:
-                context.log.warning(f"{archive.filename}: ignoring unknown member {base}")
-                continue
-            dataset = by_prefix.get(prefix)
-            if dataset is None:
-                raise ValueError(
-                    f"{archive.filename}: unknown dataset {base} — SDS has added a "
-                    f"dataset. Update udredningsret_datasets.py."
-                )
-            stats = _stream_data_member(
-                handle, dataset, archive, writers[dataset.ext_table], encoding, base
+    for base, handle in iter_members(archive.path):
+        if base.startswith("Metadata_"):
+            continue  # the schema is validated against the data file's own header
+        if base.startswith("SDP_ExportLog"):
+            export_log = _parse_export_log(handle.read().decode(encoding))
+            continue
+        prefix = _dataset_prefix(base)
+        if prefix is None:
+            context.log.warning(f"{archive.filename}: ignoring unknown member {base}")
+            continue
+        dataset = by_prefix.get(prefix)
+        if dataset is None:
+            raise ValueError(
+                f"{archive.filename}: unknown dataset {base} — SDS has added a "
+                f"dataset. Update udredningsret_datasets.py."
             )
-            actual_counts[base] = stats["raekker"]
-            cpr_deviations += stats["cpr_ikke_10_cifre"]
-            blank_dates.update(stats["blanke_datoer"])
-            if stats["lpropdateringsdato"]:
-                lpr_dato = stats["lpropdateringsdato"]
+        stats = _stream_data_member(
+            handle, dataset, archive, writers[dataset.ext_table], encoding, base
+        )
+        actual_counts[base] = stats["raekker"]
+        cpr_deviations += stats["cpr_ikke_10_cifre"]
+        blank_dates.update(stats["blanke_datoer"])
+        if stats["lpropdateringsdato"]:
+            lpr_dato = stats["lpropdateringsdato"]
 
     if export_log is None:
         raise ValueError(
             f"{archive.filename}: SDP_ExportLog is missing — control totals cannot be enforced"
         )
-    deviations = {}
-    for filename, expected in export_log.items():
-        if filename.startswith("Metadata_"):
-            continue
-        actual = actual_counts.get(filename)
-        if actual != expected:
-            deviations[filename] = {"eksportlog": expected, "indlaest": actual}
+    deviations = export_log_deviations(export_log, actual_counts)
     if deviations:
         raise ValueError(
             f"{archive.filename}: row counts deviate from SDP_ExportLog: {deviations} — "
@@ -653,18 +585,7 @@ def load_delivery(
         _execute_statements(conn, _ext_create_sql(dataset))
 
     writers = {d.ext_table: _ExtWriter(conn, d, context) for d in DATASETS}
-    try:
-        result = load_archive_into_ext(archive, writers, encoding, context)
-        for writer in writers.values():
-            writer.flush()
-    except BaseException:
-        for writer in writers.values():
-            writer.discard()
-        raise
-    finally:
-        for writer in writers.values():
-            writer.close()
-    return result
+    return run_writers(writers, lambda: load_archive_into_ext(archive, writers, encoding, context))
 
 
 def write_manifest(
@@ -709,7 +630,7 @@ def _run_extract(
         )
 
     archives = discover_archives(root)
-    checkpoint = DfmManager(mssql, context).get_delivery_checkpoint(DELIVERY_UNIT)
+    checkpoint = DfmManager(mssql, context).get_checkpoint("dfm", DELIVERY_UNIT)
     candidates = select_candidates(archives, checkpoint, on_or_before)
 
     # The manifest is recreated EMPTY first: an empty manifest is the declared
@@ -753,10 +674,29 @@ def _run_extract(
             f"{notes}. Inspect the newest delivery on the share."
         )
 
-    with mssql.get_connection() as conn:
+    prefix_by_table = {
+        UDREDNINGSRET_MONT.ext_table: DATASET_PREFIX,
+        LEVERANCEINFO.ext_table: LEVERANCEINFO_PREFIX,
+    }
+    with (
+        DfmManager(mssql, context).target_runs(
+            "ext",
+            prefix_by_table,
+            dagster_run_id=context.run_id,
+            mode="full_load",
+            **share_connection(root),
+        ) as rows,
+        mssql.get_connection() as conn,
+    ):
         result = load_delivery(conn, selected, encoding, context)
         write_manifest(conn, selected, result["lpropdateringsdato"], on_or_before is None)
         conn.commit()
+        rows.update(
+            {
+                table: sum(n for f, n in result["raekker"].items() if _dataset_prefix(f) == prefix)
+                for table, prefix in prefix_by_table.items()
+            }
+        )
 
     # Candidates older than the selected one were never opened: the newest
     # usable file is a full snapshot and supersedes them (reported, not loaded).
@@ -767,16 +707,7 @@ def _run_extract(
                 "indlaest" if on_or_before is None else "indlaest (pin — checkpoint rykkes ikke)"
             ),
             "leverance": result,
-            "raekker_pr_ext_tabel": {
-                UDREDNINGSRET_MONT.ext_table: sum(
-                    n for f, n in result["raekker"].items() if _dataset_prefix(f) == DATASET_PREFIX
-                ),
-                LEVERANCEINFO.ext_table: sum(
-                    n
-                    for f, n in result["raekker"].items()
-                    if _dataset_prefix(f) == LEVERANCEINFO_PREFIX
-                ),
-            },
+            "raekker_pr_ext_tabel": rows,
             "sprunget_over_mellemliggende": skipped or ["ingen"],
             "fallbacks": notes or ["ingen"],
             **common,

@@ -8,6 +8,8 @@
 -- Function: dbo.GetBorgerSK_TVF
 -- Table-valued function for temporal lookup of dw_sk_Borger
 -- Used by views to resolve surrogate keys for Type 2 SCD
+-- Soft-deleted versions keep their validity interval and can overlap a live
+-- version, so they are excluded and the newest matching version is returned.
 -- ============================================================================
 
 CREATE OR ALTER FUNCTION dbo.GetBorgerSK_TVF
@@ -25,5 +27,7 @@ RETURN
     WHERE dw_ek_Borger = @dw_ek_Borger
       AND @PointInTime >= dw_valid_from
       AND @PointInTime < dw_valid_to
+      AND dw_is_deleted = 0
+    ORDER BY dw_valid_from DESC, dw_sk_Borger DESC
 );
 GO

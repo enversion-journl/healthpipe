@@ -6,11 +6,12 @@
 
 """ILS DFM archive configs and factory-generated assets.
 
-22 UPSERT archives from ext.ils_* into arc.ils_* (source-prefixed naming).
+24 UPSERT archives from ext.ils_* into arc.ils_* (source-prefixed naming).
 
-A config-driven factory generates the 21 Progress Pro2 archives, mirroring the
+A config-driven factory generates the 22 Progress Pro2 archives, mirroring the
 convention on the extract side (DSI/mssql/extract/ils_extract_configs.py), plus
-one manual-list archive (ils_rekvundtagne) keyed on (sgh, rnr).
+one manual-list archive (ils_rekvundtagne) keyed on (sgh, rnr) and the
+append-only changelog archive (ils_changelog) checkpointed on Dato.
 
 Also home to the two standalone ILS archives — arc_ils_unspsc and arc_ils_vare
 — whose upstream extract (ext.ils_unspsc / ext.ils_vare) comes from
@@ -19,12 +20,14 @@ explicitly at the bottom of this module.
 
 Two patterns (same membership as _ILS_FULL_LOAD_TABLES / _ILS_SYSDATO_TABLES
 in extract_configs.py):
-  A) Full load (14): vareart, varegrp, varetype, varetype2, projekt, moms, lev,
-     sgh, lgr, rekv, rekvgrp, lafth, lafthsgh, zz_oper — upstream DFM extract
-     truncates and reloads each run.
+  A) Full load (15): vareart, varegrp, varetype, varetype2, projekt, moms, lev,
+     sgh, lgr, rekv, rekvgrp, postdi, lafth, lafthsgh, zz_oper — upstream DFM
+     extract truncates and reloads each run.
   B) Delta on [sysdato] (7): laftdpris, laftdstam, laftd, udlev, lgrvare,
      pmdm, indkfak — checkpoint is MAX(sysdato) from the arc table.
   C) Manual full load (1): rekvundtagne — grain (sgh, rnr), no prrowid.
+  D) Delta on [Dato] (1): changelog — append-only, no sysdato; checkpoint is
+     MAX(Dato) from the arc table.
 """
 
 import dagster as dg
@@ -428,6 +431,19 @@ _NON_KEY_COLUMNS: dict[str, tuple[str, ...]] = {
         "navn",
         "aktiv",
         "sysklk",
+        "bruger",
+        "seqnr",
+        "sysdato",
+        "Pro2SrcPDB",
+        "pro2created",
+        "pro2modified",
+    ),
+    "postdi": (
+        "land",
+        "postdi",
+        "navn",
+        "sognavn",
+        "sw_synk",
         "bruger",
         "seqnr",
         "sysdato",
@@ -1031,6 +1047,7 @@ _FULL_LOAD_TABLES = (
     "lgr",
     "rekv",
     "rekvgrp",
+    "postdi",
     "lafth",
     "lafthsgh",
     "zz_oper",
@@ -1091,7 +1108,8 @@ def _sysdato_config(table: str) -> ArchiveMergeConfig:
 
 
 # ---------------------------------------------------------------------------
-# Aggregated config list (12 full-load + 7 sysdato + 1 rekvundtagne = 20)
+# Aggregated config list (15 full-load + 7 sysdato + 1 rekvundtagne
+# + 1 changelog = 24)
 # ---------------------------------------------------------------------------
 
 REKVUNDTAGNE_ARCHIVE_CONFIG = ArchiveMergeConfig(
@@ -1107,10 +1125,54 @@ REKVUNDTAGNE_ARCHIVE_CONFIG = ArchiveMergeConfig(
     upstream_is_full_load=True,
 )
 
+_CHANGELOG_NON_KEY_COLUMNS = (
+    "tabelnavn",
+    "primaernoegle",
+    "feltnavn",
+    "fravaerdi",
+    "tilvaerdi",
+    "opret",
+    "feltkonverteret",
+    "bd_init",
+    "Dato",
+    "klok",
+    "feltlabel",
+    "Pro2SrcPDB",
+    "pro2created",
+    "pro2modified",
+)
+# ext lands pro2created/pro2modified as DATETIME2, arc holds datetime: a datetime
+# ending in .xx3/.xx7 ms compares as .xx33333/.xx66667, so these replication
+# stamps would flag ~2/3 of the re-read lookback rows as changed every run.
+_CHANGELOG_PRO2_STAMPS = ("pro2created", "pro2modified")
+
+CHANGELOG_ARCHIVE_CONFIG = ArchiveMergeConfig(
+    source_schema="ext",
+    source_table="ils_changelog",
+    target_schema="arc",
+    target_table="ils_changelog",
+    # Same ISO formatting as _sysdato_config; the extract subtracts its
+    # lookback_days from this value.
+    checkpoint_query="SELECT CONVERT(NVARCHAR(50), MAX([Dato]), 121) FROM [arc].[ils_changelog]",
+    merge_keys=("prrowid",),
+    non_key_columns=_CHANGELOG_NON_KEY_COLUMNS,
+    change_detect_columns=tuple(
+        c for c in _CHANGELOG_NON_KEY_COLUMNS if c not in _CHANGELOG_PRO2_STAMPS
+    ),
+    strategy="upsert",
+    update_only_on_change=True,
+    detect_deletes=False,
+    upstream_is_full_load=False,
+    # prrowid is the source PK, so ext rows are unique on merge_keys — the
+    # ~9M-row cold load can skip the MERGE.
+    enable_bulk_insert_on_first_load=True,
+)
+
 ils_dfm_archive_configs: list[ArchiveMergeConfig] = (
     [_full_load_config(t) for t in _FULL_LOAD_TABLES]
     + [_sysdato_config(t) for t in _SYSDATO_TABLES]
     + [REKVUNDTAGNE_ARCHIVE_CONFIG]
+    + [CHANGELOG_ARCHIVE_CONFIG]
 )
 
 # ---------------------------------------------------------------------------
@@ -1183,7 +1245,7 @@ ils_dfm_archive_assets: list[AssetsDefinition] = [
 # ---------------------------------------------------------------------------
 # Standalone ILS archives: unspsc, vare
 #
-# These two are NOT part of the 18-table factory above. Their upstream extract
+# These two are NOT part of the 24-table factory above. Their upstream extract
 # is DSI/mssql/extract/ils_extract_configs.ILS_EXTRACT_CONFIGS, which writes
 # ext.ils_unspsc / ext.ils_vare. They archive into arc.ils_unspsc /
 # arc.ils_vare with their own column lists, so they are defined explicitly

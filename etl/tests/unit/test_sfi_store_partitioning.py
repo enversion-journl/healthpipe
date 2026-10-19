@@ -279,9 +279,20 @@ def test_migration_drops_the_unpartitioned_store_first_and_resets_watermarks():
     drop_at = sql.index("DROP TABLE [fhir].[SFI_datapoint_store];")
     delete_at = sql.index("DELETE FROM [meta].[SyncWatermarks]")
     assert drop_at < delete_at < sql.index("\nGO", drop_at)
-    # Filen sorterer efter alle eksisterende migrationer.
-    others = sorted(f.name for f in MIGRATION.parent.glob("*.sql") if f.name != MIGRATION.name)
-    assert MIGRATION.name > others[-1]
+    # Filen sorterer efter alle andre migrationer, der rører storen: en migration,
+    # der kommer efter, skal kende den partitionerede form. Migrationer om andre
+    # objekter må gerne være nyere -- ellers spærrer denne test for enhver senere
+    # migration i repoet.
+    others = sorted(
+        f.name
+        for f in MIGRATION.parent.glob("*.sql")
+        if f.name != MIGRATION.name and "SFI_datapoint_store" in f.read_text(encoding="utf-8")
+    )
+    # «not others» alene ville lade testen bestaa tavst, hvis filtret en dag
+    # ikke finder noget — fx efter en flytning af migrationsmappen. Der SKAL
+    # findes migrationer, der rører storen, saa det krav staar udtrykkeligt.
+    assert others, "ingen migrationer roerer SFI_datapoint_store — filtret rammer forbi"
+    assert MIGRATION.name > others[-1], others
 
 
 # ---------------------------------------------------------------------------

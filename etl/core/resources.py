@@ -269,6 +269,75 @@ class KmdUddataMSSQLResource(dg.ConfigurableResource):
             conn.close()
 
 
+class _DomainAccountMSSQLResource(dg.ConfigurableResource):
+    """Base for MSSQL sources that log in with a EXAMPLE service account.
+
+    Uses pymssql, because mssql-python on Linux cannot do NTLM with a user
+    name and a password. Subclasses set the five fields from EnvVar.
+    """
+
+    host: str
+    port: int
+    database: str
+    user: str
+    password: str
+
+    @contextmanager
+    def get_connection(self):
+        """A context manager that yields a pymssql database connection and closes it when exiting."""
+        conn = pymssql.connect(
+            server=self.host,
+            port=self.port,
+            user=self.user,
+            password=self.password,
+            database=self.database,
+        )
+        try:
+            yield conn
+        finally:
+            conn.close()
+
+
+class MaxManusMSSQLResource(_DomainAccountMSSQLResource):
+    """MaxManus (Prod_MMFactsWarehouse). Service accounts: SVC-HP-MAXM-*."""
+
+    host: str = dg.EnvVar("MAXMANUS_PROD_MSSQL_SERVER")
+    port: int = dg.EnvVar.int("MAXMANUS_PROD_MSSQL_PORT")
+    database: str = dg.EnvVar("MAXMANUS_PROD_MSSQL_DATABASE")
+    user: str = dg.EnvVar("MAXMANUS_PROD_MSSQL_USERNAME")
+    password: str = dg.EnvVar("MAXMANUS_PROD_MSSQL_PASSWORD")
+
+
+class SimaMSSQLResource(_DomainAccountMSSQLResource):
+    """SIMATECH (SimaTech_Enterprise_Server). Service accounts: SVC-HP-SIMA-*."""
+
+    host: str = dg.EnvVar("SIMA_PROD_MSSQL_SERVER")
+    port: int = dg.EnvVar.int("SIMA_PROD_MSSQL_PORT")
+    database: str = dg.EnvVar("SIMA_PROD_MSSQL_DATABASE")
+    user: str = dg.EnvVar("SIMA_PROD_MSSQL_USERNAME")
+    password: str = dg.EnvVar("SIMA_PROD_MSSQL_PASSWORD")
+
+
+class SimaArkivMSSQLResource(_DomainAccountMSSQLResource):
+    """SIMATECH archive (SimaTech_Enterprise_Server_archive). Service accounts: SVC-HP-SIMA-*."""
+
+    host: str = dg.EnvVar("SIMA_ARKIV_PROD_MSSQL_SERVER")
+    port: int = dg.EnvVar.int("SIMA_ARKIV_PROD_MSSQL_PORT")
+    database: str = dg.EnvVar("SIMA_ARKIV_PROD_MSSQL_DATABASE")
+    user: str = dg.EnvVar("SIMA_ARKIV_PROD_MSSQL_USERNAME")
+    password: str = dg.EnvVar("SIMA_ARKIV_PROD_MSSQL_PASSWORD")
+
+
+class PatologiMSSQLResource(_DomainAccountMSSQLResource):
+    """Patologi (patoprod). Service accounts: SVC-HP-PATO-*."""
+
+    host: str = dg.EnvVar("PATOLOGI_PROD_MSSQL_SERVER")
+    port: int = dg.EnvVar.int("PATOLOGI_PROD_MSSQL_PORT")
+    database: str = dg.EnvVar("PATOLOGI_PROD_MSSQL_DATABASE")
+    user: str = dg.EnvVar("PATOLOGI_PROD_MSSQL_USERNAME")
+    password: str = dg.EnvVar("PATOLOGI_PROD_MSSQL_PASSWORD")
+
+
 # ============================================================================
 # Oracle Resources
 # ============================================================================
@@ -2561,13 +2630,19 @@ class FHIRDatabaseResource(dg.ConfigurableResource):
         resource_type: str,
         batch_size: int = 2000,
         invalidate_cache: bool = True,
+        *,
+        identity_safe: bool = False,
+        create_only: Sequence[bool] | None = None,
     ) -> _direct_upsert.UpsertResult:
+        if create_only is not None and not identity_safe:
+            raise ValueError("create_only requires identity_safe=True")
         return _direct_upsert.batch_upsert_resources(
             self,
             resources=resources,
             resource_type=resource_type,
             batch_size=batch_size,
             invalidate_cache=invalidate_cache,
+            **({"identity_safe": True, "create_only": create_only} if identity_safe else {}),
         )
 
     def batch_upsert_resource_dicts(

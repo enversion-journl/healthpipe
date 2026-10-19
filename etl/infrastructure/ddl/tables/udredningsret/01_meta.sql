@@ -11,7 +11,7 @@
 -- of the same delivery updates the row; rows accumulate, so the history can
 -- answer "which deliveries have we loaded, and what did they do". It is an
 -- audit log — the "may I skip this file" decision lives in meta.DFMState
--- (('dfm', 'udredningsret_leverance_1083'), see core/dfm_delivery.py).
+-- (('dfm', 'udredningsret_leverance_1083'), via existing DfmManager checkpoint methods).
 --
 -- The delivery-direction guard in DSI/csv_files/udredningsret_archive.py
 -- reads MAX(lpropdateringsdato) (the source's own date for the content, from

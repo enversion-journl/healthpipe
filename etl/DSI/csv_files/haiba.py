@@ -29,6 +29,31 @@ between.
 Only the newest usable file per (HAI type, kind) is read, streamed straight
 into ext.haiba_* and left for the archive layer to MERGE.
 
+Delivery detection makes the daily schedule cheap: the newest usable file per
+HAI type is compared against the delivery checkpoint in meta.DFMState
+(unit ``haiba_leverance_<type>_<kind>``, identity ``<delivery date>|<mtime>``
+via DSI/connectors/delivery_detection.py — mtime is what makes a same-named
+re-drop a new delivery). The decision is ALL-OR-NOTHING per ext table: only
+when NO type has a new delivery is the load skipped (no CSV rows are streamed,
+ext is left untouched — the usability and header probes still open each file);
+one new type reloads every type. Reloading only the new types would write a
+partial ext, and the archive merges with detect_deletes on an unscoped NOT
+MATCHED BY SOURCE — the missing types would be soft-deleted. The tables decide
+independently: a new cases delivery does not force the agg tables to reload.
+One consequence is accepted: a type SDS retires (no files left on the share)
+is only soft-deleted out of the archive when the NEXT new delivery of another
+type in the same table triggers a reload — with weekly deliveries that is
+days, and it errs on keeping data.
+
+Every run that skips or loads rewrites a manifest table
+(``ext.<table>_leverance_manifest``): emptied on a skip, emptied again before
+ext is rewritten (so a load that fails mid-write leaves it empty), and filled
+only after the guards pass. A run that fails BEFORE the load starts leaves
+the previous run's manifest — consistent with the untouched ext beside it.
+The archive reads the manifest as its merge contract and advances the
+checkpoints from it AFTER the MERGE has committed, so a failed archive run
+leaves the checkpoint unmoved and the next run re-reads the delivery.
+
 Two invariants protect the archive, which runs with delete detection and would
 otherwise soft-delete anything missing from ext (see haiba_archive.py):
 
@@ -87,8 +112,18 @@ from datetime import date, datetime
 
 import dagster as dg
 from core.dfm_manager import DfmManager
+from core.dfm_source import share_source
 from core.resources import MSSQLResource
+from DSI.connectors.delivery_detection import (
+    DELIVERY_SCHEMA,
+    DELIVERY_TARGET_TYPE,
+    delivery_identity,
+    delivery_unit,
+    is_new_delivery,
+)
+from DSI.csv_files._sds_tar import execute_statements
 from pydantic import Field
+from utils.sql_safety import safe_bracket_quote
 
 # Injected into the code-server by the Nomad job that mounts the SMB share.
 # The share is scoped per branch, so a branch that has not been opted in has no
@@ -383,6 +418,57 @@ CASES_SSI = HaibaSchema(
 
 SCHEMAS = (AGG_INFEKTION, AGG_ORTOPAEDI, CASES_INFEKTION, CASES_SSI)
 
+MANIFEST_SUFFIX = "leverance_manifest"
+
+
+def manifest_table(schema: HaibaSchema) -> str:
+    """ext table holding this schema's delivery manifest."""
+    return f"{schema.ext_table}_{MANIFEST_SUFFIX}"
+
+
+def haiba_delivery_unit(hai_type: str, kind: str) -> str:
+    """HAIBA's delivery unit: (HAI type, kind), in the FILENAME's vocabulary.
+
+    The filename type is what selection sees before any file is opened — the
+    HAI column disagrees on the agg CDI types (file 'CDI_COHA', column 'COHA').
+    """
+    return delivery_unit("haiba", hai_type, kind)
+
+
+def file_mtime(path: str) -> datetime:
+    """The file's mtime at whole-second precision.
+
+    Truncated, not rounded: the value must survive the round-trip through the
+    manifest's DATETIME2(0) column unchanged, or the identity the archive
+    stamps would differ from the one the extract compared against.
+    """
+    return datetime.fromtimestamp(int(os.stat(path).st_mtime))
+
+
+def detection_enabled(on_or_before: date | None, force_reload: bool) -> bool:
+    """Should this run skip deliveries it has already ingested?
+
+    Not for the two deliberate re-reads: a pin reproduces an earlier state and
+    force_reload is the ad-hoc recovery run — detection would skip exactly the
+    delivery the operator is trying to re-read.
+    """
+    return on_or_before is None and not force_reload
+
+
+def pending_types(identities: dict[str, str], checkpoints: dict[str, str | None]) -> list[str]:
+    """HAI types whose newest usable file is a NEW delivery.
+
+    The caller must treat the answer as all-or-nothing for its ext table:
+    non-empty reloads EVERY type in ``identities``, empty skips the whole
+    load. See the module docstring for why a per-type reload is forbidden.
+    """
+    return sorted(
+        hai_type
+        for hai_type, identity in identities.items()
+        if is_new_delivery(checkpoints.get(hai_type), identity)
+    )
+
+
 _SAS_MONTHS = {
     "JAN": 1,
     "FEB": 2,
@@ -433,6 +519,16 @@ class HaibaExtractConfig(dg.Config):
             "than this fraction of its active archive rows fails the run — an "
             "interrupted transfer parses fine but is short. Set 0.0 to accept a "
             "known legitimate shrink (e.g. the January window roll) for one run."
+        ),
+    )
+    force_reload: bool = Field(
+        default=False,
+        description=(
+            "Re-read and re-stage the newest deliveries even when the delivery "
+            "checkpoint says they are already in the archive. For ad-hoc "
+            "recovery runs — e.g. after repairing arc by hand. The archive "
+            "re-merge is a data no-op. delivery_on_or_before disables the "
+            "detection by itself; this switch is not needed with a pin."
         ),
     )
 
@@ -802,6 +898,68 @@ def _arc_active_counts(conn, schema: HaibaSchema) -> dict[str, int]:
         cursor.close()
 
 
+def _read_checkpoints(
+    mssql: MSSQLResource,
+    context: dg.AssetExecutionContext,
+    kind: str,
+    hai_types: list[str],
+) -> dict[str, str | None]:
+    """The delivery already archived per HAI type, from meta.DFMState.
+
+    A type with no row has never been loaded, and NULL reads as "everything
+    is new".
+    """
+    dfm = DfmManager(mssql, context)
+    checkpoints: dict[str, str | None] = {}
+    with dfm.connection():
+        for hai_type in sorted(hai_types):
+            checkpoints[hai_type] = dfm.get_checkpoint(
+                DELIVERY_SCHEMA,
+                haiba_delivery_unit(hai_type, kind),
+                target_type=DELIVERY_TARGET_TYPE,
+            )
+    return checkpoints
+
+
+def _manifest_create_sql(schema: HaibaSchema) -> str:
+    table = safe_bracket_quote(manifest_table(schema))
+    return (
+        f"DROP TABLE IF EXISTS [ext].{table};\n"
+        f"CREATE TABLE [ext].{table} (\n"
+        f"    [hai_type] NVARCHAR(100) NOT NULL,\n"
+        f"    [kind] NVARCHAR(10) NOT NULL,\n"
+        f"    [filnavn] NVARCHAR(200) NOT NULL,\n"
+        f"    [{DELIVERY_COLUMN}] DATE NOT NULL,\n"
+        f"    [fil_mtime] DATETIME2(0) NOT NULL,\n"
+        f"    [dw_timestamp_insert] DATETIME2(0) NOT NULL DEFAULT GETDATE()\n"
+        f");"
+    )
+
+
+def _write_manifest_rows(
+    conn, schema: HaibaSchema, files: dict[str, HaibaFile], mtimes: dict[str, datetime]
+) -> None:
+    """Record what this run loaded — one row per HAI type."""
+    table = safe_bracket_quote(manifest_table(schema))
+    cursor = conn.cursor()
+    try:
+        for hai_type in sorted(files):
+            file = files[hai_type]
+            cursor.execute(
+                f"INSERT INTO [ext].{table} "
+                f"([hai_type], [kind], [filnavn], [{DELIVERY_COLUMN}], [fil_mtime]) "
+                f"VALUES (?, ?, ?, ?, ?)",
+                hai_type,
+                file.kind,
+                file.filename,
+                file.delivery_date.isoformat(),
+                mtimes[hai_type],
+            )
+        conn.commit()
+    finally:
+        cursor.close()
+
+
 def _drop_ext_table(conn, schema: HaibaSchema) -> None:
     """Remove a half-written ext snapshot so nothing downstream can merge it."""
     cursor = conn.cursor()
@@ -909,6 +1067,60 @@ def _extract_schema(
     if not files:
         raise ValueError(f"No {schema.kind} files matching ext.{schema.ext_table} under {root}")
 
+    mtimes = {hai_type: file_mtime(file.path) for hai_type, file in files.items()}
+    # The unit must be constructible BEFORE anything loads: after the MERGE
+    # the same ValueError would leave the archive asset red with the rows
+    # already committed and the checkpoint loop stopped part way.
+    for hai_type in files:
+        try:
+            haiba_delivery_unit(hai_type, schema.kind)
+        except ValueError as exc:
+            raise ValueError(
+                f"{files[hai_type].filename}: HAI type {hai_type!r} cannot form "
+                f"a delivery-checkpoint unit — SDS has changed the naming "
+                f"scheme; extend the detection before loading."
+            ) from exc
+    identities = {
+        hai_type: delivery_identity(files[hai_type].delivery_date, mtimes[hai_type])
+        for hai_type in files
+    }
+    new_types: list[str] = []
+    if detection_enabled(cutoff, config.force_reload):
+        checkpoints = _read_checkpoints(mssql, context, schema.kind, list(files))
+        new_types = pending_types(identities, checkpoints)
+        if not new_types:
+            # The EMPTIED manifest is what tells the archive this run loaded nothing.
+            with mssql.get_connection() as conn:
+                execute_statements(conn, _manifest_create_sql(schema))
+            context.log.info(
+                f"ext.{schema.ext_table}: no new deliveries — no CSV rows are "
+                f"streamed, ext is not touched"
+            )
+            return dg.MaterializeResult(
+                metadata={
+                    "besluttet": dg.MetadataValue.text("intet nyt"),
+                    "row_count": dg.MetadataValue.int(0),
+                    "allerede_indlaest": dg.MetadataValue.json(
+                        {
+                            hai_type: f"{files[hai_type].filename} = {identities[hai_type]}"
+                            for hai_type in sorted(files)
+                        }
+                    ),
+                    "fallbacks": dg.MetadataValue.json(notes or ["ingen"]),
+                    "target_table": dg.MetadataValue.text(f"ext.{schema.ext_table}"),
+                    "source_folder": dg.MetadataValue.text(root),
+                }
+            )
+        context.log.info(
+            f"new delivery for {', '.join(new_types)} — all {len(files)} HAI "
+            f"type(s) are re-read so ext stays a complete snapshot"
+        )
+    else:
+        context.log.warning(
+            "delivery detection is off for this run — the newest deliveries "
+            "are re-read regardless of the checkpoint"
+        )
+
     rows_per_type: dict[str, int] = {}
     rejections: dict[tuple[str, str], int] = {}
     empty_after_width: list[str] = []
@@ -941,6 +1153,8 @@ def _extract_schema(
     )
 
     with mssql.get_connection() as conn:
+        # Emptied before ext is rewritten; refilled only after the guards pass.
+        execute_statements(conn, _manifest_create_sql(schema))
         row_count = _write_to_ext_table(conn, schema, _all_rows(), context)
         arc_active = _arc_active_counts(conn, schema)
 
@@ -955,17 +1169,24 @@ def _extract_schema(
             _enforce_ext_is_loadable(
                 schema, rows_per_type, arc_active, rejections, empty_after_width, fraction, context
             )
+            _write_manifest_rows(conn, schema, files, mtimes)
         except Exception:
-            # ext is already written and committed. A failed guard otherwise
-            # leaves a truncated snapshot behind, and a manual re-run of only
-            # the archive asset (routine during debugging) would MERGE it and
-            # soft-delete the shortfall. Drop it so there is nothing to merge.
+            # ext is already written and committed. A failed guard — or a
+            # failed manifest write — otherwise leaves a snapshot behind that
+            # a manual re-run of only the archive asset (routine during
+            # debugging) would treat wrongly: a truncated ext would be MERGEd
+            # and soft-delete the shortfall, and a full ext beside an empty
+            # manifest would be declared a no-op. Drop ext so there is
+            # nothing to merge; the checkpoint is unmoved, so the next run
+            # re-reads the delivery.
             _drop_ext_table(conn, schema)
             raise
 
     deliveries = {t: f.delivery_date.isoformat() for t, f in sorted(files.items())}
     return dg.MaterializeResult(
         metadata={
+            "besluttet": dg.MetadataValue.text("indlaest"),
+            "nye_leverancer": dg.MetadataValue.json(new_types or ["detektion slaaet fra"]),
             "row_count": dg.MetadataValue.int(row_count),
             "hai_types": dg.MetadataValue.int(len(files)),
             "deliveries": dg.MetadataValue.json(deliveries),
@@ -992,8 +1213,9 @@ def _build_asset(schema: HaibaSchema):
         tags={"domain": "haiba", "layer": "extract", "source": "haiba"},
         description=(
             f"Load the newest usable HAIBA {schema.kind} delivery per HAI type "
-            f"1:1 into ext.{schema.ext_table}. Header-only files are skipped in "
-            f"favour of the previous delivery."
+            f"1:1 into ext.{schema.ext_table}, or skip the load entirely when "
+            f"no type has a delivery newer than its checkpoint. Header-only "
+            f"files are skipped in favour of the previous delivery."
         ),
     )
     def _asset(
@@ -1006,7 +1228,9 @@ def _build_asset(schema: HaibaSchema):
         # deliberately locked to full_load — every SDS delivery is a complete
         # snapshot, and the archive merges with detect_deletes +
         # upstream_is_full_load, so a partial ext would soft-delete whole HAI
-        # types. The delivery watermark itself lives in meta.HAIBALeverance.
+        # types. The delivery watermark lives in the per-unit delivery
+        # checkpoints (read here, advanced by the archive) and the register
+        # in meta.HAIBALeverance.
         dfm = DfmManager(mssql_target_staging, context)
         run_ctx = dfm.start_dfm_run(
             "ext",
@@ -1014,6 +1238,7 @@ def _build_asset(schema: HaibaSchema):
             checkpoint_from=("arc", schema.ext_table),
             dagster_run_id=context.run_id,
             mode="full_load",
+            **share_source(os.getenv(BASE_DIR_ENV), f"HAIBA_*_{schema.kind}_RegS_*.csv"),
         )
         try:
             result = _extract_schema(context, mssql_target_staging, schema, config)
@@ -1046,6 +1271,8 @@ __all__ = [
     "DELIVERY_COLUMN",
     "DRIFT_MIN_ROW_FRACTION",
     "enforce_row_drift",
+    "haiba_delivery_unit",
+    "manifest_table",
     "unusable_types_for_schema",
     "SCHEMAS",
     "haiba_dir",

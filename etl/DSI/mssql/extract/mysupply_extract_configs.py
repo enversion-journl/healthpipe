@@ -21,6 +21,7 @@ from its arc table (independent advancement per DFM doctrine).
 
 import dagster as dg
 from core.dfm_manager import DfmManager
+from core.dfm_source import resource_source
 from core.resources import MSSQLResource, MySupplyMSSQLResource
 from DSI.connectors.extract_config import DfmExtractConfig
 from DSI.connectors.factory import create_dfm_extraction_assets
@@ -181,6 +182,7 @@ def _build_mysupply_flow_start_asset(target_table: str):
             dfm_table,
             dagster_run_id=context.run_id,
             mode="flow_start",
+            **resource_source(mysupply_mssql, None),
         )
         try:
             with mysupply_mssql.get_connection() as src:

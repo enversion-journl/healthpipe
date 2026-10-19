@@ -60,6 +60,48 @@ def _materialize_sync_result(
 
 
 @dg.asset(
+    name="dso_sync_codesystem_ifdb_concept",
+    group_name="codesystem_dso_sync",
+    compute_kind="mssql",
+    deps=["cs_ifdb_kodelister", "dso_infra_codesystem"],
+    tags={"domain": "codesystem", "layer": "dso_sync", "type": "codesystem"},
+    description="Sync codesystem.IFDBConcept fra staging til DSO",
+)
+def dso_sync_codesystem_ifdb_concept(
+    context: dg.AssetExecutionContext,
+    mssql_target_dso: MSSQLResource,
+    mssql_source_staging: MSSQLResource,
+) -> dg.MaterializeResult:
+    return _materialize_sync_result(
+        context,
+        mssql_target_dso,
+        mssql_source_staging,
+        "codesystem_ifdb_concept",
+    )
+
+
+@dg.asset(
+    name="dso_sync_codesystem_ifdb_properties",
+    group_name="codesystem_dso_sync",
+    compute_kind="mssql",
+    deps=["cs_ifdb_kodelister", "dso_infra_codesystem"],
+    tags={"domain": "codesystem", "layer": "dso_sync", "type": "codesystem"},
+    description="Sync codesystem.IFDBProperties fra staging til DSO",
+)
+def dso_sync_codesystem_ifdb_properties(
+    context: dg.AssetExecutionContext,
+    mssql_target_dso: MSSQLResource,
+    mssql_source_staging: MSSQLResource,
+) -> dg.MaterializeResult:
+    return _materialize_sync_result(
+        context,
+        mssql_target_dso,
+        mssql_source_staging,
+        "codesystem_ifdb_properties",
+    )
+
+
+@dg.asset(
     name="dso_sync_codesystem_sfi_concept",
     group_name="codesystem_dso_sync",
     compute_kind="mssql",
@@ -356,6 +398,8 @@ def dso_refresh_codesystem_sfi_search_document(
 
 
 all_codesystem_dso_sync_assets = [
+    dso_sync_codesystem_ifdb_concept,
+    dso_sync_codesystem_ifdb_properties,
     dso_sync_codesystem_sfi_concept,
     dso_sync_codesystem_sfi_properties,
     dso_sync_codesystem_sfi_hierarchy,

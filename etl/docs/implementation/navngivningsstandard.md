@@ -8,6 +8,9 @@
 
 # Navngivningsstandarder
 
+> Denne standard gælder repoet `datamarter`. Reglerne for basismodellen står i
+> [navngivningsstandard_basismodel.md](navngivningsstandard_basismodel.md).
+
 I det følgende beskrives navngivningsstandarder for alle elementer i datamarter – fra de scripts, der danner datamarten, til datamartens enkelte kolonner.
 
 Navngivningen i datamarter følger i store træk de samme regler, som gælder for basismodellen. Da datamarternes struktur adskiller sig fra basismodellens struktur, vil der dog være enkelte afvigelser.
@@ -21,7 +24,6 @@ Navngivningen i datamarter følger i store træk de samme regler, som gælder fo
 - [Databaser](#databaser)
 - [Struktur i databaser](#struktur-i-databaser)
 - [Navngivning i databaser](#navngivning-i-databaser)
-- [Extract og arkiv (ext/arc)](#extract-og-arkiv-extarc)
 - [Ordliste](#ordliste)
 
 
@@ -147,18 +149,6 @@ Tabellen herunder viser, hvordan du skal navngive de enkelte elementer i en data
 | **Tabeller** | - Brug PascalCase på selve tabelnavnet<br>- Skriv dog akronymer i UPPERCASE<br>- Brug `datamartnavn_` i snake_case som præfiks<br>- Navngiv facts i flertal og dimensioner i ental | `kraeftpakker_Organisation`<br>`kraeftpakker_Haendelser` |
 | **Views** | - Brug PascalCase på selve viewnavnet<br>- Brug `datamartnavn_tabeltype_` i snake_case som præfiks<br>- Angiv tabeltypen som `dim_` for dimensioner, `fct_` for facts og `stg_` for stagingtabeller | `kraeftpakker_dim_Organisation`<br>`kraeftpakker_fct_Haendelser` |
 | **Kolonner** | - Brug snake_case på selve kolonnenavnet<br>- Brug dog PascalCase på den del af et kolonnenavn, som måtte referere til et tabelnavn<br>- Skriv eventuelle forkortelser i lowercase, fx `epj`<br>- Brug kun alment kendte forkortelser og akronymer og undgå forkortelser som `dg` for `dage` eller `kd` for `kode`<br>- Brug `dw_sk_` som præfiks på surrogatnøgler og `dw_ek_` som præfiks på entitetsnøgler | `patient_id`<br>`posteringsbeloeb`<br>`dw_sk_Aftale`<br>`dw_ek_Organisation` |
-
-## Extract og arkiv (ext/arc)
-
-`ae`/`oe`/`aa`-reglen og PascalCase/snake_case-reglerne ovenfor gælder **fra arkivet og videre** (`pre_stg`, `stg`, `dim`, `fct`, `dm`, views). Extract og arkiv spejler kilden.
-
-| Lag | Tabel- og kolonnenavne |
-| :--- | :--- |
-| **`ext.*` og `arc.*`** | Følg kilden 1:1 — kildens egen stavning og casing. Vi translitererer eller omdøber ikke kildens identifikatorer. SDS' `DRGSGHFORLOB` bliver `drg_sghforlob` (kildens `FORLOB`); SDS' `Psyk_forloeb` bliver `drgpsyk_forloeb` (kildens `forloeb`). |
-| **Kolonner vi selv tilføjer i arc** | Audit (`dw_*`) og afledte nøgler (`*_uuid`, `*_noegle`) følger navngivningsstandarden (`ae`/`oe`/`aa`, snake_case). |
-| **`pre_stg` / `stg` / `dim` / `fct` / `dm`** | Navngivningsstandarden gælder fuldt ud. Her omdøbes og normaliseres til danske identifikatorer. |
-
-`ae`/`oe`/`aa` gælder identifikatorer, ikke prosa: SQL-kommentarer skrives på almindeligt dansk med æ/ø/å.
 
 ## Ordliste
 

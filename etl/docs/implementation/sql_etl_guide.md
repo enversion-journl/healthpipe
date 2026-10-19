@@ -239,7 +239,7 @@ tables; do not copy that for new work.) See [dsi_etl_guide.md](dsi_etl_guide.md#
 
 ## Naming Conventions
 
-Naming follows `docs/implementation/navngivningsstandard.md` (the single source).
+Naming follows `docs/implementation/navngivningsstandard_basismodel.md` (the single source).
 That guide splits by layer: **`ext.*` / `arc.*` keep the source's own table and
 column names** (spelling and casing). **From the archive onwards** (`pre_stg`,
 `stg`, `dim`, `fct`, `dm`) the standard applies in full — tables in PascalCase,

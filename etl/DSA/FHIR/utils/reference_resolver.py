@@ -85,8 +85,12 @@ class NestedReferenceResolutionResult:
 class AllReferencesResolutionResult:
     """Result of resolving all references for a batch of resources."""
 
-    # Results per reference field (top-level references)
-    field_results: dict[str, ReferenceResolutionResult] = field(default_factory=dict)
+    # Results per top-level reference, keyed (field_name, identifier_system).
+    # The system belongs in the key: one field can carry references to several
+    # identifier systems -- Encounter.location holds both a SOR department and
+    # a bed -- and keying on the field name alone let the last config overwrite
+    # the previous one's counts.
+    field_results: dict[tuple[str, str], ReferenceResolutionResult] = field(default_factory=dict)
 
     # Results per nested reference field path
     nested_results: dict[str, NestedReferenceResolutionResult] = field(default_factory=dict)
@@ -780,6 +784,12 @@ def collect_nested_reference_identifiers(
                 # Cannot determine target type - skip this reference
                 continue
 
+            # Typer, som konfigurationen ikke kender, opløses ikke og skal hverken
+            # slås op eller tælles som uopløste. Fx bevares en Practitioner-reference
+            # (identifier + display) uændret, når der kun er mapping for Organization.
+            if target_type not in config.get_all_target_types():
+                continue
+
             # Add to the correct type bucket
             if target_type not in identifiers_by_type:
                 identifiers_by_type[target_type] = {}
@@ -834,7 +844,7 @@ def apply_nested_reference_fhir_ids(
             elif ref.identifier.system:
                 target_type = config.get_target_type_for_system(ref.identifier.system)
 
-            if not target_type:
+            if not target_type or target_type not in config.get_all_target_types():
                 continue
 
             # Try to resolve
@@ -1049,7 +1059,7 @@ def resolve_and_apply_all_references(
             fallback_resolve_fn=fallback_resolve_fn,
         )
 
-        result.field_results[config.field_name] = field_result
+        result.field_results[(config.field_name, config.identifier_system)] = field_result
         result.total_resolved += field_result.resolved_count
         result.total_unresolved += field_result.unresolved_count
 

@@ -20,8 +20,8 @@ BEGIN
         [relationship]              NVARCHAR(50)   NOT NULL,
         [target_code]                NVARCHAR(100)  NOT NULL,
         [target_display]             NVARCHAR(500)  NULL,
-        [dw_ek_Rekvirent]           INT            NOT NULL,
-        [dw_ek_Organisation_target] INT            NOT NULL,
+        [dw_ek_Rekvirent]           INT            NULL,
+        [dw_ek_Organisation_target] INT            NULL,
         [dw_timestamp_insert]       DATETIME2(0)   NOT NULL CONSTRAINT [DF_RekvirentToSOR_dw_timestamp_insert] DEFAULT SYSDATETIME(),
         [dw_timestamp_update]       DATETIME2(0)   NOT NULL CONSTRAINT [DF_RekvirentToSOR_dw_timestamp_update] DEFAULT SYSDATETIME(),
         CONSTRAINT [PK_conceptmap_RekvirentToSOR] PRIMARY KEY CLUSTERED ([source_code], [target_code])
@@ -43,8 +43,8 @@ BEGIN
         [relationship]              NVARCHAR(50)   NOT NULL,
         [target_code]                NVARCHAR(100)  NOT NULL,
         [target_display]             NVARCHAR(500)  NULL,
-        [dw_ek_Lager]               INT            NOT NULL,
-        [dw_ek_Organisation_target] INT            NOT NULL,
+        [dw_ek_Lager]               INT            NULL,
+        [dw_ek_Organisation_target] INT            NULL,
         [dw_timestamp_insert]       DATETIME2(0)   NOT NULL CONSTRAINT [DF_LagerToSOR_dw_timestamp_insert] DEFAULT SYSDATETIME(),
         [dw_timestamp_update]       DATETIME2(0)   NOT NULL CONSTRAINT [DF_LagerToSOR_dw_timestamp_update] DEFAULT SYSDATETIME(),
         CONSTRAINT [PK_conceptmap_LagerToSOR] PRIMARY KEY CLUSTERED ([source_code], [target_code])
@@ -66,8 +66,8 @@ BEGIN
         [relationship]              NVARCHAR(50)   NOT NULL,
         [target_code]                NVARCHAR(100)  NOT NULL,
         [target_display]             NVARCHAR(500)  NULL,
-        [dw_ek_EAN]                 INT            NOT NULL,
-        [dw_ek_Organisation_target] INT            NOT NULL,
+        [dw_ek_EAN]                 INT            NULL,
+        [dw_ek_Organisation_target] INT            NULL,
         [dw_timestamp_insert]       DATETIME2(0)   NOT NULL CONSTRAINT [DF_EANToSOR_dw_timestamp_insert] DEFAULT SYSDATETIME(),
         [dw_timestamp_update]       DATETIME2(0)   NOT NULL CONSTRAINT [DF_EANToSOR_dw_timestamp_update] DEFAULT SYSDATETIME(),
         CONSTRAINT [PK_conceptmap_EANToSOR] PRIMARY KEY CLUSTERED ([source_code], [target_code])
@@ -89,8 +89,8 @@ BEGIN
         [relationship]               NVARCHAR(50)   NOT NULL,
         [target_code]                 NVARCHAR(100)  NOT NULL,
         [target_display]              NVARCHAR(500)  NULL,
-        [dw_ek_Okosted]             INT            NOT NULL,
-        [dw_ek_Organisation_target]  INT            NOT NULL,
+        [dw_ek_Okosted]             INT            NULL,
+        [dw_ek_Organisation_target]  INT            NULL,
         [dw_timestamp_insert]        DATETIME2(0)   NOT NULL CONSTRAINT [DF_OkostedToSOR_dw_timestamp_insert] DEFAULT SYSDATETIME(),
         [dw_timestamp_update]        DATETIME2(0)   NOT NULL CONSTRAINT [DF_OkostedToSOR_dw_timestamp_update] DEFAULT SYSDATETIME(),
         CONSTRAINT [PK_conceptmap_OkostedToSOR] PRIMARY KEY CLUSTERED ([source_code], [target_code])

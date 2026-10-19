@@ -51,7 +51,8 @@ for history — do not rely on them for current behavior).
 | [repo_tour.md](implementation/repo_tour.md) | Repository structure, Dagster terminology as used here, asset groups, where a change goes |
 | [dagster_development.md](implementation/dagster_development.md) | The local development loop: prerequisites, validate/materialize, troubleshooting |
 | [dsi_etl_guide.md](implementation/dsi_etl_guide.md) | DSI: onboarding a new source system, and adding an archive table (`ext` → `arc`) |
-| [navngivningsstandard.md](implementation/navngivningsstandard.md) | The naming standard (snake_case grammar, `dw_*` columns) — single source of truth for naming |
+| [navngivningsstandard_basismodel.md](implementation/navngivningsstandard_basismodel.md) | The naming standard for this repository — every naming rule in one place, from branches and files to assets, tables, columns and indexes |
+| [navngivningsstandard.md](implementation/navngivningsstandard.md) | The naming standard for the `datamarter` repository |
 | [sql_etl_guide.md](implementation/sql_etl_guide.md) | DWH architecture and SQL ETL patterns: `ext` → `arc` → `pre_stg`/`stg` → `map`/`dim`/`fct` |
 | [kpi_aggregat_data_guide.md](implementation/kpi_aggregat_data_guide.md) | Externally delivered KPI/aggregate data as a source shape: revision strategy, ingestion guards, the dm path, and the five pitfalls |
 | [fhir_etl_guide.md](implementation/fhir_etl_guide.md) | FHIR pipeline patterns and IFDB extraction |
@@ -81,13 +82,16 @@ for history — do not rely on them for current behavior).
 |---|---|
 | [qr_sfi_datapoint_runbook.md](guides/qr_sfi_datapoint_runbook.md) | QR → SFI datapoint chain: preflight, reconciliation, verification, rollback |
 | [sfi_datapoint_brugervejledning.md](guides/sfi_datapoint_brugervejledning.md) | SFI datapoint user guide |
+| [ifdb_relationer_og_felter.md](guides/ifdb_relationer_og_felter.md) | IFDB tables, columns and joins on the consumer surface |
 
 ### Contracts & reference data
 
 | Document | What it covers |
 |---|---|
 | [shared_dimensions.md](shared_dimensions.md) | Shared dimensions across domains |
-| [source_systems/](source_systems/) | Per-source schema references (IFDB, BOM_IFDB, ILS, SydAX, MySupply, KMD, Cosmic) |
+| [source_systems/](source_systems/) | Per-source schema references (IFDB, BOM_IFDB, ILS, SydAX, MySupply, KMD, Cosmic, DRG, Udredningsret) |
+| [source_systems/udredningsret/udredningsret_model.md](source_systems/udredningsret/udredningsret_model.md) | SDS Udredningsret: målmodel, staging-regler og beslutninger U1–U18 (US-3 → US-6); kilden og arkivet i [udredningsret_kilde.md](source_systems/udredningsret/udredningsret_kilde.md) |
+| [source_systems/lpr3/lpr3_kilde.md](source_systems/lpr3/lpr3_kilde.md) | SDS LPR3 Grunddata: extract, nøglebeslutninger og målinger på rigtige data |
 
 ## Archive (historical)
 
@@ -99,11 +103,11 @@ Historical plans and analyses stay in the private source repository and are not 
 |---|---|
 | **DSI** | Data Staging In — extraction layer (`etl/DSI/`). 1:1 raw extraction from source systems into the `ext.*` schema; no business logic. |
 | **DSA** | Data Staging Area — transform layer (`etl/DSA/`). SQL staging/dims/facts and FHIR transforms; lives in the staging database. |
-| **DSO** | Data Staging Out — delivery layer (`etl/DSO/`). Dims, facts and flat FHIR tables synced to the reporting database, plus presentation views. |
+| **DSO** | Data Staging Out — delivery layer (`etl/DSO/`). Dims, facts and flat FHIR tables synced to the DSO database, plus a view on top of a table where there is a reason for one (see [04 — DSO](basismodel/04_DSO_sync_til_DSO.md#5-viewet--kun-når-der-er-en-grund)). |
 | **DFM** | Data Flow Management — the checkpoint/archive framework (see [dfm_design.md](architecture/dfm_design.md)): each pipeline layer tracks "where it left off", extracts land in volatile `ext.*` and are merged into the persistent `arc.*` archive, with ad-hoc period/ID runs that don't advance the production checkpoint. |
 | **DQA** | Data Quality Assurance — the config-driven check framework in `etl/dqa/` (see [dqa/README.md](architecture/dqa/README.md)): one `DqaSubject` per table, checks run as Dagster `@asset_check`s, results persist to `dqa.Results`, with semi-automatic remediation. Not to be confused with `etl/data_quality/`, a small standalone set of FHIR grain/deleted-resource checks that predates the framework and is wired directly into `definitions.py`. |
 | **ext / arc** | The two DSI schemas: `ext.*` is the volatile landing zone (dropped and reloaded each run), `arc.*` the persistent archive (1:1 source reflection + `dw_timestamp_*`). Downstream always reads from `arc.*`, never `ext.*`. |
 | **CleanCode** | Standardized business-key string generated in pre-staging SQL (never present in `ext.*`/`arc.*`). Map tables translate CleanCodes to surrogate entity keys; facts store the resolved keys. See [sql_etl_guide.md](implementation/sql_etl_guide.md). |
-| **`dw_ek_` / `dw_sk_`** | Column prefixes from the [naming standard](implementation/navngivningsstandard.md): `dw_ek_` = entity key (resolved from CleanCodes via map tables; `-1` = unknown member), `dw_sk_` = surrogate key (Type 2 dimensions; resolved in the view layer). |
+| **`dw_ek_` / `dw_sk_`** | Column prefixes from the [naming standard](implementation/navngivningsstandard_basismodel.md): `dw_ek_` = entity key (resolved from CleanCodes via map tables; `-1` = unknown member), `dw_sk_` = surrogate key (Type 2 dimensions; resolved when the fact is read, via `dw_haendelsestidspunkt`). |
 | **SOF / SQL on FHIR** | Flattening FHIR resources into MSSQL `fhir.*` tables via ViewDefinitions (`DSA/FHIR/SqlOnFhir/`). |
 | **IFDB** | The Oracle-based clinical source system feeding the FHIR pipeline. |

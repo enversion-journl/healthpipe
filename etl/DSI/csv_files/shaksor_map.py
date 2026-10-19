@@ -28,6 +28,8 @@ import zipfile
 from urllib.request import Request, urlopen
 
 import dagster as dg
+from core.dfm_manager import DfmManager
+from core.dfm_source import http_source
 from core.resources import MSSQLResource
 from dagster import AssetExecutionContext
 from DSA.FHIR.utils.code_normalization import normalize_shak_code, normalize_sor_code
@@ -248,16 +250,29 @@ def extract_shak_register(
     context: AssetExecutionContext,
     mssql_target_staging: MSSQLResource,
 ) -> dg.MaterializeResult:
-    raw_rows = _read_shaksor_rows(context)
-    selected = select_latest_direct(raw_rows)
-    ext_rows = transform_to_ext_format(selected)
-    context.log.info(
-        f"Selected {len(selected)} newest-direct SHAK rows, "
-        f"{len(ext_rows)} usable concepts after target validation"
+    dfm = DfmManager(mssql_target_staging, context)
+    run_ctx = dfm.start_dfm_run(
+        "ext",
+        "shaksor_map",
+        dagster_run_id=context.run_id,
+        mode="full_load",
+        **http_source(COMPLETE_ZIP_URL),
     )
+    try:
+        raw_rows = _read_shaksor_rows(context)
+        selected = select_latest_direct(raw_rows)
+        ext_rows = transform_to_ext_format(selected)
+        context.log.info(
+            f"Selected {len(selected)} newest-direct SHAK rows, "
+            f"{len(ext_rows)} usable concepts after target validation"
+        )
 
-    with mssql_target_staging.get_connection() as conn:
-        row_count = _write_to_ext_table(conn, ext_rows, context)
+        with mssql_target_staging.get_connection() as conn:
+            row_count = _write_to_ext_table(conn, ext_rows, context)
+        dfm.complete_dfm_run(run_ctx.log_id, rows_affected=row_count)
+    except Exception as exc:
+        dfm.fail_dfm_run(run_ctx.log_id, error_message=str(exc))
+        raise
 
     return dg.MaterializeResult(
         metadata={

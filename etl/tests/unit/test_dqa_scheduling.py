@@ -171,7 +171,16 @@ def test_dso_weekly_schedules_stagger_and_exclude_fhir():
     names = {s.name for s in scheds}
     assert names == {
         f"dqa_dso_{d}_job_schedule"
-        for d in ("erp", "shared", "security", "codesystem", "conceptmap", "drg", "haiba")
+        for d in (
+            "erp",
+            "shared",
+            "security",
+            "codesystem",
+            "conceptmap",
+            "drg",
+            "haiba",
+            "udredningsret",
+        )
     }
     # fhir is sensor-driven, never cron'd.
     assert not any("fhir" in n for n in names)
@@ -183,6 +192,24 @@ def test_dso_weekly_schedules_stagger_and_exclude_fhir():
         minutes.append(int(h) * 60 + int(m))
     minutes.sort()
     assert all(minutes[i + 1] - minutes[i] >= 30 for i in range(len(minutes) - 1))
+
+
+def test_hvert_dso_domaene_undtagen_fhir_har_en_cron():
+    """Den hardkodede maengde ovenfor ratificerede tidligere et hul: et nyt
+    domaene i ALL_SYNC_CONFIGS faar sit dqa_dso_<domaene>_job af dqa/dso.py, men
+    build_dso_weekly_schedules springer det tavst over uden en post i
+    _DSO_WEEKLY_CRONS (``if cron is None: continue``) — og saa afstemmes DSO-kopien
+    aldrig af sig selv. Denne test udleder forventningen fra de faktiske jobs, saa
+    naeste domaene fejler her i stedet for at blive glemt. Skal et job bevidst
+    parkeres, er stedet _ALWAYS_STOPPED_DOMAINS (som ERP), ikke en manglende cron."""
+    from dqa.schedules import _dso_domain
+
+    domaener = {_dso_domain(j.name) for j in dso_jobs} - {None, "fhir"}
+    planlagte = {
+        s.name[len("dqa_dso_") : -len("_job_schedule")]
+        for s in build_dso_weekly_schedules(dso_jobs)
+    }
+    assert domaener == planlagte, f"uden cron: {sorted(domaener - planlagte)}"
 
 
 # --- auto-enable status ----------------------------------------------------------

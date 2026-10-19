@@ -13,6 +13,7 @@ dso_lineage:
 
   SourceSystems:
     - ils: [dbo.sgh, dbo.lgr, codesystem.LagerHierarchy]
+    # dbo.rekv is reached indirectly: lgr.lgrejer resolves against map.Rekvirent
     - sor: [SOR_registry]
 
   Columns:
@@ -24,10 +25,57 @@ dso_lineage:
     entity_type:           { DataType: NVARCHAR(200), Source: [ils.dbo.sgh.entityType] }
     sgh:                  { DataType: NVARCHAR(200), Source: [ils.dbo.sgh.sgh] }
     lgr:                  { DataType: NVARCHAR(200), Source: [ils.dbo.lgr.lgr] }
-    adr:                  { DataType: NVARCHAR(200), Source: [ils.dbo.sgh.adr] }
-    land:                 { DataType: NVARCHAR(200), Source: [ils.dbo.sgh.land] }
-    postdi:               { DataType: NVARCHAR(200), Source: [ils.dbo.sgh.postdi] }
-    tlf:                  { DataType: NVARCHAR(200), Source: [ils.dbo.sgh.tlf] }
+    # Warehouse attributes. Previously documented as ils.dbo.sgh.* and in
+    # practice always NULL: cs_lager never wrote the property keys. Corrected
+    # here — they come from dbo.lgr, not from dbo.sgh.
+    #
+    # Two paths in: non-address details are carried by the CodeSystem as
+    # properties; the address fields are joined into stg_dim_Lager on normalised
+    # (sgh, lgr). See DSA/SQL/common/lager_adresse.py for why.
+    adresse:
+      DataType: NVARCHAR(200)
+      Source: [ils.dbo.lgr.adr]
+      Description: "Lagerets adresse (ILS: adr). Joinet ind udenom codesystemet"
+    land:
+      DataType: NVARCHAR(200)
+      Source: [ils.dbo.lgr.land]
+      Description: "Landekode. Joinet ind udenom codesystemet"
+    postnummer:
+      DataType: NVARCHAR(200)
+      Source: [ils.dbo.lgr.postdi]
+      Description: "Postnummer (ILS: postdi). Joinet ind udenom codesystemet"
+    telefon:
+      DataType: NVARCHAR(200)
+      Source: [ils.dbo.lgr.tlf]
+      Description: "Telefonnummer (ILS: tlf). Joinet ind udenom codesystemet"
+    lagerejer_rekvirentnummer:
+      DataType: NVARCHAR(200)
+      Source: [ils.dbo.lgr.lgrejer]
+      Description: "Rekvirent brugt til varebevaegelser ind paa lageret (ILS: lgrejer). Via codesystem.LagerProperties.lagerejerRekvirentnummer"
+    svind_rekvirentnummer:
+      DataType: NVARCHAR(200)
+      Source: [ils.dbo.lgr.rekvsvind]
+      Description: "Rekvirent brugt til at notere svind (ILS: rekvsvind). Via codesystem.LagerProperties.svindRekvirentnummer"
+    standard_leveringsdage:
+      DataType: INT
+      Source: [ils.dbo.lgr.deflevdage]
+      Description: "Standardleveringstid for lageret i dage (ILS: deflevdage). Via codesystem.LagerProperties.standardLeveringsdage"
+    aktiv:
+      DataType: BIT
+      Source: [ils.dbo.lgr.aktiv]
+      Description: "Kildens eget aktiv-flag paa lageret. Via codesystem.LagerProperties.aktiv"
     code_sor:              { DataType: VARCHAR(50), Source: [sor.SOR_registry.CodeSOR] }
+    dw_ek_Rekvirent_lagerejer:
+      Type: FK
+      DataType: INT
+      FK-Target: dim.Rekvirent
+      Source: [ils.dbo.lgr.lgrejer]
+      Description: "FK til dim.Rekvirent via map.Rekvirent paa (sgh, lgrejer); -1 naar lagerejeren ikke kan oploeses"
+    dw_ek_Rekvirent_svind:
+      Type: FK
+      DataType: INT
+      FK-Target: dim.Rekvirent
+      Source: [ils.dbo.lgr.rekvsvind]
+      Description: "FK til dim.Rekvirent via map.Rekvirent paa (sgh, rekvsvind); -1 naar svind-rekvirenten ikke kan oploeses"
     dw_ek_Organisation:   { Type: FK, DataType: INT, Source: [sor.SOR_registry.SORId] }
     dw_ek_Lager_parent:   { Type: FK, DataType: INT, FK-Target: dim.Lager, Source: [ils.codesystem.LagerHierarchy.parent_code] }

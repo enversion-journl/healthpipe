@@ -21,11 +21,10 @@ from DSA.CodeSystem.sfi.catalog import (
     post_sfi_codesystem_to_aidbox,
 )
 from DSA.FHIR.Aktivitetsresultat.activity_metadata import (
-    _build_level_extensions_dict,
-    _build_speciale_extensions_dict,
-    _build_udf_extensions_dict,
     _fetch_aktivitetsudfoerelse_data_arc,
     _fetch_aktivitetsudfoerelse_speciale_data_arc,
+    apply_aktivitetsudfoerelse_extensions,
+    build_aktivitetsudfoerelse_extensions,
 )
 from DSA.FHIR.Aktivitetsresultat.questionnaire_outputs import (
     _metadata_int,
@@ -36,6 +35,7 @@ from DSA.FHIR.Aktivitetsresultat.references import (
     ResolvedRefLookup,
     _ensure_reference_dependencies,
     _pre_resolve_references,
+    resolve_procedure_organizations,
 )
 from DSA.FHIR.Aktivitetsresultat.routing_glue import _get_routing_resolver, _sfi_mode_enabled
 from DSA.FHIR.Condition.condition_aktivitetsresultat_builder import (
@@ -89,18 +89,6 @@ from DSA.FHIR.utils.ifdb.xml_child_reconcile import (
 from DSA.FHIR.utils.ifdb.xml_parsing_workers import (
     _parse_xml_components_for_rows,
     _parse_xml_lossless_for_rows,
-)
-from DSA.FHIR.utils.reference_resolver import (
-    NestedReferenceFieldConfig,
-    ReferenceFieldConfig,
-)
-from utils.fhir.fhir_extensions import EXTENSION_EPISODE_OF_CARE
-from utils.fhir.identifier_systems import (
-    SYSTEM_IFDB_EPISODE_OF_CARE_ID,
-    SYSTEM_IFDB_OBJECT_ID,
-    SYSTEM_IFDB_PATIENT_ID,
-    SYSTEM_IFDB_STAFF,
-    SYSTEM_SOR,
 )
 
 
@@ -470,25 +458,10 @@ def _build_observation_dicts_for_rows(
             else:
                 rid, obs = _build_observation_lossless_dict(row_dict, pd, k, resolved)
 
-            extra_extensions: list[dict] = []
-            if udf_lookup:
-                udf_id = row_dict.get("UDFOERELSE_ID")
-                udf_id_norm = _normalize_oracle_id(udf_id)
-                if udf_id_norm is not None:
-                    udf_row = udf_lookup.get(udf_id_norm)
-                    if udf_row:
-                        extra_extensions.extend(_build_udf_extensions_dict(udf_row))
-
-                    if speciale_lookup:
-                        speciale_rows = speciale_lookup.get(udf_id_norm, [])
-                        extra_extensions.extend(_build_speciale_extensions_dict(speciale_rows))
-
-            activity_code = row_dict.get("AKTIVITETTYPE_KODE")
-            extra_extensions.extend(_build_level_extensions_dict(activity_code))
-
-            if extra_extensions:
-                existing = obs.get("extension", [])
-                obs["extension"] = existing + extra_extensions
+            apply_aktivitetsudfoerelse_extensions(
+                obs,
+                build_aktivitetsudfoerelse_extensions(row_dict, udf_lookup, speciale_lookup),
+            )
 
             observation_dicts.append((rid, obs))
 
@@ -734,6 +707,8 @@ def _transform_chunk(
                     questionnaires_by_id=questionnaires_by_id,
                     dirty_questionnaire_ids=dirty_questionnaire_ids,
                     sfi_catalog_sink=sfi_catalog_sink,
+                    udf_lookup=udf_lookup,
+                    speciale_lookup=speciale_lookup,
                 )
             )
             return obs_dicts, proc_dicts, cond_dicts, qr_dicts, parsed_rows, build_errors
@@ -746,6 +721,8 @@ def _transform_chunk(
             routing_resolver=routing_resolver,
             routing_decision_sink=routing_decisions,
             sfi_catalog_sink=sfi_catalog_sink,
+            udf_lookup=udf_lookup,
+            speciale_lookup=speciale_lookup,
         )
         return obs_dicts, proc_dicts, cond_dicts, [], parsed_rows, build_errors
 
@@ -1128,6 +1105,8 @@ def _post_chunk_families(
 
     logger = dg.get_dagster_logger()
 
+    resolve_procedure_organizations(procedure_dicts, fhir_database)
+
     calls = [
         ParallelCall(
             "Observation",
@@ -1169,42 +1148,3 @@ def _post_chunk_families(
         thread_name_prefix=thread_name_prefix,
     )
     return {family: _PostCounts.from_result(results.get(family)) for family in _CHUNK_FAMILIES}
-
-
-AKTIVITETSRESULTAT_REFERENCE_CONFIGS = [
-    ReferenceFieldConfig(
-        field_name="subject",
-        target_resource_type="Patient",
-        identifier_system=SYSTEM_IFDB_PATIENT_ID,
-        is_required=True,
-        description="Patient reference from IFDB PATIENT_ID",
-    ),
-    ReferenceFieldConfig(
-        field_name="encounter",
-        target_resource_type="Encounter",
-        identifier_system=SYSTEM_IFDB_OBJECT_ID,
-        is_required=False,
-        description="Encounter reference from IFDB ENCOUNTER_ID resolved via Encounter OBJECT_ID",
-    ),
-]
-
-AKTIVITETSRESULTAT_NESTED_REFERENCE_CONFIGS = [
-    NestedReferenceFieldConfig(
-        field_path="extension.valueReference",
-        identifier_system_to_type={
-            SYSTEM_IFDB_EPISODE_OF_CARE_ID: "EpisodeOfCare",
-        },
-        extension_url=EXTENSION_EPISODE_OF_CARE,
-        is_required=False,
-        description="Episode of care reference from extension",
-    ),
-    NestedReferenceFieldConfig(
-        field_path="performer",
-        identifier_system_to_type={
-            SYSTEM_SOR: "Organization",
-            SYSTEM_IFDB_STAFF: "Practitioner",
-        },
-        is_required=False,
-        description="Performer (Organization from SOR or Practitioner from staff ID)",
-    ),
-]

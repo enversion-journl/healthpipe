@@ -5,15 +5,15 @@
 -- root for the full AGPL-3.0 license text.
 
 /*============================================================
-  DPA Security Tables — RolleDomaene (ERP fritekst / DPA_ERP U-K roles)
+  DPA Security Tables — RolleDomaene (ERP fritekst / DPA_ERP U-K-P roles)
   Target:  sec schema
   Dependencies: sec schema (created by common/00_schemas.sql)
 ============================================================*/
 
 /*------------------------------------------------------------
   sec.RolleDomaene
-  Maps a user to a security domain with a role (U/K) and
-  optional population responsibility.
+  Maps a user to a security domain with a role (U/K/P); role P
+  carries the population responsibility for the domain.
   PK = (bruger, Sikkerhedsdomaene)
 ------------------------------------------------------------*/
 IF NOT EXISTS (
@@ -33,7 +33,7 @@ BEGIN
             PRIMARY KEY CLUSTERED ([bruger], [Sikkerhedsdomaene]),
 
         CONSTRAINT [CK_Rolle]
-            CHECK ([Rolle] IN ('U', 'K'))
+            CHECK ([Rolle] IN ('U', 'K', 'P'))
     );
 END;
 GO

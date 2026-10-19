@@ -10,6 +10,7 @@ import pytest
 from dagster import AssetKey
 from DSA.FHIR.SqlOnFhir.QuestionnaireResponse_dfm import (
     sof_questionnaire_item_dfm,
+    sof_questionnaire_response_dfm,
     sof_questionnaire_response_item_dfm,
 )
 from DSO.load.sync_configs import FHIR_SYNC_CONFIGS
@@ -59,6 +60,24 @@ def test_questionnaire_response_item_waits_for_questionnaire_item() -> None:
 
     assert q_item_key in sof_questionnaire_response_item_dfm.asset_deps[qr_item_key]
     assert qr_item_key not in sof_questionnaire_item_dfm.asset_deps[q_item_key]
+
+
+@pytest.mark.unit
+def test_questionnaire_response_waits_for_model_name_join_target() -> None:
+    key = AssetKey("sof_questionnaire_response_dfm")
+    assert AssetKey("sof_questionnaire_dfm") in sof_questionnaire_response_dfm.asset_deps[key]
+
+
+@pytest.mark.unit
+def test_condition_referrals_reach_dso_in_daily_job() -> None:
+    key = AssetKey("dso_sync_fhir_condition_henvisning_dfm")
+    (asset,) = [a for a in all_fhir_dso_sync_dfm_assets if key in a.keys]
+    assert asset.asset_deps[key] == {
+        AssetKey("sof_condition_henvisning_dfm"),
+        AssetKey("dso_infra_fhir"),
+    }
+    keys = _selected_asset_keys("ifdb_dfm_daily_job")
+    assert {key.to_user_string(), "sof_condition_henvisning_dfm"} <= keys
 
 
 @pytest.mark.unit

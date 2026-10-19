@@ -37,6 +37,18 @@ EXTENSION_LOCATION_VALIDITY_PERIOD = (
     "http://example.org/fhir/StructureDefinition/locationValidityPeriod"
 )
 
+# Patient: written by the CPR register contribution (patient_cpr_contribution.py).
+EXTENSION_PATIENT_CITIZENSHIP = "http://hl7.org/fhir/StructureDefinition/patient-citizenship"
+EXTENSION_MOTHER_IDENTIFIER = "http://example.org/fhir/StructureDefinition/motherIdentifier"
+EXTENSION_FATHER_IDENTIFIER = "http://example.org/fhir/StructureDefinition/fatherIdentifier"
+EXTENSION_ADDRESS_KVHX = "http://example.org/fhir/StructureDefinition/addressKvhx"
+# Delivery date of the latest CPR delivery that changed the register's fields on the citizen.
+EXTENSION_CPR_UPDATED = "http://example.org/fhir/StructureDefinition/cprUpdated"
+EXTENSION_ADDRESS_OFFICIAL = "http://hl7.org/fhir/StructureDefinition/address-official"
+EXTENSION_DK_MUNICIPALITY_CODES = (
+    "http://hl7.dk/fhir/core/StructureDefinition/dk-core-municipalityCodes"
+)
+
 # Extension URLs for source metadata
 EXTENSION_SOURCE_CREATED_AT = "http://example.org/fhir/StructureDefinition/sourceCreatedAt"
 EXTENSION_SOURCE_MODIFIED_AT = "http://example.org/fhir/StructureDefinition/sourceModifiedAt"
@@ -133,11 +145,10 @@ EXTENSION_DIAGNOSETYPE = "http://example.org/fhir/StructureDefinition/diagnosety
 EXTENSION_DISTRICT = "http://example.org/fhir/StructureDefinition/district"
 EXTENSION_SOCIAL_DISTRICT = "http://example.org/fhir/StructureDefinition/social-district"
 EXTENSION_ADDRESS_PROTECTION = "http://example.org/fhir/StructureDefinition/address-protection"
-
-# Danish CPR person status codes
-# See: https://cpr.dk/cpr-systemet/personnumre-uden-telegraferingskode/
-CPR_STATUS_DECEASED = {"90"}  # Code 90 = Deceased
-CPR_STATUS_INACTIVE = {"80"}  # Code 80 = Annulled/cancelled CPR
+# Municipality of the current address, set by the Patient builder; kept on a protected Patient.
+EXTENSION_RESIDENCE_MUNICIPALITY = (
+    "http://example.org/fhir/StructureDefinition/residenceMunicipality"
+)
 
 # =============================================================================
 # CarePlan Activity Extension URLs
@@ -196,3 +207,65 @@ EXTENSION_REHABILITATION_PLAN_RECEIVERS = "urn:source:ifdb:rehabilitation_plan_r
 # (extension.extension.where(url='sourceTable')) does NOT filter on the parent
 # URL, so [fhir].[ServiceRequest].source_table projects from this extension unchanged.
 EXTENSION_REHABILITATION_PLAN_SOURCE_META = "urn:source:ifdb:rehabilitation_plan_source_meta"
+
+# Rækkefølge af en Coding i en liste (fx IDX på tillægskoder). FHIR bevarer ikke
+# listeposition gennem SQL-on-FHIR, så kildens ordenstal lægges eksplicit på hver Coding.
+EXTENSION_CODING_SEQUENCE = "http://example.org/fhir/StructureDefinition/codingSequence"
+
+# =============================================================================
+# Senge / kapacitet (IFDB SENGEENHED, ENCOUNTER_BED_SPACE_HISTORY, ABSENCE)
+# =============================================================================
+# Lossless ADMENHED triple on the sengeenhed Location (Mønster A — parent
+# whose .extension is kode/navn/orgkode valueString sub-fields).
+EXTENSION_SENGEENHED_ADMENHED = "urn:source:ifdb:sengeenhed_admenhed"
+# Room name on a bed Location (ROOM has no identity of its own).
+EXTENSION_BED_ROOM = "urn:source:ifdb:bed_room"
+# Kildens enhedskode paa sengeophold og seng, specifikt
+# ENCOUNTER_BED_SPACE_HISTORY.LOCATION_CODE -- URL'en navngiver den kolonne, ikke
+# "en lokationskode": én extension-URL skal daekke praecis én definition.
+# Samme kodeomraade som WardUnit.admin_unit_code (SENGEENHED.ADMENHED_KODE): maalt til
+# 100 % direkte match paa alle sengeopholdsraekker, saa belaegning kan joines til
+# kapacitet pr. sengeenhed uden omvejen over SOR.
+EXTENSION_BED_SPACE_WARD_UNIT_CODE = "urn:source:ifdb:bed_space_ward_unit_code"
+# Absence list on Encounter (Mønster A — one parent per source row; sub-fields
+# use the fragment-URL convention {base}#{field}: #period, #type, #expectedReturn).
+EXTENSION_ENCOUNTER_ABSENCE = "urn:source:ifdb:encounter_absence"
+
+# =============================================================================
+# Practitioner/PractitionerRole from SilkeborgData E26PERS
+# =============================================================================
+# The organisational unit has no reference target: SilkeborgData's Inst and
+# Afdelingskode are neither SOR nor SHAK, so PractitionerRole.organization and
+# .location cannot be populated. Both are carried as single valueCoding
+# extensions rather than pushed into PractitionerRole.code, which is for roles.
+# urn:source:silkeborgdata:{snake_case} follows the IFDB extension scheme.
+EXTENSION_SILKEBORGDATA_INST = "urn:source:silkeborgdata:inst"
+EXTENSION_SILKEBORGDATA_AFDELINGSKODE = "urn:source:silkeborgdata:afdelingskode"
+
+# Statuskode and Jobstatuskode are payroll status codes carried verbatim, with
+# no translation: the consumers of the flat tables know them from the payroll
+# system. PractitionerRole has no status element in R4B, and a status is not a
+# role, so code is not their home either — hence extensions, same shape as Inst
+# and Afdelingskode above.
+EXTENSION_SILKEBORGDATA_STATUSKODE = "urn:source:silkeborgdata:statuskode"
+EXTENSION_SILKEBORGDATA_JOBSTATUSKODE = "urn:source:silkeborgdata:jobstatuskode"
+# When the status took effect. Deliberately NOT period.end: that would assert
+# that Statuskode 3 means "left", and the codes are carried without a code list
+# precisely because nothing here knows what they mean.
+EXTENSION_SILKEBORGDATA_STATUSDATO = "urn:source:silkeborgdata:statusdato"
+
+# Two more untranslated payroll codes, both per-employment: measured on the full
+# archive, 2.663 of 15.643 persons holding several employments carry differing
+# Tjenestekode across them and 8.066 differing Omraadekode, so neither is a
+# person attribute. Tjenestekode is 89,6 % filled with 13 values but "0" on
+# 86,8 % of the newest period; Omraadekode is 100 % filled with 3 values, "1" on
+# 90,1 %, and changes over time on 21,4 % of employments — a state, not stamdata.
+EXTENSION_SILKEBORGDATA_TJENESTEKODE = "urn:source:silkeborgdata:tjenestekode"
+EXTENSION_SILKEBORGDATA_OMRAADEKODE = "urn:source:silkeborgdata:omraadekode"
+
+# The CPR a person held before a correction. NOT a second identifier under
+# SYSTEM_CPR: extract_identifier_value is LIMIT 1 and the unique index sits on
+# that expression, so a second identifier of the same system makes the index key
+# depend on array position — and the superseded number already owns its own
+# (inactive) resource, which would then be the collision partner.
+EXTENSION_SILKEBORGDATA_AFLOEST_CPR = "urn:source:silkeborgdata:afloest_cpr"

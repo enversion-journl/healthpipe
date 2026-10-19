@@ -65,6 +65,11 @@ from dagster._core.definitions.unresolved_asset_job_definition import (
     UnresolvedAssetJobDefinition,
 )
 from schedules.schedule_default_status import get_sensor_default_status
+from sensors.publish_sensor_utils import (
+    last_successful_publish,
+    run_tags,
+    table_exists,
+)
 
 SENSOR_NAME = "haiba_publish_sensor"
 
@@ -90,16 +95,6 @@ CASE_FACT_TABLES = ("HAIBA_CasesInfektion", "HAIBA_CasesSSI")
 # Written by the dm rebuild when no citizen could be resolved.
 UNKNOWN_BORGER = -1
 
-_OBJECT_EXISTS_SQL = (
-    "SELECT COUNT(*) FROM sys.tables t JOIN sys.schemas s "
-    "ON s.schema_id = t.schema_id WHERE s.name = ? AND t.name = ?"
-)
-
-
-def _table_exists(cursor, schema: str, table: str) -> bool:
-    cursor.execute(_OBJECT_EXISTS_SQL, (schema, table))
-    return bool(cursor.fetchone()[0])
-
 
 def read_delivery_signature(cursor) -> str | None:
     """The delivery the archive stands on, across all four source tables.
@@ -112,7 +107,7 @@ def read_delivery_signature(cursor) -> str | None:
     tables. Callers skip rather than guess: a partial signature that happened to
     compare equal to a published one would silently suppress a publish.
     """
-    if not _table_exists(cursor, "meta", LEVERANCE_TABLE):
+    if not table_exists(cursor, "meta", LEVERANCE_TABLE):
         return None
 
     placeholders = ", ".join("?" for _ in ARC_SOURCE_TABLES)
@@ -135,7 +130,7 @@ def read_unresolved_cases(cursor) -> int | None:
     """
     total = 0
     for table in CASE_FACT_TABLES:
-        if not _table_exists(cursor, "dm", table):
+        if not table_exists(cursor, "dm", table):
             return None
         cursor.execute(
             f"SELECT COUNT(*) FROM [dm].[{table}] WHERE [dw_ek_Borger] = {UNKNOWN_BORGER}"
@@ -152,23 +147,6 @@ def read_state(mssql: MSSQLResource) -> tuple[str | None, int | None]:
             return read_delivery_signature(cursor), read_unresolved_cases(cursor)
         finally:
             cursor.close()
-
-
-def _last_successful_publish(instance, job_name: str, signature: str):
-    """The most recent SUCCESS publish run covering this delivery, or None."""
-    records = instance.get_run_records(
-        filters=dg.RunsFilter(
-            job_name=job_name,
-            statuses=[dg.DagsterRunStatus.SUCCESS],
-            tags={DELIVERY_SIGNATURE_TAG: signature},
-        ),
-        limit=1,
-    )
-    return records[0] if records else None
-
-
-def _run_tags(record) -> dict:
-    return dict(getattr(getattr(record, "dagster_run", None), "tags", None) or {})
 
 
 def _request(
@@ -214,7 +192,9 @@ def evaluate(context, *, publish_job_name: str, mssql: MSSQLResource):
             f"has not run for every source table."
         )
 
-    last = _last_successful_publish(context.instance, publish_job_name, signature)
+    last = last_successful_publish(
+        context.instance, publish_job_name, signature, DELIVERY_SIGNATURE_TAG
+    )
 
     if last is None:
         context.log.info(
@@ -236,7 +216,7 @@ def evaluate(context, *, publish_job_name: str, mssql: MSSQLResource):
             f"resolved a citizen. Waiting for a new delivery."
         )
 
-    previous = _run_tags(last).get(UNRESOLVED_TAG)
+    previous = run_tags(last).get(UNRESOLVED_TAG)
     if previous is not None and unresolved >= int(previous):
         return dg.SkipReason(
             f"{SENSOR_NAME}: {unresolved} case(s) still without a citizen for "

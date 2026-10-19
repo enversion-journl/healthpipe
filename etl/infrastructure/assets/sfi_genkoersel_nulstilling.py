@@ -76,10 +76,10 @@ AIDBOX_RESSOURCETABELLER = (
 # (SyncWatermarks schema_name='fhir').
 FLADE_FAMILIETABELLER = (
     "Condition",
-    "Condition_tillaegskode",
+    "Condition_SupplementaryCode",
     "Observation",
     "Procedure",
-    "Procedure_tillaegskode",
+    "Procedure_SupplementaryCode",
     "Questionnaire",
     "Questionnaire_item",
     "QuestionnaireResponse",
@@ -110,7 +110,7 @@ FHIR_SERVER_CHECKPOINTS = (
 # de deler Aidbox-tabel med os, men som ikke er vores spor og derfor aldrig
 # seedes: checkpointet SLETTES altid, så sporets næste delta-kørsel læser hele
 # sit arkiv igen. Kapacitetsobservationerne bygges af senge/kapacitet-sporet.
-FHIR_SERVER_CHECKPOINTS_UDEN_SEED = ("Observation_SengeenhedKapacitet",)
+FHIR_SERVER_CHECKPOINTS_UDEN_SEED = ("Observation_WardUnitCapacity",)
 
 # Identifier-systemer pr. Aidbox-tabel. Preflight aggregerer ALLE systemer i
 # tabellen og fejler ved et ukendt — dukker et femte diagnosespor eller en

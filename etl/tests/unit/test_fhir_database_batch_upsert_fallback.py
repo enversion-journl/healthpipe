@@ -772,6 +772,38 @@ class TestFailureReportingCarriesNoErrorText:
         assert _CPR not in logged
 
 
+class TestStaffCprIsNotLogged:
+    """Practitioner carries the EMPLOYEE's CPR as its business identifier.
+
+    The unique index is on extract_identifier_value(resource,'urn:dk:cpr'), so a
+    unique violation renders that CPR in the Postgres DETAIL. Before
+    Practitioner existed, "not Patient" implied "no CPR in the payload" — this
+    pins the pair that broke that assumption.
+    """
+
+    @pytest.mark.parametrize("resource_type", ["Practitioner", "PractitionerRole"])
+    def test_staff_cpr_stays_out_of_failed_ids_and_logs(self, resource_type: str) -> None:
+        resource = _build_resource()
+
+        class ExplodingResource:
+            id = "prac-boom"
+
+            def json(self, **kwargs):
+                raise ValueError(f"duplicate key ... DETAIL: Key (...)=({_CPR}) already exists")
+
+        logger = MagicMock()
+        with patch("core.resources.dg.get_dagster_logger", return_value=logger):
+            successes, failures, failed_ids = resource.batch_upsert_resources(
+                resources=[ExplodingResource()],
+                resource_type=resource_type,
+            )
+
+        assert (successes, failures) == (0, 1)
+        assert failed_ids == ["prac-boom: ValueError"]
+        assert _CPR not in _all_logged_text(logger)
+        assert all(c.kwargs.get("exc_info") is not True for c in logger.warning.call_args_list)
+
+
 class TestUniqueViolationRecoveryPolicy:
     """Én genoprettelsespolitik for objekt- og dict-stien — og nettet er synligt som tæller.
 

@@ -12,22 +12,19 @@ Aidbox before the 06:00 DFM base job, so the SOF+Borger chain the base-job
 sensor triggers projects them the same morning and haiba_publish_sensor can
 publish that same day with the citizen keys already resolved.
 
-Daily rather than weekly even though SDS delivers weekly. The extract has no
-"already loaded" short-circuit — it re-reads the newest usable file per HAI
-type every run — but everything downstream is idempotent: guard_delivery_
-direction refuses an older delivery, the archive MERGE runs with
-update_only_on_change (leverance_dato deliberately outside change_detect_
-columns), the delivery register upserts its row rather than appending, the
-revision log only records real value changes, and the stub creation resolves
-against Aidbox and posts nothing. A day without a new delivery therefore
-changes no data. It is not free — the newest files are re-streamed into ext and
-the archive re-probes the merge keys — so this trades a daily re-read for not
-having to detect deliveries, which is a separate work item.
+Daily rather than weekly even though SDS delivers weekly: the delivery
+detection in DSI/csv_files/haiba.py makes the run without a new delivery a
+fast no-op — the newest usable file per HAI type is compared against the
+delivery checkpoint in meta.DFMState on filename date + mtime, no CSV rows are
+streamed into ext, and the archive declares a no-op off the manifest table the
+extract emptied (ext.<table>_leverance_manifest, read by haiba_archive.py). A
+new delivery is picked up at the next 05:00 run.
 
-Do NOT "optimise" that by skipping HAI types already recorded in
-meta.HAIBALeverance. The archive merges with detect_deletes=True and
-upstream_is_full_load=True, i.e. it treats ext as a complete snapshot: a
-partial ext soft-deletes every row of the missing types.
+The detection is ALL-OR-NOTHING per ext table — one new HAI type re-reads
+every type of that table. Do NOT "optimise" that into a per-type skip: the
+archive merges with detect_deletes=True and upstream_is_full_load=True, i.e.
+it treats ext as a complete snapshot, and a partial ext soft-deletes every row
+of the missing types.
 """
 
 import dagster as dg

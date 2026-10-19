@@ -24,6 +24,7 @@ always sees every history/referral row the archive holds. The "latest row per
 key" selection is unchanged.
 """
 
+import re
 from typing import Any
 
 import dagster as dg
@@ -40,6 +41,7 @@ from DSA.FHIR.utils.code_normalization import (
     to_sks_diagnosis_code,
 )
 from DSA.FHIR.utils.dfm_query import build_fhir_archive_query
+from DSA.FHIR.utils.fhir_checkpoint import advance_fhir_checkpoint
 from DSA.FHIR.utils.ifdb.arc_lookup import chunked_in_fetch_grouped
 from DSA.FHIR.utils.ifdb.fhir_posting import (
     post_resources_direct,
@@ -179,11 +181,6 @@ def _add_identifier_part(parts: list[Extension], key: str, system: str, value: A
         )
 
 
-def _add_bool_part(parts: list[Extension], key: str, value: Any) -> None:
-    if value is not None:
-        parts.append(Extension.construct(url=key, valueBoolean=_is_true_flag(value)))
-
-
 def _add_datetime_part(parts: list[Extension], key: str, value: Any) -> None:
     dt = parse_clob_datetime_safe(value)
     if dt:
@@ -224,6 +221,40 @@ def _first_reference(*refs: Reference | None) -> Reference | None:
     return None
 
 
+# IFDB's henvisningsstatus (PASHenvisning_ks.ur.Henvisningsstatus.<suffiks>) oversat til
+# FHIR ServiceRequest.status. Værdirummet er målt i kilden: ti værdier. Rå kode og tekst
+# bevares i henvisningSourceMeta og projiceres som status_kode/status_kodetekst, så
+# aftageren kan gruppere anderledes end FHIR-koderne tillader.
+_HENVISNING_STATUS_MAP: dict[str, str] = {
+    "afsluttet": "unknown",
+    "sendt": "active",
+    "sendtingenkvittering": "active",
+    "videresendt": "active",
+    "modtaget": "active",
+    "visiteret": "active",
+    "omvisiteret": "active",
+    "uvisiteret": "active",
+    "haandteret": "active",
+    "fejlet": "unknown",
+}
+_FHIR_SERVICEREQUEST_STATUSES = frozenset(
+    {
+        "draft",
+        "active",
+        "on-hold",
+        "revoked",
+        "completed",
+        "entered-in-error",
+        "unknown",
+    }
+)
+
+
+def _henvisning_status_suffix(value: str) -> str:
+    """'PASHenvisning_ks.ur.Henvisningsstatus.Afsluttet' -> 'afsluttet'."""
+    return value.strip().rsplit(".", 1)[-1].lower()
+
+
 def _map_henvisning_status(row: dict[str, Any]) -> str:
     if _is_true_flag(row.get("SLETTET")):
         return "entered-in-error"
@@ -233,18 +264,33 @@ def _map_henvisning_status(row: dict[str, Any]) -> str:
         return "unknown"
 
     normalized = value.strip().lower()
-    exact = {
-        "draft": "draft",
-        "active": "active",
-        "on-hold": "on-hold",
-        "revoked": "revoked",
-        "completed": "completed",
-        "entered-in-error": "entered-in-error",
-        "unknown": "unknown",
-    }
-    if normalized in exact:
-        return exact[normalized]
+    if normalized in _FHIR_SERVICEREQUEST_STATUSES:
+        return normalized
+    mapped = _HENVISNING_STATUS_MAP.get(_henvisning_status_suffix(value))
+    if mapped:
+        if _henvisning_status_suffix(value) == "afsluttet":
+            return _closed_henvisning_status(row)
+        return mapped
+    # Kodetekst som fallback ("Sendt (ingen kvittering)" -> "sendtingenkvittering")
+    text = str_or_none(row.get("STATUS_KODETEKST"))
+    if text:
+        key = re.sub(
+            r"[^a-z]", "", text.lower().replace("å", "aa").replace("ø", "oe").replace("æ", "ae")
+        )
+        mapped = _HENVISNING_STATUS_MAP.get(key)
+        if mapped:
+            if key == "afsluttet":
+                return _closed_henvisning_status(row)
+            return mapped
+    return "unknown"
 
+
+def _closed_henvisning_status(row: dict[str, Any]) -> str:
+    # Afsluttet kan være annulleret. Kun den dokumenterede årsag oversættes;
+    # en lukket henvisning beviser ikke, at den bestilte aktivitet er udført.
+    reason = str_or_none(row.get("AFSLUTNINGSAARSAG_KODE")) or ""
+    if reason.lower() == "pashenvisning_ks.ur.afslutningsaarsag.annulleret":
+        return "revoked"
     return "unknown"
 
 
@@ -387,6 +433,45 @@ def _map_priority(row: dict[str, Any]) -> str | None:
     return None
 
 
+# Kildens roller bevares særskilt, også når SOR-opslag ikke kan opløses.
+_HENVISNING_RAW_FIELDS = {
+    "HENVIST_TIL_YDER_NAVN": "henvistTilYderNavn",
+    "HENVIST_TIL_YDER_NUMMER": "henvistTilYderNummer",
+    "HENVIST_TIL_AFDELING_KODE": "henvistTilAfdelingKode",
+    "HENVIST_TIL_AFDELING_KODETEKST": "henvistTilAfdelingKodetekst",
+    "HENVIST_TIL_MUNI_KODE": "henvistTilMuniKode",
+    "HENVIST_TIL_MUNI_KODETEKST": "henvistTilMuniKodetekst",
+    "HENVIST_TIL_MUNI_LOCATION": "henvistTilMuniLocation",
+    "HENVIST_FRA_YDER_NAVN": "henvistFraYderNavn",
+    "HENVIST_FRA_YDER_NUMMER": "henvistFraYderNummer",
+    "HENVIST_FRA_AFDELING_KODE": "henvistFraAfdelingKode",
+    "HENVIST_FRA_AFDELING_KODETEKST": "henvistFraAfdelingKodetekst",
+    "HENVIST_FRA_INSTITUTION_NAVN": "henvistFraInstitutionNavn",
+    "HENVIST_FRA_INSTITUTION_POSTNR": "henvistFraInstitutionPostnr",
+    "HENVIST_FRA_INSTITUTION_VEJ": "henvistFraInstitutionVej",
+    "HENVIST_FRA_INSTITUTION_TLF_NR": "henvistFraInstitutionTlfNr",
+    "AFSLUTNINGSAARSAG_KODE": "afslutningsaarsagKode",
+    "AFSLUTNINGSAARSAG_KODETEKST": "afslutningsaarsagKodetekst",
+    "AFSENDER_YDER_NAVN": "afsenderYderNavn",
+    "AFSENDER_YDER_NUMMER": "afsenderYderNummer",
+    "AFSENDER_AFDELING_KODE": "afsenderAfdelingKode",
+    "AFSENDER_AFDELING_KODETEKST": "afsenderAfdelingKodetekst",
+    "AFSENDER_INSTITUTION_NAVN": "afsenderInstitutionNavn",
+    "AFSENDER_INSTITUTION_POSTNR": "afsenderInstitutionPostnr",
+    "AFSENDER_INSTITUTION_VEJ": "afsenderInstitutionVej",
+    "AFSENDER_INSTITUTION_TLF_NR": "afsenderInstitutionTlfNr",
+    "BEHANDLER_YDER_NAVN": "behandlerYderNavn",
+    "BEHANDLER_YDER_NUMMER": "behandlerYderNummer",
+    "BEHANDLER_AFDELING_KODE": "behandlerAfdelingKode",
+    "BEHANDLER_AFDELING_KODETEKST": "behandlerAfdelingKodetekst",
+    "SENT_ELECTRONICAL": "sentElectronical",
+    "HENVIST_TIL_AFDELING_SORKODE": "henvistTilAfdelingSorkode",
+    "HENVIST_FRA_AFDELING_SORKODE": "henvistFraAfdelingSorkode",
+    "AFSENDER_AFDELING_SORKODE": "afsenderAfdelingSorkode",
+    "BEHANDLER_AFDELING_SORKODE": "behandlerAfdelingSorkode",
+}
+
+
 def _build_henvisning_source_meta(
     row: dict[str, Any],
     history_row: dict[str, Any] | None,
@@ -406,7 +491,12 @@ def _build_henvisning_source_meta(
     _add_string_part(parts, "henvisningsmaadeKode", row.get("HENVISNINGSMAADE_KODE"))
     _add_string_part(parts, "henvisningsmaadeKodetekst", row.get("HENVISNINGSMAADE_KODETEKST"))
     _add_string_part(parts, "referralPurpose", row.get("REFERRAL_PURPOSE"))
+    for column, url in _HENVISNING_RAW_FIELDS.items():
+        _add_string_part(parts, url, row.get(column))
+    _add_datetime_part(parts, "henvisningsdato", row.get("HENVISNINGSDATO"))
+    _add_datetime_part(parts, "slutdato", row.get("SLUTDATO"))
     _add_datetime_part(parts, "modtaget", row.get("MODTAGET"))
+    _add_datetime_part(parts, "afsendelsesdato", row.get("AFSENDELSESDATO"))
     _add_datetime_part(parts, "opdateretTid", row.get("OPDATERET_TID"))
 
     if history_row:
@@ -419,7 +509,7 @@ def _build_henvisning_source_meta(
         _add_string_part(hist_parts, "ventegruppe", history_row.get("VENTEGRUPPE"))
         _add_string_part(hist_parts, "ekspertomraade", history_row.get("EKSPERTOMRAADE"))
         _add_string_part(hist_parts, "treatmentRight", history_row.get("TREATMENTRIGHT"))
-        _add_bool_part(hist_parts, "faellesvisitation", history_row.get("FAELLESVISITATION"))
+        _add_string_part(hist_parts, "faellesvisitation", history_row.get("FAELLESVISITATION"))
         _add_datetime_part(hist_parts, "beslutTidspunkt", history_row.get("BESLUT_TIDSPUNKT"))
         _add_datetime_part(hist_parts, "visitationsdato", history_row.get("VISITATIONSDATO"))
         if hist_parts:
@@ -555,24 +645,37 @@ def _build_ris_source_meta(
 def _latest_history_by_henvisning(
     history_rows: list[dict[str, Any]],
 ) -> dict[str, dict[str, Any]]:
-    latest: dict[str, dict[str, Any]] = {}
+    grouped: dict[str, list[dict[str, Any]]] = {}
     for row in history_rows:
         henvisning_id = normalize_oracle_id(row.get("HENVISNING_ID"))
         if not henvisning_id:
             continue
-        current = latest.get(henvisning_id)
-        if current is None or _history_sort_key(row) > _history_sort_key(current):
-            latest[henvisning_id] = row
-    return latest
+        grouped.setdefault(henvisning_id, []).append(row)
+    return {
+        hid: current
+        for hid, rows in grouped.items()
+        if (current := _current_history(rows)) is not None
+    }
 
 
-def _history_sort_key(row: dict[str, Any]) -> tuple[str, int]:
+def _history_sort_key(row: dict[str, Any]) -> tuple[int, str]:
     dt = parse_clob_datetime_safe(row.get("BESLUT_TIDSPUNKT")) or ""
     try:
-        ordning = int(row.get("ORDNING") or 0)
+        ordning = int(normalize_oracle_id(row.get("ORDNING")) or 0)
     except (TypeError, ValueError):
         ordning = 0
-    return (dt, ordning)
+    return (ordning, dt)
+
+
+def _current_history(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """ORDNING bestemmer rækkefølgen; genåbning ophæver foregående afslutning."""
+    ordered = sorted(rows, key=_history_sort_key)
+    while ordered and str(ordered[-1].get("HANDLING") or "").upper() == "GENAABNING":
+        if len(ordered) < 2 or str(ordered[-2].get("HANDLING") or "").upper() != "AFSLUTNING":
+            # Ufuldstændig historik må ikke fremstilles som aktuelle visitationsdata.
+            return None
+        del ordered[-2:]
+    return ordered[-1] if ordered else None
 
 
 def _refinfo_by_episode(refinfo_rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -639,7 +742,8 @@ def _fetch_latest_history_for_batch(
 
     Keyed, not windowed: the lookup always sees every history row the archive
     holds for the batch's henvisninger, so no separate backfill pass is needed.
-    "Latest" is ``_history_sort_key`` (BESLUT_TIDSPUNKT, then ORDNING).
+    ORDNING styrer rækkefølgen. Ved genåbning fjernes genåbning og afslutning
+    fra udvælgelsen, så den tidligere visitationsrække bliver aktuel igen.
     """
     if not henvisning_ids:
         return {}
@@ -651,7 +755,11 @@ def _fetch_latest_history_for_batch(
         mssql=mssql,
         key_fn=lambda row: normalize_oracle_id(row.get("HENVISNING_ID")),
     )
-    return {hid: max(rows, key=_history_sort_key) for hid, rows in grouped.items()}
+    return {
+        hid: current
+        for hid, rows in grouped.items()
+        if (current := _current_history(rows)) is not None
+    }
 
 
 def _fetch_latest_refinfo_for_batch(
@@ -765,10 +873,6 @@ def _transform_henvisning_to_service_requests(
             ]
 
         priority = _map_priority(row)
-        occurrence_period = None
-        slutdato = parse_clob_datetime_safe(row.get("SLUTDATO"))
-        if slutdato:
-            occurrence_period = Period(end=slutdato)
 
         requester = _first_reference(
             _reference_by_raw_identifier(
@@ -780,11 +884,6 @@ def _transform_henvisning_to_service_requests(
                 resource_type="Organization",
                 system=SYSTEM_SOR,
                 value=row.get("AFSENDER_AFDELING_SORKODE"),
-            ),
-            _reference_by_raw_identifier(
-                resource_type="Organization",
-                system=SYSTEM_SOR,
-                value=row.get("BEHANDLER_AFDELING_SORKODE"),
             ),
             _reference_by_raw_identifier(
                 resource_type="Organization",
@@ -809,9 +908,13 @@ def _transform_henvisning_to_service_requests(
             if ref:
                 reason_reference = [ref]
 
-        authored_on = parse_clob_datetime_safe(
-            row.get("HENVISNINGSDATO")
-        ) or parse_clob_datetime_safe(row.get("AFSENDELSESDATO"))
+        # HENVISNINGSDATO er henvisningens oprettelse og hører derfor i det
+        # native authoredOn — ellers møder en FHIR-kyndig aftager et tomt
+        # standardfelt og må gætte, hvilket kildefelt der svarer til det.
+        # Modtagelse, afsendelse og administrativ lukning bevares derimod som
+        # kildefelter: de dokumenterer hverken oprettelse eller udførelse, og
+        # FHIR har ingen plads til dem, der ikke ville være et misbrug.
+        henvisning_authored_on = parse_clob_datetime_safe(row.get("HENVISNINGSDATO"))
 
         requests.append(
             ServiceRequest(
@@ -820,14 +923,13 @@ def _transform_henvisning_to_service_requests(
                 intent="proposal",
                 category=category,
                 priority=priority,
+                authoredOn=henvisning_authored_on,
                 subject=Reference(
                     identifier=Identifier(
                         system=SYSTEM_IFDB_PATIENT_ID,
                         value=normalize_oracle_id(patient_id),
                     )
                 ),
-                occurrencePeriod=occurrence_period,
-                authoredOn=authored_on,
                 requester=requester,
                 performer=[performer] if performer else None,
                 reasonReference=reason_reference,
@@ -836,7 +938,9 @@ def _transform_henvisning_to_service_requests(
         )
 
     if unmapped_statuses:
-        context.log.info("Unmapped HENVISNING statuses preserved as unknown: %s", unmapped_statuses)
+        context.log.info(
+            "HENVISNING rows with uncertain FHIR status: %s", sum(unmapped_statuses.values())
+        )
     return requests
 
 
@@ -854,7 +958,7 @@ def _build_ris_code(service_group: dict[str, Any]) -> CodeableConcept | None:
 def _build_ris_order_details(service_group: dict[str, Any]) -> list[CodeableConcept] | None:
     details: list[CodeableConcept] = []
     # Duplicate (system, code) pairs would collide with the
-    # ServiceRequest_tillaegskode child-table PK; first occurrence wins.
+    # ServiceRequest_SupplementaryCode child-table PK; first occurrence wins.
     seen_codes: set[str] = set()
     for extra_code in service_group.get("tillaegskoder", []):
         normalized = normalize_sks_coding_code(extra_code)
@@ -1035,10 +1139,10 @@ def _post_service_requests_to_fhir(
                 eoc_ids_needed.add(str(ext.valueReference.identifier.value))
 
     if resolve_missing_dependencies and mssql:
+        from DSA.FHIR.Patient.patient_service import NEED_REFERENCE, ensure_patients
         from DSA.FHIR.utils.ifdb.dependency_resolver import (
             resolve_missing_encounters,
             resolve_missing_episodes_of_care,
-            resolve_missing_patients,
         )
 
         if eoc_ids_needed:
@@ -1061,11 +1165,12 @@ def _post_service_requests_to_fhir(
 
         if patient_ids_needed:
             logger.info(f"[DEPENDENCY] Ensuring {len(patient_ids_needed)} patients exist")
-            resolve_missing_patients(
-                patient_ids=patient_ids_needed,
+            ensure_patients(
+                ifdb_patient_ids=patient_ids_needed,
                 mssql=mssql,
                 fhir_database=fhir_database,
                 context=context,
+                need=NEED_REFERENCE,
             )
 
     # Patienter, der hverken findes i FHIR, kan oprettes fra arkivet eller nås via CPR,
@@ -1461,21 +1566,9 @@ def fhir_server_service_request_dfm(
                 "uden gyldig patient står med kilde-id i WARNING-linjerne ovenfor."
             )
 
-        new_checkpoint: str | None = None
-        if config.should_advance_checkpoint and total_fetched > 0:
-            with mssql_target_staging.get_connection() as conn:
-                cursor = conn.cursor()
-                try:
-                    cursor.execute("SELECT CONVERT(NVARCHAR(50), SYSDATETIME(), 121)")
-                    row = cursor.fetchone()
-                    new_checkpoint = row[0] if row else None
-                finally:
-                    cursor.close()
-
-            if new_checkpoint:
-                dfm.set_checkpoint(
-                    "fhir_server", "ServiceRequest", value=new_checkpoint, mode=config.mode
-                )
+        new_checkpoint = advance_fhir_checkpoint(
+            dfm, run_ctx, "ServiceRequest", config, total_fetched
+        )
 
         dfm.complete_dfm_run(
             run_ctx.log_id,

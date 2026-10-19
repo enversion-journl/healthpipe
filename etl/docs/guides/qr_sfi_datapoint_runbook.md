@@ -222,8 +222,14 @@ ressourcer) indlæses via arbejdstabellen `fhir.SFI_datapoint_store_backfill` og
 med SWITCH (partitioner med højst 100.000 efterslæbere tømmes til
 `fhir.SFI_datapoint_store_efterslaeb` først og får rækkerne tilbage bagefter); genkørsler af
 allerede indlæste måneder bruger indeks-frakobling. Hver kørsel
-slutter med REORGANIZE af columnstoren. Det daglige delta kører uændret. Run-tags til
-målekørsler:
+slutter med REORGANIZE af columnstoren. Det daglige delta kører uændret.
+
+Et SOF-delta læses i skiver: et vindue med flere ressourcer end skivegrænsen deles i flere
+vinduer på FHIR-serverens tidsstempel, og checkpointet flyttes efter hver skive. Ressourcer med
+samme tidsstempel deles ikke. Er tidsbudgettet brugt, før efterslæbet er indhentet, slutter
+kørslen grønt, og resten står som `backlog_resources` i assettets metadata til næste kørsel.
+
+Run-tags til målekørsler:
 
 | Run-tag | Værdier |
 |---|---|
@@ -231,6 +237,7 @@ målekørsler:
 | `sfi_datapoint/backfill_min_resources` | heltal, default 1.000.000 |
 | `sfi_datapoint/backfill_strategy` | `auto` (default), `switch`, `disable_indexes`, `none` |
 | `sof/backfill_mode`, `sof/merge_batch_rows`, `sof/index_disable` | SOF-MERGE'n: `auto`/`always`/`never`, portionsstørrelse (0 = ét statement), `on`/`off` |
+| `sof/slice_max_resources`, `sof/slice_time_budget_minutes` | SOF-deltaet i skiver: højst så mange ressourcer pr. skive (default 1.000.000; 0 = én skive) og tidsbudget i minutter (default 60; 0 = intet budget) |
 | `dso_sync/index_disable_min_rows`, `dso_sync/index_disable_min_ratio` | DSO-synkens indeks-frakobling |
 
 Status: `dso_sfi_store_partition_status`. Målebænke: `sfi_store_layout_benchmark_job` og

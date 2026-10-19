@@ -1,0 +1,62 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fact
+  TableName: fct.Udredningsforloeb
+  Domain: [Udredningsret]
+  Description: >
+    Udredningsforløb fra SDS' datamart til monitorering af udredningsretten —
+    ét forløb pr. sammenhængende markørkæde inden for et helbredsforløb, med
+    leverancens egne indikatormål (overholdt, inden for 30 dage, udredningstid)
+    båret uændret igennem. Forløb, der forsvinder fra en leverance, retireres
+    med dw_is_deleted, aldrig slettes; de genoplives, hvis nøglen dukker op igen.
+  Grain: >
+    Én række pr. udredningsforløb, dvs. pr. (helbredsforløb, F_ID) over
+    leverancens levende markører — nøglen er vores egen, så SDS'
+    omnummerering af F_ID opdaterer den samme række.
+  Privacy: >
+    CPR opløses til dw_ek_Borger i staging og forlader aldrig staging-laget.
+    Rå CPR findes kun i arc.udredningsret_mont, som aldrig synkroniseres til DSO.
+    Hashet CPR gør det derimod: arkivets helbredsforloeb_noegle er en SHA2_256
+    over CPR, og clean_code_Udredningsforloeb bærer det digest ordret, så den
+    kolonne er et genberegneligt, stabilt pseudonym. Den er derfor holdt ude af
+    DSO-synkroniseringen (exclude_columns, beslutning U18) og står NULL på DSO —
+    både her og på dim.UdredningsretEgenskaber. På DSA er den fortsat
+    forretningsnøglen. clean_code_UdredningsretMarkoer er ikke berørt:
+    markoer_noegle er en ny hash AF helbredsforløbsnøglen, ikke nøglen selv.
+
+  SourceSystems:
+    - sds_udredningsret: [LPR_Udredningsret.UdredningsretMont]
+
+  Columns:
+    dw_ek_Udredningsforloeb: { Type: PK, DataType: INT, FK-Target: dim.UdredningsretEgenskaber, Description: "Entitetsnøgle fra map.Udredningsforloeb — delt PK med transaktionsdimensionen dim.UdredningsretEgenskaber." }
+    clean_code_Udredningsforloeb: { DataType: VARCHAR(100), Expr: "UDREDFORL_{helbredsforloeb_noegle}_{startdato uden bindestreger}_{loebenummer}", Description: "Forretningsnøgle på DSA. Bærer arkivets CPR-hash og synkroniseres derfor IKKE til DSO (exclude_columns, beslutning U18) — kolonnen står NULL dér." }
+    dw_ek_Helbredsforloeb: { DataType: INT, FK-None: true, Description: "Grupperingsnøgle mintet i map.Helbredsforloeb; ingen dimension. Samler forløbene under ét helbredsforløb og afgrænser retireringen af forsvundne forløb (spec afsnit 6)." }
+    dw_ek_Borger: { Type: FK, DataType: INT, FK-Target: dim.Borger, Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.CPR], Description: "CPR opløses i staging mod dim.Borger (fallback tidligere_cpr) og lagres aldrig; -1 ukendt CPR, -2 strukturelt tomt CPR." }
+    dw_ek_Organisation_forloeb: { Type: FK, DataType: INT, FK-Target: dim.Organisation, Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.ANSVARLIG_ENHED_FORLOB], Description: "SOR-koden for forløbets ansvarlige enhed, opslået direkte mod dim.Organisation.kode; blank og uden match giver -1." }
+    dw_ek_Organisation_kontakt: { Type: FK, DataType: INT, FK-Target: dim.Organisation, Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.ANSVARLIG_ENHED_KONTAKT], Description: "SOR-koden for den kontaktansvarlige enhed; blank og uden match giver -1." }
+    dw_ek_UdredningsretKlassifikation: { Type: FK, DataType: INT, FK-Target: dim.UdredningsretKlassifikation, Description: "Den primære analysedimension — hashet clean_code over de otte indikatorattributter, materialiseret i staging." }
+    dw_ek_Dato_start: { Type: FK, DataType: INT, FK-Target: dim.Dato, Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.FORLOEBSMARKOER_DATO], Description: "Startmarkørens dato: tidligste henvist-markør, ellers forløbets tidligste markør (beslutning U4)." }
+    dw_ek_Dato_slut: { Type: FK, DataType: INT, FK-Target: dim.Dato, Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.FORLOEBSMARKOER_DATO], Description: "Slutmarkørens dato; åbne og afbrudte forløb får BLANK-sentinel 99999998, ikke UKENDT (beslutning U2)." }
+    dw_ek_Dato_opgoerelse: { Type: FK, DataType: INT, FK-Target: dim.Dato, Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.OPGPER], Description: "Opgørelseskvartalets første dag ('2K26' giver 2026-04-01); andet format giver BLANK-sentinel." }
+
+    udredningstid_dage: { Type: Measure, DataType: INT, Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.H], Description: "Leverancens egen udredningstid i dage, kun båret når indgaar_i_indikator = 1 (beslutning U2) — ellers NULL." }
+    indgaar_i_indikator: { DataType: BIT, Expr: "1 når forløbet har både en henvist-markør og en ikke-henvist markør med MRK_H = '1' — leverancens egen indikatorafgrænsning." }
+    overholdt: { DataType: BIT, Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.MRK_ST_L], Expr: "'1' giver 1, '0' giver 0, blank giver NULL." }
+    inden_30_dage: { DataType: BIT, Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.MRK_ST_H], Expr: "'1' giver 1, '0' giver 0, blank giver NULL." }
+    alder_ved_henvisning: { DataType: SMALLINT, Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.ALDER], Description: "Leverancens aldersfelt på attributmarkøren; ikke-numerisk værdi giver NULL." }
+    aktionsdiagnose_kode: { DataType: NVARCHAR(20), Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.C_ADIAG], Description: "Degenereret attribut — gentaget fra dim.UdredningsretEgenskaber, så en diagnosefiltrering ikke kræver join." }
+    diagnosekontakt_uuid: { DataType: NVARCHAR(36), Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.C_ADIAG_KONTAKT], Description: "Degenereret attribut: kontakten aktionsdiagnosen er registreret på." }
+    helbredsforloeb_id: { DataType: NVARCHAR(50), Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.DW_EK_HelbredsForloeb], Description: "SDS' egen surrogatnøgle som senest leveret — degenereret attribut, aldrig en nøgle (omnummereret ved kilden)." }
+    antal_markoerer: { Type: Measure, DataType: INT, Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.FORLOEBSMARKOER], Expr: "COUNT over forløbets levende markørrækker i arkivet efter dubletreduktion (beslutning U6)." }
+    antal_udredningsplaner: { Type: Measure, DataType: INT, Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.FORLOEBSMARKOER], Expr: "Antal af forløbets markører i gruppen udredningsplan." }
+    antal_afbrydelser: { Type: Measure, DataType: INT, Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.FORLOEBSMARKOER], Expr: "Antal af forløbets markører i gruppen afbrudt." }
+    dw_haendelsestidspunkt: { DataType: DATETIME2, Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.FORLOEBSMARKOER_DATO], Expr: "Startmarkørens dato som tidsstempel — forløbets hændelsestidspunkt." }
+    dw_is_deleted: { DataType: BIT, Expr: "1 når forløbet ikke længere dannes af leverancens levende markører — retireres, aldrig slettes, og genoplives når clean_code'en dukker op igen (spec afsnit 6)." }
+  Notes:
+    - "Transaktionsdimension: dw_ek_Udredningsforloeb er en delt nøgle med dim.UdredningsretEgenskaber (begge sourced fra map.Udredningsforloeb via clean_code_Udredningsforloeb) — derfor ingen dw_ek_UdredningsretEgenskaber-kolonne."
+    - "Kontroltotal i fact-asset'et: levende fact-rækker og SUM(indgaar_i_indikator) sammenholdes med hele arkivet grupperet på (helbredsforloeb_noegle, F_ID) — afvigelse fejler kørslen."

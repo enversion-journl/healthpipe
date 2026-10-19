@@ -32,9 +32,9 @@ from dagster import (
 )
 from DSA.SQL.staging.drg_staging_sql import (
     build_forloeb_kontroltotal_sql,
-    build_org_lookup_sql,
     build_sor_coverage_sql,
     build_stg_fct_sql,
+    create_organisation_sor_lookup_table_sql,
 )
 
 
@@ -52,7 +52,7 @@ from DSA.SQL.staging.drg_staging_sql import (
     tags={"domain": "drg", "layer": "stg", "source": "drg", "entity": "drgkontakt"},
     description=(
         "Fact staging for DRG contacts: typed measures, dato keys, SOR keys "
-        "per role via #org, forloeb measures on the carrying contact with a "
+        "per role via #organisation_sor, forloeb measures on the carrying contact with a "
         "hard control total against the arc forloeb tables."
     ),
 )
@@ -73,7 +73,7 @@ def stg_fct_DRGKontakt(
         with mssql_target_staging.get_connection() as conn:
             cursor = conn.cursor()
             try:
-                cursor.execute(build_org_lookup_sql())
+                cursor.execute(create_organisation_sor_lookup_table_sql())
                 cursor.execute(build_stg_fct_sql())
                 conn.commit()
 

@@ -71,6 +71,10 @@
           "path": "extension('http://example.org/fhir/StructureDefinition/modtidspunkt').valueDateTime.first()"
         },
         {
+          "name": "opdateret_tid",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/pasDiagnoseSourceMeta').extension.where(url='opdateretTid').valueDateTime.first()"
+        },
+        {
           "name": "dw_is_deleted",
           "path": "extension('urn:fhir:isDeleted').valueInteger.first()"
         }

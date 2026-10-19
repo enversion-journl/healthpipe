@@ -3,6 +3,9 @@
   "name": "observation_view",
   "resource": "Observation",
   "status": "active",
+  "where": [
+    {"path": "code.coding.where(system='http://example.org/fhir/CodeSystem/ward-unit-capacity-type').exists().not()"}
+  ],
   "select": [
     {
       "column": [

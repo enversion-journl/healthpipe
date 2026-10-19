@@ -48,8 +48,10 @@ Der er ét transform-og-post-asset per entitet:
 | **Kilde** | Læser delta fra `arc.*` via checkpoint i `meta.DFMState` |
 | **Replay** | Ændring af run mode ved kørselstid (`period`, `ids`) |
 
-Assettet er ikke partitioneret. Skal en periode eller et sæt id'er køres igen, er
-det en config-ændring i Launchpad — ikke en backfill. Se
+Assettet er ikke partitioneret. Skal en periode eller et sæt id'er køres igen, giver
+du kørslen en run mode med i Launchpad — vinduet i Dagster, hvor man skriver
+konfiguration til en kørsel, inden den starter. Det er ikke en backfill (Dagsters
+måde at genkøre partitioner på). Se
 [dfm_operations_guide.md](../implementation/dfm_operations_guide.md).
 
 > `_dfm`-suffikset på filer og assets stammer fra migreringen væk fra et tidligere
@@ -112,7 +114,7 @@ flowchart TD
     ID["<b>2 · Identiteter og referencer</b> — <i>utils/fhir/identifier_systems.py</i><br/>ReferenceFieldConfig · NestedReferenceFieldConfig"]
     DEP["<b>3 · Manglende afhængigheder</b> — <i>ifdb/dependency_resolver.py</i><br/><i>kun hvis ressourcen peger på andre, der kan mangle</i>"]
     FN["<b>4 · Transform- og post-funktion</b> — <i>Resource_IFDB_dfm.py</i><br/>ren transform · post slår op, upserter og skriver"]
-    REG["<b>5 · Eksportér assettet</b><br/><i>Resource/__init__.py → DSA/FHIR/assets.py</i>"]
+    REG["<b>5 · Registrér assettet</b><br/><i>Resource/__init__.py → DSA/FHIR/assets.py</i>"]
     IDX["<b>6 · Registrér database-indexes</b> — <i>utils/fhir/index_config.py</i><br/>materialisér fhir_ifdb_database_indexes"]
     JOB["<b>7 · Job og tidsplan</b> — <i>jobs/ifdb_dfm_jobs.py</i><br/><i>downstream startes af sensorer, ikke egne schedules</i>"]
     RUN["<b>Push, og materialisér på Dev</b>"]
@@ -132,7 +134,7 @@ du kan se, hvad der mangler. Et udsnit for Encounter kunne se sådan ud:
 
 | Kildefelt i `arc.ifdb_encounter` | FHIR-sti | Note |
 |---|---|---|
-| `OBJECT_ID` | `identifier`, system `urn:source:ifdb:encounter_id` | Kildenøglen. Det er den, andre ressourcer slår kontakten op på |
+| `OBJECT_ID` | `identifier`, system `urn:source:ifdb:object_id` | Kildenøglen. Det er den, andre ressourcer slår kontakten op på |
 | `PATIENT_ID` | `subject` | Reference — slås op til `Patient/<id>` ved posting |
 | `STATUS_TEXT` | `status` | **(derived)** — kildens tekst skal mappes til FHIR's tilladte statusværdier |
 | `PERIOD_START` | `period.start` | |
@@ -175,7 +177,7 @@ En reference kan pege på en ressource, der endnu ikke findes på serveren.
 
 Sig, at du poster Encounters. En kontakt peger på sin patient — men netop den patient
 er ikke blevet ændret, siden vi sidst hentede fra IFDB, så den er aldrig blevet
-posted. Opslaget af `Patient/<id>` finder ingenting, og kontakten ville ende med en
+postet. Opslaget af `Patient/<id>` finder ingenting, og kontakten ville ende med en
 reference, der ikke kan bruges.
 
 Løsningen er, at ressourcen trækker sin afhængighed med ind. Før referenceopslaget:
@@ -226,7 +228,7 @@ Fylder flere kildetabeller samme ressourcetype, indsættes kildetabellen:
 
 ### 5. Registrér assettet
 
-- Eksportér fra `DSA/FHIR/{Resource}/__init__.py`.
+- Registrér assettet i `DSA/FHIR/{Resource}/__init__.py`.
 - Ressourcemappens `__init__.py` samler assets fra alle kildefiler.
 - `DSA/FHIR/assets.py` samler alle ressourcemapper til `all_assets`, som
   `definitions.py` importerer.
@@ -250,8 +252,9 @@ indexsættet.
 
 Jobs ligger i `etl/jobs/ifdb_dfm_jobs.py` og dækker hele DFM-kæden: arkiv → FHIR →
 SoF → DSO-sync. Tidsplanen ligger i `schedules/ifdb_dfm_schedules.py`, hvor kun
-base-jobbet er cron-styret — downstream DFM-assets startes af sensorer fra det, ikke
-af egne tidsplaner.
+base-jobbet er cron-styret — downstream DFM-assets startes af sensorer (Dagsters
+mekanisme til at starte en kørsel, når en anden er færdig), ikke af egne
+tidsplaner.
 
 ## Verificér
 
@@ -285,7 +288,7 @@ Det koster et join for aftageren, men til gengæld findes hver klinisk kendsgern
 
 ### `userSelected` markerer kildens hovedkode
 
-En kode ligger i FHIR i et `CodeableConcept`, som kan bære **flere** `coding`-poster
+En kode ligger i FHIR i et `CodeableConcept`, som kan bære **flere** `coding`-elementer
 for den samme kendsgerning. FHIR har et standardflag, `userSelected`, der betyder
 "det er den her kode, kilden faktisk valgte".
 

@@ -15,7 +15,7 @@ Key decisions, written down once:
 * ONE pre_stg asset for both delivery types (UNION ALL with a leverancetype
   discriminator), not one per type: they land in the same stg tables and the
   same fact, and two assets writing one table would race.
-* CPR is resolved to dw_ek_Borger INSIDE pre_stg via #borger/#borger_tidl
+* CPR is resolved to dw_ek_Borger INSIDE pre_stg via #borger_current_cpr/#borger_previous_cpr
   temp tables against dim.Borger, and the raw CPR never enters any stg table.
   dim.Borger is Type 2 on ADDRESS periods only —
   dw_ek_Borger is constant across a person's T2 rows — so the key lookup
@@ -23,7 +23,10 @@ Key decisions, written down once:
   address attributes, which staging does not do). Unknown CPRs get -1 and are
   created in FHIR by a separate asset (the two-pass pattern from
   Patient_HAIBA.py); blank CPR gets -2 (N/A).
-* SOR codes are resolved per role in stg_fct via a #org temp table (the
+* The #borger_current_cpr/#borger_previous_cpr and #organisation_sor lookup builders live in
+  DSA/SQL/common/dimension_lookup_temp_tables.py (shared with udredningsret, decision U10)
+  and are re-exported here for the staging assets.
+* SOR codes are resolved per role in stg_fct via a #organisation_sor temp table (the
   HAIBA anti-unseekable-join trick); the raw code is kept next to the key
   for troubleshooting. Both blank and unmatched codes key to -1 like HAIBA —
   the blank/unmatched distinction lives in the reported rates, not the key,
@@ -34,8 +37,15 @@ Key decisions, written down once:
   Implemented as #delta_kontakt/#delta_forloeb temp sets built from the
   children's dw_timestamp_update, so the probe scans the small changed set
   instead of probing every child table per contact row.
+* The delta window has a second, non-timestamp half: #uoploest_borger, the
+  contacts still at dw_ek_Borger = -1 (see build_unresolved_borger_scope_sql).
 """
 
+from DSA.SQL.common.dato_dimension import dato_key
+from DSA.SQL.common.dimension_lookup_temp_tables import (  # noqa: F401  (re-exported for callers/tests)
+    create_borger_cpr_lookup_tables_sql,
+    create_organisation_sor_lookup_table_sql,
+)
 from DSA.SQL.staging.drg_kontakt_kolonner import (
     CPR_SQL,
     DIM_ATTRIBUTE_NAMES,
@@ -49,8 +59,6 @@ from DSA.SQL.staging.drg_kontakt_kolonner import (
     klassifikation_clean_code_sql,
 )
 
-from etl.DSA.SQL.common.dato_dimension import dato_key
-
 PRE_TABLE = "[stg].[pre_DRGKontakt]"
 FCT_TABLE = "[stg].[fct_DRGKontakt]"
 DIM_TABLE = "[stg].[dim_DRGKontaktEgenskaber]"
@@ -58,6 +66,9 @@ DIM_TABLE = "[stg].[dim_DRGKontaktEgenskaber]"
 UNKNOWN_BORGER = -1
 NA_BORGER = -2
 UNKNOWN_ORGANISATION = -1
+
+# Lower bound of the -1 re-resolution scope; see build_unresolved_borger_scope_sql.
+UOPLOEST_LOOKBACK_DAGE = 14
 
 # Child tables whose changes must propagate their delta to the contact.
 # All carry the resolved contact UUID under the same column name.
@@ -75,42 +86,14 @@ _CHILD_TABLES = (
 )
 
 
-def build_borger_lookup_sql() -> str:
-    """#borger (cpr_nummer) + #borger_tidl (tidligere_cpr fallback).
-
-    dw_ek_Borger is constant across dim.Borger's T2 address rows; MIN() is a
-    deterministic collapse, mirroring HAIBA's guard against the one measured
-    CPR with two patient ids. tidligere_cpr matters because DRG reaches years
-    back in time; coverage with/without fallback is reported.
-    """
-    return """
-DROP TABLE IF EXISTS #borger;
-SELECT CAST([cpr_nummer] AS NVARCHAR(10)) AS [cpr], MIN([dw_ek_Borger]) AS [dw_ek_Borger]
-INTO #borger
-FROM [dim].[Borger]
-WHERE [cpr_nummer] IS NOT NULL AND [cpr_nummer] <> ''
-GROUP BY CAST([cpr_nummer] AS NVARCHAR(10));
-CREATE UNIQUE CLUSTERED INDEX [IX_borger_cpr] ON #borger([cpr]);
-
-DROP TABLE IF EXISTS #borger_tidl;
-SELECT [cpr], MIN([dw_ek_Borger]) AS [dw_ek_Borger]
-INTO #borger_tidl
-FROM (
-    SELECT CAST([tidligere_cpr] AS NVARCHAR(10)) AS [cpr], [dw_ek_Borger]
-    FROM [dim].[Borger]
-    WHERE [tidligere_cpr] IS NOT NULL AND [tidligere_cpr] <> ''
-) AS t
-GROUP BY [cpr];
-CREATE UNIQUE CLUSTERED INDEX [IX_borger_tidl_cpr] ON #borger_tidl([cpr]);
-"""
-
-
 def build_delta_scope_sql(checkpoint: str | None) -> str:
     """Temp sets of contacts/forloeb touched since the checkpoint.
 
     Empty string when there is no checkpoint (full load: no filter at all).
     The checkpoint value comes from meta.DFMState (system-generated ISO
-    datetime), escaped defensively anyway.
+    datetime), escaped defensively anyway. Run
+    ``build_unresolved_borger_scope_sql`` alongside — it is the other half of
+    the delta window.
     """
     if checkpoint is None:
         return ""
@@ -144,11 +127,56 @@ FROM (
 ) AS aendrede_forloeb;
 CREATE UNIQUE CLUSTERED INDEX [IX_delta_forloeb]
     ON #delta_forloeb([takstsystem], [forloeb_noegle]);
+
 """
 
 
-def _delta_where(checkpoint: str | None, forloeb_key_sql: str) -> str:
-    """Per-branch delta predicate: contact itself, a child, or its forloeb."""
+def build_unresolved_borger_scope_sql() -> str:
+    """#uoploest_borger: contacts still at dw_ek_Borger = -1, re-staged so the
+    lookup re-resolves against the current dim.Borger.
+
+    An unknown CPR is repaired outside arc (a stub Patient in Aidbox, minted by
+    the nightly Borger chain), so the arc row's dw_timestamp_update never moves
+    and the timestamp delta alone would leave the -1 permanent. This scope is
+    the recovery mechanism — it is why drg_publish_sensor needs no gate and no
+    state.
+
+    Bounded to UOPLOEST_LOOKBACK_DAGE days on the FACT's dw_timestamp_update:
+    the fct MERGE only writes on real change, so an unresolvable contact's
+    timestamp stands still and it ages out on its own. Rows missed for longer
+    than the window need mode=full_load. -2 (blank CPR) is excluded —
+    unresolvable by construction, not pending.
+
+    Kept out of the delta-scope batch on purpose: mssql-python loses an error
+    raised after a statement that produced a row count (the ddl_loader
+    migration bug), and that batch opens with two SELECT ... INTO — appended
+    there, a failing INSERT would leave the temp table quietly empty.
+    """
+    return f"""
+DROP TABLE IF EXISTS #uoploest_borger;
+CREATE TABLE #uoploest_borger (
+    [clean_code] VARCHAR(255) NOT NULL PRIMARY KEY CLUSTERED
+);
+-- Created unconditionally so the predicate in _delta_where always compiles;
+-- filled via EXEC because on a fresh database fct.DRGKontakt may not exist yet
+-- and IF alone does not stop T-SQL compile-time validation.
+IF OBJECT_ID(N'[fct].[DRGKontakt]', N'U') IS NOT NULL
+    EXEC(N'
+        INSERT INTO #uoploest_borger ([clean_code])
+        SELECT [clean_code_DRGKontakt]
+        FROM [fct].[DRGKontakt]
+        WHERE [dw_ek_Borger] = {UNKNOWN_BORGER}
+          AND [dw_is_deleted] = 0
+          AND [clean_code_DRGKontakt] IS NOT NULL
+          AND [dw_timestamp_update] >= DATEADD(
+                  DAY, -{UOPLOEST_LOOKBACK_DAGE}, CAST(SYSDATETIME() AS datetime2(0)));
+    ');
+"""
+
+
+def _delta_where(checkpoint: str | None, forloeb_key_sql: str, clean_code_expr: str) -> str:
+    """Per-branch delta predicate: contact itself, a child, its forloeb, or
+    still unresolved against dim.Borger (the -1 re-resolution scope)."""
     if checkpoint is None:
         return ""
     cp = "'" + str(checkpoint).replace("'", "''") + "'"
@@ -161,6 +189,8 @@ def _delta_where(checkpoint: str | None, forloeb_key_sql: str) -> str:
     OR EXISTS (SELECT 1 FROM #delta_forloeb df
                WHERE df.[takstsystem] = k.[takstsystem]
                  AND df.[forloeb_noegle] = {forloeb_key_sql})
+    OR EXISTS (SELECT 1 FROM #uoploest_borger ub
+               WHERE ub.[clean_code] = {clean_code_expr})
   )"""
 
 
@@ -192,9 +222,9 @@ def _pre_branch(leverancetype: str, checkpoint: str | None) -> str:
     -- No length cast on the delivery side: CAST(... AS NVARCHAR(10)) would
     -- silently TRUNCATE a malformed 11+-character value and could mis-match
     -- another person's CPR. An overlong value simply finds no match (-1).
-    LEFT JOIN #borger AS b ON b.[cpr] = LTRIM(RTRIM({cpr}))
-    LEFT JOIN #borger_tidl AS bt ON bt.[cpr] = LTRIM(RTRIM({cpr}))
-    WHERE 1 = 1{_delta_where(checkpoint, forloeb_key)}"""
+    LEFT JOIN #borger_current_cpr AS b ON b.[cpr] = LTRIM(RTRIM({cpr}))
+    LEFT JOIN #borger_previous_cpr AS bt ON bt.[cpr] = LTRIM(RTRIM({cpr}))
+    WHERE 1 = 1{_delta_where(checkpoint, forloeb_key, clean_code_sql(leverancetype))}"""
 
 
 def build_pre_stg_sql(checkpoint: str | None) -> str:
@@ -244,37 +274,16 @@ CREATE NONCLUSTERED INDEX [IX_pre_DRGKontakt_forloeb]
 """
 
 
-def build_org_lookup_sql() -> str:
-    """#org: live dim.Organisation rows with kode cast to NVARCHAR, uniquely indexed.
-
-    Same rationale as HAIBA (dm/haiba.py): joining dim.Organisation's varchar
-    kode against an nvarchar source column is unseekable; the temp copy makes
-    the join type-matched and indexed. The schema only guarantees kode
-    uniqueness among LIVE rows (a retired organisation keeps its row, and its
-    kode can be reissued under a new key) — so soft-deleted rows are filtered
-    both to keep the unique index valid and so new facts never resolve to a
-    retired organisation.
-    """
-    return """
-DROP TABLE IF EXISTS #org;
-SELECT CAST([kode] AS NVARCHAR(50)) AS [kode], [dw_ek_Organisation]
-INTO #org
-FROM [dim].[Organisation]
-WHERE [dw_is_deleted] = 0;
-CREATE UNIQUE CLUSTERED INDEX [IX_org_kode] ON #org([kode]);
-"""
-
-
 def build_stg_fct_sql() -> str:
     """DROP + SELECT INTO stg.fct_DRGKontakt from stg.pre_DRGKontakt.
 
     Typed measures (TRY_CONVERT — a non-numeric delivery value becomes NULL,
     counted in the asset's stats), dato keys via dato_key(), SOR keys per
-    role via #org, and forloeb measures on the CARRYING contact only:
+    role via #organisation_sor, and forloeb measures on the CARRYING contact only:
     somatik = tungeste_drgkontakt='1', psyk = the forloeb's first contact.
     """
     sor_joins = "\n".join(
-        f"LEFT JOIN #org AS o{i} ON o{i}.[kode] = p.[{raw}] AND p.[{raw}] <> ''"
+        f"LEFT JOIN #organisation_sor AS o{i} ON o{i}.[kode] = p.[{raw}] AND p.[{raw}] <> ''"
         for i, (raw, _) in enumerate(SOR_ROLES)
     )
     sor_selects = ",\n        ".join(

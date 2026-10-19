@@ -83,16 +83,17 @@ lagerbeholdning_extract_assets = create_dfm_extraction_assets(
 # schemes are distinct.
 #
 # Two patterns:
-#   A) Full load (14): vareart, varegrp, varetype, varetype2, projekt, moms, lev,
-#      sgh, lgr, rekv, rekvgrp, lafth, lafthsgh, zz_oper — small reference tables,
-#      truncate-and-load each run.
+#   A) Full load (15): vareart, varegrp, varetype, varetype2, projekt, moms, lev,
+#      sgh, lgr, rekv, rekvgrp, postdi, lafth, lafthsgh, zz_oper — small reference
+#      tables, truncate-and-load each run.
 #   B) Delta on [sysdato] (7): laftdpris, laftdstam, laftd, udlev, lgrvare,
 #      pmdm, indkfak — sysdato is the canonical "row touched at" column for
 #      ILS (evidenced by the existing arc.ils_vare precedent using MAX([sysdato])).
 #   C) Manual full load (1): rekvUndtagne via select_from_expr from ils_pro2_log
 #      (override with ILS_REKVUNDTAGNE_FQN for local seed).
+#   D) Delta on [Dato] (1): changelog — append-only log without sysdato.
 #
-# All 22 archive into arc.ils_<t>. Already-archived ILS tables
+# All 24 archive into arc.ils_<t>. Already-archived ILS tables
 # (lgrbeh, afdlgrbeh, unspsc, vare) are NOT in this list — see
 # ils_unspsc_extract_assets and lagerbeholdning_extract_assets above.
 
@@ -108,6 +109,9 @@ _ILS_FULL_LOAD_TABLES = (
     "lgr",
     "rekv",
     "rekvgrp",
+    # Postal code -> town. Only relevant as a lookup for rekv/lgr/lev, which all
+    # carry (land, postdi) without a town name.
+    "postdi",
     "lafth",
     "lafthsgh",
     "zz_oper",
@@ -170,10 +174,26 @@ REKVUNDTAGNE_EXTRACT_CONFIG = DfmExtractConfig(
     ),
 )
 
+# Append-only change log without sysdato, so the delta runs on Dato. Dato has
+# no time of day and rows land up to 1 day after it: lookback_days=2 re-reads
+# that window with a day to spare, and the arc upsert on prrowid makes the
+# overlap idempotent.
+CHANGELOG_EXTRACT_CONFIG = DfmExtractConfig(
+    source_schema="dbo",
+    source_table="changelog",
+    target_table="ils_changelog",
+    delta_column="Dato",
+    checkpoint_type="datetime",
+    lookback_days=2,
+    checkpoint_from=("arc", "ils_changelog"),
+    description="ILS changelog (ændringslog) delta on Dato with 2-day lookback.",
+)
+
 ILS_DFM_EXTRACT_CONFIGS = (
     [_ils_full_load_config(t) for t in _ILS_FULL_LOAD_TABLES]
     + [_ils_sysdato_config(t) for t in _ILS_SYSDATO_TABLES]
     + [REKVUNDTAGNE_EXTRACT_CONFIG]
+    + [CHANGELOG_EXTRACT_CONFIG]
 )
 
 ils_dfm_extract_assets = create_dfm_extraction_assets(

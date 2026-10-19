@@ -369,7 +369,7 @@ class TestTransformationPerformance:
 
         Tests the transformation of extracted rows to FHIR Patient resources.
         """
-        from DSA.FHIR.utils.ifdb.transforms import transform_fhir_patient_ifdb
+        from DSA.FHIR.Patient.patient_ifdb_contribution import transform_fhir_patient_ifdb
         from DSI.connectors.oracle.models import execute_extraction
         from DSI.oracle.ifdb import PATIENT_CONFIG
 
@@ -436,7 +436,7 @@ class TestFullPipelinePerformance:
         3. ID Resolution
         4. Posting to FHIR server
         """
-        from DSA.FHIR.utils.ifdb.transforms import transform_fhir_patient_ifdb
+        from DSA.FHIR.Patient.patient_ifdb_contribution import transform_fhir_patient_ifdb
         from DSI.connectors.oracle.models import execute_extraction
         from DSI.oracle.ifdb import PATIENT_CONFIG
         from utils.fhir.identifier_systems import SYSTEM_CPR, SYSTEM_IFDB_PATIENT_ID
@@ -546,7 +546,7 @@ class TestIdResolutionStrategies:
         """
         Compare memory_cache vs direct_postgres ID resolution performance.
         """
-        from DSA.FHIR.utils.ifdb.transforms import transform_fhir_patient_ifdb
+        from DSA.FHIR.Patient.patient_ifdb_contribution import transform_fhir_patient_ifdb
         from DSI.connectors.oracle.models import execute_extraction
         from DSI.oracle.ifdb import PATIENT_CONFIG
         from utils.fhir.identifier_systems import SYSTEM_CPR, SYSTEM_IFDB_PATIENT_ID

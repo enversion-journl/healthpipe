@@ -52,7 +52,13 @@ def _targets(id_column: str, *flat_tables: str) -> list[dict]:
 _ENTITIES: dict[str, dict] = {
     "encounter": {
         "resource_table": "encounter",
-        "targets": _targets("encounter_id", "Encounter", "Encounter_Location"),
+        "targets": _targets(
+            "encounter_id",
+            "Encounter",
+            "Encounter_Location",
+            "Encounter_BedSpace",
+            "Encounter_Absence",
+        ),
     },
     "episode_of_care": {
         "resource_table": "episodeofcare",
@@ -72,9 +78,30 @@ _ENTITIES: dict[str, dict] = {
         "resource_table": "location",
         "targets": _targets("location_id", "Location"),
     },
+    # Sengeenhed og seng er Location-resourcer i Aidbox (samme live id-saet som
+    # "location"), men deres flade tabeller er keyed paa egne id-kolonner, saa
+    # hver faar sin entity frem for at blive et target under "location".
+    "ward_unit": {
+        "resource_table": "location",
+        "targets": _targets("ward_unit_id", "WardUnit"),
+    },
+    "bed": {
+        "resource_table": "location",
+        "targets": _targets("bed_id", "Bed"),
+    },
     "appointment": {
         "resource_table": "appointment",
         "targets": _targets("appointment_id", "Appointment"),
+    },
+    "practitioner": {
+        "resource_table": "practitioner",
+        "targets": _targets("practitioner_id", "Practitioner"),
+    },
+    # PractitionerRole keys on its OWN id, not the practitioner's: it is a
+    # separate resource per employment, not a child grain of Practitioner.
+    "practitioner_role": {
+        "resource_table": "practitionerrole",
+        "targets": _targets("practitioner_role_id", "PractitionerRole"),
     },
     # ServiceRequest has no ids-mode replay (multi-source grain), but the cleanup
     # is DFM-independent -- it only stages Aidbox ids and soft-deletes flat rows --
@@ -85,12 +112,14 @@ _ENTITIES: dict[str, dict] = {
             "service_request_id",
             "ServiceRequest",
             "ServiceRequest_Recipient",
-            "ServiceRequest_tillaegskode",
+            "ServiceRequest_SupplementaryCode",
         ),
     },
     "condition": {
         "resource_table": "condition",
-        "targets": _targets("condition_id", "Condition", "Condition_tillaegskode"),
+        "targets": _targets(
+            "condition_id", "Condition", "Condition_SupplementaryCode", "Condition_henvisning"
+        ),
     },
     "document_reference": {
         "resource_table": "documentreference",
@@ -104,7 +133,7 @@ _ENTITIES: dict[str, dict] = {
     },
     "procedure": {
         "resource_table": "procedure",
-        "targets": _targets("procedure_id", "Procedure", "Procedure_tillaegskode"),
+        "targets": _targets("procedure_id", "Procedure", "Procedure_SupplementaryCode"),
     },
     # Staging the live id set is a server-side cursor into a temp table, so it
     # streams rather than buffering. Observation is not necessarily the biggest
@@ -116,7 +145,9 @@ _ENTITIES: dict[str, dict] = {
     # dso_refresh_sfi_datapoint_* rebuilds it, not from this asset.
     "observation": {
         "resource_table": "observation",
-        "targets": _targets("observation_id", "Observation"),
+        "targets": _targets(
+            "observation_id", "Observation", "WardUnit_Capacity", "Observation_Speciale"
+        ),
     },
     "questionnaire": {
         "resource_table": "questionnaire",

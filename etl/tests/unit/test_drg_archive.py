@@ -157,7 +157,9 @@ def test_delete_scope_somatik_pr_aarsskive():
             ]
         }
     )
-    predicate = drg_archive.build_delete_scope_predicate(conn, KONTAKT)
+    predicate = drg_archive.build_slice_predicate(
+        KONTAKT, drg_archive.read_ext_slices(conn, KONTAKT)
+    )
     assert (
         "(tgt.[takstsystem] = 'T25' AND ISNULL(tgt.[AKTIVITETSAAR], '') IN ('2024', '2025'))"
         in predicate
@@ -170,21 +172,41 @@ def test_delete_scope_somatik_pr_aarsskive():
 
 def test_delete_scope_psyk_pr_takstsystem():
     conn = FakeConn({"SELECT DISTINCT [takstsystem]": [("T25",), ("T26",)]})
-    predicate = drg_archive.build_delete_scope_predicate(conn, PSYK_KONTAKT)
+    predicate = drg_archive.build_slice_predicate(
+        PSYK_KONTAKT, drg_archive.read_ext_slices(conn, PSYK_KONTAKT)
+    )
     assert predicate == "tgt.[takstsystem] IN ('T25', 'T26')"
 
 
 def test_delete_scope_tom_ext_giver_none():
     conn = FakeConn({})
-    assert drg_archive.build_delete_scope_predicate(conn, KONTAKT) is None
-    assert drg_archive.build_delete_scope_predicate(conn, PSYK_KONTAKT) is None
+    assert (
+        drg_archive.build_slice_predicate(KONTAKT, drg_archive.read_ext_slices(conn, KONTAKT))
+        is None
+    )
+    assert (
+        drg_archive.build_slice_predicate(
+            PSYK_KONTAKT, drg_archive.read_ext_slices(conn, PSYK_KONTAKT)
+        )
+        is None
+    )
+
+
+def test_aarsskive_afvises_foer_merge_hvis_den_ikke_kan_registreres():
+    """aktivitetsaar er en snaever noeglekolonne i meta.DRGLeverance. En
+    for lang vaerdi skal fejle FOER mergen — ellers committer mergen og
+    registreringen af dens cap fejler bagefter."""
+    conn = FakeConn({"GROUP BY [takstsystem], [AKTIVITETSAAR]": [("T26", "2025' OR 1=1 --")]})
+    with pytest.raises(ValueError, match="aktivitetsaar er"):
+        drg_archive.build_slice_predicate(KONTAKT, drg_archive.read_ext_slices(conn, KONTAKT))
 
 
 def test_delete_scope_escaper_apostrof_i_vaerdier():
-    conn = FakeConn({"GROUP BY [takstsystem], [AKTIVITETSAAR]": [("T26", "2025' OR 1=1 --")]})
-    predicate = drg_archive.build_delete_scope_predicate(conn, KONTAKT)
-    assert "2025' OR 1=1" not in predicate
-    assert "'2025'' OR 1=1 --'" in predicate
+    """Vaerdi-escaping er stadig et vaern i sig selv, uafhaengigt af
+    bredde-checket ovenfor."""
+    predicate = drg_archive.build_slice_predicate(KONTAKT, {"T26": ["25' OR"]}, alias="tgt")
+    assert "25' OR 1=1" not in predicate
+    assert "'25'' OR'" in predicate
     assert "tgt.[takstsystem] = 'T26'" in predicate
 
 
@@ -201,7 +223,7 @@ def test_retningsguard_afviser_aeldre_leverance():
         }
     )
     with pytest.raises(ValueError, match="aeldre.*leverance|maa ikke merges"):
-        drg_archive.guard_delivery_direction(conn, KONTAKT, backfill=False)
+        drg_archive.guard_delivery_direction(conn, KONTAKT)
 
 
 def test_retningsguard_tillader_nyere_og_samme_leverance():
@@ -214,19 +236,8 @@ def test_retningsguard_tillader_nyere_og_samme_leverance():
             "FROM [meta].[DRGLeverance]": [("T26", date(2026, 8, 16)), ("T24", date(2026, 3, 17))],
         }
     )
-    ext_dates = drg_archive.guard_delivery_direction(conn, KONTAKT, backfill=False)
+    ext_dates = drg_archive.guard_delivery_direction(conn, KONTAKT)
     assert ext_dates == {"T26": "2026-08-24", "T24": "2026-03-17"}
-
-
-def test_retningsguard_backfill_kraever_aeldre():
-    conn = FakeConn(
-        {
-            "FROM [ext].[drg_kontakt] GROUP BY": [("T26", date(2026, 8, 24))],
-            "FROM [meta].[DRGLeverance]": [("T26", date(2026, 8, 16))],
-        }
-    )
-    with pytest.raises(ValueError, match="backfill"):
-        drg_archive.guard_delivery_direction(conn, KONTAKT, backfill=True)
 
 
 def test_referenceguard_fejler_ved_tabte_raekker():
@@ -280,18 +291,43 @@ def test_unikhedsguard_uden_dubletter_returnerer_nul():
 
 
 def test_unikhedsguard_sammenligner_de_FULDE_raekker():
-    """Skelnen kraever at hele raekken sammenlignes, ikke kun noeglen."""
+    """Skelnen kraever at hele indholdet sammenlignes, ikke kun noeglen —
+    assertes paa DISTINCT-segmentet, hvor noeglekolonnerne altid staar."""
     conn = FakeConn({"WITH dubletter AS": [(0, 0)]})
     drg_archive.guard_key_uniqueness(conn, KONTAKT)
     sql = conn.cursors[0].executed[0]
     assert "SELECT DISTINCT" in sql
-    for column in ("[KONTAKT_VAERDI]", "[TOTALPRIS_DRG]", "[leverance_dato]"):
-        assert column in sql, f"{column} mangler i den fulde sammenligning"
+    distinkt = sql[sql.index("SELECT DISTINCT") :]
+    for column in ("[TOTALPRIS_DRG]", "[leverance_dato]"):
+        assert column in distinkt, f"{column} mangler i indholds-sammenligningen"
+
+
+def test_unikhedsguard_ignorerer_registreringsid_i_sammenligningen():
+    """Kildens raekke-uuid baerer intet leveranceindhold: to raekker der kun
+    afviger paa den er samme registrering gentaget, ikke en konflikt."""
+    diagnose = next(d for d in DATASETS if d.ext_table == "drg_diagnose")
+    conn = FakeConn({"WITH dubletter AS": [(0, 974)]})
+    assert drg_archive.guard_key_uniqueness(conn, diagnose) == 974
+    sql = conn.cursors[0].executed[0]
+    distinkt = sql[sql.index("SELECT DISTINCT") :]
+    assert "[DIAGNOSE_VAERDI]" not in distinkt
+    for column in ("[Aktivitetsaar]", "[leverance_dato]"):
+        assert column in distinkt, f"{column} mangler i indholds-sammenligningen"
+
+
+def test_registreringsid_kolonner_er_konsistent_deklareret():
+    """Et registrerings-id skal vaere en arc-kolonne og maa aldrig indgaa i
+    merge-noeglen — ellers ville guarden ignorere en del af identiteten."""
+    for dataset in DATASETS:
+        ekstra = set(dataset.registreringsid_columns) - set(dataset.arc_columns)
+        assert not ekstra, f"{dataset.ext_table}: ukendte kolonner {ekstra}"
+        overlap = set(dataset.registreringsid_columns) & set(dataset.merge_keys)
+        assert not overlap, f"{dataset.ext_table}: noeglekolonner {overlap}"
 
 
 def test_count_live_in_scope_fjerner_tgt_praefiks():
-    """The ratio guard's denominator queries the arc table directly — the
-    scope predicate's tgt. qualifiers must be stripped."""
+    """The live-row count queries the arc table directly — the scope
+    predicate's tgt. qualifiers must be stripped."""
     conn = FakeConn({"WHERE [dw_is_deleted] = 0": [(1234,)]})
     scope = "(tgt.[takstsystem] = 'T26' AND ISNULL(tgt.[AKTIVITETSAAR], '') IN ('2025'))"
     live = drg_archive.count_live_in_scope(conn, KONTAKT, scope)
@@ -300,21 +336,6 @@ def test_count_live_in_scope_fjerner_tgt_praefiks():
     assert "tgt." not in executed
     assert "ISNULL([AKTIVITETSAAR], '') IN ('2025')" in executed
     assert "FROM [arc].[drg_kontakt]" in executed
-
-
-def test_count_expected_soft_deletes_bygger_pre_merge_sql():
-    """The ceiling must be enforceable BEFORE the merge: counts live arc rows
-    in scope with no counterpart in the delivery view."""
-    conn = FakeConn({"NOT EXISTS": [(77,)]})
-    scope = "(tgt.[takstsystem] = 'T26' AND ISNULL(tgt.[AKTIVITETSAAR], '') IN ('2025'))"
-    expected = drg_archive.count_expected_soft_deletes(conn, KONTAKT, scope)
-    assert expected == 77
-    executed = conn.cursors[0].executed[0]
-    assert "tgt.[" not in executed.replace("arc_tgt.[", "")  # tgt. prefix rewritten
-    assert "arc_tgt.[dw_is_deleted] = 0" in executed
-    assert "src.[KONTAKT_VAERDI] = arc_tgt.[KONTAKT_VAERDI]" in executed
-    assert "src.[takstsystem] = arc_tgt.[takstsystem]" in executed
-    assert "FROM [ext].[v_drg_kontakt]" in executed
 
 
 def test_pris_revision_insert_er_idempotent():
@@ -336,8 +357,40 @@ def test_pris_revision_insert_er_idempotent():
 
 def test_alle_arkiv_assets_er_bygget_med_korrekt_dep():
     assets = {a.key.to_user_string(): a for a in drg_archive.drg_archive_assets}
-    assert len(assets) == len(DATASETS)
+    # Én pr. datasaet plus ét checkpoint-gate pr. leverancetype.
+    assert len(assets) == len(DATASETS) + 2
     somatik_deps = {d.to_user_string() for d in assets["arc_drg_kontakt"].dependency_keys}
     assert "ext_drg" in somatik_deps
     psyk_deps = {d.to_user_string() for d in assets["arc_drgpsyk_kontakt"].dependency_keys}
     assert "ext_drgpsyk" in psyk_deps
+
+
+def test_gate_afhaenger_af_HVER_arkivtabel_i_sin_leverancetype():
+    """Grafen er det eneste sted, hvor "alle tabeller merged i denne koersel"
+    kan laeses. Mangler én dep, kan checkpointet rykke selvom den tabel
+    fejlede — og leverancen ville aldrig blive genlaest."""
+    assets = {a.key.to_user_string(): a for a in drg_archive.drg_archive_assets}
+
+    for leverancetype, gate in (
+        ("DRG", "drg_leverance_checkpoint_drg"),
+        ("DRGPSYK", "drg_leverance_checkpoint_drgpsyk"),
+    ):
+        forventet = {f"arc_{d.ext_table}" for d in DATASETS if d.leverancetype == leverancetype}
+        faktisk = {d.to_user_string() for d in assets[gate].dependency_keys}
+        assert faktisk == forventet, leverancetype
+
+
+def test_gate_blander_ikke_leverancetyperne():
+    """Et faelles gate ville lade en somatik-fejl blokere psyks checkpoint."""
+    assets = {a.key.to_user_string(): a for a in drg_archive.drg_archive_assets}
+    somatik = {d.to_user_string() for d in assets["drg_leverance_checkpoint_drg"].dependency_keys}
+    assert not any(d.startswith("arc_drgpsyk") for d in somatik)
+
+
+def test_backfill_findes_ikke_laengere():
+    """backfill_historical er fjernet for DRG. Arkivet kan toemmes og
+    genindlaeses fra leverancerne ("toem + delivery_on_or_before"), hvilket
+    holder leveranceregistret konsistent — en backfill kunne ikke: registret
+    ville staa paa den nyere cap, og skive-sammenligningen ville naegte at
+    genindlaese den nyeste leverance."""
+    assert not hasattr(drg_archive.DrgArchiveConfig(), "backfill_historical")

@@ -15,7 +15,8 @@
 > populeres udelukkende fra HealthPipe's AD-grupper via det natlige Dagster-job
 > (se [Drift (Dagster)](#drift-dagster)).
 
-Sikkerhedsmodellen implementerer adgangskontrol på DPA-views i DSO-databasen.
+Sikkerhedsmodellen implementerer adgangskontrol på DPA-views på datamarterne.
+Viewene kalder sikkerhedsfunktionerne i DSO-databasen.
 Den baserer sig på tre sikkerhedsniveauer der tilsammen bestemmer hvad en bruger
 kan se:
 
@@ -24,7 +25,8 @@ kan se:
 | Rolle | Navn | beskrivelse |
 |-------|------|-------------|
 | `U`   | Ubegrænset | Fuld adgang til alle rækker og kolonner i domænet |
-| `K`   | Kolonnebegrænset | Personhenførbare kolonner maskeres medmindre bruger har RB-match eller populationsansvar |
+| `K`   | Kolonnebegrænset | Personhenførbare kolonner maskeres medmindre bruger har RB-match |
+| `P`   | Kolonnebegrænset med populationsansvar | Personhenførbare kolonner maskeres medmindre bruger har RB-match eller populationsansvar for borgeren |
 
 ### Sikkerhedsdomæner
 
@@ -34,20 +36,38 @@ Et sikkerhedsdomæne svarer til et DPA-fagområde, f.eks.:
 - `DPA_Patientrettigheder`
 - `DPA_HR`
 
-Hver bruger tildeles præcis én rolle per domæne via `sec.RolleDomaene`.
+Hver bruger tildeles præcis én rolle per domæne via `sec.RolleDomaene`. En
+bruger kan have forskellige roller på forskellige domæner, fx `K` på
+`DPA_Medicin`, `U` på `DPA_ERP` og `P` (SHS) på `DPA_Booking`.
 
 ### Rækkebaseret sikkerhed (RB-Organisation)
 
-Brugere med `K`-rolle kan yderligere tildeles adgang til specifikke
-organisationer via `sec.RBOrganisation`. Hvis en faktarække har en
-organisationsreference der matcher brugerens RB-tildelinger, gives adgang
-til persondata på den række.
+Brugere med `K`- eller `P`-rolle kan yderligere tildeles adgang til specifikke
+organisationer via `sec.RBOrganisation`. Er en borger knyttet til en
+organisation, der matcher brugerens RB-tildelinger, gives adgang til
+persondata om borgeren.
 
 ### Populationsansvar
 
-En bruger kan have "populationsansvar" (fx `SLB` = Sygehus Lillebælt).
-Dette giver adgang til borgere der hører under samme population,
-uanset organisations-match.
+Rollen `P` giver "populationsansvar" for ét sygehus (`SHS`, `EGS`, `SLB`
+eller `OUH`, fx `SLB` = Sygehus Lillebælt) i ét sikkerhedsdomæne.
+Populationsansvaret gælder kun det domæne, gruppen gælder for. Brugeren får
+adgang til persondata om en borger, når borgerens `Populationsansvar` i
+`dim.Borger` er lig brugerens, uanset organisations-match. En bruger har højst ét populationsansvar pr. domæne (se
+dublet-reglerne under [Drift (Dagster)](#drift-dagster)).
+
+### Adgangsreglen
+
+DimBorger-viewet på datamarten afgør adgangen (se
+[Sikkerhed på datamarterne](#sikkerhed-på-datamarterne)). DPA_ERP-viewene i
+`views/security/01_vw_dim_security.sql` har deres egen regel (kun `U`):
+
+| Rolle | Adgang til persondata om en borger |
+|-------|------------------------------------|
+| `U`   | Altid |
+| `K`   | Ved RB-match |
+| `P`   | Ved RB-match, eller når brugerens populationsansvar er udfyldt og lig borgerens |
+| Ingen rolle i domænet | Aldrig (brugeren ser ingen rækker) |
 
 ---
 
@@ -57,14 +77,15 @@ uanset organisations-match.
 
 Mapper bruger til sikkerhedsdomæne med rolle og populationsansvar.
 Populeres fra AD-grupperne `LSSAPP_HP_Domaenerolle_<domæne>_<rolle>`
-(rolle) og `LSSAPP_HP_Bopael_<sygehus>` (populationsansvar).
+(rolle `U` eller `K`) og `LSSAPP_HP_Domaenerolle_<domæne>_<sygehus>_P`
+(rolle `P` med sygehuset som populationsansvar).
 
 | Kolonne | Type | beskrivelse |
 |---------|------|-------------|
 | bruger | nvarchar(50) | sAMAccountName uden domænepræfiks (fx `vah5ep`) |
 | Sikkerhedsdomaene | nvarchar(50) | DPA-domæne (fx `DPA_Medicin`) |
-| Rolle | char(1) | `U` eller `K` (CHECK-constraint) |
-| Populationsansvar | nvarchar(50) | Populationskode eller tom streng |
+| Rolle | char(1) | `U`, `K` eller `P` (CHECK-constraint) |
+| Populationsansvar | nvarchar(50) | Sygehuskode for `P`, ellers tom streng |
 | dw_timestamp_update | datetime2 | Tidsstempel for seneste opdatering |
 | dw_is_deleted | bit | Soft-delete flag (0=aktiv, 1=slettet) |
 
@@ -110,11 +131,76 @@ acceptgate på de daglige kørsler.
 > the shared sync framework, not in the swap load; an atomic/swap mode for
 > `sec_*` in that framework is tracked separately.
 
+### sec.RolleDomaeneHistorik og sec.SORTildelingHistorik
+
+Historikken for brugernes roller og SOR-tilknytning, så man kan slå op, hvilke
+roller og hvilken SOR-enhed en bruger havde på et givet tidspunkt.
+`sec.RolleDomaene` og `sec.RBOrganisation` er stadig fulde genindlæsninger, og
+DPA-funktionerne læser kun dem. Historikken følger AD og ikke den givne
+adgang: efter et fejlet medlemsopslag kan brugeren miste sine rækker eller få
+en anden værdi i de aktive tabeller for den kørsel, mens historikken står
+uændret.
+
+| Tabel | Nøgle | Historiserede værdier |
+|-------|-------|-----------------------|
+| `sec.RolleDomaeneHistorik` | bruger, Sikkerhedsdomaene | Rolle, Populationsansvar |
+| `sec.SORTildelingHistorik` | bruger, SOR_kode | Ingen; en tildeling åbnes og lukkes |
+
+`sec.SORTildelingHistorik` gemmer tildelingen, som den står i AD, før
+hierarki-udpakningen. Én tildeling giver altså én række, ikke én række pr.
+underliggende enhed. Ifølge sikkerhedskonceptet giver en tildeling altid adgang
+til alle underliggende enheder.
+
+Begge tabeller har ud over nøglen og værdierne disse kolonner:
+
+| Kolonne | Type | beskrivelse |
+|---------|------|-------------|
+| dw_valid_from | datetime2(0) | Start på gyldighedsperioden (inklusiv) |
+| dw_valid_to | datetime2(0) | Slut på gyldighedsperioden (eksklusiv); `9999-12-31 23:59:59` for den åbne række |
+| dw_run_id_from | nvarchar(64) | Kørslen, der indsatte rækken: Dagster-run-id, eller `cli-<uuid>` ved en CLI-indlæsning |
+| dw_run_id_to | nvarchar(64) | Kørslen, der lukkede rækken; NULL for den åbne række |
+| dw_timestamp_insert | datetime2(0) | Tidspunktet, hvor rækken blev indsat |
+| dw_timestamp_update | datetime2(0) | Tidspunktet, hvor rækken sidst blev ændret |
+
+**PK (clustered):** nøglen plus `dw_valid_from`. Et filtreret unikt index
+sikrer højst én åben række pr. nøgle.
+
+**Load:** Hver kørsel lukker den åbne række for en nøgle, hvis en værdi er
+ændret (også ændringer i store/små bogstaver), eller hvis nøglen ikke længere
+er i udtrækket. Fejlede et medlemsopslag i AD under udtrækket, lukkes ingen
+rækker, og kun nye nøgler får en åben række. Et ufuldstændigt udtræk kan nemlig
+både skjule en bruger og ændre en værdi, fx en rolle fra K til U, når opslaget
+i K-gruppen fejlede. En reel ændring den dag kommer med i næste fejlfri kørsel.
+Et fejlet opslag er en LDAP-fejl; et slettet objekt (`noSuchObject`) og en
+henvisning til et andet domæne (`referral`) tæller ikke. Eksporten skriver de
+fejlede DN'er til `healthpipe_fejlede_opslag.jsonl`, så CLI-indlæsningen følger
+samme regel som Dagster. CLI-indlæsningen må kun bruge filer fra en ny eksport,
+fordi ældre filer skriver gamle værdier ind i historikken. Derefter indsættes en ny åben række for hver nøgle
+uden en åben række. Lukning og indsættelse bruger samme tidsstempel, så
+perioderne ligger kant i kant. Størrelses-guarden sammenligner antallet af
+nøgler i udtrækket med antallet af åbne rækker, og et tomt udtræk ændrer
+ingenting. Historikken ligger kun på staging. Den synkroniseres ikke til DSO,
+fordi intet i DSO læser den.
+
+Opslag på et tidspunkt `@t`:
+
+```sql
+SELECT Sikkerhedsdomaene, Rolle, Populationsansvar
+FROM sec.RolleDomaeneHistorik
+WHERE bruger = @bruger
+  AND dw_valid_from <= @t
+  AND @t < dw_valid_to;
+```
+
+Historikken starter ved første load. Et opslag før det tidspunkt giver ingen række.
+
 ---
 
 ## Funktionsreference
 
 DPA-funktionerne ligger i `infrastructure/ddl/tables/security/05_dpa_functions.sql`.
+Funktionerne genskabes med `CREATE OR ALTER`, hver gang `staging_infra_security`
+og `dso_infra_security` kører.
 
 ### sec.HentDPASikkerhed
 
@@ -130,7 +216,7 @@ SELECT * FROM sec.HentDPASikkerhed('K', 'DPA_Medicin', '', '4')
 |-----------|------|-------------|
 | @Rolle | nvarchar(100) | Brugerens rolle |
 | @Sikkerhedsdomaene | nvarchar(100) | Aktivt domæne |
-| @Populationsansvar | nvarchar(100) | Populationskode |
+| @Populationsansvar | nvarchar(100) | Brugerens populationsansvar |
 | @Organisation | nvarchar(200) | Matchet organisations-ID |
 
 **Returnerer:** `DPASikkerhed` (nvarchar)
@@ -172,244 +258,43 @@ SELECT * FROM sec.HentRBOrganisation('DPA_Medicin', SUSER_SNAME(), 4)
 |-----------|------|-------------|
 | @Sikkerhedsdomaene | nvarchar(50) | Domæne |
 | @bruger | nvarchar(50) | Brugerlogin |
-| @dw_ek_Organisation | int | Organisations-surrogatnøgle |
+| @dw_ek_Organisation | bigint | Organisations-surrogatnøgle |
 
 **Returnerer:** `DW_EK_RBOrganisation`, `bruger`, `SOR_kode`
 
 ---
 
-### sec.BeskytPersonoplysning
+## Sikkerhed på datamarterne
 
-Generisk maskeringsfunktion for en enkelt tekstkolonne. Afslører værdien
-hvis brugeren har tilstrækkelig adgang (`U`-rolle eller RB-match), ellers
-returneres maskeret værdi.
+Sikkerheden på datamarterne bygges ud fra to skabeloner i `datamarter`-repoet.
+Kopiér skabelonen, og udfyld pladsholderne. Skabelonerne indeholder også
+testvejledningen med testbrugere for rollerne `U`, `K` og `P`.
 
-```sql
-CROSS APPLY sec.BeskytPersonoplysning(
-    R.Rolle,                    -- Fra HentBrugerRolleDomaene
-    p.Populationsansvar,
-    R.Sikkerhedsdomaene,
-    COALESCE(RB1.DW_EK_RBOrganisation, RB2.DW_EK_RBOrganisation),
-    p.Notat,                    -- Værdi der skal beskyttes
-    N'Maskeret'                 -- Maskeret værdi
-) AS SecNotat
-```
+| Skabelon | Laver | Kalder |
+|----------|-------|--------|
+| `etl/domains/_template/_faelles/sql/dbo_sec_DimBorger.sql` | `<domæne>.dim.Borger_Organisation` og viewet `dbo.DimBorger_<domæne>` | `sec.HentBrugerRolleDomaene`, `sec.HentRBOrganisation`, `sec.HentDPASikkerhed` |
+| `etl/domains/_template/datamart/sql/dbo_sec_Datamart.sql` | Datamart-viewet | `sec.HentBrugerRolleDomaene`, `sec.HentRBOrganisation`, `sec.HentDPASikkerhed` |
 
-| Parameter | Type | beskrivelse |
-|-----------|------|-------------|
-| @Rolle | nvarchar(100) | Brugerrolle |
-| @Populationsansvar | nvarchar(100) | Populationsansvar |
-| @Sikkerhedsdomaene | nvarchar(100) | Domæne |
-| @DW_EK_RBOrganisation | int | RB-match (NULL = ingen) |
-| @Personoplysning | nvarchar(250) | Original værdi |
-| @PersonoplysningMaskeret | nvarchar(250) | Maskeret værdi |
+Skabelonerne kalder funktionerne på tværs af databaser som
+`DSO_Basismodel.sec.<funktion>`.
 
-**Returnerer:** `Personoplysning`, `DPASikkerhed`
+**DimBorger-viewet** afgrænser `dim.Borger` til de borgere, brugeren må se, efter
+[adgangsreglen](#adgangsreglen). Organisationsadgangen slås op i
+`<domæne>.dim.Borger_Organisation`, som holder parrene af borger og
+organisation. Tabellen skal indeholde alle datamarter i domænet med
+persondata. Mangler en datamart, giver organisationsadgangen ikke adgang via
+de par af borger og organisation, som kun findes i den datamart.
 
-> **NB:** Den nuværende implementering returnerer literalen `'Maskeret'` ved
-> manglende adgang — parameteren `@PersonoplysningMaskeret` anvendes (endnu)
-> ikke i funktionskroppen.
+**Datamart-viewet** joiner med `LEFT JOIN` til `dbo.DimBorger_<domæne>`. Findes
+borgeren ikke i DimBorger-viewet, bliver `DW_SK_Borger` til `-99`, og de
+personhenførbare kolonner maskeres med
+`CASE WHEN DB.DW_SK_Borger IS NULL THEN 'Maskeret'`. Rettighedsvurderingen sker
+derfor ét sted, i DimBorger-viewet.
 
----
-
-### sec.BeskytDimBorger
-
-Specialiseret maskeringsfunktion for borger-dimensionen.
-Maskerer CPR, Fornavne og Efternavn.
-
-```sql
-CROSS APPLY sec.BeskytDimBorger(
-    R.Rolle,
-    R.Populationsansvar,
-    R.Sikkerhedsdomaene,
-    DimBorger.CPR,
-    DimBorger.dw_ek_Borger,
-    DimBorger.fornavne,
-    DimBorger.efternavn
-) AS secCPR
-```
-
-**Returnerer:** `CPRNummer`, `fornavne`, `efternavn`, `DPASikkerhed`
-
----
-
-## View-mønstre
-
-### Blød sikkerhed (Soft security)
-
-Alle rækker vises, men personhenførbare kolonner maskeres for brugere
-uden adgang. Bruges typisk på fakta-tabeller.
-
-**Mønster:**
-```sql
-CREATE OR ALTER VIEW [vw_fct].[MitDomaeneFaktaView] AS
-SELECT
-    p.NøgleKolonner,
-    CASE
-        WHEN R.Rolle = 'U'
-             OR (R.Populationsansvar != '' AND R.Populationsansvar = p.Populationsansvar)
-            THEN p.dw_sk_Borger
-        WHEN RB.DW_EK_RBOrganisation IS NOT NULL
-            THEN p.dw_sk_Borger
-        ELSE -1
-    END AS dw_sk_Borger,
-    SecFelt.Personoplysning AS SensitivtFelt,
-    SecFelt.DPASikkerhed
-FROM [fct].[MitDomaeneFakta] AS p
-CROSS JOIN [sec].[HentBrugerRolleDomaene](SUSER_SNAME(), 'DPA_MitDomaene') AS R
-OUTER APPLY [sec].[HentRBOrganisation]('DPA_MitDomaene', SUSER_SNAME(), p.dw_ek_Organisation) AS RB
-CROSS APPLY [sec].[BeskytPersonoplysning](
-    R.Rolle, p.Populationsansvar, R.Sikkerhedsdomaene,
-    COALESCE(RB.DW_EK_RBOrganisation, NULL),
-    p.SensitivtFelt, N'Maskeret'
-) AS SecFelt;
-```
-
-### Hård sikkerhed (Hard security)
-
-Rækker filtreres helt bort for brugere uden adgang.
-Bruges typisk på dimensions-tabeller (borger).
-
-**Mønster:**
-```sql
-CREATE OR ALTER VIEW [vw_dim].[Borger_MitDomaene] AS
-SELECT DimBorger.*
-FROM [dim].[Borger] AS DimBorger
-CROSS JOIN [sec].[HentBrugerRolleDomaene](SUSER_SNAME(), 'DPA_MitDomaene') AS R
-WHERE EXISTS (
-    SELECT 1 FROM [dbo].[TilladteBorgere_MitDomaene] AS tb
-    WHERE tb.dw_ek_Borger = DimBorger.dw_ek_Borger
-)
-OR R.Rolle = 'U'
-OR DimBorger.dw_ek_Borger IN (-1, -99);
-```
-
-### TilladteBorgere helper-view
-
-Identificerer hvilke borgere brugeren må se baseret på RB-matches
-i domænets fakta-tabeller:
-
-```sql
-CREATE OR ALTER VIEW [dbo].[TilladteBorgere_MitDomaene] AS
-WITH Tilladte AS (
-    SELECT fct.dw_ek_Borger
-    FROM [fct].[MitDomaeneFakta] AS fct
-    WHERE EXISTS (
-        SELECT 1
-        FROM [sec].[HentRBOrganisation]('DPA_MitDomaene', SUSER_SNAME(), fct.dw_ek_Organisation) AS rb
-        WHERE rb.DW_EK_RBOrganisation IS NOT NULL
-    )
-    GROUP BY fct.dw_ek_Borger
-)
-SELECT dw_ek_Borger FROM Tilladte;
-```
-
----
-
-## Eksempel: DPA_Medicin
-
-> **NB:** `fct.Medicinadministration` og de tilhørende views
-> (`dbo.TilladteBorgere_Medicin`, `vw_dim.Borger_Medicin`,
-> `vw_fct.Medicinadministration`) er på denne branch en
-> **reference-implementering** i
-> `infrastructure/ddl/views/security/_reference/01_vw_dpa_medicin.sql` og
-> deployes ikke herfra. Den fulde test-opsætning (inkl. seed-data og
-> test-fakta-tabel) ligger på branchen `[internal ticket]`.
-
-### Scenarie 1: bruger med U-rolle
-
-```sql
--- Sæt bruger til Ubegrænset
-UPDATE [sec].[RolleDomaene]
-SET Rolle = 'U', Populationsansvar = ''
-WHERE bruger = 'ext-yme7na'
-  AND Sikkerhedsdomaene = 'DPA_Medicin';
-
--- Resultat: Alle rækker synlige, ingen maskering
-SELECT * FROM [vw_fct].[Medicinadministration];
-SELECT * FROM [vw_dim].[Borger_Medicin];
-```
-
-### Scenarie 2: bruger med K-rolle + RB-organisation
-
-```sql
--- Sæt bruger til Kolonnebegrænset
-UPDATE [sec].[RolleDomaene]
-SET Rolle = 'K', Populationsansvar = ''
-WHERE bruger = 'ext-yme7na'
-  AND Sikkerhedsdomaene = 'DPA_Medicin';
-
--- bruger har adgang til org 4 via sec.RBOrganisation
--- Resultat: Rækker med Organisation_adm=4 eller Organisation_ord=4
---           viser borgernøgler og notat. Andre rækker maskeret.
-SELECT * FROM [vw_fct].[Medicinadministration];
-```
-
-### Scenarie 3: bruger med K-rolle + Populationsansvar
-
-```sql
--- Sæt bruger til Kolonnebegrænset med populationsansvar
-UPDATE [sec].[RolleDomaene]
-SET Rolle = 'K', Populationsansvar = 'SLB'
-WHERE bruger = 'ext-yme7na'
-  AND Sikkerhedsdomaene = 'DPA_Medicin';
-
--- Resultat: Borgere med Populationsansvar='SLB' er synlige
-SELECT * FROM [vw_dim].[Borger_Medicin];
-```
-
----
-
-## Testprocedure
-
-> **NB:** Proceduren kan ikke køres på denne branch som den står — den kræver
-> at reference-SQL'en (`_reference/01_vw_dpa_medicin.sql`) og test-opsætningen
-> (test-fakta-tabel + seeds) fra `[internal ticket]` først deployes
-> manuelt.
-
-> **NB:** Manuelle `UPDATE`s på `sec.RolleDomaene` er *kun* til test og
-> overskrives ved næste natlige AD-load (TRUNCATE+INSERT) — sikkerhed tildeles
-> udelukkende via AD-grupper.
-
-### Forudsætninger
-1. Kør Dagster-assets: `dso_infra_schemas` → `dso_infra_security` → `dso_infra_views_security`
-2. Verificér at din bruger findes i `sec.RolleDomaene` (kommer fra AD-gruppemedlemskab)
-
-### Trin-for-trin
-
-```sql
--- 1. Tjek dine rettigheder
-SELECT * FROM [sec].[RolleDomaene]
-WHERE bruger = SUSER_SNAME() AND Sikkerhedsdomaene = 'DPA_Medicin';
-
-SELECT * FROM [sec].[RBOrganisation]
-WHERE bruger = SUSER_SNAME();
-
--- 2. Se rådata
-SELECT * FROM [fct].[Medicinadministration];
-SELECT * FROM [dim].[Borger];
-
--- 3. Test via sikkerhedsviews
-SELECT * FROM [vw_fct].[Medicinadministration];
-SELECT * FROM [vw_dim].[Borger_Medicin];
-
--- 4. Skift rolle og test igen
-UPDATE [sec].[RolleDomaene]
-SET Rolle = 'K', Populationsansvar = ''
-WHERE bruger = SUSER_SNAME() AND Sikkerhedsdomaene = 'DPA_Medicin';
-
--- Gentag trin 3 og observer forskellen
-```
-
-### Forventet adfærd
-
-| Rolle | Populationsansvar | RB-match | Borger synlig? | Notat synlig? |
-|-------|-------------------|----------|----------------|---------------|
-| U     | (ligegyldigt)     | (ligegyldigt) | Ja | Ja |
-| K     | ''                | Ja       | Ja | Ja |
-| K     | ''                | Nej      | Nej (maskeret/-1) | Nej (Maskeret) |
-| K     | 'SLB'            | Nej      | Ja (hvis borger har SLB) | Ja (via populationsansvar) |
-| K     | 'SLB'            | Ja       | Ja | Ja |
+**Sikkerhedsdomænet** er `DB_NAME()`. Begge skabeloner sender databasenavnet som
+sikkerhedsdomæne til `sec.HentBrugerRolleDomaene`. Datamartens database skal
+derfor have samme navn som domænet i `sec.RolleDomaene` (fx `DPA_Medicin`).
+Ellers ser ingen brugere rækker i viewene.
 
 ---
 
@@ -422,8 +307,7 @@ dso_infra_schemas
        ↓
 dso_infra_security          (DDL: tabeller + funktioner — tables/security/*.sql)
        ↓
-dso_infra_views_security    (Views: views/security/*.sql — vw_dim.Borger, vw_dim.Leverandoervare m.fl.;
-                             _reference/ eksekveres bevidst ikke)
+dso_infra_views_security    (Views: views/security/*.sql — vw_dim.Borger, vw_dim.Leverandoervare m.fl.)
 ```
 
 Materialisér hele grafen i Dagster-UI'et: vælg `dso_infra_schemas`,
@@ -442,18 +326,12 @@ infrastructure/ddl/
 │   ├── 02_functions.sql       # sec.BeskytDimLeverandoervare_v1 (fritekst-maskering, @Rolle)
 │   ├── 04_dpa_tables.sql      # sec.RolleDomaene (kanonisk, fra [internal ticket])
 │   └── 05_dpa_functions.sql   # sec.HentDPASikkerhed, HentBrugerRolleDomaene,
-│                              #   HentRBOrganisation, BeskytPersonoplysning, BeskytDimBorger
+│                              #   HentRBOrganisation
+├── tables/security_historik/
+│   └── 01_historik.sql        # sec.RolleDomaeneHistorik, sec.SORTildelingHistorik (kun staging)
 └── views/security/
-    ├── 01_vw_dim_security.sql # vw_dim.Borger, Organisation, Okosted, Leverandoervare, Fakturalinje
-    └── _reference/
-        └── 01_vw_dpa_medicin.sql  # REFERENCE ONLY — DPA_Medicin-mønstret (ikke deployeret)
+    └── 01_vw_dim_security.sql # vw_dim.Borger, Organisation, Okosted, Leverandoervare, Fakturalinje
 ```
-
-> **NB:** Seed-filerne og test-fakta-tabellen (`01_seed_rolle_domaene.sql`,
-> `02_seed_rb_organisation.sql`, `03_seed_test_fcttable.sql`,
-> `03_test_fct_table.sql`) findes kun på branchen `[internal ticket]`
-> og deployes ikke fra dette repo — tabellerne populeres i stedet fra AD
-> (se [Drift (Dagster)](#drift-dagster)).
 
 ---
 
@@ -462,14 +340,11 @@ infrastructure/ddl/
 For at tilføje sikkerhed på et nyt domæne (fx `DPA_HR`):
 
 1. Opret AD-grupperne for domænet
-   (`LSSAPP_HP_Domaenerolle_DPA_HR_U` / `..._K`) — rolle-tildelingerne
+   (`LSSAPP_HP_Domaenerolle_DPA_HR_U` / `..._K` / `..._<sygehus>_P`) — rolle-tildelingerne
    indlæses derefter automatisk af det natlige AD-load
-2. Tilføj domænets fakta-tabel via domænets egen pipeline
-3. Tilføj sikkerhedsviews i `infrastructure/ddl/views/security/` (ny SQL-fil med
-   `dbo.TilladteBorgere_HR`, `vw_dim.Borger_HR`, `vw_fct.*`) — brug
-   `_reference/01_vw_dpa_medicin.sql` som skabelon
-4. Opdater metadata i `dso_infra_security` og `dso_infra_views_security` assets
-   i `infrastructure/assets/dso_infrastructure.py`
+2. Opret datamart-databasen med domænets navn (`DPA_HR`)
+3. Byg DimBorger-viewet og datamart-viewene i `datamarter`-repoet ud fra
+   skabelonerne (se [Sikkerhed på datamarterne](#sikkerhed-på-datamarterne))
 
 ---
 
@@ -489,8 +364,11 @@ dso_infra_security     ┴→ extract_security → populate_security → dso_syn
   functions on both databases. In the job's selection because a `deps` edge
   only guarantees ordering — not that the tables exist. The DDL is idempotent.
   `{staging,dso}_migrations` is excluded; migrations run at deploy time.
+  `staging_infra_security` also runs `tables/security_historik/`, so the
+  history tables exist on staging only.
 - **extract_security** (`infrastructure/security/export_healthpipe_ad_groups.py`):
-  live LDAPS-udtræk af HealthPipe-grupperne (org / domæneroller / bopæl) — kræver
+  live LDAPS-udtræk af HealthPipe-grupperne (org / domæneroller) og de
+  fejlede medlemsopslag — kræver
   netværksadgang til AD.
 - **populate_security** (`infrastructure/security/load_healthpipe_ad_to_mssql.py`):
   fuld genindlæsning på STAGING (sandhedskilden): `sec.RolleDomaene` via
@@ -501,11 +379,16 @@ dso_infra_security     ┴→ extract_security → populate_security → dso_syn
   Den levende tabel trunkeres aldrig. Hver tildelt SOR-kode udpakkes til sig
   selv + alle underliggende koder via `codesystem.SORHierarchy` (staging;
   genopfriskes kl. 01:00 af organisation-jobbet, to timer før dette job) inden
-  joinet til `dim.Organisation`. Dublet-regler: `K` vinder over `U` pr.
-  `(bruger, Sikkerhedsdomaene)`; ved flere bopæle vælges det alfabetisk
-  første populationsansvar; RBOrganisation dedupliceres efter udpakning og join.
+  joinet til `dim.Organisation`. Dublet-regler pr. `(bruger, Sikkerhedsdomaene)`:
+  `K` vinder over `P`, og `P` vinder over `U`; ved `P` for flere
+  sygehuse vælges det alfabetisk første, så en bruger højst har ét
+  populationsansvar pr. domæne. Begge dubletter er fejl i AD-opsætningen og
+  logges som advarsel i Dagster-loggen med bruger, domæne og de fundne
+  værdier. RBOrganisation dedupliceres efter udpakning og join.
   Bemærk: `--dry-run` viser kun de tildelte SOR-koder — udpakningen kræver
-  DB-opslag og vises ikke.
+  DB-opslag og vises ikke. Derefter historiseres `sec.RolleDomaeneHistorik` og
+  `sec.SORTildelingHistorik` (se
+  [historiktabellerne](#secrolledomaenehistorik-og-secsortildelinghistorik)).
 - **dso_sync_security** (`DSO/load/sync_security.py`): truncate/insert-sync af
   begge tabeller fra staging til DSO.
 

@@ -24,7 +24,7 @@
         {"name": "markoerkode", "path": "outcomeCodeableConcept[0].coding[0].code"},
         {"name": "markoer_display", "path": "outcomeCodeableConcept[0].coding[0].display"},
         {"name": "organization_id", "path": "detail.performer.getReferenceKey(Organization)"},
-        {"name": "practitioner_id", "path": "detail.performer.getReferenceKey(Practitioner)"},
+        {"name": "practitioner_id", "path": "detail.performer.where(identifier.system = 'urn:source:ifdb:staff').identifier.value.first()"},
         {"name": "activity_timestamp", "path": "detail.scheduledPeriod.start"}
       ]
     }

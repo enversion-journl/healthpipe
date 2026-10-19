@@ -15,6 +15,7 @@ Covers:
 """
 
 from contextlib import contextmanager
+from types import SimpleNamespace
 
 import dagster as dg
 import pytest
@@ -32,9 +33,12 @@ from DSA.FHIR.utils.sql_on_fhir.sof_utils import (
     _validate_sof_columns,
     apply_null_sentinels,
     build_child_grain_mark_deleted_sql,
+    build_child_grain_mask_sql,
     build_fhir_merge_sql,
     build_resource_grain_mark_deleted_sql,
     extract_and_merge_sof_view,
+    next_sof_slice_bound,
+    sof_slice_settings,
 )
 
 # =============================================================================
@@ -1023,6 +1027,23 @@ class TestChildGrainReconcileSql:
         assert "INNER JOIN #ReconcileParents AS ids ON ids.[id] = tgt.[patient_id]" in sql
         assert "WHERE tgt.[dw_is_deleted] = 0" in sql
 
+    def test_protection_mask_reaches_soft_deleted_rows_of_marked_parents(self):
+        sql, params = build_child_grain_mask_sql(
+            "Patient_Address",
+            "patient_id",
+            {
+                "marker_column": "address_line",
+                "marker_value": "Adressebeskyttet",
+                "cleared_columns": ["address_city", "kvhx"],
+            },
+            source_table="##SofTemp_abc",
+        )
+        # A filter on live rows would leave the earlier addresses readable.
+        assert "dw_is_deleted" not in sql
+        assert "SELECT s.[patient_id] FROM ##SofTemp_abc AS s WHERE s.[address_line] = ?" in sql
+        assert "tgt.[address_city] = NULL" in sql and "tgt.[kvhx] = NULL" in sql
+        assert params == ["Adressebeskyttet"] * 3
+
     def test_parent_id_query_uses_the_extract_window(self):
         sql, params = _build_changed_parent_ids_query("patient", "2026-01-01", None)
         assert "SELECT r.id FROM patient r" in sql
@@ -1195,6 +1216,32 @@ class TestChildGrainReconcileTransaction:
                 return None
 
         return MssqlCursor()
+
+    def test_protection_mask_runs_after_the_merge(self):
+        pg_cursor = _PatientAddressPgCursor(
+            parent_ids=["p-1"],
+            chunks=[[("p-1", "2020-01-01", "t", "t")]],
+        )
+        mssql_cursor = self._zero_row_mssql()
+        mssql_conn = _RecordingMssqlConn(mssql_cursor)
+
+        extract_and_merge_sof_view(
+            fhir_database=_FakePgResource(pg_cursor),
+            mssql_target=_RecordingMssqlResource(mssql_conn),
+            view_name="patient_address_view",
+            resource_table="patient",
+            id_column="patient_id",
+            table_name="Patient_Address",
+            primary_keys=["patient_id", "address_period_start"],
+            partition_start="2026-01-01",
+            normalized_datetime_columns=["address_period_start"],
+        )
+
+        merge_at = next(i for i, sql in enumerate(mssql_cursor.executed) if "MERGE" in sql)
+        mask_at = next(
+            i for i, sql in enumerate(mssql_cursor.executed) if "tgt.[address_line] = ?" in sql
+        )
+        assert mask_at > merge_at
 
     def test_full_load_zero_rows_refuses_mark_deleted(self):
         pg_cursor = _PatientAddressPgCursor(parent_ids=[], chunks=[])
@@ -1457,3 +1504,189 @@ class TestResourceGrainReconcile:
                 primary_keys=["organization_id", "active"],
                 partition_start=None,
             )
+
+
+class _PayloadMergeCursor:
+    """Lokal MERGE-simulering: sammenlign kun den faktiske, staged payload."""
+
+    rowcount = 0
+
+    def __init__(self, columns):
+        self.columns = columns
+        self.statements = []
+        self.staged = []
+        self.target = {}
+        self.update_clock = 0
+        self._schema_fetched = False
+
+    def execute(self, sql, _params=None):
+        self.statements.append(sql)
+        if "MERGE [fhir]" in sql:
+            # Bekræft at den genererede SQL bruger de staged værdier i diffen.
+            predicate = sql.split("WHEN MATCHED AND", 1)[1].split("THEN", 1)[0]
+            assert "EXCEPT" in predicate
+            for column in self.columns[1:]:
+                assert f"src.[{column}]" in predicate
+                assert f"tgt.[{column}]" in predicate
+            self.rowcount = 0
+            for row in self.staged:
+                if self.target.get(row[0]) != row:
+                    self.target[row[0]] = row
+                    self.update_clock += 1
+                    self.rowcount += 1
+
+    def fetchall(self):
+        if self._schema_fetched:
+            return []
+        self._schema_fetched = True
+        return [(c, "nvarchar", 255, None, None) for c in self.columns]
+
+    def fetchone(self):
+        return (0, 0, 0)
+
+    def bulkcopy(self, _table, data, **_kwargs):
+        self.staged.extend(data)
+        return {"rows_copied": len(data)}
+
+    def close(self):
+        pass
+
+
+def _load_synthetic_rows(view_name, columns, rows, cursor):
+    cfg = SOF_RESOURCE_CONFIGS[view_name]
+    pg = _FakePgCursor([rows])
+    pg.description = [(c,) for c in columns]
+    cursor._schema_fetched = False
+    cursor.staged = []
+    return extract_and_merge_sof_view(
+        fhir_database=_FakePgResource(pg),
+        mssql_target=_FakeMssqlResource(cursor),
+        view_name=view_name,
+        resource_table=cfg["resource_table"],
+        id_column=cfg["id_column"],
+        table_name=cfg["mssql_table"],
+        primary_keys=cfg["primary_keys"],
+        normalized_datetime_columns=cfg.get("normalized_datetime_columns"),
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "system,explicit,expected",
+    [
+        ("urn:source:ifdb:henvisning", None, "HENVISNING"),
+        ("urn:source:ifdb:ris_ydelse", None, "RIS_YDELSE"),
+        ("urn:source:ifdb:rehabilitation_plan", None, "REHABILITATION_PLAN"),
+        ("urn:source:ifdb:henvisning", "EKSPLICIT_KILDE", "EKSPLICIT_KILDE"),
+        ("urn:syntetisk:ukendt", None, None),
+        (None, None, None),
+    ],
+)
+def test_servicerequest_reload_keeps_payload_and_update_clock(system, explicit, expected):
+    columns = ["service_request_id", "identifier_system", "source_table"]
+    cursor = _PayloadMergeCursor(columns)
+    rows = [("syntetisk-henvisning", system, explicit)]
+    assert _load_synthetic_rows("servicerequest_view", columns, rows, cursor) == (1, 1)
+    assert cursor.target["syntetisk-henvisning"][2] == expected
+    clock_after_first_load = cursor.update_clock
+    assert _load_synthetic_rows("servicerequest_view", columns, rows, cursor) == (1, 0)
+    assert cursor.update_clock == clock_after_first_load
+    assert not any("UPDATE sr" in sql for sql in cursor.statements)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "view_name,column",
+    [
+        ("procedure_view", "epji_created_at"),
+        ("procedure_view", "epji_modified_at"),
+        ("servicerequest_view", "modtaget"),
+        ("servicerequest_view", "afsendelsesdato"),
+    ],
+)
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("2026-01-15T07:00:00Z", "2026-01-15T08:00:00"),
+        ("2026-07-15T06:00:00Z", "2026-07-15T08:00:00"),
+        ("2026-07-15T08:00:00+02:00", "2026-07-15T08:00:00"),
+        ("2026-07-15T08:00:00", "2026-07-15T08:00:00"),
+        (None, None),
+    ],
+)
+def test_new_datetime_columns_are_normalized_before_bulkcopy(view_name, column, raw, expected):
+    from datetime import datetime
+
+    columns = [SOF_RESOURCE_CONFIGS[view_name]["id_column"], column]
+    cursor = _PayloadMergeCursor(columns)
+    _load_synthetic_rows(view_name, columns, [("syntetisk-ressource", raw)], cursor)
+    value = cursor.staged[0][1]
+    assert value == (datetime.fromisoformat(expected) if expected else None)
+    assert value is None or value.tzinfo is None
+
+
+class _OneRowPgCursor:
+    def __init__(self, row):
+        self._row = row
+        self.executed: list[tuple] = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def execute(self, sql, params=None):
+        self.executed.append((sql, params))
+
+    def fetchone(self):
+        return self._row
+
+
+@pytest.mark.unit
+class TestSofSliceBound:
+    def test_bound_is_the_ts_of_resource_number_max_as_a_utc_checkpoint(self):
+        from datetime import datetime, timedelta, timezone
+
+        local = datetime(2026, 10, 1, 2, 0, 0, 5, tzinfo=timezone(timedelta(hours=2)))
+        cursor = _OneRowPgCursor((local,))
+
+        bound = next_sof_slice_bound(_FakePgResource(cursor), "patient", "2026-09-30", 1000)
+
+        assert bound == "2026-10-01T00:00:00.000005+00:00"
+        sql, params = cursor.executed[0]
+        # OFFSET max-1 lands on resource number max; OFFSET max would skip a full slice's last row.
+        assert params == ["2026-09-30", 999]
+        assert "ORDER BY r.ts OFFSET %s LIMIT 1" in sql
+
+    def test_no_bound_when_fewer_resources_than_a_slice_are_left(self):
+        cursor = _OneRowPgCursor(None)
+
+        assert next_sof_slice_bound(_FakePgResource(cursor), "patient", "2026-09-30", 1000) is None
+
+
+@pytest.mark.unit
+def test_every_projected_resource_table_has_a_ts_index():
+    """A delta filters and slices on r.ts; without the index each read scans the whole table."""
+    from DSA.FHIR.utils.sql_on_fhir.sof_utils import SOF_RESOURCE_CONFIGS
+    from utils.fhir.index_config import SOF_TS_RESOURCES
+
+    indexed = {resource.lower() for resource in SOF_TS_RESOURCES}
+    read = {config["resource_table"] for config in SOF_RESOURCE_CONFIGS.values()}
+
+    assert read <= indexed, f"no (ts) index for: {sorted(read - indexed)}"
+
+
+class TestSofSliceSettings:
+    def test_run_tag_wins_and_zero_switches_the_budget_off(self):
+        context = SimpleNamespace(
+            run=SimpleNamespace(
+                tags={"sof/slice_max_resources": "250", "sof/slice_time_budget_minutes": "0"}
+            )
+        )
+        assert sof_slice_settings(context) == (250, 0.0)
+
+    def test_an_unreadable_setting_fails_instead_of_falling_back(self):
+        context = SimpleNamespace(run=SimpleNamespace(tags={"sof/slice_max_resources": "1 mio"}))
+        with pytest.raises(ValueError, match="sof/slice_max_resources"):
+            sof_slice_settings(context)

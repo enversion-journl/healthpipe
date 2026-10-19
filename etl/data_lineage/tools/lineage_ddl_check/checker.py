@@ -26,6 +26,7 @@ class Report:
     columns_ddl_not_lineage: list[ColumnFinding] = field(default_factory=list)
     columns_lineage_not_ddl: list[ColumnFinding] = field(default_factory=list)
     columns_missing_fk_annotation: list[ColumnFinding] = field(default_factory=list)
+    unresolved_fk_targets: list[str] = field(default_factory=list)
     invalid_source_refs: list[str] = field(default_factory=list)
     malformed_lineage: list[str] = field(default_factory=list)
 
@@ -37,6 +38,7 @@ class Report:
             or self.columns_ddl_not_lineage
             or self.columns_lineage_not_ddl
             or self.columns_missing_fk_annotation
+            or self.unresolved_fk_targets
             or self.invalid_source_refs
             or self.malformed_lineage
         )
@@ -65,6 +67,7 @@ class Report:
             "(add FK-Target, or FK-None: true if it is not a reference)",
             [f"{f.table}.{f.column}" for f in self.columns_missing_fk_annotation],
         )
+        section("FK-Target with no matching lineage table", self.unresolved_fk_targets)
         section("Invalid Source references", self.invalid_source_refs)
         section("Malformed lineage files", self.malformed_lineage)
         lines.append("")
@@ -160,9 +163,10 @@ def check(
 ) -> Report:
     """Bidirectionally compare parsed DDL against parsed lineage.
 
-    Names are compared case-sensitively. ``system_columns`` are DDL columns
-    allowed to be absent from lineage; ``ignored_tables`` are DDL tables allowed
-    to have no lineage file.
+    Names are compared case-sensitively, except FK-Target, which matches a lineage
+    TableName (a fhir.* one for a FHIR table) case-insensitively like the star-schema
+    generator. ``system_columns`` are DDL columns allowed to be absent from lineage;
+    ``ignored_tables`` are DDL tables allowed to have no lineage file.
     """
     report = Report(malformed_lineage=list(malformed or []))
 
@@ -186,6 +190,8 @@ def check(
     # DW_EK_<Dim>) must declare its intent (FK-Target / PK / FK-None), so a new
     # reference can't be added without either wiring the FK (which the DQA
     # referential_integrity check then picks up) or explicitly opting out.
+    lineage_names = {n.lower() for n in lineage}
+    fhir_names = {n for n in lineage_names if n.startswith("fhir.")}
     for name in sorted(lineage):
         if name in ignored_tables:
             continue
@@ -195,6 +201,9 @@ def check(
                 continue
             if _is_relationship_column(schema, table_short, col) and not _has_fk_intent(meta):
                 report.columns_missing_fk_annotation.append(ColumnFinding(name, col))
+            targets = fhir_names if schema == "fhir" else lineage_names
+            if "FK-Target" in meta and str(meta["FK-Target"]).lower() not in targets:
+                report.unresolved_fk_targets.append(f"{name}.{col}: '{meta['FK-Target']}'")
 
     # Source-reference check: every Source ref must resolve, case-sensitively,
     # to a system+table declared in the file's SourceSystems and carry a column,

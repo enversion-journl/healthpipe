@@ -14,7 +14,6 @@ dso_lineage:
   SourceSystems:
     - ils:           [dbo.unspsc, dbo.vare]
     - kmd_uddata:    [dimension.UNSPSC]
-    - udbudskategori: [unspsc_udbudskategori]
 
   Columns:
     dw_ek_UNSPSC:                    { Type: PK, DataType: INT }
@@ -33,10 +32,3 @@ dso_lineage:
     unspsc_level_3_beskrivelse_kmd:  { DataType: NVARCHAR(400), Source: [kmd_uddata.dimension.UNSPSC.UNSPSCClassLev3Description] }
     unspsc_level_4_kode_kmd:         { DataType: NVARCHAR(50),  Source: [kmd_uddata.dimension.UNSPSC.UNSPSCClassLev4ID] }
     unspsc_level_4_beskrivelse_kmd:  { DataType: NVARCHAR(400), Source: [kmd_uddata.dimension.UNSPSC.UNSPSCClassLev4Description] }
-    dw_source_udbud:                 { DataType: BIT, Expr: "1 hvis koden findes i RH's udbudskategori-fil, ellers 0 (sticky 1 efter første observation)" }
-    beskrivelse_udbud:               { DataType: NVARCHAR(255), Source: [udbudskategori.unspsc_udbudskategori.UNSPSC_Tekst] }
-    udbudstype:                      { DataType: NVARCHAR(255), Source: [udbudskategori.unspsc_udbudskategori.Udbudstype] }
-    udbudskategori_niveau_1:         { DataType: NVARCHAR(255), Source: [udbudskategori.unspsc_udbudskategori.Udbudskategori_niv1] }
-    udbudskategori_niveau_2:         { DataType: NVARCHAR(255), Source: [udbudskategori.unspsc_udbudskategori.Udbudskategori_niv2] }
-    udbudskategori_niveau_3:         { DataType: NVARCHAR(255), Source: [udbudskategori.unspsc_udbudskategori.Udbudskategori_niv3] }
-    udbudskategori_niveau_4:         { DataType: NVARCHAR(255), Source: [udbudskategori.unspsc_udbudskategori.Udbudskategori_niv4] }

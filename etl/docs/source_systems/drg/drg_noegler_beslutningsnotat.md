@@ -46,7 +46,7 @@ stedet for en opdatering.
 |---|---|---|
 | arc.drg_kontakt | (takstsystem, KONTAKT_VAERDI) | UUID unik og udfyldt i alle 7.491.528 rækker (T26 U 20260823); stabilitet på tværs af leverancer/takstsystemer: se §Stabilitet |
 | arc.drg_sghforlob | (takstsystem, ind-kontaktens KONTAKT_VAERDI) | Forløbstabellen har ingen egen UUID; nøglen udledes ved join `DRGKONTAKT_ID_IND` → kontakt (0 manglende referencer intra-leverance). Unik pr. leverance: 6.349.305/6.349.305 (T26 U 20260823) |
-| arc.drg_diagnose | (takstsystem, kontakt-UUID, DIAGNOSE, ART, SIDEANGIVELSE) — se §Diagnoser | DIAGNOSE_VAERDI er tom i samtlige rækker; kompositten er UNIK i målt leverance (8.628.544/8.628.544, T26 U 20260823) og bekræftet unik ved fuld T26-ingestion 2026-08-27 (0 dubletter) |
+| arc.drg_diagnose | (takstsystem, kontakt-UUID, DIAGNOSE, ART, SIDEANGIVELSE) — se §Diagnoser | DIAGNOSE_VAERDI er tom i samtlige T26-rækker; kompositten er UNIK i målt leverance (8.628.544/8.628.544, T26 U 20260823) og bekræftet unik ved fuld T26-ingestion 2026-08-27 (0 dubletter). I T24 er DIAGNOSE_VAERDI udfyldt, og kompositten er IKKE unik: 974 grupper hvis rækker kun afviger på række-uuid'en — se §Kildedubletter |
 | arc.drg_diagnose_tillaeg | følger diagnosens strategi | intra-leverance `DIAGNOSE_ID`-reference |
 | arc.drg_procedure | (takstsystem, PROCEDURE_VAERDI) | UUID unik og udfyldt i alle 25.562.168 rækker (T26 U 20260823) |
 | arc.drg_procedure_tillaeg | (takstsystem, PROCEDURE_VAERDI, TILLAEGSKODE_PROCEDURE) | tillæg hænger på procedure-registreringen via intra-leverance `PROCEDURE_ID`; unikhed verificeres i US-2 |
@@ -203,10 +203,21 @@ og en guard der fejlede på *enhver* dublet efterlod hele tabellen tom
 
 - **Konfliktende** (samme nøgle, forskellige værdier) → kørslen fejler.
   Fallback i dette notat aktiveres bevidst. Ingen observeret endnu.
-- **Byte-identiske** → motorens deterministiske ROW_NUMBER-dedup slås til
+- **Indholds-identiske** (ens bortset fra registrerings-id-kolonner, dvs.
+  række-id'er uden leveranceindhold, deklareret pr. datasæt som
+  `registreringsid_columns`) → motorens deterministiske ROW_NUMBER-dedup slås til
   for den enkelte kørsel, efter guarden har bevist at der ikke er en
   konflikt at skjule. Antallet rapporteres i asset-metadata
   (`identiske_kildedubletter`) og logges som warning.
+
+**Registrerings-id-dubletter.** `DIAGNOSE_VAERDI` på somatik-diagnoser er
+kildens række-uuid: tom i hele T26 og i T24 gentaget under friske id'er for
+samme registrering (se `arc.drg_diagnose` i nøgletabellen). Kolonnen er
+derfor deklareret som `registreringsid_columns` og indgår ikke i guardens
+identisk/konflikt-sammenligning. Dubletter, der kun afviger på den, falder i
+den identiske kategori og håndteres af dedup-vejen med deterministisk vinder
+(højeste række-uuid). Ægte konflikter på indholdskolonner fejler stadig, og
+fallbacken (genopbygning pr. kontakt) er reserveret til dem.
 
 **Åbent spørgsmål til US-4/US-5:** hvis `INTERNE_KODER` senere skal bruges
 nedstrøms (i dag kun arkiv, jf. spm. 10), er 22 % dubletter et
@@ -226,7 +237,7 @@ change detection og delete detection, som kontakterne.
   detect_deletes + update_only_on_change) med nøglerne ovenfor. Værnet mod
   dubletter er IKKE fast `dedup_source_on_keys` som oprindeligt foreslået,
   men den skelnende guard fra [internal ticket] (se §Kildedubletter) — dedup slås
-  kun til for den enkelte kørsel, og kun for byte-identiske dubletter.
+  kun til for den enkelte kørsel, og kun for indholds-identiske dubletter.
 - Fallback for diagnoser (kun hvis dubletter observeres): genopbygning pr.
   kontakt — kræver enten `core/archive_merge.py`-udvidelse (scoped replace)
   eller et dedikeret merge-mønster i drg_archive.py. Beslutning ligger i

@@ -19,6 +19,8 @@
 --                                  organization_id), replaces map.Organisation.
 --   * ref.RekvirentUndtagelse    — ILS rekvUndtagne exclusion list for reelt
 --                                  forbrug (rå CleanCode PK).
+--   * ref.ILSAendringslog        — ILS dbo.changelog as-is (one row per
+--                                  change event, raw key without FK).
 --
 -- See data_lineage/dim/dim_borger.yml notes for the full architecture.
 -- ============================================================================
@@ -481,5 +483,136 @@ BEGIN
     CREATE NONCLUSTERED INDEX [IX_Ref_RekvirentUndtagelse_DW_EK]
         ON [ref].[RekvirentUndtagelse] ([dw_ek_Rekvirent] ASC)
         WHERE [dw_ek_Rekvirent] IS NOT NULL;
+END
+GO
+
+-- ============================================================================
+-- ref.PatientIdentity — which identities belong to the same citizen
+--
+-- One row per identity (a CPR or an EPJ patient id) and the person it belongs
+-- to, keyed by the current CPR, or the EPJ id for a person without one. Built by
+-- ref_patient_identity from EPJ's archive rows and CPR record 022; identities
+-- only, no demographics.
+-- ============================================================================
+
+IF NOT EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+    WHERE TABLE_SCHEMA = 'ref' AND TABLE_NAME = 'PatientIdentity'
+)
+BEGIN
+    CREATE TABLE [ref].[PatientIdentity] (
+        [identity_system]      NVARCHAR(128) NOT NULL,
+        [identity_value]       NVARCHAR(64)  NOT NULL,
+        -- The current CPR, or 'epj:<patient-id>' for a person without one.
+        [person_key]           NVARCHAR(70)  NOT NULL,
+        -- 1 for the current CPR and the primary patient id; 0 otherwise.
+        [is_current]           BIT           NOT NULL,
+        -- 'epj' (archive row) or 'cpr_022'.
+        [source]               NVARCHAR(16)  NOT NULL,
+        [dw_timestamp_insert]  DATETIME2(0)  NOT NULL CONSTRAINT [DF_PatientIdentity_dw_timestamp_insert] DEFAULT CAST(SYSDATETIME() AS datetime2(0)),
+        [dw_timestamp_update]  DATETIME2(0)  NOT NULL CONSTRAINT [DF_PatientIdentity_dw_timestamp_update] DEFAULT CAST(SYSDATETIME() AS datetime2(0)),
+        CONSTRAINT [PK_Ref_PatientIdentity] PRIMARY KEY CLUSTERED ([identity_system], [identity_value])
+    ) ON [PRIMARY];
+    -- Lookups run both ways: identity to person and person to identities.
+    CREATE NONCLUSTERED INDEX [IX_Ref_PatientIdentity_person]
+        ON [ref].[PatientIdentity] ([person_key])
+        INCLUDE ([identity_system], [identity_value], [is_current]);
+END
+GO
+
+-- ============================================================================
+-- ref.KommuneToPopulationsansvar — the hospital with population responsibility
+-- per municipality
+--
+-- A hospital is responsible for the citizens living in the municipalities that
+-- belong to it. kommunekode is the four-digit municipality code. The rows are a
+-- full snapshot of the mapping in ref_KommuneToPopulationsansvar; dim_Borger
+-- joins the citizen's current municipality to this table.
+-- ============================================================================
+
+IF NOT EXISTS (
+    SELECT * FROM sys.objects
+    WHERE object_id = OBJECT_ID(N'[ref].[KommuneToPopulationsansvar]') AND type = 'U'
+)
+BEGIN
+    CREATE TABLE [ref].[KommuneToPopulationsansvar] (
+        [kommunekode]          VARCHAR(4)    NOT NULL,
+        [populationsansvar]    NVARCHAR(50)  NOT NULL,
+        [dw_timestamp_insert]  DATETIME2(0)  NOT NULL CONSTRAINT [DF_KommuneToPopulationsansvar_dw_timestamp_insert] DEFAULT CAST(SYSDATETIME() AS datetime2(0)),
+        [dw_timestamp_update]  DATETIME2(0)  NOT NULL CONSTRAINT [DF_KommuneToPopulationsansvar_dw_timestamp_update] DEFAULT CAST(SYSDATETIME() AS datetime2(0)),
+        CONSTRAINT [PK_Ref_KommuneToPopulationsansvar] PRIMARY KEY CLUSTERED ([kommunekode] ASC)
+    ) ON [PRIMARY];
+END
+GO
+
+-- ============================================================================
+-- ref.ILSAendringslog — ILS change log (dbo.changelog) as-is
+--
+-- Source: arc.ils_changelog. One table for every tabelnavn, not split per
+-- tabelnavn, so tables added to the source log flow through on their own.
+-- noegle is the raw primaernoegle without FK resolution: its meaning depends
+-- on tabelnavn (some combine it with feltnavn/feltlabel). Resolution against
+-- dimensions (e.g. vare -> dim.ILSVare) belongs in views on top.
+--
+-- tidspunkt is the source klok (seconds after midnight) as 'hh:mm:ss'.
+-- ============================================================================
+IF NOT EXISTS (
+    SELECT * FROM sys.objects
+    WHERE object_id = OBJECT_ID(N'[ref].[ILSAendringslog]') AND type = 'U'
+)
+BEGIN
+    CREATE TABLE [ref].[ILSAendringslog] (
+        [prrowid]              VARCHAR(36)   NOT NULL,
+        [tabelnavn]            VARCHAR(40)   NULL,
+        [noegle]               VARCHAR(30)   NULL,
+        [feltnavn]             VARCHAR(30)   NULL,
+        [feltlabel]            VARCHAR(60)   NULL,
+        [fra]                  VARCHAR(40)   NULL,
+        [til]                  VARCHAR(30)   NULL,
+        [opret]                BIT           NULL,
+        [ajourfoert_af]        VARCHAR(6)    NULL,
+        [dato]                 DATE          NULL,
+        [tidspunkt]            CHAR(8)       NULL,
+        [dw_timestamp_insert]  DATETIME2(0)  NOT NULL
+            CONSTRAINT [DF_ILSAendringslog_dw_timestamp_insert]
+            DEFAULT CAST(SYSDATETIME() AS datetime2(0)),
+        [dw_timestamp_update]  DATETIME2(0)  NOT NULL
+            CONSTRAINT [DF_ILSAendringslog_dw_timestamp_update]
+            DEFAULT CAST(SYSDATETIME() AS datetime2(0)),
+        CONSTRAINT [PK_Ref_ILSAendringslog]
+            PRIMARY KEY CLUSTERED ([prrowid] ASC)
+    ) ON [PRIMARY];
+END
+GO
+
+-- Watermark for the DSO sync (mode='watermark' on dw_timestamp_update).
+IF NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE object_id = OBJECT_ID(N'[ref].[ILSAendringslog]')
+      AND name = 'IX_Ref_ILSAendringslog_DW_Timestamp_Update'
+)
+   AND EXISTS (
+    SELECT 1 FROM sys.objects
+    WHERE object_id = OBJECT_ID(N'[ref].[ILSAendringslog]') AND type = 'U'
+)
+BEGIN
+    CREATE NONCLUSTERED INDEX [IX_Ref_ILSAendringslog_DW_Timestamp_Update]
+        ON [ref].[ILSAendringslog] ([dw_timestamp_update] DESC);
+END
+GO
+
+-- Point-in-time lookups filter on tabelnavn + noegle (e.g. a vare's basisenhed).
+IF NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE object_id = OBJECT_ID(N'[ref].[ILSAendringslog]')
+      AND name = 'IX_Ref_ILSAendringslog_tabelnavn_noegle'
+)
+   AND EXISTS (
+    SELECT 1 FROM sys.objects
+    WHERE object_id = OBJECT_ID(N'[ref].[ILSAendringslog]') AND type = 'U'
+)
+BEGIN
+    CREATE NONCLUSTERED INDEX [IX_Ref_ILSAendringslog_tabelnavn_noegle]
+        ON [ref].[ILSAendringslog] ([tabelnavn] ASC, [noegle] ASC, [dato] ASC, [tidspunkt] ASC);
 END
 GO

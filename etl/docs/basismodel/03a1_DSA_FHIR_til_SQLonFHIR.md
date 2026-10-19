@@ -37,8 +37,8 @@ sof.<view_name>   (PostgreSQL-view i Aidbox)
 Tre ting er værd at bemærke i det flow:
 
 1. **Definitionen ligger i repoet, viewet lever i Aidbox.** ViewDefinition-filerne
-   er checket ind under `DSA/FHIR/SqlOnFhir/view_definitions/` og er kilden til
-   sandhed. Infrastruktur-assettet `fhir_sof_infrastructure` lægger dem op på Aidbox
+   er checket ind under `DSA/FHIR/SqlOnFhir/view_definitions/`, og det er dem, der
+   gælder. Infrastruktur-assettet `fhir_sof_infrastructure` lægger dem op på Aidbox
    og kalder `$materialize`, hvorefter viewet findes som `sof.<view_name>`. Ændrer du
    en definition i repoet, er det altså det asset, der skal køres igen — køres som
    del af `full_infrastructure_job`.
@@ -48,8 +48,9 @@ Tre ting er værd at bemærke i det flow:
 
 ## Regler
 
-- **Brug `extract_and_merge_sof_view()`** fra
-  `DSA/FHIR/utils/sql_on_fhir/sof_utils.py`. Det er den eneste understøttede
+- **Byg assettet med `create_sof_dfm_asset()`** fra
+  `DSA/FHIR/utils/sql_on_fhir/sof_dfm_factory.py`. Factory'en kalder
+  `extract_and_merge_sof_view()` i `sof_utils.py`, som er den eneste understøttede
   load-vej.
 - **Materialisér ikke hele resultatsættet i Python** før indsættelse. Chunkede,
   hukommelsesbegrænsede indsættelser er kravet, ikke en optimering.
@@ -111,8 +112,8 @@ Hver ViewDefinition skal registreres i `SOF_RESOURCE_CONFIGS` i `sof_utils.py`:
 
 Valgfri felter: `null_sentinel_columns` (se reglerne ovenfor),
 `deduplicate_by_pk`, `dedup_tiebreak_columns` og `validation_trigger_column` til
-komplekse flerrækkede views. Se de eksisterende poster (fx `PatientAddress`,
-`EncounterLocation`) for brugen.
+komplekse flerrækkede views. Se de eksisterende indgange (fx
+`patient_address_view`, `encounter_location_view`) for brugen.
 
 ## Sådan tilføjer du et nyt view
 
@@ -125,12 +126,12 @@ flowchart TD
     VD["<b>1 · ViewDefinition</b> — <i>view_definitions/navn.json</i><br/>kolonner og FHIRPath<br/><i>bruger viewet forEach, ændrer grain sig — udvid primærnøglen</i>"]
     DDL["<b>2 · Måltabellens DDL</b> — <i>ddl/tables/fhir/01_tables.sql</i><br/>viewets kolonner + last_updated + audit"]
     CFG["<b>3 · SOF_RESOURCE_CONFIGS</b> — <i>sof_utils.py</i><br/>view_name · resource_table · id_column · primary_keys"]
-    AST["<b>4 · Asset</b> — <i>SqlOnFhir/Resource.py</i><br/>kalder extract_and_merge_sof_view()"]
-    REG["<b>5 · Eksportér assettet</b> — <i>SqlOnFhir/__init__.py</i>"]
+    AST["<b>4 · Asset</b> — <i>SqlOnFhir/Ressource_dfm.py</i><br/>bygget med create_sof_dfm_asset()"]
+    REG["<b>5 · Registrér assettet</b> — <i>SqlOnFhir/__init__.py</i>"]
     IDX["<b>6 · Registrér index</b> — <i>index_config.py</i><br/>materialisér fhir_ifdb_database_indexes og fhir_sof_infrastructure"]
     RUN["<b>Kør SoF-assettet</b><br/>sof.view → #SofTemp → MERGE → fhir.Tabel"]
     VER{"Grain holder?<br/>Anden kørsel stabil?"}
-    OUT["<b>7 · DSO-sync og view</b><br/><i>hvis tabellen skal ud til rapportering</i>"]
+    OUT["<b>7 · DSO-sync</b><br/><i>hvis tabellen skal ud til DSO</i>"]
     LIN["<b>8 · Lineage-YAML</b> — <i>data_lineage/fhir/fhir_entitet.yml</i>"]
     OK(["Færdig"])
 
@@ -143,13 +144,13 @@ flowchart TD
 2. **DDL** for måltabellen i `infrastructure/ddl/tables/fhir/01_tables.sql`
    (`[fhir]`-skemaet; kolonner fra viewet plus `last_updated`/`created_at` fra
    Aidbox og `dw_timestamp_insert`/`dw_timestamp_update`)
-3. **Konfigurationspost** i `SOF_RESOURCE_CONFIGS`
-4. **Asset** i `DSA/FHIR/SqlOnFhir/{Resource}.py` (PascalCase filnavn)
+3. **En indgang** i `SOF_RESOURCE_CONFIGS`
+4. **Asset** i `DSA/FHIR/SqlOnFhir/{Ressource}_dfm.py`, bygget med `create_sof_dfm_asset()`
 5. **Registrér** assettet i `DSA/FHIR/SqlOnFhir/__init__.py`
 6. **Registrér indexes** i `utils/fhir/index_config.py`
    (`SOF_TS_RESOURCES` for vinduesudtrækket) og materialisér
    `fhir_ifdb_database_indexes`
-7. **DSO sync + view**, hvis tabellen skal ud til rapportering →
+7. **DSO-sync**, hvis tabellen skal ud til DSO-databasen →
    [04 — DSO](04_DSO_sync_til_DSO.md)
 8. **Lineage-YAML** i `data_lineage/fhir/fhir_<entitet>.yml` →
    [05 — Udfyld dokumentation](05_udfyld_dokumentation.md)
@@ -181,8 +182,8 @@ samme form (fladt view uden `forEach`, eller flerrækket view med `forEach`).
 
 ## Videre herfra
 
-- Ud til rapporteringsdatabasen: [04 — DSO](04_DSO_sync_til_DSO.md)
+- Ud til DSO-databasen: [04 — DSO](04_DSO_sync_til_DSO.md)
 - Dokumentation: [05](05_udfyld_dokumentation.md)
 
-Uddybende (endnu ikke oversat):
+Uddybende (på engelsk):
 [fhir_etl_guide.md, afsnittet om SQL on FHIR](../implementation/fhir_etl_guide.md#sql-on-fhir-sof----flattened-views-for-analytics).

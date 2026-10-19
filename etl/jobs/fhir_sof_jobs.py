@@ -26,9 +26,14 @@ fhir_sof_infrastructure_assets = dg.AssetSelection.assets(
     "staging_infra_fhir",
     "fhir_sof_infrastructure",
 )
-codesystem_sfi_sync_assets = dg.AssetSelection.assets("cs_sfi") | dg.AssetSelection.groups(
-    "codesystem_dso_sync"
-)
+# Byggerne skal staa eksplicit ved siden af synkgruppen. Synken er
+# truncate_insert og toemmer maalet ogsaa ved nul kilderaekker, saa en gruppe uden
+# sin bygger ville rydde kodesystemet paa DSO i stedet for at opdatere det — og
+# teksten i vw_fhir ville blive NULL uden at noget fejlede.
+codesystem_sfi_sync_assets = dg.AssetSelection.assets(
+    "cs_sfi",
+    "cs_ifdb_kodelister",
+) | dg.AssetSelection.groups("codesystem_dso_sync")
 
 # ============================================================================
 # CodeSystem SFI sync (operator-triggered)

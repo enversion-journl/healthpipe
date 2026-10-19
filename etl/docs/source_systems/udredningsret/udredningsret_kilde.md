@@ -9,7 +9,8 @@
 # SDS Udredningsret (LPR_Udredningsret) — kildebeskrivelse og nøglebeslutning
 
 Feature [internal ticket] (SDSUDRED), [internal ticket] (ingestion) og [internal ticket] (leverancedetektion).
-Ingestion: `etl/DSI/csv_files/udredningsret*.py`, DDL: `etl/infrastructure/ddl/tables/udredningsret/`,
+Ingestion: `etl/DSI/csv_files/udredningsret*.py` (tar-streamingen deles med DRG og LPR3 via
+`etl/DSI/csv_files/_sds_tar.py`, [internal ticket]), DDL: `etl/infrastructure/ddl/tables/udredningsret/`,
 job: `udredningsret_ingest_job`, schedule: `udredningsret_ingest_daily_schedule`.
 
 Tallene nedenfor er målt på healthpipe-dev 2026-09-07/09 mod leverancerne 2026-08-31 og 2026-09-07
@@ -67,8 +68,13 @@ Kilden leverer ISO i alle 14 leverancer på sharet.
 | `DW_EK_HelbredsForloeb` | SDS-surrogat, omnummereret december 2021 | Gruppering inden for én leverance, ikke nøgle på tværs |
 
 98,8 % af 1,5 M ugentlige arc-opdateringer var ren omnummerering af `PK`/`F_ID`, indtil de to
-kolonner blev taget ud af change-detect (`SURROGATE_ID_COLUMNS`). De skrives stadig, men kun
-sammen med en reel indholdsændring.
+kolonner blev taget ud af change-detect (`SURROGATE_ID_COLUMNS`). En ren omnummerering tæller
+stadig ikke som ændring (`dw_timestamp_update` og `leverance_dato` røres ikke), men værdierne
+holdes aktuelle: mergen skriver dem sammen med en reel indholdsændring, og bagefter kopierer
+`refresh_surrogate_ids` leverancens `PK`/`F_ID` over på de levende rækker, mergen ikke rørte
+(beslutning U1 i `udredningsret_model.md` §10 — staging grupperer markører til udredningsforløb på
+`F_ID` inden for leverancen, så et forældet `F_ID` på uændrede rækker ville splitte et omnummereret
+helbredsforløb i to).
 
 ## Forretningsnøgler beregnet i `ext.udredningsret_mont_noegler`
 
@@ -106,6 +112,41 @@ Merge-nøgle: (`markoer_noegle`, `loebenummer`). PK `PK_arc_udredningsret_mont`.
   over hele tabellen (`upstream_is_full_load=True`), `enable_bulk_insert_on_first_load=True`
   (forudsætter det unikke clustered index på kildetabellen, som verificeres før merge).
 - Change-detect udelader `leverance_dato`, `PK`, `F_ID`.
+- **Opdatering af `PK`/`F_ID` efter mergen (U1, `udredningsret_model.md` §10):** når mergen er
+  lykkedes, kører `refresh_surrogate_ids` én smal `UPDATE` fra nøgletabellen på levende arc-rækker
+  (`dw_is_deleted = 0`), hvor `PK` eller `F_ID` afviger fra leverancens. Den `UPDATE` skriver kun de
+  to kolonner — aldrig `dw_timestamp_update` eller `leverance_dato`, så en omnummerering forbliver
+  en ikke-ændring (en *omgruppering* bumpes derimod af trinnet i næste punkt, U15). Kører før nøgletabellen droppes (den læser fra den) og før
+  `meta.UdredningsretLeverance` registreres. **Springes over ved `backfill_historical`** (en ældre
+  leverance må ikke skubbe ældre id'er hen over arkivets nyere) — logges som WARNING. Antallet
+  rapporteres i assetets metadata som `surrogat_id_opdateret`; det indgår ikke i `rows_updated`.
+- **Omgrupperingsdetektion sammen med den opdatering (U15, `udredningsret_model.md` §10):** U1
+  behandler et ændret `F_ID` som ren omnummerering (1:1 for hele helbredsforløbet). Skulle SDS
+  *omgruppere* markører (én F_ID-gruppe splittes i to, to samles, en markør skifter gruppe, eller en
+  markørs F_ID bliver blank) uden at nogen anden kolonne ændres, ville helbredsforløbet ikke komme i
+  delta-scope (scope styres af `dw_timestamp_update` og U9's borger-gren), og `fct.Udredningsforloeb`
+  ville beholde den gamle grain, indtil en reel ændring rørte helbredsforløbet eller nogen kørte
+  `full_load` — mens kontroltotalen fejlede hele natkæden ved hver kørsel i mellemtiden. Derfor kører
+  `refresh_surrogate_ids` **detektion → id-opdatering → bump** på én cursor og ét commit:
+  detektionen (`build_regroup_detection_sql`) sammenligner arkivets gamle gruppering med leverancens,
+  mens begge endnu findes, og markerer de helbredsforløb, hvor omdøbningen ikke er en bijektion på
+  grupper — plus dem, hvor en markør krydser **blank-grænsen** (et tredje `HAVING`-led): blank er en
+  etiket på begge sider, men ikke en gruppe nedstrøms, så en hel gruppe, der bliver blank — eller en
+  blank markør, der får et `F_ID` — er en bijektion på etiketter, samtidig med at arkivet mister
+  eller får en gruppe. Rækker, som kørslens egen merge har ændret, prunes fra sammenligningen på
+  serverens ur læst før mergen (`read_merge_start`), ikke på leverancedatoen (to leverancer kan være
+  pakket samme dato). De markerede helbredsforløb får bagefter `dw_timestamp_update` bumpet
+  (`build_regroup_bump_sql`) — aldrig `leverance_dato`. Over 1 % af de levende helbredsforløb (`REGROUP_RATIO`, kun målt
+  fra `RATIO_MIN_LIVE_ROWS` levende helbredsforløb og op) commit'es id-opdateringen
+  alligevel, men bumpet springes over, og kørslen fejler med antallet: en omgruppering i den skala er
+  en ændring i SDS' egen F_ID-algoritme og skal forbi et menneske (afhjælpning:
+  `udredningsret_publish_job` med `mode=full_load`; en genkørsel finder den ikke igen). Antallet
+  rapporteres som `omgrupperinger` i assetets metadata. **DQA-subject 6/9 dækker det ikke** — subject 6
+  tæller kun rækker, der allerede ER re-staget, og subject 9 handler om skiftende første markør.
+  Kontroltotalen (U13) er sidste værn, men den er **net-global**: en splitning og en sammenlægning i
+  samme vindue ophæver hinanden og giver en grøn kørsel med begge helbredsforløb forkerte. Den ægte
+  afstemning pr. helbredsforløb (`FULL OUTER JOIN` på `helbredsforloeb_noegle`) er rejst som
+  DQA-subject 10 i US-6.
 - **`leverance_dato` på arc betyder "den leverance, hvor rækken sidst ændrede sig"** — ikke "den
   leverance, rækken kom fra". Kolonnen er uden for change-detect og skrives derfor kun sammen med en
   reel ændring (alternativet er at omskrive 8,2 M rækker hver uge). "Hvilken leverance står arkivet
@@ -129,7 +170,7 @@ snapshot), så der er én checkpoint-enhed og ingen niveau 2 pr. skive — retni
 
 | | |
 |---|---|
-| Watermark | `meta.DFMState` (`scope=staging`, `schema_name=dfm`, `table_name=udredningsret_leverance_1083`), fælles hjælper `core/dfm_delivery.py` |
+| Watermark | `meta.DFMState` (`scope=staging`, `schema_name=dfm`, `table_name=udredningsret_leverance_1083`), eksisterende `DfmManager.get_checkpoint` / `set_checkpoint` |
 | Identitet | Filnavnets 14-cifrede pakketidsstempel som ISO, fx `2026-09-07T19:35:44`. Strengorden = kronologisk orden |
 | Udvælgelse | `select_candidates`: kun filer med identitet **strengt nyere** end checkpointet (alle ved første kørsel); blandt dem den nyeste, der passerer pre-flight (`is_usable`). Ingen tar åbnes for filer under checkpointet |
 | No-op | Ingen kandidater → extract skriver et **tomt** `ext.udredningsret_leverance_manifest`, rører ikke ext (forrige leverance bevares som debug-flade) og rapporterer SUCCESS. Arkiv-assetet kortslutter på det tomme manifest FØR nøgletabel, guards og merge; gate-assetet lader checkpointet stå |
@@ -158,3 +199,7 @@ pr. kørsel, valideres som en mappe, logges som WARNING, aldrig en default. Inge
 DRG/HAIBA); kontroltotaler og guards kører inline. Staging/dim/fct (US-3–US-5) og DSO (US-6)
 følger i egne jobs. `HENVIST_MARKOERER` (`AFV01A1`, `AFV01A1A`, `AFA01A`, `AFD01A`, bilag 1 i
 SDS' datamart-beskrivelse) bruges af staging til startdato.
+
+DFM bruger kun den eksisterende checkpoint-funktionalitet. Leverancens nøgle og
+filnavnets tidsstempel defineres i udredningsret-kilden; DFM har ingen viden om
+kildesystemer eller leveranceformater. [internal ticket] kræver ingen DFM-udvidelse.

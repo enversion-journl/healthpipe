@@ -1,0 +1,24 @@
+{
+  "resourceType": "ViewDefinition",
+  "name": "ward_unit_view",
+  "resource": "Location",
+  "status": "active",
+  "where": [
+    {"path": "identifier.where(system='urn:source:ifdb:sengeenhed_id').exists()"}
+  ],
+  "select": [
+    {
+      "column": [
+        {"name": "ward_unit_id", "path": "id"},
+        {"name": "name", "path": "name"},
+        {"name": "status", "path": "status"},
+        {"name": "managing_organization_id", "path": "managingOrganization.id"},
+        {"name": "identifier_value", "path": "identifier.where(system='urn:source:ifdb:sengeenhed_id').value.first()"},
+        {"name": "admin_unit_code", "path": "extension.where(url='urn:source:ifdb:sengeenhed_admenhed').extension.where(url='urn:source:ifdb:sengeenhed_admenhed#kode').valueString.first()"},
+        {"name": "admin_unit_name", "path": "extension.where(url='urn:source:ifdb:sengeenhed_admenhed').extension.where(url='urn:source:ifdb:sengeenhed_admenhed#navn').valueString.first()"},
+        {"name": "admin_unit_organization_code", "path": "extension.where(url='urn:source:ifdb:sengeenhed_admenhed').extension.where(url='urn:source:ifdb:sengeenhed_admenhed#orgkode').valueString.first()"},
+        {"name": "dw_is_deleted", "path": "extension('urn:fhir:isDeleted').valueInteger.first()"}
+      ]
+    }
+  ]
+}

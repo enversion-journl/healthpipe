@@ -1,0 +1,22 @@
+{
+  "resourceType": "ViewDefinition",
+  "name": "condition_supplementary_code_view",
+  "resource": "Condition",
+  "status": "active",
+  "select": [
+    {
+      "column": [
+        {"name": "condition_id", "path": "id"},
+        {"name": "source_identifier_value", "path": "identifier.value.first()"}
+      ]
+    },
+    {
+      "forEach": "code.coding.where(userSelected.empty() or userSelected = false)",
+      "column": [
+        {"name": "supplementary_code", "path": "code"},
+        {"name": "supplementary_code_system", "path": "system"},
+        {"name": "supplementary_code_display", "path": "display"}
+      ]
+    }
+  ]
+}

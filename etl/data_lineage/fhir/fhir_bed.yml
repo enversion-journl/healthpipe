@@ -1,0 +1,29 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fhir
+  TableName: fhir.Bed
+  Domain: [FHIR]
+  Description: "FHIR Location (seng) — distinkt BED_ID fra IFDB.ENCOUNTER_BED_SPACE_HISTORY. Egne rækker; fhir.Location whitelist'er kun SOR-identifikatorer."
+  Grain: "Én række pr. seng (BED_ID); seneste PERIOD_START_REGISTRATION vinder for navn/stue/afdeling"
+  FhirResource: Location
+
+  SourceSystems:
+    - ifdb_encounter_bed_space_history: [IFDB.ENCOUNTER_BED_SPACE_HISTORY]
+
+  Columns:
+    bed_id:                 { Type: PK, DataType: NVARCHAR(255), FhirPath: "id", Description: "FHIR resource id (Aidbox UUID) — resolver-/servertildelt ved posting ud fra BED_ID. Forretningsnøglen bæres i identifier_value." }
+    name:                   { DataType: NVARCHAR(500), FhirPath: "name", Source: [ifdb_encounter_bed_space_history.IFDB.ENCOUNTER_BED_SPACE_HISTORY.BED] }
+    status:                 { DataType: NVARCHAR(50), FhirPath: "status" }
+    physical_type:          { DataType: NVARCHAR(50), FhirPath: "physicalType.coding.code.first()" }
+    part_of_location_id:    { DataType: NVARCHAR(255), FhirPath: "partOf.id", FK-Target: fhir.Location, FK-Key: location_id, FK-Required: false, Description: "FHIR-tildelt afdelings-Location (Aidbox UUID) — resolver-tildelt ud fra LOCATION_SORCODE; udeladt ved NULL." }
+    identifier_value:       { DataType: NVARCHAR(255), FhirPath: "identifier.where(system='urn:source:ifdb:bed_id').value.first()", Source: [ifdb_encounter_bed_space_history.IFDB.ENCOUNTER_BED_SPACE_HISTORY.BED_ID] }
+    room:                   { DataType: NVARCHAR(512), FhirPath: "extension.where(url='urn:source:ifdb:bed_room').valueString.first()", Source: [ifdb_encounter_bed_space_history.IFDB.ENCOUNTER_BED_SPACE_HISTORY.ROOM] }
+    ward_unit_code:         { DataType: NVARCHAR(512), FhirPath: "extension.where(url='urn:source:ifdb:bed_space_ward_unit_code').valueString.first()", Source: [ifdb_encounter_bed_space_history.IFDB.ENCOUNTER_BED_SPACE_HISTORY.LOCATION_CODE], Description: "Sengens aktuelle enhedskode (seneste ophold vinder). Samme kodeomraade som fhir.WardUnit.admin_unit_code; join via aktiv WardUnit (status = 'active', dw_is_deleted = 0), da kilden kun garanterer én aktiv opsaetning pr. kode. Brug fhir.Encounter_BedSpace.ward_unit_code til tidskorrekt kobling pr. ophold." }
+    dw_is_deleted:          { DataType: INT, FhirPath: "extension.where(url='urn:fhir:isDeleted').valueInteger", Source: [ifdb_encounter_bed_space_history.IFDB.ENCOUNTER_BED_SPACE_HISTORY.OBJECT_ID], Description: "Slettet-flag (0 = live, 1 = slettet). Baeres fra arkivet: sengen er slettet, naar ingen levende historikraekke er tilbage (en levende raekke vinder over en slettet i dedup'en), og bliver levende igen af sig selv, hvis en raekke vender tilbage. Saettes ogsaa til 1 af dqa_fhir_server_cleanup, hvis Location er hard-slettet paa FHIR-serveren; naeste MERGE skriver den projicerede vaerdi tilbage. NOT NULL DEFAULT 0." }
+    last_updated:           { DataType: DATETIME2, FhirPath: "r.ts" }
+    created_at:             { DataType: DATETIME2, FhirPath: "r.cts" }

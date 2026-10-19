@@ -61,7 +61,7 @@ params:
     source_filter:      str | None  -- optional source-side WHERE
     deleted_column:     str | None  -- arc "removed from source" marker, e.g. "dw_is_deleted"
     flow_start_bound_column: str | None -- source upper-bound column (e.g.
-                                       "EPJI_MODIFICATION_DATETIME"). When set, the
+                                       "IFDB_MODIFICATION_DATETIME"). When set, the
                                        MISSING direction only counts source keys
                                        whose upper-bound column is <= the last DFM
                                        flow-start, mirroring the delta extract --
@@ -78,6 +78,12 @@ params:
                                        dqa.RemediationQueue for dqa_arc_ifdb_replay
                                        (ids-mode re-extract + archive merge).
                                        Single-column merge keys only.
+    missing_only:       bool        -- skip the EXTRA/vanished direction. For a
+                                       caller whose source is bounded (e.g. one
+                                       backfill window) while arc is not: every
+                                       arc key outside the bound would count as
+                                       extra, and the full-arc anti-join would be
+                                       paid for a number nobody can use.
 
 The flow-start bound applies to MISSING only. The EXTRA/vanished direction always
 compares arc against the FULL live source key set -- otherwise a key still present
@@ -331,18 +337,25 @@ def archive_reconciliation(context, subject, spec, resources) -> CheckOutcome:
         missing = int(cur.fetchone()[0] or 0)
 
         # EXTRA/vanished: arc keys absent from the FULL live source (bound ignored).
-        cur.execute(
-            f"SELECT COUNT(*), "
-            f"SUM(CASE WHEN s.{kcols[0]} IS NULL THEN 1 ELSE 0 END), "
-            f"SUM(CASE WHEN s.{kcols[0]} IS NULL AND ak.d = 0 THEN 1 ELSE 0 END) "
-            f"FROM {arc_keys} LEFT JOIN {src} ON {join_s_ak}"
+        if p.get("missing_only"):
+            arc_total, extra, stale = -1, 0, 0
+        else:
+            cur.execute(
+                f"SELECT COUNT(*), "
+                f"SUM(CASE WHEN s.{kcols[0]} IS NULL THEN 1 ELSE 0 END), "
+                f"SUM(CASE WHEN s.{kcols[0]} IS NULL AND ak.d = 0 THEN 1 ELSE 0 END) "
+                f"FROM {arc_keys} LEFT JOIN {src} ON {join_s_ak}"
+            )
+            arc_total, extra, stale = (int(v or 0) for v in cur.fetchone())
+        extra_part = (
+            "extra direction skipped (missing_only)"
+            if p.get("missing_only")
+            else f"arc={arc_total}, extra_in_arc={extra} (vanished_not_marked_deleted={stale})"
         )
-        arc_total, extra, stale = (int(v or 0) for v in cur.fetchone())
         context.log.info(
             f"archive_reconciliation: diff done in {time.perf_counter() - t0:.1f}s -- "
-            f"source={source_count} (within bound: {within_count}), arc={arc_total}, "
-            f"missing_in_arc={missing}, extra_in_arc={extra} "
-            f"(vanished_not_marked_deleted={stale})"
+            f"source={source_count} (within bound: {within_count}), "
+            f"missing_in_arc={missing}, {extra_part}"
         )
 
         examples = []

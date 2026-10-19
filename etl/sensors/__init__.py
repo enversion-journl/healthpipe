@@ -13,9 +13,24 @@ Sensors:
 - nightly_failure_sensor: Reports failed scheduled/sensor-triggered runs as
   Azure DevOps work items for the 07:00 triage agent (monitors all runs
   in the code location, so it needs no postfixed job references)
+- drg_queue_sensor: Walks the DRG ingest queue, requesting the next
+  (takstsystem, kadence) unit when the previous run succeeds; its FAILURE twin
+  alarms with the units the failure leaves unprocessed (both built via
+  factories in definitions.py)
 - haiba_publish_sensor: Publishes the HAIBA dm layer to DSO after the nightly
   Borger chain has minted dw_ek_Borger for stub patients, gated on the
   archive's delivery watermark (built via a factory in definitions.py)
+- cpr_backlog_sensor: After a successful CPR ingest, requests one more ingest
+  run while deliveries are still waiting on the share, so a backlog is caught
+  up one delivery at a time in production-date order (factory in definitions.py)
+- drg_publish_sensor: Rebuilds the DRG DSA layer and syncs it to DSO after the
+  Borger chain; ungated and stateless because the publish is delta and the
+  nightly run re-resolves dw_ek_Borger = -1 (built via a factory in
+  definitions.py)
+- udredningsret_publish_sensor: Same shape for udredningsret — publishes the
+  DSA layer and syncs it to DSO after the Borger chain, gated on
+  meta.UdredningsretLeverance's delivery watermark and on live forloeb still
+  at dw_ek_Borger = -1 (built via a factory in definitions.py)
 
 The DFM base-job sensors are gone: the IFDB → FHIR pipeline is one job
 (``ifdb_dfm_daily_job``) on one schedule, so there is no downstream job to fan
@@ -23,18 +38,30 @@ out to and no partition key to hand it. A failure of that job is reported by
 ``nightly_failure_sensor`` like any other scheduled run.
 """
 
+from sensors.cpr_backlog_sensor import build_cpr_backlog_sensor
+from sensors.drg_publish_sensor import build_drg_publish_sensor
+from sensors.drg_queue_sensor import (
+    build_drg_queue_failure_sensor,
+    build_drg_queue_sensor,
+)
 from sensors.haiba_publish_sensor import build_haiba_publish_sensor
 from sensors.nightly_failure_sensor import build_nightly_failure_sensor
+from sensors.udredningsret_publish_sensor import build_udredningsret_publish_sensor
 
 nightly_failure_report_sensor = build_nightly_failure_sensor()
 
-# Statically-defined sensors (the HAIBA sensor is built dynamically in
-# definitions.py once jobs are postfixed).
+# Statically-defined sensors (the HAIBA, DRG-publish and udredningsret sensors
+# are built dynamically in definitions.py once jobs are postfixed).
 all_sensors = [nightly_failure_report_sensor]
 
 __all__ = [
+    "build_cpr_backlog_sensor",
+    "build_drg_publish_sensor",
+    "build_drg_queue_failure_sensor",
+    "build_drg_queue_sensor",
     "build_haiba_publish_sensor",
     "build_nightly_failure_sensor",
+    "build_udredningsret_publish_sensor",
     "nightly_failure_report_sensor",
     "all_sensors",
 ]

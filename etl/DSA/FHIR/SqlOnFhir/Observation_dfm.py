@@ -22,4 +22,13 @@ sof_observation_dfm = create_sof_dfm_asset(
     deps=_PRODUCERS,
 )
 
-__all__ = ["sof_observation_dfm"]
+# Specialerne er en-til-mange pr. aktivitetsudfoerelse og faar derfor eget
+# grain. Barnet foelger foraelderen frem for at genlaese producenterne.
+sof_observation_speciale_dfm = create_sof_dfm_asset(
+    asset_name="sof_observation_speciale_dfm",
+    config_key="observation_speciale_view",
+    checkpoint_resource="Observation_Speciale",
+    deps=["fhir_sof_infrastructure", "sof_observation_dfm"],
+)
+
+__all__ = ["sof_observation_dfm", "sof_observation_speciale_dfm"]

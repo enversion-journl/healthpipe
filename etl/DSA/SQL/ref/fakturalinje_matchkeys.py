@@ -17,8 +17,7 @@ import dagster as dg
 from core.dfm_config import RunModeConfig
 from core.dfm_manager import DfmManager
 from core.resources import MSSQLResource
-
-from etl.DSA.SQL.common.dato_dimension import dato_key
+from DSA.SQL.common.dato_dimension import dato_key
 
 
 def build_matchkeys_merge_sql() -> str:

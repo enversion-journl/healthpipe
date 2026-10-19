@@ -8,8 +8,8 @@ dso_lineage:
   Type: fhir
   TableName: fhir.Location
   Domain: [FHIR]
-  Description: "FHIR Location ressource — fysiske lokationer fra IFDB"
-  Grain: "Én række pr. fysisk lokation"
+  Description: "FHIR Location ressource — fysiske lokationer fra IFDB med SOR-identifikator. Sengeenhed- og seng-Locations lander i fhir.WardUnit / fhir.Bed (location_view whitelist'er identifier-systemet SOR)."
+  Grain: "Én række pr. fysisk lokation med SOR-kode"
   FhirResource: Location
 
   SourceSystems:

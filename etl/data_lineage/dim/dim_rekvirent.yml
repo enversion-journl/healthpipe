@@ -12,7 +12,7 @@ dso_lineage:
   Grain: "Én række pr. rekvirent/afdeling"
 
   SourceSystems:
-    - ils: [codesystem.RekvirentConcept, codesystem.RekvirentHierarchy, codesystem.RekvirentProperties, ils_pro2_log.dbo.rekvUndtagne]
+    - ils: [codesystem.RekvirentConcept, codesystem.RekvirentHierarchy, codesystem.RekvirentProperties, dbo.rekv, dbo.postdi, ils_pro2_log.dbo.rekvUndtagne]
     - sor: [SOR_registry]
 
   Columns:
@@ -27,6 +27,44 @@ dso_lineage:
     rtyp:                     { DataType: NVARCHAR(200), Source: [ils.codesystem.RekvirentProperties.rtyp] }
     rnr:                      { DataType: NVARCHAR(200), Source: [ils.codesystem.RekvirentProperties.rnr] }
     code_sor:                  { DataType: VARCHAR(50), Source: [sor.SOR_registry.CodeSOR] }
+    # Details from dbo.rekv, populated only for leaf rows
+    # (entity_type = 'rekvirent'). The column names are spelled out; the ILS
+    # abbreviations appear in Source below.
+    #
+    # All of them are joined into stg_dim_Rekvirent on normalised (sgh, rnr),
+    # outside the CodeSystem: codesystem.RekvirentProperties syncs to DSO with
+    # no masking view, and property rows are never stale-deleted, so a cleared
+    # source value would survive there forever.
+    alternativt_rekvirentnummer:
+      DataType: NVARCHAR(16)
+      Source: [ils.dbo.rekv.altrnr]
+      Description: "Alternativt rekvirentnummer (ILS: altrnr). Joinet ind udenom codesystemet"
+    adresse:
+      DataType: NVARCHAR(80)
+      Source: [ils.dbo.rekv.adr]
+      Description: "Adresse (ILS: adr). Joinet ind udenom codesystemet. PII ved rtyp HP/OHP — maskeret i vw_dim.Rekvirent (DPA_ERP U-rolle)"
+    adresse2:
+      DataType: NVARCHAR(80)
+      Source: [ils.dbo.rekv.adr2]
+      Description: "Adresselinje 2 (ILS: adr2). Joinet ind udenom codesystemet. PII ved rtyp HP/OHP — maskeret i vw_dim.Rekvirent (DPA_ERP U-rolle)"
+    land:                     { DataType: NVARCHAR(6), Source: [ils.dbo.rekv.land] }
+    postnummer:
+      DataType: NVARCHAR(10)
+      Source: [ils.dbo.rekv.postdi]
+      Description: "Postnummer (ILS: postdi). Joinet ind udenom codesystemet"
+    bynavn:
+      DataType: NVARCHAR(58)
+      Source: [ils.dbo.postdi.navn]
+      Expr: "MIN(navn) pr. (land, postdi) — kilden har dubletter, fx (DK, 1172)"
+      Description: "By slaaet op i dbo.postdi paa (land, postdi)"
+    kontaktperson:
+      DataType: NVARCHAR(80)
+      Source: [ils.dbo.rekv.kontakt]
+      Description: "Kontaktperson (ILS: kontakt). Joinet ind udenom codesystemet. PII ved rtyp HP/OHP — maskeret i vw_dim.Rekvirent"
+    kontosted:
+      DataType: NVARCHAR(34)
+      Source: [ils.dbo.rekv.ktosted]
+      Description: "Kontosted (ILS: ktosted). Joinet ind udenom codesystemet"
     sor_relationship:          { DataType: VARCHAR(50), Source: [sor.SOR_registry.SORRelationship] }
     dw_ek_Organisation:       { Type: FK, DataType: INT, Source: [sor.SOR_registry.SORId] }
     dw_ek_Rekvirent_parent:   { Type: FK, DataType: INT, FK-Target: dim.Rekvirent, Source: [ils.codesystem.RekvirentHierarchy.parent_code] }

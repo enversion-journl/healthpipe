@@ -1,0 +1,23 @@
+{
+  "resourceType": "ViewDefinition",
+  "name": "encounter_absence_view",
+  "resource": "Encounter",
+  "status": "active",
+  "select": [
+    {
+      "column": [
+        {"name": "encounter_id", "path": "id"}
+      ]
+    },
+    {
+      "forEach": "extension.where(url='urn:source:ifdb:encounter_absence')",
+      "column": [
+        {"name": "period_start", "path": "extension.where(url='urn:source:ifdb:encounter_absence#period').valuePeriod.start.first()"},
+        {"name": "period_end", "path": "extension.where(url='urn:source:ifdb:encounter_absence#period').valuePeriod.end.first()"},
+        {"name": "type_code", "path": "extension.where(url='urn:source:ifdb:encounter_absence#type').valueCoding.code.first()"},
+        {"name": "type_display", "path": "extension.where(url='urn:source:ifdb:encounter_absence#type').valueCoding.display.first()"},
+        {"name": "expected_return", "path": "extension.where(url='urn:source:ifdb:encounter_absence#expectedReturn').valueDateTime.first()"}
+      ]
+    }
+  ]
+}

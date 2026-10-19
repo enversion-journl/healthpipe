@@ -1,0 +1,46 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: dimension
+  TableName: dim.UdredningsretKlassifikation
+  Domain: [Udredningsret]
+  Description: >
+    Den primære analysedimension for udredningsretten: ét medlem pr.
+    kombination af de otte indikatorattributter (overholdt, årsag, inden 30
+    dage, psykiatri, hjerteområde, forløbslabel, bopælsregion og speciale) —
+    3.105 kombinationer målt 2026-09-12. Hver rå værdi står ved siden af sin
+    danske tekst, så en rapport læser teksten og et tjek læser koden.
+    Teksterne er vores formulering afledt af SDS' SKS-tekster og den målte
+    sammenhæng (beslutning U8, foreløbig); forløbslabelens tekst kommer fra
+    SKS-kataloget og opdateres globalt efter hver load.
+  Grain: "Ét medlem pr. kombination af de otte klassifikationsattributter."
+  SCD: type1
+
+  SourceSystems:
+    - sds_udredningsret: [LPR_Udredningsret.UdredningsretMont]
+
+  Columns:
+    dw_ek_UdredningsretKlassifikation: { Type: PK, DataType: INT, Description: "Entitetsnøgle fra map.UdredningsretKlassifikation." }
+    clean_code_UdredningsretKlassifikation: { DataType: NVARCHAR(100), Expr: "UDREDKLASS_{sha256 over de otte længde-præfiksede klassifikationsattributter}" }
+    overholdt: { DataType: NVARCHAR(5), Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.MRK_ST_L], Description: "Rå indikatorflag på slutmarkøren: '1' overholdt, '0' ikke overholdt, blank uden for opgørelsen." }
+    overholdt_tekst: { DataType: NVARCHAR(50), Expr: "CASE over den rå værdi: Overholdt / Ikke overholdt / Ikke i opgørelsen (blank); ukendt værdi giver 'Ukendt'." }
+    aarsag: { DataType: NVARCHAR(5), Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.MRK_ST_N], Description: "Rå årsagskode 0-8 på slutmarkøren, blank uden for opgørelsen." }
+    aarsag_tekst: { DataType: NVARCHAR(200), Expr: "CASE over årsagskoden (AARSAG_TEKSTER, spec afsnit 7); ukendt kode giver 'Ukendt'." }
+    inden_30_dage: { DataType: NVARCHAR(5), Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.MRK_ST_H], Description: "Rå indikatorflag: '1' udredt inden for 30 dage, '0' over 30 dage, blank uden for opgørelsen." }
+    inden_30_dage_tekst: { DataType: NVARCHAR(50), Expr: "CASE over den rå værdi: Inden for 30 dage / Over 30 dage / Ikke i opgørelsen; ukendt værdi giver 'Ukendt'." }
+    psykiatri: { DataType: NVARCHAR(5), Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.PSYKIATRI] }
+    psykiatri_tekst: { DataType: NVARCHAR(50), Expr: "CASE over den rå værdi: Psykiatri ('1') / Somatik ('0') / Ukendt." }
+    hjerteomraade: { DataType: NVARCHAR(5), Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.MRK_C] }
+    hjerteomraade_tekst: { DataType: NVARCHAR(50), Expr: "CASE over den rå værdi: Hjerteområdet ('1') / Uden for hjerteområdet ('0') / Ukendt." }
+    forloebslabel: { DataType: NVARCHAR(20), Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.FORLOEBSLABEL], Description: "ALAL-kode for forløbstypen." }
+    forloebslabel_tekst: { DataType: NVARCHAR(500), Expr: "codesystem.SKSConcept.display slået op på den trimmede, versalskrevne forløbslabel (LEFT JOIN, NULL uden katalogmatch); opdateres globalt efter hver load, som DRG's drg_beskrivelse." }
+    bopaelsregion_forloeb: { DataType: NVARCHAR(10), Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.C_BOREGION_F], Description: "Danmarks Statistiks regionskode for borgerens bopæl på forløbet." }
+    bopaelsregion_forloeb_tekst: { DataType: NVARCHAR(50), Expr: "CASE over regionskoden (1081-1085 → regionsnavn); blank giver 'Ukendt', enhver anden udfyldt kode giver koden selv." }
+    speciale: { DataType: NVARCHAR(100), Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.Speciale_ansvarlig_enhed_kontakt], Description: "Specialet på den kontaktansvarlige enhed — fritekst fra leverancen, derfor uden tekstkolonne." }
+  Notes:
+    - "Attributterne opløses fra stg.pre_Udredningsforloeb (forløbets slutmarkør, ellers seneste markør) og grupperes på den stagede klassifikations-clean_code; de er konstante inden for gruppen, fordi nøglen ER deres hash."
+    - "Sentinel -1 ('UNKNOWN') bærer overholdt_tekst og aarsag_tekst = 'Ukendt', så en uopløst nøgle aldrig viser en tom tekstcelle."

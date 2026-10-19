@@ -1,0 +1,35 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fhir
+  TableName: fhir.WardUnit
+  Domain: [FHIR]
+  Description: "FHIR Location (sengeenhed) — administrativ sengeenhed fra IFDB.SENGEENHED. Egne rækker; fhir.Location whitelist'er kun SOR-identifikatorer."
+  Grain: "Én række pr. sengeenhed-opsætning (OBJEKT_ID). Kilden garanterer kun højst én AKTIV opsætning pr. logistikenhed (admin_unit_code) ad gangen; slettede opsætninger på samme kode kan findes side om side med den aktive."
+  FhirResource: Location
+
+  SourceSystems:
+    - ifdb_sengeenhed: [IFDB.SENGEENHED]
+
+  Columns:
+    ward_unit_id:             { Type: PK, DataType: NVARCHAR(255), FhirPath: "id", Description: "FHIR resource id (Aidbox UUID) — resolver-/servertildelt ved posting ud fra SENGEENHED.OBJEKT_ID. Forretningsnøglen bæres i identifier_value." }
+    name:                      { DataType: NVARCHAR(500), FhirPath: "name", Source: [ifdb_sengeenhed.IFDB.SENGEENHED.ADMENHED_NAVN] }
+    status:                    { DataType: NVARCHAR(50), FhirPath: "status", Source: [ifdb_sengeenhed.IFDB.SENGEENHED.SLETTET] }
+    managing_organization_id:  { DataType: NVARCHAR(255), FhirPath: "managingOrganization.id", FK-Target: fhir.Organization, FK-Key: organization_id, FK-Required: false, Description: "FHIR-tildelt Organization-reference (Aidbox UUID) — resolver-tildelt via ADMENHED_KODE→SOR-ordbogen; udeladt ved miss." }
+    identifier_value:          { DataType: NVARCHAR(255), FhirPath: "identifier.where(system='urn:source:ifdb:sengeenhed_id').value.first()", Source: [ifdb_sengeenhed.IFDB.SENGEENHED.OBJEKT_ID], Description: "Forretningsnøgle (SENGEENHED.OBJEKT_ID)." }
+    admin_unit_code:             { DataType: NVARCHAR(512), FhirPath: "extension.where(url='urn:source:ifdb:sengeenhed_admenhed').extension.where(url='urn:source:ifdb:sengeenhed_admenhed#kode').valueString.first()", Source: [ifdb_sengeenhed.IFDB.SENGEENHED.ADMENHED_KODE], Description: "Logistikenhedens kode (hierarkisk punktnotation, fx sygehus.afdeling.afsnit). Joinnoegle fra fhir.Encounter_BedSpace.ward_unit_code og fhir.Bed.ward_unit_code. Ikke unik i tabellen: kilden garanterer kun hoejst én aktiv opsaetning pr. kode, saa filtrer paa status = 'active' og dw_is_deleted = 0 foer join. Kan ikke vaere NULL i kilden." }
+    admin_unit_name:             { DataType: NVARCHAR(512), FhirPath: "extension.where(url='urn:source:ifdb:sengeenhed_admenhed').extension.where(url='urn:source:ifdb:sengeenhed_admenhed#navn').valueString.first()", Source: [ifdb_sengeenhed.IFDB.SENGEENHED.ADMENHED_NAVN] }
+    admin_unit_organization_code:          { DataType: NVARCHAR(512), FhirPath: "extension.where(url='urn:source:ifdb:sengeenhed_admenhed').extension.where(url='urn:source:ifdb:sengeenhed_admenhed#orgkode').valueString.first()", Source: [ifdb_sengeenhed.IFDB.SENGEENHED.ADMENHED_ORGKODE] }
+    dw_is_deleted:             { DataType: INT, FhirPath: "extension.where(url='urn:fhir:isDeleted').valueInteger", Source: [ifdb_sengeenhed.IFDB.SENGEENHED.SLETTET] }
+    last_updated:              { DataType: DATETIME2, FhirPath: "r.ts" }
+    created_at:                { DataType: DATETIME2, FhirPath: "r.cts" }
+
+  Notes:
+    - "managing_organization_id er en UDLEDT kobling, ikke en autoritativ. Den høstes fra arc.ifdb_encounter_bed_space_history, hvor kilden selv bærer LOCATION_CODE (samme kodeområde som ADMENHED_KODE, målt til 100 % direkte match) og LOCATION_SORCODE på samme række — samme SOR-kolonne, der sætter fhir.Bed.partOf, så sengeenhedens organisation og sengens afdeling stammer fra samme kilde og ikke kan pege hver sin vej. Kildens egen ADMENHED_ORGKODE er et levn (270/279 mangler den) og bruges ikke."
+    - "Fordi ordbogen ændrer sig uafhængigt af sengeenhedernes eget delta, læser assetet altid hele arc.ifdb_sengeenhed (279 rækker) uanset mode — ellers ville en enhed, der får sit opslag efter sin sidste ændring, aldrig få sin managingOrganization. Opslaget aggregeres i SQL til distinkte (enhedskode, SOR)-par, så de 1,3 mio. sengeopholdsrækker aldrig materialiseres."
+    - "En enhedskode, kilden har brugt med mere end én SOR (fx efter en omorganisering), droppes frem for at få en vinder valgt: den eneste tilgængelige rækkefølgenøgle er et registreringstidspunkt gemt som NVARCHAR i to formater. Antallet står i asset-metadata (admenhed_codes_ambiguous) sammen med dækningsgraden (managing_organization_coverage_pct); stiger de, skal koblingen have en rigtig ConceptMap."
+    - "Målet er en autoritativ ConceptMap på linje med DSA/ConceptMap/shak_to_sor (bygget direkte fra Sundhedsdatastyrelsens SHAKSORMap, én række pr. kode, equivalent/inexact på relationen). ADMENHED_KODE er ikke SHAK men IFDB's egen hierarkiske punktnotation, så den kræver SHAK-a-like-mapningen. Når den dækker kodeområdet, flyttes opslaget dertil, og høstningen slettes — den skal ikke udvides."

@@ -32,7 +32,8 @@ security_daily_job = dg.define_asset_job(
     ),
     description=(
         "Daily refresh of the DPA security model: deploys sec.* DDL, extracts HealthPipe "
-        "AD groups over LDAPS, reloads sec.RolleDomaene / sec.RBOrganisation on "
-        "staging, and syncs to DSO."
+        "AD groups over LDAPS, reloads sec.RolleDomaene / sec.RBOrganisation and "
+        "historises sec.RolleDomaeneHistorik and sec.SORTildelingHistorik on staging, and "
+        "syncs the two reloaded tables to DSO."
     ),
 )

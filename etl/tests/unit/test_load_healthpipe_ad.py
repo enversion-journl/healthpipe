@@ -8,9 +8,12 @@
 
 from __future__ import annotations
 
+import contextlib
+
 import infrastructure.security.load_healthpipe_ad_to_mssql as loader
 import pytest
 from DSA.ConceptMap.utils import find_all_descendants
+from infrastructure.security.export_healthpipe_ad_groups import _parse_groups
 from infrastructure.security.load_healthpipe_ad_to_mssql import (
     ExtractTooSmallError,
     _build_rb_organisation_rows,
@@ -37,55 +40,120 @@ def test_strip_bruger_domain_keeps_part_after_last_backslash():
 
 
 def test_build_rolle_domaene_rows_strips_bruger():
-    rolle_rows = [{"bruger": "EXAMPLE\\paf8ih", "domain": "DPA_ERP", "ubegraenset": True}]
-    rows = _build_rolle_domaene_rows(rolle_rows, [])
-    assert rows == [("paf8ih", "DPA_ERP", "U", "")]
+    rolle_rows = [{"bruger": "EXAMPLE\\abc1de", "domain": "DPA_ERP", "rolle": "U"}]
+    rows = _build_rolle_domaene_rows(rolle_rows)
+    assert rows == [("abc1de", "DPA_ERP", "U", "")]
 
 
 def test_duplicate_bruger_domaene_prefers_k_over_u():
     rolle_rows = [
-        {"bruger": "ab1", "domain": "DPA_Medicin", "ubegraenset": True},
-        {"bruger": "ab1", "domain": "DPA_Medicin", "ubegraenset": False},
+        {"bruger": "ab1", "domain": "DPA_Medicin", "rolle": "U"},
+        {"bruger": "ab1", "domain": "DPA_Medicin", "rolle": "K"},
     ]
-    rows = _build_rolle_domaene_rows(rolle_rows, [])
+    rows = _build_rolle_domaene_rows(rolle_rows)
     assert rows == [("ab1", "DPA_Medicin", "K", "")]
 
 
 def test_duplicate_bruger_domaene_prefers_k_over_u_reversed_order():
     rolle_rows = [
-        {"bruger": "ab1", "domain": "DPA_Medicin", "ubegraenset": False},
-        {"bruger": "ab1", "domain": "DPA_Medicin", "ubegraenset": True},
+        {"bruger": "ab1", "domain": "DPA_Medicin", "rolle": "K"},
+        {"bruger": "ab1", "domain": "DPA_Medicin", "rolle": "U"},
     ]
-    rows = _build_rolle_domaene_rows(rolle_rows, [])
+    rows = _build_rolle_domaene_rows(rolle_rows)
     assert rows == [("ab1", "DPA_Medicin", "K", "")]
 
 
 def test_duplicate_key_is_case_insensitive():
     rolle_rows = [
-        {"bruger": "AB1", "domain": "DPA_MEDICIN", "ubegraenset": True},
-        {"bruger": "ab1", "domain": "dpa_medicin", "ubegraenset": False},
+        {"bruger": "AB1", "domain": "DPA_MEDICIN", "rolle": "U"},
+        {"bruger": "ab1", "domain": "dpa_medicin", "rolle": "K"},
     ]
-    rows = _build_rolle_domaene_rows(rolle_rows, [])
+    rows = _build_rolle_domaene_rows(rolle_rows)
     assert len(rows) == 1
     assert rows[0][2] == "K"
 
 
-def test_populationsansvar_picks_first_alphabetical():
-    rolle_rows = [{"bruger": "ab1", "domain": "DPA_Medicin", "ubegraenset": True}]
-    bopael_rows = [
-        {"bruger": "RSD\\ab1", "hospital": "SLB"},
-        {"bruger": "ab1", "hospital": "OUH"},
+def test_k_wins_over_p_and_u_with_warning():
+    warnings: list[str] = []
+    rolle_rows = [
+        {"bruger": "ab1", "domain": "DPA_Medicin", "rolle": "U"},
+        {"bruger": "ab1", "domain": "DPA_Medicin", "rolle": "P", "populationsansvar": "SHS"},
+        {"bruger": "ab1", "domain": "DPA_Medicin", "rolle": "K"},
     ]
-    rows = _build_rolle_domaene_rows(rolle_rows, bopael_rows)
-    assert rows == [("ab1", "DPA_Medicin", "U", "OUH")]
+    rows = _build_rolle_domaene_rows(rolle_rows, warn=warnings.append)
+    assert rows == [("ab1", "DPA_Medicin", "K", "")]
+    assert len(warnings) == 1
+    assert "K, P, U" in warnings[0]
+
+
+def test_p_wins_over_u_and_keeps_populationsansvar():
+    warnings: list[str] = []
+    rolle_rows = [
+        {"bruger": "ab1", "domain": "DPA_Booking", "rolle": "U"},
+        {"bruger": "ab1", "domain": "DPA_Booking", "rolle": "P", "populationsansvar": "SHS"},
+    ]
+    rows = _build_rolle_domaene_rows(rolle_rows, warn=warnings.append)
+    assert rows == [("ab1", "DPA_Booking", "P", "SHS")]
+    assert len(warnings) == 1
+
+
+def test_different_roles_on_different_domains_are_kept():
+    warnings: list[str] = []
+    rolle_rows = [
+        {"bruger": "ab1", "domain": "DPA_Medicin", "rolle": "K"},
+        {"bruger": "ab1", "domain": "DPA_ERP", "rolle": "U"},
+        {"bruger": "ab1", "domain": "DPA_Booking", "rolle": "P", "populationsansvar": "SHS"},
+    ]
+    rows = _build_rolle_domaene_rows(rolle_rows, warn=warnings.append)
+    assert sorted(rows) == [
+        ("ab1", "DPA_Booking", "P", "SHS"),
+        ("ab1", "DPA_ERP", "U", ""),
+        ("ab1", "DPA_Medicin", "K", ""),
+    ]
+    assert warnings == []
+
+
+def test_several_p_hospitals_pick_first_alphabetical_with_warning():
+    warnings: list[str] = []
+    rolle_rows = [
+        {"bruger": "RSD\\ab1", "domain": "DPA_Booking", "rolle": "P", "populationsansvar": "SLB"},
+        {"bruger": "ab1", "domain": "DPA_Booking", "rolle": "P", "populationsansvar": "OUH"},
+    ]
+    rows = _build_rolle_domaene_rows(rolle_rows, warn=warnings.append)
+    assert rows == [("ab1", "DPA_Booking", "P", "OUH")]
+    assert len(warnings) == 1
+    assert "SLB" in warnings[0]
+
+
+def _raw_group(name: str) -> dict:
+    return {"dn": f"CN={name},OU=HealthPipe", "sAMAccountName": name, "members_dn": []}
+
+
+def test_parse_groups_reads_hospital_and_role_p():
+    _, role_groups, skipped, warnings = _parse_groups(
+        [_raw_group("GSCAPP_HP_Domaenerolle_DPA_Booking_SHS_P")]
+    )
+    assert [(g.domain, g.role, g.populationsansvar) for g in role_groups] == [
+        ("DPA_Booking", "P", "SHS")
+    ]
+    assert skipped == []
+    assert warnings == []
+
+
+def test_parse_groups_skips_unknown_hospital_with_warning():
+    name = "LSSAPP_HP_Domaenerolle_DPA_Booking_XYZ_P"
+    _, role_groups, skipped, warnings = _parse_groups([_raw_group(name)])
+    assert role_groups == []
+    assert skipped == [name]
+    assert len(warnings) == 1
 
 
 def test_distinct_domains_are_kept():
     rolle_rows = [
-        {"bruger": "ab1", "domain": "DPA_Medicin", "ubegraenset": True},
-        {"bruger": "ab1", "domain": "DPA_HR", "ubegraenset": False},
+        {"bruger": "ab1", "domain": "DPA_Medicin", "rolle": "U"},
+        {"bruger": "ab1", "domain": "DPA_HR", "rolle": "K"},
     ]
-    rows = _build_rolle_domaene_rows(rolle_rows, [])
+    rows = _build_rolle_domaene_rows(rolle_rows)
     assert ("ab1", "DPA_Medicin", "U", "") in rows
     assert ("ab1", "DPA_HR", "K", "") in rows
 
@@ -373,3 +441,102 @@ def test_build_rb_organisation_rows_skips_expansion_when_flag_false():
         children,
     )
     assert rows == [("u1", "100")]
+
+
+class _FakeHistorikCursor(_FakeLoadCursor):
+    def execute(self, sql, params=None):
+        super().execute(sql, params)
+        s = sql.lstrip()
+        if s.startswith("SELECT COUNT(*) FROM [sec].[") and "[dw_valid_to]" in s:
+            self._result = [(self._conn.open_count,)]
+        elif s.startswith("SELECT COUNT(*) FROM [sec].[RolleDomaene]"):
+            self._result = [(0,)]
+        elif s.startswith("SELECT CAST(SYSDATETIME() AS DATETIME2(0))"):
+            self._result = [(object(),)]
+
+
+class _FakeHistorikConn(_FakeLoadConn):
+    def __init__(self, open_count):
+        super().__init__()
+        self.open_count = open_count
+        self.closed = False
+
+    def cursor(self):
+        cur = _FakeHistorikCursor(self)
+        self.cursors.append(cur)
+        return cur
+
+    def close(self):
+        self.closed = True
+
+
+def test_load_historik_guard_blocks_before_closing_rows():
+    conn = _FakeHistorikConn(open_count=100)
+    with pytest.raises(ExtractTooSmallError):
+        loader._load_historik(
+            conn,
+            loader._ROLLE_DOMAENE_HISTORIK,
+            loader._build_rolle_domaene_rows(
+                [{"bruger": f"u{i}", "domain": "DPA_ERP", "rolle": "U"} for i in range(3)],
+            ),
+            run_id="r",
+            dry_run=False,
+            min_ratio=0.8,
+        )
+
+    assert not any(sql.lstrip().startswith("UPDATE") for sql, _ in _all_executed(conn))
+    assert conn.committed == 0
+
+
+def test_populate_security_historises_two_tables_without_closes_on_failed_lookup(
+    monkeypatch,
+):
+    import dagster as dg
+    import infrastructure.assets.security_ad_assets as assets
+
+    class _FakeDfm:
+        rows: dict = {}
+
+        @contextlib.contextmanager
+        def target_runs(self, schema, targets, **_):
+            assert schema == "sec"
+            assert set(targets) == {
+                "RolleDomaene",
+                "RBOrganisation",
+                "RolleDomaeneHistorik",
+                "SORTildelingHistorik",
+            }
+            yield _FakeDfm.rows
+
+    conn = _FakeHistorikConn(open_count=1)
+    monkeypatch.setenv("MSSQL_TARGET_STAGING_USER", "u")
+    monkeypatch.setenv("MSSQL_TARGET_STAGING_PASSWORD", "p")
+    monkeypatch.setattr(loader, "_connect", lambda *_: conn)
+    monkeypatch.setattr(assets, "DfmManager", lambda *_: _FakeDfm())
+    context = dg.build_asset_context()
+
+    result = assets.populate_security(
+        context=context,
+        extract_security={
+            "roller": [{"bruger": "u0", "domain": "DPA_ERP", "rolle": "U"}],
+            "org": [{"bruger": "u0", "code_sor": "100"}],
+            "fejlede_opslag": ["CN=u9,OU=Users"],
+            "source": {"user": "svc", "host": "ldap", "table": "OU=HealthPipe"},
+        },
+        mssql_target_staging=None,
+    )
+
+    historik = {"RolleDomaeneHistorik", "SORTildelingHistorik"}
+    executed = _all_executed(conn)
+    inserts = {
+        table: params
+        for sql, params in executed
+        for table in historik
+        if sql.lstrip().startswith(f"INSERT INTO [sec].[{table}]")
+    }
+    assert set(inserts) == historik
+    assert {p["run_id"] for p in inserts.values()} == {context.run_id}
+    assert not any(sql.lstrip().startswith("UPDATE t") for sql, _ in executed)
+    assert historik <= set(_FakeDfm.rows)
+    assert result.metadata["sortildelinghistorik_open_before"] == 1
+    assert conn.closed

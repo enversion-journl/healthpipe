@@ -21,6 +21,7 @@ from DSA.FHIR.Location import all_assets as location_assets
 from DSA.FHIR.Observation import all_assets as observation_assets
 from DSA.FHIR.Organization import all_assets as organization_assets
 from DSA.FHIR.Patient import all_assets as patient_assets
+from DSA.FHIR.Practitioner import all_assets as practitioner_assets
 from DSA.FHIR.Procedure import all_assets as procedure_assets
 from DSA.FHIR.Questionnaire import all_assets as questionnaire_assets
 from DSA.FHIR.QuestionnaireResponse import all_assets as questionnaire_response_assets
@@ -39,6 +40,7 @@ all_assets = [
     *condition_assets,
     *document_reference_assets,
     *service_request_assets,
+    *practitioner_assets,
     *procedure_assets,
     *questionnaire_assets,
     *questionnaire_response_assets,

@@ -12,19 +12,28 @@ Architecture:
   fhir.Patient (Type 1)          --+
   fhir.Patient_Address (T2)      --+--->  ref.PatientToBorger          --->  dim.Borger
                                    |     ref.Patient_Address_To_Borger  --->
-  identifier_systems.py (URIs)   --+
+  identifier_systems.py (URIs)   --+     ref.KommuneToPopulationsansvar --->
 
 dw_ek_Borger and dw_sk_Borger come from the ref tables — this asset just
 joins them to fhir.* projections and produces the wide dim row.
 
 MERGE pattern keyed on dw_sk_Borger (carried from ref.Patient_Address_To_Borger,
-no local IDENTITY). Sentinel rows (-1 = UNKNOWN, -2 = N/A) are excluded from
-the NOT MATCHED BY SOURCE branch via dw_sk_Borger > 0.
+no local IDENTITY). Sentinel rows (-1 = UNKNOWN, -2 = N/A, -99 = MASKERET) are
+excluded from the NOT MATCHED BY SOURCE branch via dw_sk_Borger > 0.
 
 Delta strategy: patient-scoped via DFM checkpoint on ref.PatientToBorger and
 ref.Patient_Address_To_Borger dw_timestamp_update/Insert. Only patients whose
 ref rows changed since last run are re-merged; soft-delete is scoped to the
 same patient set.
+
+populationsansvar is not part of the delta: every run sets it on all versions
+from fhir.Patient.municipality_code and ref.KommuneToPopulationsansvar, so a
+changed mapping reaches the dimension without any patient changing.
+
+A citizen with name and address protection has the standard texts as name and
+address on the FHIR Patient. The versions retired when the protection arrives
+still hold the earlier name and addresses; they get the same texts in the same
+run.
 """
 
 import time
@@ -34,6 +43,7 @@ from core.dfm_config import RunModeConfig
 from core.dfm_manager import DfmManager
 from core.etl_thresholds import check_soft_delete_threshold, get_soft_delete_threshold
 from core.resources import MSSQLResource
+from utils.fhir.protection import ADDRESS_PROTECTED_TEXT, NAME_PROTECTED_TEXT
 
 
 def _global_temp_table(base: str, run_id: str) -> str:
@@ -57,6 +67,64 @@ def _timed(context: dg.AssetExecutionContext, timings: dict[str, float], label: 
     return _cm()
 
 
+def _refresh_populationsansvar(cursor) -> int:
+    """Set populationsansvar on every version from the current municipality; returns rows changed."""
+    cursor.execute(
+        """
+        UPDATE b
+        SET b.populationsansvar = r.populationsansvar,
+            b.dw_timestamp_update = CAST(SYSDATETIME() AS datetime2(0))
+        FROM [dim].[Borger] AS b
+        LEFT JOIN [fhir].[Patient] AS p
+            ON p.patient_id = b.fhir_Patient_id
+        LEFT JOIN [ref].[KommuneToPopulationsansvar] AS r
+            ON r.kommunekode = p.municipality_code
+        WHERE b.dw_sk_Borger > 0
+          AND ISNULL(b.populationsansvar, N'') <> ISNULL(r.populationsansvar, N'')
+        """
+    )
+    return cursor.rowcount
+
+
+def _mask_retired_versions_of_protected(cursor, src_rows_table: str) -> int:
+    """Give retired versions of protected citizens the standard texts; returns rows changed."""
+    cursor.execute(
+        f"""
+        UPDATE tgt
+        SET fornavne = NULL, efternavn = txt.name_text, adresseringsnavn = txt.name_text,
+            gade = txt.address_text, postnr = NULL, postdistrikt = NULL,
+            kommune_id = NULL, kommunenavn = NULL, region_id = NULL, regionnavn = NULL,
+            land = NULL, kvhx = NULL,
+            gade_nuv = txt.address_text, postnr_nuv = NULL, postdistrikt_nuv = NULL,
+            kommune_id_nuv = NULL, kommunenavn_nuv = NULL,
+            region_id_nuv = NULL, regionnavn_nuv = NULL,
+            dw_timestamp_update = CAST(SYSDATETIME() AS datetime2(0))
+        FROM [dim].[Borger] AS tgt
+        CROSS JOIN (
+            SELECT CAST(? AS NVARCHAR(50)) AS name_text, CAST(? AS NVARCHAR(50)) AS address_text
+        ) AS txt
+        WHERE tgt.dw_sk_Borger > 0
+          AND tgt.dw_is_deleted = 1
+          AND tgt.dw_ek_Borger IN (
+              SELECT dw_ek_Borger FROM {src_rows_table} WHERE adressebeskyttelse = 1
+          )
+          AND (
+              ISNULL(tgt.efternavn, N'') <> txt.name_text
+              OR ISNULL(tgt.adresseringsnavn, N'') <> txt.name_text
+              OR ISNULL(tgt.gade, N'') <> txt.address_text
+              OR ISNULL(tgt.gade_nuv, N'') <> txt.address_text
+              OR COALESCE(
+                     tgt.fornavne, tgt.postnr, tgt.postdistrikt, tgt.kommune_id, tgt.region_id,
+                     tgt.land, tgt.kvhx, tgt.postnr_nuv, tgt.postdistrikt_nuv,
+                     tgt.kommune_id_nuv, tgt.region_id_nuv
+                 ) IS NOT NULL
+          )
+        """,
+        [NAME_PROTECTED_TEXT, ADDRESS_PROTECTED_TEXT],
+    )
+    return cursor.rowcount
+
+
 @dg.asset(
     group_name="shared_dimensions",
     compute_kind="mssql",
@@ -64,13 +132,15 @@ def _timed(context: dg.AssetExecutionContext, timings: dict[str, float], label: 
         "sof_patient_dfm",
         "ref_patient_borger",
         "ref_patient_address_borger",
+        "ref_KommuneToPopulationsansvar",
     ],
     tags={"layer": "dimensions", "module": "shared_dimensions", "scd_type": "type2"},
     description=(
         "dim.Borger — Type 2 SCD joining fhir.Patient (Type 1 attributes) "
         "with ref.Patient_Address_To_Borger (T2 versioning) and fhir.Patient_Address "
         "(period-specific address detail). Patient-scoped delta MERGE keyed on "
-        "dw_sk_Borger with DFM checkpoint on ref table timestamps."
+        "dw_sk_Borger with DFM checkpoint on ref table timestamps. populationsansvar "
+        "is set on all versions from ref.KommuneToPopulationsansvar in every run."
     ),
 )
 def dim_Borger(
@@ -148,6 +218,8 @@ def dim_Borger(
                     context.log.info(f"Found {changed_count} changed patients since {checkpoint}")
 
                     if changed_count == 0:
+                        with _timed(context, timings, "populationsansvar_refresh"):
+                            populationsansvar_updated = _refresh_populationsansvar(cursor)
                         conn.commit()
                         cursor.execute("SELECT COUNT(*) FROM [dim].[Borger]")
                         total = cursor.fetchone()[0]
@@ -162,6 +234,7 @@ def dim_Borger(
                                 "changed_patients": 0,
                                 "merge_affected": 0,
                                 "soft_deleted_this_run": 0,
+                                "populationsansvar_updated": populationsansvar_updated,
                                 "threshold": get_soft_delete_threshold(
                                     "dim.Borger", config.soft_delete_threshold
                                 ),
@@ -237,6 +310,7 @@ def dim_Borger(
                             SELECT
                                 rpab.dw_sk_Borger,
                                 rpb.dw_ek_Borger,
+                                p.patient_id         AS fhir_Patient_id,
                                 p.patient_ssn        AS cpr_nummer,
                                 p.previous_ssn       AS tidligere_cpr,
                                 p.x_ecpr             AS x_ecpr_nummer,
@@ -282,7 +356,7 @@ def dim_Borger(
                                 CAST(COALESCE(p.address_protection, 0) AS BIT) AS adressebeskyttelse,
                                 p.discretion_flag         AS onsker_diskretion,
                                 p.medcom_test_person      AS medcom_testperson,
-                                CAST(NULL AS DATETIME2)   AS opdateret_fra_cpr,
+                                CAST(p.cpr_updated AS DATETIME2) AS opdateret_fra_cpr,
                                 rpab.dw_valid_from,
                                 rpab.dw_valid_to,
                                 CASE
@@ -354,7 +428,7 @@ def dim_Borger(
 
                         WHEN NOT MATCHED BY TARGET THEN
                             INSERT (
-                                dw_sk_Borger, dw_ek_Borger,
+                                dw_sk_Borger, dw_ek_Borger, fhir_Patient_id,
                                 cpr_nummer, tidligere_cpr, x_ecpr_nummer, d_ecpr_nummer, patient_id_ifdb,
                                 fornavne, efternavn, adresseringsnavn,
                                 foedselsdato, koen_navn, Active, deceased,
@@ -376,7 +450,7 @@ def dim_Borger(
                                 dw_timestamp_insert
                             )
                             VALUES (
-                                src.dw_sk_Borger, src.dw_ek_Borger,
+                                src.dw_sk_Borger, src.dw_ek_Borger, src.fhir_Patient_id,
                                 src.cpr_nummer, src.tidligere_cpr,
                                 src.x_ecpr_nummer, src.d_ecpr_nummer, src.patient_id_ifdb,
                                 src.fornavne, src.efternavn, src.adresseringsnavn,
@@ -403,6 +477,7 @@ def dim_Borger(
                         WHEN MATCHED THEN
                             UPDATE SET
                                 dw_ek_Borger = src.dw_ek_Borger,
+                                fhir_Patient_id = src.fhir_Patient_id,
                                 cpr_nummer = src.cpr_nummer,
                                 tidligere_cpr = src.tidligere_cpr,
                                 x_ecpr_nummer = src.x_ecpr_nummer,
@@ -513,6 +588,13 @@ def dim_Borger(
                         override=config.soft_delete_threshold,
                     )
 
+                    with _timed(context, timings, "mask_retired_versions_of_protected"):
+                        protected_versions_masked = _mask_retired_versions_of_protected(
+                            cursor, src_rows_table
+                        )
+                    with _timed(context, timings, "populationsansvar_refresh"):
+                        populationsansvar_updated = _refresh_populationsansvar(cursor)
+
                     new_checkpoint = checkpoint
                     with _timed(context, timings, "checkpoint_max_select"):
                         cursor.execute(
@@ -548,7 +630,9 @@ def dim_Borger(
                     context.log.info(
                         f"dim.Borger: {merge_affected} rows affected by MERGE, "
                         f"{soft_deleted} soft-deleted, {changed_count} changed patients, "
-                        f"{current} current, {total} total. "
+                        f"{populationsansvar_updated} populationsansvar set, "
+                        f"{protected_versions_masked} retired versions of protected "
+                        f"citizens masked, {current} current, {total} total. "
                         f"Checkpoint: {checkpoint} → {new_checkpoint}. "
                         f"Timings: {timings}"
                     )
@@ -576,6 +660,8 @@ def dim_Borger(
             "merge_affected": merge_affected,
             "soft_deleted_this_run": soft_deleted,
             "deleted_flag_from_fhir_patient": deleted_from_source,
+            "populationsansvar_updated": populationsansvar_updated,
+            "protected_versions_masked": protected_versions_masked,
             "threshold": get_soft_delete_threshold("dim.Borger", config.soft_delete_threshold),
             "current_versions": current,
             "total_versions": total,

@@ -76,6 +76,7 @@ def dso_infra_linked_server(
                 "CAST(SERVERPROPERTY('Edition') AS NVARCHAR(256))"
             )
             row = cursor.fetchone()
+            engine_edition = int(row[0]) if row else 0
             edition_name = str(row[1]) if row else ""
             if "Azure SQL Edge" in edition_name:
                 context.log.warning(
@@ -240,6 +241,9 @@ def dso_infra_linked_server(
                         ("connect timeout", "30"),
                         ("query timeout", "0"),
                     ]
+                    if engine_edition != 3:
+                        options = [o for o in options if o[0] != "lazy schema validation"]
+                        context.log.info(f"Skipping 'lazy schema validation' on {edition_name}")
                     try:
                         for opt_name, opt_value in options:
                             cursor.execute(
@@ -249,7 +253,7 @@ def dso_infra_linked_server(
                         context.log.info("Configured linked server options")
                     except Exception as e:
                         context.log.error(
-                            f"sp_serveroption failed: {e}. "
+                            f"sp_serveroption '{opt_name}' failed: {e}. "
                             "Cleaning up partially created linked server."
                         )
                         cursor.execute(
@@ -257,8 +261,7 @@ def dso_infra_linked_server(
                             f"@droplogins = 'droplogins'"
                         )
                         raise RuntimeError(
-                            f"Cannot configure linked server options "
-                            f"(requires sysadmin or setupadmin on DSO): {e}"
+                            f"Cannot set linked server option '{opt_name}': {e}"
                         ) from e
 
                     try:

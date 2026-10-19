@@ -1,0 +1,56 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fhir
+  TableName: fhir.QuestionnaireResponse_item
+  Domain: [FHIR]
+  Description: "Svarene i en SFI-besvarelse: én række pr. besvaret element. Child-tabel til fhir.QuestionnaireResponse i eget grain. Til analyse bruges fhir.SFI_datapoint, som bygges af denne tabel og beriges med SFI-kataloget."
+  Grain: "Én række pr. (besvarelse, SFI-kode, forekomst, svar) — PK: qr_id + link_id + item_key + answer_index"
+  FhirResource: QuestionnaireResponse
+
+  SourceSystems:
+    - ifdb_aktivitetsresultat: [IFDB.AKTIVITETSRESULTAT]
+
+  # Kolonner projiceret af SoF-viewet questionnaire_response_item_view
+  # (forEach item, forEach answer); FhirPath som i viewet, relativt til forEach.
+  # Rækkefølge/typer følger
+  # infrastructure/ddl/tables/fhir/01_tables.sql.
+  Columns:
+    qr_id:                 { Type: PK, DataType: NVARCHAR(255), FhirPath: "id", FK-Target: fhir.QuestionnaireResponse, FK-Key: qr_id, FK-Required: true, Description: "Første led i den sammensatte nøgle og fremmednøgle til besvarelsen." }
+    questionnaire:         { DataType: NVARCHAR(600), FhirPath: "questionnaire", Expr: "canonical|version-reference til skemaet i fhir.Questionnaire." }
+    link_id:               { Type: PK, DataType: NVARCHAR(255), FhirPath: "linkId", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML, ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.MODELLERINGSNAVN], Description: "SFI-koden (Skema.FeltId). Matcher link_id i fhir.Questionnaire_item og element_code i fhir.SFI_datapoint." }
+    item_key:              { Type: PK, DataType: NVARCHAR(100), FhirPath: "id", Description: "Skiller gentagne forekomster af samme SFI-kode i besvarelsen ad." }
+    text:                  { DataType: NVARCHAR(MAX), FhirPath: "text", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    answer_index:          { Type: PK, DataType: NVARCHAR(10), FhirPath: "'0'", Expr: "Konstant '0' fra SoF-viewet; ét svar pr. element i de nuværende SFI-data." }
+    value_type:            { DataType: NVARCHAR(50), FhirPath: "'fhir_value'", Expr: "SoF-udledt indikator for, at svaret bærer en FHIR value[x]." }
+    value_int:             { DataType: NVARCHAR(50), FhirPath: "valueInteger", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    value_dec:             { DataType: NVARCHAR(50), FhirPath: "valueDecimal", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    value_string:          { DataType: NVARCHAR(MAX), FhirPath: "valueString", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    value_datetime:        { DataType: NVARCHAR(50), FhirPath: "valueDateTime", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    value_bool:            { DataType: NVARCHAR(10), FhirPath: "valueBoolean", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    value_quantity:        { DataType: NVARCHAR(100), FhirPath: "valueQuantity.value", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    value_unit:            { DataType: NVARCHAR(100), FhirPath: "valueQuantity.unit", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    value_coding_system:   { DataType: NVARCHAR(500), FhirPath: "valueCoding.system" }
+    value_coding_code:     { DataType: NVARCHAR(255), FhirPath: "valueCoding.code", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    value_coding_display:  { DataType: NVARCHAR(500), FhirPath: "valueCoding.display", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    element_nummer:        { DataType: NVARCHAR(50), FhirPath: "extension.where(url='http://example.org/fhir/StructureDefinition/sfiInstanceMeta').extension.where(url='elementNummer').valueInteger.first()", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    klynge_id:             { DataType: NVARCHAR(50), FhirPath: "extension.where(url='http://example.org/fhir/StructureDefinition/sfiInstanceMeta').extension.where(url='klyngeId').valueInteger.first()", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML], FK-None: true }
+    klynge_id_hierarki:    { DataType: NVARCHAR(500), FhirPath: "extension.where(url='http://example.org/fhir/StructureDefinition/sfiInstanceMeta').extension.where(url='klyngeIdHierarki').valueString.first()", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    klynge_valg_ledetekst: { DataType: NVARCHAR(MAX), FhirPath: "extension.where(url='http://example.org/fhir/StructureDefinition/sfiInstanceMeta').extension.where(url='klyngeValgLedetekst').valueString.first()", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    klynge_parent_id:      { DataType: NVARCHAR(50), FhirPath: "extension.where(url='http://example.org/fhir/StructureDefinition/sfiInstanceMeta').extension.where(url='klyngeParentId').valueInteger.first()", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML], FK-None: true }
+    repetition_id:         { DataType: NVARCHAR(50), FhirPath: "extension.where(url='http://example.org/fhir/StructureDefinition/sfiInstanceMeta').extension.where(url='repetitionId').valueInteger.first()", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML], FK-None: true }
+    element_kode:          { DataType: NVARCHAR(255), FhirPath: "extension.where(url='http://example.org/fhir/StructureDefinition/sfiInstanceMeta').extension.where(url='elementKode').valueString.first()", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    element_original_kode: { DataType: NVARCHAR(255), FhirPath: "extension.where(url='http://example.org/fhir/StructureDefinition/sfiInstanceMeta').extension.where(url='elementOriginalKode').valueString.first()", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    element_administrativ_enhed_id: { DataType: NVARCHAR(255), FhirPath: "extension.where(url='http://example.org/fhir/StructureDefinition/sfiInstanceMeta').extension.where(url='elementAdminEnhedId').valueString.first()", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML], FK-None: true }
+    repetition_id_hierarki: { DataType: NVARCHAR(500), FhirPath: "extension.where(url='http://example.org/fhir/StructureDefinition/sfiInstanceMeta').extension.where(url='repetitionIdHierarki').valueString.first()", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    opdateret_tid:         { DataType: NVARCHAR(50), FhirPath: "extension.where(url='http://example.org/fhir/StructureDefinition/sfiInstanceMeta').extension.where(url='opdateretTid').valueString.first()", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    xml_status:            { DataType: INT, FhirPath: "extension.where(url='http://example.org/fhir/StructureDefinition/sfiInstanceMeta').extension.where(url='xmlStatus').valueInteger.first()", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    xml_status_text:       { DataType: NVARCHAR(255), FhirPath: "extension.where(url='http://example.org/fhir/StructureDefinition/sfiInstanceMeta').extension.where(url='xmlStatusText').valueString.first()", Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    last_updated:          { DataType: DATETIME2, FhirPath: "r.ts" }
+    created_at:            { DataType: DATETIME2, FhirPath: "r.cts" }
+    dw_is_deleted:         { DataType: INT, Description: "Slettet-flag (0 = live, 1 = slettet). Warehouse-styret: sættes af child-grain-afstemningen, når et svar forsvinder fra en levende besvarelse, og af dqa_fhir_server_cleanup, når besvarelsen slettes i Aidbox; nulstilles ved MERGE-match. NOT NULL DEFAULT 0." }
+    dw_timestamp_effective: { Type: Audit, DataType: DATETIME2, Expr: "ISNULL(dw_timestamp_update, dw_timestamp_insert) PERSISTED — sargbar delta-discovery-kolonne" }

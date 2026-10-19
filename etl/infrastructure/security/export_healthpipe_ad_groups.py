@@ -7,7 +7,7 @@
 # root for the full AGPL-3.0 license text.
 
 """
-Eksportér HealthPipe AD-grupper (LSSAPP/GSCAPP) og map til sec.RBOrganisation + sec.RolleDomaene.
+Eksportér HealthPipe AD-grupper (LSSAPP/GSCAPP) og map til sec.RBOrganisation, sec.RolleDomaene og de historiserede sec-tabeller.
 
 Formål
 ------
@@ -28,14 +28,11 @@ Understøttede gruppetyper
 2. **Domaenerolle-grupper** → ``sec.RolleDomaene`` (via ``load_healthpipe_ad_to_mssql.py``)::
 
        LSSAPP_HP_Domaenerolle_<DPA-domæne>_<rolle>
+       LSSAPP_HP_Domaenerolle_<DPA-domæne>_<sygehus>_P
 
-   Rolle: ``U`` = Ubegrænset, ``K`` = Kolonnebegrænset.
-
-3. **Bopæl-grupper** → ``sec.RolleDomaene.Populationsansvar`` (via ``load_healthpipe_ad_to_mssql.py``)::
-
-       LSSAPP_HP_Bopael_<sygehus>
-
-   Sygehus-alias: ``OUH``, ``SHS``, ``EGS``, ``SLB``.
+   Rolle: ``U`` = Ubegrænset, ``K`` = Kolonnebegrænset, ``P`` = Kolonnebegrænset med
+   populationsansvar for sygehuset (``SHS``, ``EGS``, ``SLB``, ``OUH``) i domænet.
+   En P-gruppe med et ukendt sygehus springes over med en advarsel.
 
 Gruppestruktur i AD
 -------------------
@@ -66,11 +63,12 @@ Output
 
 **Domaenerolle-grupper:**
 
-- ``healthpipe_roller.jsonl`` — én linje pr. (bruger, domæne, rolle)
+- ``healthpipe_roller.jsonl`` — én linje pr. (bruger, domæne, rolle, populationsansvar)
 
-**Bopæl-grupper:**
+**Fejlede medlemsopslag** (læses af ``load_healthpipe_ad_to_mssql.py``):
 
-- ``healthpipe_bopael.jsonl`` — én linje pr. (bruger, hospital)
+- ``healthpipe_fejlede_opslag.jsonl`` — én linje pr. medlems-DN, hvis opslag fejlede; loaderen
+  lukker ingen rækker i historiktabellerne, når filen ikke er tom
 
 Brug ``load_healthpipe_ad_to_mssql.py`` til at indlæse JSONL-data i MSSQL.
 
@@ -98,6 +96,7 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
+from DSA.SQL.ref.kommune_to_populationsansvar import POPULATIONSANSVAR_BY_KOMMUNEKODE
 from ldap3 import ALL, BASE, NTLM, SIMPLE, SUBTREE, Connection, Server, Tls
 from ldap3.core.exceptions import (
     LDAPBindError,
@@ -117,10 +116,11 @@ _DEFAULT_OU_DN = (
 _ORG_GROUP_RE = re.compile(r"^(?P<prefix>LSSAPP|GSCAPP)_HP_(?P<type>Org)_(?P<sor_code>\d+)$")
 
 _ROLE_GROUP_RE = re.compile(
-    r"^(?P<prefix>LSSAPP|GSCAPP)_HP_Domaenerolle_(?P<domain>DPA_\w+)_(?P<role>[UK])$"
+    r"^(?P<prefix>LSSAPP|GSCAPP)_HP_Domaenerolle_(?P<domain>DPA_\w+?)"
+    r"(?:_(?P<hospital>[^\W_]+)(?=_P$))?_(?P<role>[UKP])$"
 )
 
-_BOPAEL_GROUP_RE = re.compile(r"^(?P<prefix>LSSAPP|GSCAPP)_HP_Bopael_(?P<hospital>\w+)$")
+_HOSPITALS = frozenset(POPULATIONSANSVAR_BY_KOMMUNEKODE.values())
 
 
 @dataclass
@@ -145,19 +145,8 @@ class ParsedRoleGroup:
     sam_account_name: str
     prefix: str  # LSSAPP or GSCAPP
     domain: str  # e.g. "DPA_TIP", "DPA_Socialdata"
-    role: str  # "U" (Ubegrænset) or "K" (Kolonnebegrænset)
-    members_dn: list[str] = field(default_factory=list)
-
-
-@dataclass
-class ParsedBopælGroup:
-    """A HealthPipe Bopæl AD group with parsed metadata."""
-
-    dn: str
-    name: str
-    sam_account_name: str
-    prefix: str  # LSSAPP or GSCAPP
-    hospital: str  # e.g. "OUH", "SHS", "EGS", "SLB"
+    role: str  # "U" (Ubegrænset), "K" (Kolonnebegrænset) or "P" (populationsansvar)
+    populationsansvar: str  # hospital for "P", else ""
     members_dn: list[str] = field(default_factory=list)
 
 
@@ -308,9 +297,15 @@ class ResolvedMember:
     members_dn: list[str] = field(default_factory=list)
 
 
-def _resolve_member(
-    conn: Connection, dn: str, cache: dict[str, ResolvedMember | None]
-) -> ResolvedMember | None:
+class MemberCache(dict[str, ResolvedMember | None]):
+    """DN -> resolved member; ``failed`` holds the DNs whose LDAP search failed."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.failed: set[str] = set()
+
+
+def _resolve_member(conn: Connection, dn: str, cache: MemberCache) -> ResolvedMember | None:
     if dn in cache:
         return cache[dn]
     try:
@@ -322,6 +317,11 @@ def _resolve_member(
             size_limit=1,
         )
         if not ok or not conn.entries:
+            if not ok and (conn.result or {}).get("description") not in (
+                "noSuchObject",
+                "referral",
+            ):
+                cache.failed.add(dn)
             cache[dn] = None
             return None
         entry = conn.entries[0]
@@ -337,6 +337,7 @@ def _resolve_member(
         cache[dn] = result
         return result
     except LDAPException:
+        cache.failed.add(dn)
         cache[dn] = None
         return None
 
@@ -347,7 +348,7 @@ _MAX_NEST_DEPTH = 5
 def _resolve_users_recursive(
     conn: Connection,
     member_dns: list[str],
-    cache: dict[str, ResolvedMember | None],
+    cache: MemberCache,
     warnings: list[str],
     context: str,
     _depth: int = 0,
@@ -429,12 +430,12 @@ def _iter_groups(
 
 def _parse_groups(
     raw_groups: list[dict[str, Any]],
-) -> tuple[list[ParsedOrgGroup], list[ParsedRoleGroup], list[ParsedBopælGroup], list[str]]:
-    """Classify all raw groups into Org, Role, Bopæl, or skipped."""
+) -> tuple[list[ParsedOrgGroup], list[ParsedRoleGroup], list[str], list[str]]:
+    """Classify all raw groups into Org, Role or skipped, plus warnings for skipped P groups."""
     org_groups: list[ParsedOrgGroup] = []
     role_groups: list[ParsedRoleGroup] = []
-    bopael_groups: list[ParsedBopælGroup] = []
     skipped: list[str] = []
+    warnings: list[str] = []
 
     for raw in raw_groups:
         name = raw.get("sAMAccountName") or raw.get("name") or ""
@@ -457,6 +458,11 @@ def _parse_groups(
 
         m_role = _ROLE_GROUP_RE.match(name)
         if m_role:
+            hospital = m_role.group("hospital") or ""
+            if m_role.group("role") == "P" and hospital not in _HOSPITALS:
+                warnings.append(f"{name}: ukendt sygehus {hospital!r}, gruppen springes over")
+                skipped.append(name)
+                continue
             role_groups.append(
                 ParsedRoleGroup(
                     dn=raw["dn"],
@@ -465,20 +471,7 @@ def _parse_groups(
                     prefix=m_role.group("prefix"),
                     domain=m_role.group("domain"),
                     role=m_role.group("role"),
-                    members_dn=members,
-                )
-            )
-            continue
-
-        m_bopael = _BOPAEL_GROUP_RE.match(name)
-        if m_bopael:
-            bopael_groups.append(
-                ParsedBopælGroup(
-                    dn=raw["dn"],
-                    name=raw.get("name") or name,
-                    sam_account_name=name,
-                    prefix=m_bopael.group("prefix"),
-                    hospital=m_bopael.group("hospital"),
+                    populationsansvar=hospital,
                     members_dn=members,
                 )
             )
@@ -486,7 +479,7 @@ def _parse_groups(
 
         skipped.append(name or raw.get("dn", ""))
 
-    return org_groups, role_groups, bopael_groups, skipped
+    return org_groups, role_groups, skipped, warnings
 
 
 def _pair_org_groups(parsed: list[ParsedOrgGroup]) -> dict[str, SorGroupPair]:
@@ -523,24 +516,15 @@ class UserRoleMapping:
 
     bruger: str
     domain: str  # e.g. "DPA_TIP"
-    ubegraenset: bool
-    raekkebegraenset: bool
-    source_group: str
-
-
-@dataclass
-class UserBopælMapping:
-    """One resolved user from a Bopæl group."""
-
-    bruger: str
-    hospital: str
+    rolle: str
+    populationsansvar: str
     source_group: str
 
 
 def _resolve_org_pairs(
     conn: Connection,
     pairs: dict[str, SorGroupPair],
-    cache: dict[str, ResolvedMember | None],
+    cache: MemberCache,
     verbose: bool = False,
 ) -> tuple[list[UserOrgMapping], list[str]]:
     """Resolve members to sAMAccountName and build UserOrgMapping rows.
@@ -626,7 +610,7 @@ def _resolve_org_pairs(
 def _resolve_role_groups(
     conn: Connection,
     role_groups: list[ParsedRoleGroup],
-    cache: dict[str, ResolvedMember | None],
+    cache: MemberCache,
     verbose: bool = False,
 ) -> tuple[list[UserRoleMapping], list[str]]:
     """Resolve Domaenerolle group members into UserRoleMapping rows.
@@ -636,15 +620,13 @@ def _resolve_role_groups(
     mappings: list[UserRoleMapping] = []
     warnings: list[str] = []
 
-    for rg in sorted(role_groups, key=lambda g: (g.domain, g.role)):
+    for rg in sorted(role_groups, key=lambda g: (g.domain, g.role, g.populationsansvar)):
+        label = "_".join(filter(None, (rg.domain, rg.populationsansvar, rg.role)))
         if verbose:
-            print(
-                f"  [VERBOSE] Rolle {rg.domain}_{rg.role} "
-                f"({rg.prefix}): {len(rg.members_dn)} member DNs"
-            )
+            print(f"  [VERBOSE] Rolle {label} ({rg.prefix}): {len(rg.members_dn)} member DNs")
         if not rg.members_dn:
             continue
-        ctx = f"Rolle {rg.domain}_{rg.role}"
+        ctx = f"Rolle {label}"
         users = _resolve_users_recursive(conn, rg.members_dn, cache, warnings, ctx)
         if verbose:
             print(f"    → {len(users)} brugere resolved")
@@ -653,44 +635,9 @@ def _resolve_role_groups(
                 UserRoleMapping(
                     bruger=bruger,
                     domain=rg.domain,
-                    ubegraenset=(rg.role == "U"),
-                    raekkebegraenset=False,
+                    rolle=rg.role,
+                    populationsansvar=rg.populationsansvar,
                     source_group=rg.sam_account_name,
-                )
-            )
-
-    return mappings, warnings
-
-
-def _resolve_bopael_groups(
-    conn: Connection,
-    bopael_groups: list[ParsedBopælGroup],
-    cache: dict[str, ResolvedMember | None],
-    verbose: bool = False,
-) -> tuple[list[UserBopælMapping], list[str]]:
-    """Resolve Bopæl group members into UserBopælMapping rows.
-
-    Recursively resolves nested groups to find actual user accounts.
-    """
-    mappings: list[UserBopælMapping] = []
-    warnings: list[str] = []
-
-    for bg in sorted(bopael_groups, key=lambda g: g.hospital):
-        if verbose:
-            print(
-                f"  [VERBOSE] Bopæl {bg.hospital} "
-                f"({bg.prefix}): {len(bg.members_dn)} member DNs"
-            )
-        if not bg.members_dn:
-            continue
-        ctx = f"Bopæl {bg.hospital}"
-        users = _resolve_users_recursive(conn, bg.members_dn, cache, warnings, ctx)
-        for bruger in users:
-            mappings.append(
-                UserBopælMapping(
-                    bruger=bruger,
-                    hospital=bg.hospital,
-                    source_group=bg.sam_account_name,
                 )
             )
 
@@ -732,8 +679,8 @@ def _write_role_jsonl(path: Path, mappings: list[UserRoleMapping]) -> None:
                     {
                         "bruger": m.bruger,
                         "domain": m.domain,
-                        "ubegraenset": m.ubegraenset,
-                        "raekkebegraenset": m.raekkebegraenset,
+                        "rolle": m.rolle,
+                        "populationsansvar": m.populationsansvar,
                         "source_group": m.source_group,
                     },
                     ensure_ascii=False,
@@ -742,21 +689,11 @@ def _write_role_jsonl(path: Path, mappings: list[UserRoleMapping]) -> None:
             )
 
 
-def _write_bopael_jsonl(path: Path, mappings: list[UserBopælMapping]) -> None:
+def _write_rows_jsonl(path: Path, rows: list[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
-        for m in mappings:
-            f.write(
-                json.dumps(
-                    {
-                        "bruger": m.bruger,
-                        "hospital": m.hospital,
-                        "source_group": m.source_group,
-                    },
-                    ensure_ascii=False,
-                )
-                + "\n"
-            )
+        for row in rows:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
 def _write_txt(
@@ -765,8 +702,6 @@ def _write_txt(
     org_mappings: list[UserOrgMapping],
     role_groups: list[ParsedRoleGroup],
     role_mappings: list[UserRoleMapping],
-    bopael_groups: list[ParsedBopælGroup],
-    bopael_mappings: list[UserBopælMapping],
     warnings: list[str],
     ou_dn: str,
 ) -> None:
@@ -783,8 +718,6 @@ def _write_txt(
         f.write(f"antal unikke (bruger, SOR) mappings: {len(org_mappings)}\n")
         f.write(f"antal Domaenerolle-grupper: {len(role_groups)}\n")
         f.write(f"antal unikke (bruger, domæne) roller: {len(role_mappings)}\n")
-        f.write(f"antal Bopæl-grupper: {len(bopael_groups)}\n")
-        f.write(f"antal unikke (bruger, hospital) bopæl: {len(bopael_mappings)}\n")
 
         # --- Org-grupper ---
         f.write("\n" + "=" * 70 + "\n")
@@ -818,50 +751,32 @@ def _write_txt(
         f.write("DOMAENEROLLE-GRUPPER (sec.RolleDomaene)\n")
         f.write("=" * 70 + "\n")
 
-        by_domain_role: dict[tuple[str, str], list[str]] = {}
+        by_domain_role: dict[tuple[str, str, str], list[str]] = {}
         for m in role_mappings:
-            by_domain_role.setdefault((m.domain, "U" if m.ubegraenset else "K"), []).append(
-                m.bruger
-            )
+            by_domain_role.setdefault((m.domain, m.rolle, m.populationsansvar), []).append(m.bruger)
 
-        role_labels = {"U": "Ubegrænset", "K": "Kolonnebegrænset"}
-        for domain, role in sorted(by_domain_role):
-            users = sorted(by_domain_role[(domain, role)], key=str.casefold)
-            f.write(f"\n{domain} — {role_labels.get(role, role)} ({role})\n")
+        role_labels = {"U": "Ubegrænset", "K": "Kolonnebegrænset", "P": "Populationsansvar"}
+        for domain, role, pop in sorted(by_domain_role):
+            users = sorted(by_domain_role[(domain, role, pop)], key=str.casefold)
+            label = " ".join(filter(None, (role_labels.get(role, role), pop)))
+            f.write(f"\n{domain} — {label} ({role})\n")
             f.write(f"  Medlemmer ({len(users)}):\n")
             for u in users:
                 f.write(f"    - {u}\n")
 
         # Vis roller uden medlemmer
         seen_domain_roles = set(by_domain_role.keys())
-        empty_roles = [rg for rg in role_groups if (rg.domain, rg.role) not in seen_domain_roles]
+        empty_roles = [
+            rg
+            for rg in role_groups
+            if (rg.domain, rg.role, rg.populationsansvar) not in seen_domain_roles
+        ]
         if empty_roles:
-            for rg in sorted(empty_roles, key=lambda g: (g.domain, g.role)):
-                f.write(f"\n{rg.domain} — {role_labels.get(rg.role, rg.role)} ({rg.role})\n")
-                f.write("  Medlemmer (0):\n")
-                f.write("    (ingen medlemmer)\n")
-
-        # --- Bopæl-grupper ---
-        f.write("\n" + "=" * 70 + "\n")
-        f.write("BOPÆL-GRUPPER\n")
-        f.write("=" * 70 + "\n")
-
-        by_hospital: dict[str, list[str]] = {}
-        for m in bopael_mappings:
-            by_hospital.setdefault(m.hospital, []).append(m.bruger)
-
-        seen_hospitals = set(by_hospital.keys())
-        for hospital in sorted(by_hospital):
-            users = sorted(by_hospital[hospital], key=str.casefold)
-            f.write(f"\n{hospital}\n")
-            f.write(f"  Medlemmer ({len(users)}):\n")
-            for u in users:
-                f.write(f"    - {u}\n")
-
-        empty_bopael = [bg for bg in bopael_groups if bg.hospital not in seen_hospitals]
-        if empty_bopael:
-            for bg in sorted(empty_bopael, key=lambda g: g.hospital):
-                f.write(f"\n{bg.hospital}\n")
+            for rg in sorted(empty_roles, key=lambda g: (g.domain, g.role, g.populationsansvar)):
+                label = " ".join(
+                    filter(None, (role_labels.get(rg.role, rg.role), rg.populationsansvar))
+                )
+                f.write(f"\n{rg.domain} — {label} ({rg.role})\n")
                 f.write("  Medlemmer (0):\n")
                 f.write("    (ingen medlemmer)\n")
 
@@ -889,7 +804,7 @@ def _read_rows(path: Path) -> list[dict]:
     return rows
 
 
-def run_export(verbose: bool = False) -> dict[str, list[dict]]:
+def run_export(verbose: bool = False) -> dict:
     _load_dotenv_repo_root()
 
     ou_dn = (os.environ.get("LDAP_HP_OU_DN") or "").strip() or _DEFAULT_OU_DN
@@ -911,9 +826,9 @@ def run_export(verbose: bool = False) -> dict[str, list[dict]]:
         or str(default_output_dir / "healthpipe_roller.jsonl")
     )
 
-    output_bopael_jsonl = Path(
-        os.environ.get("LDAP_HP_OUTPUT_BOPAEL_JSONL")
-        or str(default_output_dir / "healthpipe_bopael.jsonl")
+    output_fejlede_jsonl = Path(
+        os.environ.get("LDAP_HP_OUTPUT_FEJLEDE_OPSLAG_JSONL")
+        or str(default_output_dir / "healthpipe_fejlede_opslag.jsonl")
     )
 
     print(f"OU: {ou_dn}")
@@ -921,7 +836,7 @@ def run_export(verbose: bool = False) -> dict[str, list[dict]]:
     print(f"Group page size: {group_page_size}")
     print(f"Output Org JSONL:    {output_jsonl}")
     print(f"Output Role JSONL:   {output_role_jsonl}")
-    print(f"Output Bopæl JSONL:  {output_bopael_jsonl}")
+    print(f"Output Fejlede opslag JSONL: {output_fejlede_jsonl}")
     print(f"Output TXT:          {output_txt}")
     if verbose:
         print("Mode: VERBOSE")
@@ -994,13 +909,12 @@ def run_export(verbose: bool = False) -> dict[str, list[dict]]:
     print(f"Fandt {len(raw_groups)} grupper totalt under OU.")
 
     # -- Parse & classify ------------------------------------------------------
-    org_groups, role_groups, bopael_groups, skipped = _parse_groups(raw_groups)
+    org_groups, role_groups, skipped, parse_warnings = _parse_groups(raw_groups)
 
     org_lssapp = sum(1 for g in org_groups if g.prefix == "LSSAPP")
     org_gscapp = sum(1 for g in org_groups if g.prefix == "GSCAPP")
     print(f"  Org-grupper:          LSSAPP={org_lssapp}, GSCAPP={org_gscapp}")
     print(f"  Domaenerolle-grupper: {len(role_groups)}")
-    print(f"  Bopæl-grupper:        {len(bopael_groups)}")
     if skipped:
         print(f"  Skippet:             {len(skipped)}")
         for s in skipped[:5]:
@@ -1013,7 +927,7 @@ def run_export(verbose: bool = False) -> dict[str, list[dict]]:
     print(f"Unikke SOR-koder: {len(pairs)}")
 
     # -- Resolve members -------------------------------------------------------
-    member_cache: dict[str, ResolvedMember | None] = {}
+    member_cache: MemberCache = MemberCache()
 
     print("Opløser Org-gruppemedlemmer (GSCAPP foretrukket, LSSAPP fallback)...")
     org_mappings, org_warnings = _resolve_org_pairs(conn, pairs, member_cache, verbose=verbose)
@@ -1028,26 +942,21 @@ def run_export(verbose: bool = False) -> dict[str, list[dict]]:
     )
     print(f"  Rolle-mappings (bruger → domæne): {len(role_mappings)}")
 
-    print("Opløser Bopæl-medlemmer...")
-    bopael_mappings, bopael_warnings = _resolve_bopael_groups(
-        conn, bopael_groups, member_cache, verbose=verbose
-    )
-    print(f"  Bopæl-mappings (bruger → hospital): {len(bopael_mappings)}")
+    if member_cache.failed:
+        print(f"  ADVARSEL: {len(member_cache.failed)} medlemsopslag fejlede")
 
-    all_warnings = org_warnings + role_warnings + bopael_warnings
+    all_warnings = parse_warnings + org_warnings + role_warnings
 
     # -- Write output ----------------------------------------------------------
     _write_org_jsonl(output_jsonl, org_mappings)
     _write_role_jsonl(output_role_jsonl, role_mappings)
-    _write_bopael_jsonl(output_bopael_jsonl, bopael_mappings)
+    _write_rows_jsonl(output_fejlede_jsonl, [{"dn": dn} for dn in sorted(member_cache.failed)])
     _write_txt(
         output_txt,
         pairs,
         org_mappings,
         role_groups,
         role_mappings,
-        bopael_groups,
-        bopael_mappings,
         all_warnings,
         ou_dn,
     )
@@ -1055,7 +964,7 @@ def run_export(verbose: bool = False) -> dict[str, list[dict]]:
     print("-" * 60)
     print(f"Skrevet Org JSONL:    {output_jsonl}")
     print(f"Skrevet Role JSONL:   {output_role_jsonl}")
-    print(f"Skrevet Bopæl JSONL:  {output_bopael_jsonl}")
+    print(f"Skrevet Fejlede opslag JSONL: {output_fejlede_jsonl}")
     print(f"Skrevet TXT:          {output_txt}")
 
     if all_warnings:
@@ -1073,7 +982,9 @@ def run_export(verbose: bool = False) -> dict[str, list[dict]]:
     return {
         "org": _read_rows(output_jsonl),
         "roller": _read_rows(output_role_jsonl),
-        "bopael": _read_rows(output_bopael_jsonl),
+        "fejlede_opslag": [r["dn"] for r in _read_rows(output_fejlede_jsonl)],
+        "advarsler": parse_warnings,
+        "source": {"user": conn.user, "host": conn.server.host, "table": ou_dn},
     }
 
 

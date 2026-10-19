@@ -1,0 +1,26 @@
+{
+  "resourceType": "ViewDefinition",
+  "name": "ward_unit_capacity_view",
+  "resource": "Observation",
+  "status": "active",
+  "where": [
+    {"path": "code.coding.where(system='http://example.org/fhir/CodeSystem/ward-unit-capacity-type').exists()"}
+  ],
+  "select": [
+    {
+      "column": [
+        {"name": "observation_id", "path": "id"},
+        {"name": "ward_unit_id", "path": "subject.id"},
+        {"name": "status", "path": "status"},
+        {"name": "category_code", "path": "category.coding.where(system='http://example.org/fhir/CodeSystem/observation-category').code.first()"},
+        {"name": "capacity_type", "path": "code.coding.where(system='http://example.org/fhir/CodeSystem/ward-unit-capacity-type').code.first()"},
+        {"name": "capacity_type_system", "path": "code.coding.where(system='http://example.org/fhir/CodeSystem/ward-unit-capacity-type').system.first()"},
+        {"name": "effective_period_start", "path": "effectivePeriod.start"},
+        {"name": "effective_period_end", "path": "effectivePeriod.end"},
+        {"name": "count", "path": "valueInteger"},
+        {"name": "identifier_value", "path": "identifier.where(system='urn:source:ifdb:sengeenhed_kapacitet').value.first()"},
+        {"name": "dw_is_deleted", "path": "extension('urn:fhir:isDeleted').valueInteger.first()"}
+      ]
+    }
+  ]
+}

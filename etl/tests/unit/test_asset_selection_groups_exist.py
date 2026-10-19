@@ -73,3 +73,51 @@ class TestAssetSelectionGroupsExist:
             f"AssetSelection.groups() references undefined asset groups "
             f"(selection silently resolves empty): {unknown}"
         )
+
+
+def _keys_i_alle_jobs() -> set[str]:
+    """Alle assetnoegler, der er valgt af mindst ét job."""
+    valgte: set[str] = set()
+    for job in defs.jobs or []:
+        job_def = defs.resolve_job_def(job.name) if hasattr(defs, "resolve_job_def") else job
+        valgte |= {k.to_user_string() for k in job_def.asset_layer.executable_asset_keys}
+    return valgte
+
+
+@pytest.mark.unit
+class TestKodesystemSynkHarSinBygger:
+    """En truncate-synk uden sin bygger toemmer maalet i stedet for at opdatere det.
+
+    Synken i gruppen ``codesystem_dso_sync`` koerer ``truncate_insert``, som
+    rydder maaltabellen ogsaa ved nul kilderaekker. Staar byggeren ikke i noget
+    job, bliver staging-tabellen aldrig fyldt i et miljoe, hvor ingen har koert
+    den i haanden — og synken rydder saa kodesystemet paa DSO, uden at noget
+    fejler. Teksten i vw_fhir bliver NULL, og fejlen ses foerst hos aftageren.
+    """
+
+    def test_hver_synk_har_en_bygger(self):
+        graf = defs.resolve_asset_graph()
+        byggere = {
+            parent.to_user_string()
+            for key in graf.get_all_asset_keys()
+            if graf.get(key).group_name == "codesystem_dso_sync"
+            for parent in graf.get(key).parent_keys
+            if parent.to_user_string().startswith("cs_")
+        }
+        assert byggere, "ingen byggere fundet bag codesystem_dso_sync — testen rammer forbi"
+
+    def test_hver_bygger_koerer_i_mindst_ét_job(self):
+        graf = defs.resolve_asset_graph()
+        byggere = {
+            parent.to_user_string()
+            for key in graf.get_all_asset_keys()
+            if graf.get(key).group_name == "codesystem_dso_sync"
+            for parent in graf.get(key).parent_keys
+            if parent.to_user_string().startswith("cs_")
+        }
+        valgte = _keys_i_alle_jobs()
+        uden_job = sorted(b for b in byggere if b not in valgte)
+        assert not uden_job, (
+            "kodesystem-byggere staar i intet job, mens deres truncate-synk koerer: "
+            f"{uden_job}. Synken ville rydde kodesystemet paa DSO i stedet for at opdatere det."
+        )

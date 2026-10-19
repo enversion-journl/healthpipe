@@ -29,12 +29,15 @@ Cadence
 -------
 The ingest job is scheduled daily at 05:00 CET (schedules/haiba_schedules.py),
 one hour before the DFM base job, so a delivery that landed overnight has its
-stubs in Aidbox before the chain that projects them runs. Re-running it against
-a delivery already in the archive is a data no-op — the MERGE has
-update_only_on_change with leverance_dato excluded from the change columns, the
-delivery register upserts its row, and the stub creation resolves against
-Aidbox and posts nothing. It is not free, though: the newest file per HAI type
-is re-read and re-staged every run.
+stubs in Aidbox before the chain that projects them runs. A run against a
+delivery already in the archive is a fast no-op: the extract compares the
+newest file per HAI type against its delivery checkpoint and streams no CSV
+rows into ext (DSI/csv_files/haiba.py), and the archive declares a no-op off
+the manifest the extract emptied (DSI/csv_files/haiba_archive.py). A re-merge
+is safe too: the MERGE has update_only_on_change with leverance_dato excluded
+from the change columns, and the delivery register upserts its row. The stub
+creation runs on every ingest and resolves against Aidbox, so a run that
+changed nothing in arc posts nothing.
 
 The publish job is triggered by haiba_publish_sensor after the nightly chain
 has minted the keys — once for each new delivery, and again on later nights

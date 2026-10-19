@@ -21,9 +21,8 @@ from core.dfm_config import RunModeConfig
 from core.dfm_manager import DfmManager
 from core.resources import MSSQLResource
 from dagster import AssetExecutionContext, AssetKey, MaterializeResult, asset
+from DSA.SQL.common.dato_dimension import dato_key, dato_tid
 from utils.sql.leverandoervare_ilsvare_sql import sql_lev_current_cte
-
-from etl.DSA.SQL.common.dato_dimension import dato_key, dato_tid
 
 
 @asset(

@@ -258,7 +258,7 @@ class TestBuildPeriodRunConfig:
 
 
 def _make_job_def_with_flow_start():
-    """Mock JobDefinition with one RunModeConfig op and one FlowStartConfig op."""
+    """Mock JobDefinition with a RunModeConfig, a FlowStartConfig and an IFDBCycleWaitConfig op."""
     mode_node = MagicMock()
     mode_node.name = "ext_encounter"
     mode_ct = MagicMock()
@@ -271,8 +271,14 @@ def _make_job_def_with_flow_start():
     flow_ct.fields = {"flow_start_override": ...}
     flow_node.config_schema.config_type = flow_ct
 
+    wait_node = MagicMock()
+    wait_node.name = "dfm_ifdb_cycle_wait"
+    wait_ct = MagicMock()
+    wait_ct.fields = {"cycle_wait_timeout_minutes": ...}
+    wait_node.config_schema.config_type = wait_ct
+
     job_def = MagicMock()
-    job_def.all_node_defs = [mode_node, flow_node]
+    job_def.all_node_defs = [mode_node, flow_node, wait_node]
     return job_def
 
 
@@ -290,13 +296,35 @@ class TestBuildPeriodRunConfigFlowStart:
         # The RunModeConfig op still gets period config.
         assert result["ops"]["ext_encounter"]["config"]["mode"] == "period"
 
-    def test_flow_start_op_skipped_when_no_override(self):
+    def test_cycle_wait_off_in_period_mode_on_the_real_ifdb_job(self):
+        """A renamed IFDBCycleWaitConfig field would make period runs wait up to 180 min."""
+        from definitions import defs
+
+        partition = DatePartition("2025-01-01", "2025-01-31")
+        ops = build_period_run_config(defs.get_job_def("ifdb_archive_job"), partition)["ops"]
+
+        wait_ops = [name for name in ops if name.startswith("dfm_ifdb_cycle_wait")]
+        assert len(wait_ops) == 1
+        assert ops[wait_ops[0]]["config"] == {"cycle_wait_timeout_minutes": 0}
+        assert not any(name.startswith("dfm_ifdb_flow_start") for name in ops)
+
+    def test_cycle_wait_off_in_delta_mode_with_an_override(self):
+        """An override run does not read the ceiling from Oracle, so it must not wait for a cycle."""
         job_def = _make_job_def_with_flow_start()
         partition = DatePartition("2025-01-01", "2025-01-31")
-        result = build_period_run_config(job_def, partition)
+        result = build_period_run_config(
+            job_def, partition, flow_start_override="2025-06-30 23:59:59", mode="delta"
+        )
+
+        assert result["ops"]["dfm_ifdb_cycle_wait"]["config"] == {"cycle_wait_timeout_minutes": 0}
+
+    def test_cycle_wait_and_flow_start_ops_skipped_in_delta_mode(self):
+        job_def = _make_job_def_with_flow_start()
+        partition = DatePartition("2025-01-01", "2025-01-31")
+        result = build_period_run_config(job_def, partition, mode="delta")
 
         assert "dfm_ifdb_flow_start" not in result["ops"]
-        assert "ext_encounter" in result["ops"]
+        assert "dfm_ifdb_cycle_wait" not in result["ops"]
 
 
 # ===========================================================================

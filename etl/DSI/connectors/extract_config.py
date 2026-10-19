@@ -67,16 +67,17 @@ class DfmExtractConfig:
         column_types: Mapping of column name to MSSQL type for ext table DDL.
             Used for cross-platform extracts (e.g. Oracle→MSSQL) where the target
             ext table needs properly sized columns instead of NVARCHAR(MAX).
-        upper_bound_column: Column to use for the upper-bound (flow-start ceiling) when
-            it differs from the delta column.  When set, the WHERE clause becomes:
+        upper_bound_column: Column to use for the upper-bound (flow-start ceiling).
+            When set, the WHERE clause becomes:
               delta_column > checkpoint AND upper_bound_column <= upper_bound
-            This is needed when the checkpoint tracks one timestamp (e.g.
-            IFDB_MODIFICATION_DATETIME) but the flow-start ceiling is based on
-            a different timestamp (e.g. EPJI_MODIFICATION_DATETIME).
+            The archive checkpoint becomes the ceiling, which the next run compares
+            with the delta column, so both columns must follow the clock the
+            ceiling was read from.
         flow_start_from: Where to READ the upper-bound value from at runtime.
             Tuple of (schema, table) in meta.DFMState — the factory reads this
             checkpoint and passes it as upper_bound to the WHERE builder (delta mode
-            only).  Example: ("dfm", "ifdb_flow_start") for IFDB tables.
+            only), and records the value it read under ``used_ceiling_key`` for the
+            archive merge.  Example: IFDB_TRANSFER_CEILING for IFDB tables.
             When None (default), no upper bound is applied by the factory.
         index_keys: Columns to create a clustered index on after loading the ext table.
         description: Human-readable description for asset metadata and documentation.
@@ -107,13 +108,14 @@ class DfmExtractConfig:
     # Target table typing (for cross-platform extracts like Oracle→MSSQL)
     column_types: dict[str, str] | None = None
 
-    # Upper-bound column override (for flow-start ceiling on a different column)
+    # Column the flow-start ceiling filters on (defaults to the delta column)
     upper_bound_column: str | None = None
 
     # Flow-start source — where to READ the upper-bound value from at runtime.
     # When set, the factory reads dfm.get_checkpoint(flow_start_from[0], flow_start_from[1])
     # and passes it as upper_bound to the WHERE builder (delta mode only).
-    # Example: ("dfm", "ifdb_flow_start") for IFDB extracts.
+    # The value read is recorded under used_ceiling_key for the archive merge.
+    # Example: IFDB_TRANSFER_CEILING for IFDB extracts.
     flow_start_from: tuple[str, str] | None = None
 
     # Post-load optimization
@@ -130,6 +132,11 @@ class DfmExtractConfig:
         Both may be None for full-load tables.
         """
         return self.delta_expression or self.delta_column
+
+    @property
+    def used_ceiling_key(self) -> tuple[str, str]:
+        """meta.DFMState row with the flow_start_from ceiling this table's last extract read."""
+        return ("dfm", f"{self.target_table}_flow_start")
 
     _VALID_CHECKPOINT_TYPES = frozenset({"datetime", "int"})
 

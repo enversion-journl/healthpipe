@@ -427,3 +427,99 @@ def test_overflow_raekker_naar_aldrig_databasen(tmp_path, monkeypatch):
     flushed = conn.store.get("drg_takstbeskrivelse", [])
     assert len(flushed) == 1  # kun den gode raekke blev flushet
     assert all(row[1] is not None for row in flushed)  # DRG-noeglen er aldrig None
+
+
+# ---------------------------------------------------------------------------
+# no-op-koersel + config-validering + cap-laesning
+# ---------------------------------------------------------------------------
+
+
+def test_no_op_koersel_toemmer_manifestet(tmp_path, monkeypatch):
+    """En koersel uden nye leverancer skal stadig ETABLERE det tomme manifest:
+    arc-laget erklaerer sin no-op ud fra det, og et staaende manifest fra
+    forrige koersel ville blive ved med at scope hele arc-kaeden — inkl.
+    CPR-scanningen i Patient_DRG — til den gamle leverance."""
+    from contextlib import nullcontext
+
+    from DSI.connectors.delivery_detection import delivery_identity
+
+    path = build_archive(tmp_path, "Region_1083_DRG_T26_M_20260818114549.tar.bz2", takst_members())
+    archive = _archive_file(path)
+    conn = FakeConn()
+
+    class _Resource:
+        def get_connection(self):
+            return nullcontext(conn)
+
+    class _Log:
+        def info(self, *_):
+            pass
+
+        def warning(self, *_):
+            pass
+
+    class _Ctx:
+        log = _Log()
+
+    monkeypatch.setenv(drg.BASE_DIR_ENV, str(tmp_path))
+    monkeypatch.setattr(drg, "discover_archives", lambda root, ltype: [archive])
+    monkeypatch.setattr(
+        drg,
+        "_read_checkpoints",
+        lambda *a, **k: {"T26": delivery_identity(archive.timestamp)},
+    )
+
+    result = drg._run_extract(
+        _Ctx(), _Resource(), MINI_DATASETS, "DRG", drg.DrgExtractConfig(kadence="M")
+    )
+
+    besluttet = result.metadata["besluttet"]
+    assert getattr(besluttet, "value", besluttet) == "intet nyt"
+    executed = conn.store.get("executed", [])
+    assert any("CREATE TABLE" in sql and "drg_leverance_manifest" in sql for sql in executed)
+    # ext roeres ikke: KUN manifestet blev droppet/genskabt.
+    assert all("drg_leverance_manifest" in sql for sql in executed)
+
+
+def test_ugyldig_kadence_afvises_ved_launch():
+    """En tastefejl ('m') ville ellers filtrere alle filer vaek og vaere groen
+    som "intet nyt" hver nat — netop den normale udgang for dette asset."""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        drg.DrgExtractConfig(kadence="m")
+
+
+class _CapCursor:
+    def __init__(self, values):
+        self._values = values
+
+    def execute(self, sql, *params):
+        assert "DISTINCT" in sql
+
+    def fetchall(self):
+        return [(v,) for v in self._values]
+
+    def close(self):
+        pass
+
+
+class _CapConn:
+    def __init__(self, values):
+        self._values = values
+
+    def cursor(self):
+        return _CapCursor(self._values)
+
+
+def test_cap_normaliseres_foer_max():
+    """MAX paa den raa NVARCHAR ordner kun kronologisk, hvis alle stavninger er
+    ISO — en blandet stavning maa fejle loudly for HELE maengden, ikke kun for
+    den vinder MAX tilfaeldigvis valgte."""
+    assert drg.read_delivery_cap(_CapConn(["2026-08-10", "2026-08-17"]), MINI_DATASETS, "T26") == (
+        "2026-08-17"
+    )
+    with pytest.raises(ValueError, match="ikke|not an ISO date"):
+        drg.read_delivery_cap(_CapConn(["2026-08-10", "17-08-2026"]), MINI_DATASETS, "T26")
+    assert drg.read_delivery_cap(_CapConn([]), MINI_DATASETS, "T26") is None
+    assert drg.read_delivery_cap(_CapConn(["", "2026-08-10"]), MINI_DATASETS, "T26") == "2026-08-10"

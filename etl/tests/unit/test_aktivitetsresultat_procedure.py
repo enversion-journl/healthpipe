@@ -204,12 +204,12 @@ class TestBuildProcedureDict:
         row = _make_row()
         _, proc = _build_aktivitetsresultat_procedure_dict(row)
 
-        assert len(proc["performer"]) == 3
+        assert len(proc["performer"]) == 2
         assert proc["performer"][0]["actor"]["type"] == "Organization"
         assert proc["performer"][0]["actor"]["identifier"]["value"] == "SOR-001"
         assert proc["performer"][1]["actor"]["display"] == "Dr. Hansen"
-        assert proc["performer"][2]["actor"]["identifier"]["system"] == SYSTEM_SOR
-        assert proc["performer"][2]["actor"]["identifier"]["value"] == "SOR-001"
+        assert proc["performer"][0]["actor"]["identifier"]["system"] == SYSTEM_SOR
+        assert proc["performer"][0]["function"]["coding"][0]["code"] == "udfoerende"
 
     def test_source_meta_extension(self) -> None:
         row = _make_row()

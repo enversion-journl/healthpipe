@@ -20,7 +20,7 @@ dso_lineage:
     - ifdb_care_discharge_report_receiver: [IFDB.CARE_DISCHARGE_REPORT_RECEIVER]
 
   Columns:
-    documentreference_id: { Type: PK, DataType: NVARCHAR(255), FhirPath: "id" }
+    documentreference_id: { Type: PK, DataType: NVARCHAR(255), FhirPath: "id", FK-Target: fhir.DocumentReference, FK-Key: documentreference_id, FK-Required: true, Description: "Første led i den sammensatte primærnøgle og samtidig fremmednøgle til forældretabellen." }
     recipient_key:        { Type: PK, DataType: NVARCHAR(255), FhirPath: "extension.where(url='urn:source:ifdb:document_reference_recipients').extension.extension.where(url='recipientKey').valueIdentifier.value", Source: [ifdb_epikrise_modtager.IFDB.EPIKRISE_MODTAGER.OBJEKT_ID, ifdb_care_discharge_report_receiver.IFDB.CARE_DISCHARGE_REPORT_RECEIVER.RECEIVER_AFDELING_KODE, ifdb_care_discharge_report_receiver.IFDB.CARE_DISCHARGE_REPORT_RECEIVER.CCRECEIVER] }
     recipient_type:       { DataType: NVARCHAR(100), FhirPath: "extension.where(url='urn:source:ifdb:document_reference_recipients').extension.extension.where(url='type').valueString", Source: [ifdb_epikrise_modtager.IFDB.EPIKRISE_MODTAGER.MODTAGERTYPE] }
     organization_ref:     { DataType: NVARCHAR(512), FhirPath: "extension.where(url='urn:source:ifdb:document_reference_recipients').extension.extension.where(url='organization').valueReference.identifier.value", Source: [ifdb_care_discharge_report_receiver.IFDB.CARE_DISCHARGE_REPORT_RECEIVER.RECEIVER_AFDELING_SORKODE] }

@@ -11,10 +11,10 @@ Unit tests for IFDB transform functions.
 from unittest.mock import MagicMock
 
 import pytest
+from DSA.FHIR.Patient.patient_ifdb_contribution import transform_fhir_patient_ifdb
 from DSA.FHIR.utils.ifdb.transforms import (
     is_true_flag,
     source_deleted_to_int,
-    transform_fhir_patient_ifdb,
 )
 from utils.fhir.fhir_extensions import EXTENSION_ADDRESS_PROTECTION
 

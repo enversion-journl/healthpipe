@@ -1,0 +1,32 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fhir
+  TableName: fhir.Encounter_Absence
+  Domain: [FHIR]
+  Description: "Fraværsperioder på Encounter (extension-liste urn:source:ifdb:encounter_absence). Overskriver ikke Encounter.status."
+  Grain: "Én række pr. fraværsperiode pr. kontakt (OBJECT_ID + PERIOD_START)"
+  FhirResource: Encounter
+
+  SourceSystems:
+    - ifdb_encounter: [IFDB.ENCOUNTER]
+    - ifdb_absence: [IFDB.ABSENCE]
+
+  Columns:
+    encounter_id:     { Type: PK, DataType: NVARCHAR(255), FhirPath: "id", FK-Target: fhir.Encounter, FK-Key: encounter_id, FK-Required: true, Description: "FHIR Encounter resource id (Aidbox UUID)." }
+    period_start:     { DataType: NVARCHAR(50), FhirPath: "extension.where(url='urn:source:ifdb:encounter_absence').extension.where(url='urn:source:ifdb:encounter_absence#period').valuePeriod.start", Source: [ifdb_absence.IFDB.ABSENCE.PERIOD_START] }
+    period_end:       { DataType: NVARCHAR(50), FhirPath: "extension.where(url='urn:source:ifdb:encounter_absence').extension.where(url='urn:source:ifdb:encounter_absence#period').valuePeriod.end", Source: [ifdb_absence.IFDB.ABSENCE.PERIOD_END] }
+    type_code:        { DataType: NVARCHAR(512), FhirPath: "extension.where(url='urn:source:ifdb:encounter_absence').extension.where(url='urn:source:ifdb:encounter_absence#type').valueCoding.code", Source: [ifdb_absence.IFDB.ABSENCE.TYPE_CODE], Description: "SKS-administrationskode for fravaerstypen uden kildens praefiks (SKS.a.admALCF01 -> ALCF01), system urn:oid:1.2.208.176.2.4. Samme normalisering som diagnose- og procedurekoder. Maalt vaerdisaet: syv koder -- ALCF01, ALCF02, ALCF03, ALCF04, ALCF05, ALCF06 og ALCF08. ALCF07 forekommer ikke i kilden, saa saettet er IKKE et sammenhaengende spaend." }
+    type_display:     { DataType: NVARCHAR(512), FhirPath: "extension.where(url='urn:source:ifdb:encounter_absence').extension.where(url='urn:source:ifdb:encounter_absence#type').valueCoding.display", Source: [ifdb_absence.IFDB.ABSENCE.TYPE_TEXT] }
+    expected_return:  { DataType: NVARCHAR(50), FhirPath: "extension.where(url='urn:source:ifdb:encounter_absence').extension.where(url='urn:source:ifdb:encounter_absence#expectedReturn').valueDateTime", Source: [ifdb_absence.IFDB.ABSENCE.EXPECTED_RETURN] }
+    dw_is_deleted:    { DataType: INT, Description: "Slettet-flag (0 = live, 1 = slettet). Warehouse-styret: projiceres ikke fra FHIR. Saettes til 1 af dqa_fhir_server_cleanup for raekker hvis Encounter er hard-slettet paa FHIR-serveren, og nulstilles til 0 ved MERGE-match (resurrect_soft_deleted), saa en genopstaaet resource ikke bliver haengende som slettet. NOT NULL DEFAULT 0." }
+    last_updated:     { DataType: DATETIME2, FhirPath: "r.ts" }
+    created_at:       { DataType: DATETIME2, FhirPath: "r.cts" }
+
+  Notes:
+    - "MERGE-config (sof_utils.py SOF_RESOURCE_CONFIGS): child_grain_reconcile=True + resurrect_soft_deleted=True. En soft-slettet fraværsperiode udelades af extension-listen, så den re-emitterede kontakt bærer én periode mindre; kun reconcile pensionerer den række, kilden ikke længere har."
+    - "Berørte kontakter og efterslæb: se Notes i fhir_encounter_bed_space.yml — samme child-affected delta og samme værn mod at køre efterslæbet i en natlig kørsel."

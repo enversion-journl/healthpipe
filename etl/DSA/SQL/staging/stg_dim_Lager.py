@@ -15,20 +15,101 @@ Property-to-column mapping is configured via PROPERTY_COLUMN_MAP. To add more
 properties as columns, simply extend the dict.
 """
 
+from collections.abc import Sequence
+
 import dagster as dg
 from core.dfm_config import RunModeConfig
 from core.dfm_manager import DfmManager
 from core.resources import MSSQLResource
+from DSA.SQL.common.ils_clean_code_shared import sql_norm_code
+from DSA.SQL.common.lager_adresse import LAGER_ADRESSE_COLUMNS
 
+# Property key in codesystem.LagerProperties -> column in stg/dim.Lager.
+#
+# Every key here MUST be written by cs_lager (_LGR_ATTRIBUTE_PROPERTIES in
+# DSA/CodeSystem/lager/lager.py). A key that is pivoted without being written
+# yields a column that is always NULL — that is how dim.Lager.adr/land/postdi/tlf
+# came about. Enforced by test_every_pivoted_lager_property_is_actually_written.
 PROPERTY_COLUMN_MAP: dict[str, str] = {
     "entityType": "entity_type",
     "sgh": "sgh",
     "lgr": "lgr",
-    "adr": "adr",
-    "land": "land",
-    "postdi": "postdi",
-    "tlf": "tlf",
+    "lagerejerRekvirentnummer": "lagerejer_rekvirentnummer",
+    "svindRekvirentnummer": "svind_rekvirentnummer",
+    "standardLeveringsdage": "standard_leveringsdage",
+    "aktiv": "aktiv",
 }
+
+# Base columns written by the bulk insert.
+_BASE_COLUMNS: tuple[str, ...] = ("clean_code_Lager", "code", "display", "parent_code", "level")
+_TRAILING_COLUMNS: tuple[str, ...] = ("code_sor", "sor_relationship")
+
+
+def build_adresse_column_ddl() -> str:
+    """CREATE TABLE fragment for the joined address columns."""
+    return ", ".join(f"[{name}] {sql_type}" for name, _, sql_type in LAGER_ADRESSE_COLUMNS)
+
+
+def build_staging_insert_sql(prop_columns: Sequence[str] | None = None) -> str:
+    """Bulk INSERT with an explicit column list.
+
+    The address columns are filled in by ``build_adresse_update_sql`` afterwards,
+    so an ``INSERT ... VALUES`` without column names would miscount the moment the
+    table gained more columns than the tuple has values.
+    """
+    if prop_columns is None:
+        prop_columns = list(PROPERTY_COLUMN_MAP.values())
+    columns = (*_BASE_COLUMNS, *prop_columns, *_TRAILING_COLUMNS)
+    column_list = ", ".join(f"[{col}]" for col in columns)
+    placeholders = ", ".join(["?"] * len(columns))
+    return f"INSERT INTO [stg].[dim_Lager] ({column_list}) VALUES ({placeholders})"
+
+
+def build_adresse_update_sql() -> str:
+    """UPDATE that pulls the warehouse address details in from arc.ils_lgr.
+
+    Address fields are populated outside the CodeSystem — see
+    DSA/SQL/common/lager_adresse.py.
+
+    ``arc.ils_lgr`` has prrowid as its PK but (sgh, lgr) as the logical key, so a
+    ROW_NUMBER picks the row deterministically; without it ``UPDATE ... FROM``
+    would grab an arbitrary row on duplicates without failing.
+
+    INNER JOIN: concepts with no dbo.lgr row (region, hospital) keep NULL, which
+    is exactly the LEFT JOIN result.
+    """
+    sgh_stg = sql_norm_code("stg.[sgh]")
+    lgr_stg = sql_norm_code("stg.[lgr]")
+    sgh_lgr = sql_norm_code("[sgh]")
+    lgr_lgr = sql_norm_code("[lgr]")
+
+    source_columns = ",\n            ".join(f"[{src}]" for _, src, _ in LAGER_ADRESSE_COLUMNS)
+    set_clauses = ",\n        ".join(
+        f"stg.[{name}] = NULLIF(LTRIM(RTRIM(r.[{src}])), '')"
+        for name, src, _ in LAGER_ADRESSE_COLUMNS
+    )
+
+    return f"""
+    WITH lgr_dedup AS (
+        SELECT
+            {sgh_lgr} AS sgh_key,
+            {lgr_lgr} AS lgr_key,
+            {source_columns},
+            ROW_NUMBER() OVER (
+                PARTITION BY {sgh_lgr}, {lgr_lgr}
+                ORDER BY [pro2modified] DESC, [prrowid] ASC
+            ) AS rn
+        FROM [arc].[ils_lgr]
+    )
+    UPDATE stg
+    SET
+        {set_clauses}
+    FROM [stg].[dim_Lager] stg
+    INNER JOIN lgr_dedup r
+        ON r.rn = 1
+       AND r.sgh_key = {sgh_stg}
+       AND r.lgr_key = {lgr_stg};
+"""
 
 
 def _build_hierarchy_lookup(cursor) -> dict[str, str]:
@@ -77,7 +158,7 @@ def _load_sor_mapping(cursor) -> dict[str, tuple[str, str]]:
 
 @dg.asset(
     name="stg_dim_Lager",
-    deps=["cs_lager", "cm_lager_to_sor"],
+    deps=["cs_lager", "cm_lager_to_sor", "arc_ils_lgr"],
     group_name="erp_staging",
     compute_kind="mssql",
     description=(
@@ -99,6 +180,7 @@ def stg_dim_Lager(
 
     row_count = 0
     mapped_count = 0
+    adresse_rows = 0
 
     try:
         with mssql_target_staging.get_connection() as conn:
@@ -157,14 +239,13 @@ def stg_dim_Lager(
                         [level] INT,
                         {prop_col_defs},
                         [code_sor] VARCHAR(50),
-                        [sor_relationship] VARCHAR(50)
+                        [sor_relationship] VARCHAR(50),
+                        {build_adresse_column_ddl()}
                     );
                 """
                 )
 
-                num_cols = 5 + len(prop_columns) + 2
-                placeholders = ", ".join(["?"] * num_cols)
-                insert_sql = f"INSERT INTO [stg].[dim_Lager] VALUES ({placeholders})"
+                insert_sql = build_staging_insert_sql(prop_columns)
 
                 if hasattr(cursor, "fast_executemany"):
                     cursor.fast_executemany = True
@@ -180,6 +261,10 @@ def stg_dim_Lager(
                     ON [stg].[dim_Lager]([clean_code_Lager]);
                 """
                 )
+
+                # Address details from the archive.
+                cursor.execute(build_adresse_update_sql())
+                adresse_rows = cursor.rowcount
 
                 conn.commit()
 
@@ -201,6 +286,8 @@ def stg_dim_Lager(
             "row_count": row_count,
             "sor_mapped": mapped_count,
             "property_columns": prop_columns,
+            "adresse_columns": [name for name, _, _ in LAGER_ADRESSE_COLUMNS],
+            "adresse_rows_enriched": adresse_rows,
             "mode": config.mode,
         }
     )

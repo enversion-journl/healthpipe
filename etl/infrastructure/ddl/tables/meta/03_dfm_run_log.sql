@@ -10,6 +10,10 @@
 --
 --   meta.DFMRunLog — one row per asset run. Full audit trail including
 --                       mode, checkpoint before/after, error details.
+--                       Every extraction from outside the platform and every
+--                       flow start that reads its source also record the source (source_user,
+--                       source_host, source_table). The columns are NULL when
+--                       the source has no user or host, e.g. anonymous HTTP.
 --
 --   status values: 'running'   — run in progress
 --                  'success'   — completed normally
@@ -41,6 +45,9 @@ BEGIN
         [dagster_run_id]     NVARCHAR(128)  NULL,
         [run_started_at]     DATETIME2      NOT NULL,
         [run_completed_at]   DATETIME2      NULL,
+        [source_user]        NVARCHAR(128)  NULL,
+        [source_host]        NVARCHAR(255)  NULL,
+        [source_table]       NVARCHAR(256)  NULL,
         CONSTRAINT [PK_DFMRunLog]
             PRIMARY KEY CLUSTERED ([id])
     );

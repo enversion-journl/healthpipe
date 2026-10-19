@@ -10,10 +10,10 @@ Daily at 02:00 CET although SDS delivers weekly (Monday evening, plus one
 monthly file): the extract's delivery detection makes a day without a new file
 a no-op that reads nothing (directory listing + one checkpoint lookup), so the
 cost of checking daily is negligible, while a delayed weekly cadence would risk
-the ~3 months the share keeps. The time is before ``ifdb_dfm_base_schedule``
-(06:00) and after the nightly HAIBA/DRG windows are expected to be idle; the
-load of a real delivery takes ~25 min on healthpipe-dev (extract ~15 min, keys ~6,
-merge ~2).
+the ~3 months the share keeps. The time is before ``ifdb_dfm_daily_schedule``
+(06:00), which mints dw_ek_Borger for the stub Patients this ingest creates.
+The window is shared with the DRG queue (from 20:00) and HAIBA (05:00); a real
+delivery takes ~25 min on healthpipe-dev (extract ~15 min, keys ~6, merge ~2).
 
 Not a dependency of anything downstream yet: staging (US-3+) has its own jobs.
 """

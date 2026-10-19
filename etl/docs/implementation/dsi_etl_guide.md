@@ -75,7 +75,7 @@ and columns are a 1:1 mirror of the source (plus DWH audit columns and any
 keys *we* add). Do not transliterate or rename the source's own identifiers
 to match `ae`/`oe`/`aa` — that rule starts downstream of the archive. Columns
 we add (`dw_*`, resolved `*_uuid` / `*_noegle`) follow
-[navngivningsstandard.md](navngivningsstandard.md#extract-og-arkiv-extarc).
+[navngivningsstandard_basismodel.md](navngivningsstandard_basismodel.md#hvor-kolonnenavnet-kommer-fra).
 Source-copied columns keep the source's casing (`DIAGNOSE` vs `Diagnose`).
 
 ### Standard columns on `arc.*`
@@ -91,6 +91,59 @@ Every archive table carries the source columns 1:1, plus:
 `ext.*` tables get no audit columns beyond what the extractor adds (`SourceSystem`).
 
 ---
+
+## Dataflow logging
+
+Every extraction from outside the platform records its source in the run's `meta.DFMRunLog`
+row: databases, file shares, HTTP downloads, LDAP, the IFDB patient fallback
+(`BOM_IFDB.PATIENTINFO`) and every flow start that reads its source (`dfm_ifdb_flow_start` with
+`flow_start_override` set reads none and records none). Assets that `create_dfm_extraction_assets()`
+builds need nothing extra in their config module.
+
+| Column | Value |
+|---|---|
+| `source_user` | The user or service account of the connection. For a file share it is the `username=` option of the CIFS mount. |
+| `source_host` | The host of the connection. For a file share it is the server of the CIFS mount that holds the delivery folder. For HTTP it is the URL host. |
+| `source_table` | `schema.table` for a database, the stable dataset name for a file (for example `DRGKONTAKT` or `E26PERS.TXT`), the URL path for HTTP, the base DN for LDAP |
+
+A value is `NULL` when the source has none: anonymous HTTP has no user, and a folder that is
+not on a CIFS mount (a local copy, NFS) has neither user nor host. Every other DFM run
+leaves the three columns `NULL`.
+
+The target is in the same row (`schema_name`, `table_name`), together with the mode, the
+status, the row count and the Dagster run id. A move from a prod source into dev or QA
+staging is therefore visible in every row, with no assumption about the environment.
+Each target table gets its own row per asset run. The exception is the IFDB patient fallback,
+which writes one `fhir_server.Patient` row per Oracle lookup. DRG, LPR3 and udredningsret write no row on
+a day with no new delivery.
+
+When a DFM run completes or fails, `DfmManager` also logs the row's values as one JSON
+message (`"event": "dfm_run"`) through the Dagster logger. This applies to every DFM run, not
+only extractions. The `python_logs` handler in the infrastructure `dagster.yaml` writes every
+Dagster log record and run event, from `DEBUG` up, to the container's stdout as one JSON
+object (Dagster's `JsonLogFormatter`), where the region's agent collects it for LogScale. In
+that object, `created` is the Unix time (UTC), `dagster_meta` holds `run_id`, `job_name` and
+`step_key`, and `dagster_meta.orig_message` holds the `dfm_run` message. A `print()` inside an
+asset does not reach stdout, because Dagster captures it.
+
+Rules for a new extraction:
+
+- Build the source values with the helpers in `core/dfm_source.py` and pass them to
+  `start_dfm_run()`: `resource_source(resource, table)` for a database resource,
+  `http_source(url)` for a download and `share_source(path, dataset_name)` for a file share.
+- A database resource must have `user` and `host` fields. The factory reads them on every run.
+- An asset that loads several target tables uses `DfmManager.target_runs()`. It starts one
+  run per table, completes the tables that have a row count and fails the rest on an error.
+  It does not hold the DFM connection during the load.
+
+To check the runs that record a source:
+
+```sql
+SELECT TOP 20 [table_name], [status], [rows_affected], [source_user], [source_host], [source_table]
+FROM [meta].[DFMRunLog]
+WHERE [source_host] IS NOT NULL
+ORDER BY [id] DESC;
+```
 
 ## Chapter 1: Onboarding a new source system
 
@@ -177,6 +230,9 @@ class MySourceMSSQLResource(dg.ConfigurableResource):
 | Azure Synapse / cloud MSSQL | `KmdUddataMSSQLResource` | `mssql-python` via `build_mssql_conn_str()` + `_connect_mssql_python()` |
 | Oracle | `IFDBOracleResource` | `oracledb` |
 | CSV / file drop | `DSI/connectors/csv_files/` | — |
+
+Keep the `user` and `host` fields: every extract run records them in `meta.DFMRunLog` (see
+[Dataflow logging](#dataflow-logging)).
 
 The password stays a `dg.EnvVar` (resolved at run time, redacted in logs); the other
 fields may resolve at import time. Synapse has a cold-start latency — pair it with
@@ -397,7 +453,7 @@ connection.
 - [ ] Read-only credentials obtained; connectivity from the Dagster runtime verified
 - [ ] `.env.template` updated with placeholders for the variables the resource requires
 - [ ] `docs/source_systems/{source}/` created
-- [ ] Resource class added to `core/resources.py`
+- [ ] Resource class added to `core/resources.py`, with `user` and `host` fields for `meta.DFMRunLog`
 - [ ] Resource registered in `definitions.py`
 - [ ] Archive DDL home decided (existing domain folder, or new folder + `staging_infra_{source}` through the 4-file chain)
 - [ ] `{source}_extract_configs.py` and `{source}_archive_configs.py` created with factory calls

@@ -36,19 +36,10 @@ SYSTEM_COLUMNS: frozenset[str] = frozenset(
 # This is never a substitute for fixing lineage/DDL; populated during Task 6.
 IGNORED_TABLES: frozenset[str] = frozenset(
     {
-        # FHIR SFI datapoint store — materialized consumer/operational store
-        # (refreshed via dso_refresh_sfi_datapoint_* assets), not a lineage resource.
-        "fhir.SFI_datapoint_store",
         # Arbejdstabel til SWITCH-indlæsning af backfill-vinduer i storen: identiske
         # kolonner, normalt tom, aldrig synlig for aftagere (se
         # docs/architecture/sfi_store_partitionering.md).
         "fhir.SFI_datapoint_store_backfill",
         "fhir.SFI_datapoint_store_efterslaeb",
-        # Questionnaire-internal child table — flat per-item rows
-        # (composite PK questionnaire_id+link_id+item_key), not a resource projection.
-        "fhir.Questionnaire_item",
-        # QuestionnaireResponse-internal child table — flat per-answer item rows,
-        # internal child of the QR resource, not a resource projection.
-        "fhir.QuestionnaireResponse_item",
     }
 )

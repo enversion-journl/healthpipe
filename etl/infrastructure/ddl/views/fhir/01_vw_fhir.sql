@@ -32,6 +32,38 @@ SELECT *
 FROM [fhir].[Encounter_Location];
 GO
 
+-- Bed stays are deliberately separate from Encounter_Location. The latter
+-- remains the department-location contract used by existing consumers.
+CREATE OR ALTER VIEW [vw_fhir].[Encounter_BedSpace]
+AS
+SELECT *
+FROM [fhir].[Encounter_BedSpace];
+GO
+
+CREATE OR ALTER VIEW [vw_fhir].[Encounter_Absence]
+AS
+SELECT *
+FROM [fhir].[Encounter_Absence];
+GO
+
+CREATE OR ALTER VIEW [vw_fhir].[Bed]
+AS
+SELECT *
+FROM [fhir].[Bed];
+GO
+
+CREATE OR ALTER VIEW [vw_fhir].[WardUnit]
+AS
+SELECT *
+FROM [fhir].[WardUnit];
+GO
+
+CREATE OR ALTER VIEW [vw_fhir].[WardUnit_Capacity]
+AS
+SELECT *
+FROM [fhir].[WardUnit_Capacity];
+GO
+
 CREATE OR ALTER VIEW [vw_fhir].[Observation]
 AS
 SELECT *
@@ -68,10 +100,27 @@ SELECT *
 FROM [fhir].[CarePlan_Activity];
 GO
 
+-- Kodeteksterne staar i codesystem.IFDBConcept og ikke paa hver raekke. De joines
+-- paa her, saa aftageren ser praecis de samme kolonner som foer. Opslagstabellen er
+-- noeglet paa den fulde kvalificerede kode, som er den vaerdi raekken allerede baerer,
+-- saa et LEFT JOIN kan hverken multiplicere eller tabe raekker.
 CREATE OR ALTER VIEW [vw_fhir].[ServiceRequest]
 AS
-SELECT *
-FROM [fhir].[ServiceRequest];
+SELECT
+    sr.*,
+    cs_status.[display]      AS [status_kodetekst],
+    cs_maade.[display]       AS [henvisningsmaade_kodetekst],
+    cs_prioritet.[display]   AS [prioritet_kodetekst],
+    cs_muni.[display]        AS [henvist_til_muni_kodetekst]
+FROM [fhir].[ServiceRequest] AS sr
+LEFT JOIN [codesystem].[IFDBConcept] AS cs_status
+    ON cs_status.[code] = sr.[status_kode]
+LEFT JOIN [codesystem].[IFDBConcept] AS cs_maade
+    ON cs_maade.[code] = sr.[henvisningsmaade_kode]
+LEFT JOIN [codesystem].[IFDBConcept] AS cs_prioritet
+    ON cs_prioritet.[code] = sr.[prioritet_kode]
+LEFT JOIN [codesystem].[IFDBConcept] AS cs_muni
+    ON cs_muni.[code] = sr.[henvist_til_muni_kode];
 GO
 
 CREATE OR ALTER VIEW [vw_fhir].[Questionnaire]
@@ -126,6 +175,124 @@ SELECT *
 FROM [fhir].[QuestionnaireResponse_item];
 GO
 
+GO
+
+-- Aftagerviews for de fhir-tabeller, der manglede i vw_fhir-laget (rent gennemstik,
+-- samme konvention som ovenfor). Arbejdstabellerne SFI_datapoint_store* undtages bevidst.
+CREATE OR ALTER VIEW [vw_fhir].[Appointment]
+AS
+SELECT *
+FROM [fhir].[Appointment];
+GO
+
+CREATE OR ALTER VIEW [vw_fhir].[Condition]
+AS
+SELECT *
+FROM [fhir].[Condition];
+GO
+
+CREATE OR ALTER VIEW [vw_fhir].[Observation_Speciale]
+AS
+SELECT *
+FROM [fhir].[Observation_Speciale];
+GO
+
+CREATE OR ALTER VIEW [vw_fhir].[Condition_henvisning]
+AS
+SELECT *
+FROM [fhir].[Condition_henvisning];
+GO
+
+-- fhir.Condition samler bevidst tre kilder, som IKKE er samme slags diagnose:
+--   * pas_diagnose        - kontaktdiagnoserne; dem der bruges klinisk og administrativt
+--   * diagnose            - diagnoseoversigten i journalsystemet, et andet hierarkisk niveau
+--   * ris_ydelse:diagnose - radiologiens henvisningsindikation, i praksis altid samme kode
+--
+-- Samlingen er rigtig i basismodellen: kilderne beskriver diagnoser og deler struktur,
+-- og de kan altid skilles paa source_system. Men den, der bygger et datamart, skal ikke
+-- skulle kende den skelnen for at undgaa at taelle tre slags som én. Derfor dette udvalg,
+-- som er kontaktdiagnoserne alene. De oevrige to kilder er uaendret tilgaengelige i
+-- vw_fhir.Condition.
+--
+-- Slettede raekker filtreres IKKE fra; dw_is_deleted er med, saa udvalget ikke skjuler
+-- noget ud over kildevalget.
+CREATE OR ALTER VIEW [vw_fhir].[Condition_pas_diagnose]
+AS
+SELECT *
+FROM [fhir].[Condition]
+WHERE [source_system] = N'urn:source:ifdb:pas_diagnose';
+GO
+
+CREATE OR ALTER VIEW [vw_fhir].[Condition_SupplementaryCode]
+AS
+SELECT *
+FROM [fhir].[Condition_SupplementaryCode];
+GO
+
+CREATE OR ALTER VIEW [vw_fhir].[DocumentReference]
+AS
+SELECT *
+FROM [fhir].[DocumentReference];
+GO
+
+CREATE OR ALTER VIEW [vw_fhir].[DocumentReference_Recipient]
+AS
+SELECT *
+FROM [fhir].[DocumentReference_Recipient];
+GO
+
+CREATE OR ALTER VIEW [vw_fhir].[Patient_Address]
+AS
+SELECT *
+FROM [fhir].[Patient_Address];
+GO
+
+-- Se kommentaren ved vw_fhir.ServiceRequest: teksten joines paa fra kodelisten.
+CREATE OR ALTER VIEW [vw_fhir].[Procedure]
+AS
+SELECT
+    p.*,
+    cs_side.[display]  AS [body_site_display],
+    cs_staff.[display] AS [staff_category_text]
+FROM [fhir].[Procedure] AS p
+LEFT JOIN [codesystem].[IFDBConcept] AS cs_side
+    ON cs_side.[code] = p.[body_site_code]
+LEFT JOIN [codesystem].[IFDBConcept] AS cs_staff
+    ON cs_staff.[code] = p.[staff_category_code];
+GO
+
+CREATE OR ALTER VIEW [vw_fhir].[Procedure_SupplementaryCode]
+AS
+SELECT *
+FROM [fhir].[Procedure_SupplementaryCode];
+GO
+
+CREATE OR ALTER VIEW [vw_fhir].[ServiceRequest_Recipient]
+AS
+SELECT *
+FROM [fhir].[ServiceRequest_Recipient];
+GO
+
+CREATE OR ALTER VIEW [vw_fhir].[ServiceRequest_SupplementaryCode]
+AS
+SELECT *
+FROM [fhir].[ServiceRequest_SupplementaryCode];
+GO
+
+-- Personalet fra SilkeborgDatas loenudtraek. Gennemstik som de oevrige: laget
+-- begraenser ikke kolonner, og fhir.Patient eksponeres paa samme vis.
+CREATE OR ALTER VIEW [vw_fhir].[Practitioner]
+AS
+SELECT *
+FROM [fhir].[Practitioner];
+GO
+
+-- Kornet er ansaettelsesepisoden, ikke personen: en person med flere samtidige
+-- ansaettelser har en raekke pr. ansaettelse. Join paa practitioner_id.
+CREATE OR ALTER VIEW [vw_fhir].[PractitionerRole]
+AS
+SELECT *
+FROM [fhir].[PractitionerRole];
 GO
 
 -- Internal build view: UNION ALL of Observation + QR-item SFI rows with CodeSystem enrichment.

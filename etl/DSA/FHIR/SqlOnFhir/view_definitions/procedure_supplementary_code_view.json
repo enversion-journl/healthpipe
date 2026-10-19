@@ -1,0 +1,32 @@
+{
+  "resourceType": "ViewDefinition",
+  "name": "procedure_supplementary_code_view",
+  "resource": "Procedure",
+  "status": "active",
+  "select": [
+    {
+      "column": [
+        {
+          "name": "procedure_id",
+          "path": "id"
+        },
+        {
+          "name": "source_identifier_value",
+          "path": "identifier.value.first()"
+        }
+      ]
+    },
+    {
+      "forEach": "code.coding.where(userSelected.empty() or userSelected = false)",
+      "column": [
+        {"name": "supplementary_code", "path": "code"},
+        {"name": "supplementary_code_system", "path": "system"},
+        {"name": "supplementary_code_display", "path": "display"},
+        {
+          "name": "idx",
+          "path": "extension.where(url='http://example.org/fhir/StructureDefinition/codingSequence').valueInteger.first()"
+        }
+      ]
+    }
+  ]
+}

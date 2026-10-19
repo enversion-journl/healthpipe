@@ -24,9 +24,9 @@ pytestmark = pytest.mark.unit
 
 def test_override_raises_the_bar_for_this_run_only():
     """The standing threshold must be unchanged by a run that overrode it."""
-    assert get_soft_delete_threshold("dim.Borger") == 1000
-    assert get_soft_delete_threshold("dim.Borger", 10_000) == 10_000
-    assert get_soft_delete_threshold("dim.Borger") == 1000
+    assert get_soft_delete_threshold("dim.Borger") == 10000
+    assert get_soft_delete_threshold("dim.Borger", 50_000) == 50_000
+    assert get_soft_delete_threshold("dim.Borger") == 10000
 
 
 def test_count_above_the_standing_threshold_passes_with_an_override():
@@ -41,7 +41,7 @@ def test_count_above_the_override_still_fails():
 
 def test_guard_still_fires_without_an_override():
     with pytest.raises(dg.Failure) as excinfo:
-        check_soft_delete_threshold("dim.Borger", 5469)
+        check_soft_delete_threshold("dim.Borger", 54690)
     assert excinfo.value.metadata["threshold_overridden"].value is False
     assert "ops.dim_Borger.config.soft_delete_threshold" in excinfo.value.description
     assert "ops.Borger." not in excinfo.value.description
@@ -49,7 +49,7 @@ def test_guard_still_fires_without_an_override():
 
 def test_remediation_names_the_ref_address_op():
     with pytest.raises(dg.Failure) as excinfo:
-        check_soft_delete_threshold("ref.Patient_Address_To_Borger", 5469)
+        check_soft_delete_threshold("ref.Patient_Address_To_Borger", 54690)
     assert (
         "ops.ref_patient_address_borger.config.soft_delete_threshold" in excinfo.value.description
     )
@@ -79,17 +79,21 @@ def test_config_defaults_to_no_override():
 
 
 def test_ratio_param_fires_for_an_unregistered_asset():
-    """Callers with dynamic asset names (DRG archive, [internal ticket]) pass the ratio
-    directly instead of registering 16 entries in the core dict."""
+    """Callers with dynamic asset names (udredningsret archive) pass the ratio
+    directly instead of registering one entry per table in the core dict."""
     with pytest.raises(dg.Failure) as excinfo:
-        check_soft_delete_threshold("arc_drg_kontakt", 300, live_row_count=1000, ratio=0.20)
+        check_soft_delete_threshold(
+            "arc_udredningsret_leveranceinfo", 300, live_row_count=1000, ratio=0.20
+        )
     assert excinfo.value.metadata["ratio_limit"].value == 0.20
 
 
 def test_ratio_param_allows_a_fraction_below_the_limit():
-    check_soft_delete_threshold("arc_drg_kontakt", 100, live_row_count=1000, ratio=0.20)
+    check_soft_delete_threshold(
+        "arc_udredningsret_leveranceinfo", 100, live_row_count=1000, ratio=0.20
+    )
 
 
 def test_ratio_param_without_live_count_skips_the_ratio_guard():
     """No denominator, no ratio — the absolute cap still applies alone."""
-    check_soft_delete_threshold("arc_drg_kontakt", 300, ratio=0.20)
+    check_soft_delete_threshold("arc_udredningsret_leveranceinfo", 300, ratio=0.20)

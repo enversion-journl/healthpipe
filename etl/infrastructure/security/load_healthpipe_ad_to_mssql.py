@@ -7,7 +7,8 @@
 # root for the full AGPL-3.0 license text.
 
 """
-Indlæs HealthPipe AD-gruppedata fra JSONL til sec.RolleDomaene og sec.RBOrganisation.
+Indlæs HealthPipe AD-gruppedata fra JSONL til sec.RolleDomaene, sec.RBOrganisation og
+de historiserede tabeller sec.RolleDomaeneHistorik og sec.SORTildelingHistorik.
 
 Formål
 ------
@@ -21,6 +22,15 @@ ikke længere har en (stale) række):
   udpakkes til sig selv + alle underliggende koder via
   ``codesystem.SORHierarchy`` inden joinet til ``dim.Organisation``.
   Indlæses via SWAP (se nedenfor) — den levende tabel trunkeres ALDRIG.
+- ``sec.RolleDomaeneHistorik`` — historikken for ``sec.RolleDomaene``.
+- ``sec.SORTildelingHistorik`` — bruger → direkte tildelt SOR-kode, før
+  hierarki-udpakningen.
+
+De to sidste er historiseret med ``dw_valid_from``/``dw_valid_to`` og
+``dw_run_id_from``/``dw_run_id_to``. En ændring lukker den åbne række og
+indsætter en ny; en nøgle, der ikke længere er i udtrækket, får sin åbne række
+lukket. Fejlede et medlemsopslag i udtrækket, lukkes ingen rækker; kun nye
+nøgler åbnes.
 
 ``bruger`` gemmes som bart sAMAccountName (fx ``vah5ep``, uden
 domænepræfiks); DPA-funktionerne stripper selv domænet fra ``SUSER_SNAME()``.
@@ -45,7 +55,8 @@ Workflow
     # 1. Eksportér AD-data til JSONL
     python infrastructure/security/export_healthpipe_ad_groups.py
 
-    # 2. Indlæs JSONL i MSSQL
+    # 2. Indlæs JSONL i MSSQL. Brug kun filer fra en ny eksport: ældre filer
+    #    skriver gamle værdier ind i historiktabellerne.
     python infrastructure/security/load_healthpipe_ad_to_mssql.py
 
     # Dry-run (viser data og SQL uden at eksekvere)
@@ -64,8 +75,8 @@ nattlige Dagster-sync (dso_sync_security) propagerer staging→DSO:
 Input-filer:
 
 - ``LDAP_HP_OUTPUT_ROLE_JSONL``   → ``healthpipe_roller.jsonl``
-- ``LDAP_HP_OUTPUT_BOPAEL_JSONL`` → ``healthpipe_bopael.jsonl``
 - ``LDAP_HP_OUTPUT_JSONL``        → ``healthpipe_grupper.jsonl``
+- ``LDAP_HP_OUTPUT_FEJLEDE_OPSLAG_JSONL`` → ``healthpipe_fejlede_opslag.jsonl`` (skal findes)
 
 Størrelses-guard
 -----------------------------
@@ -104,6 +115,9 @@ import argparse
 import json
 import os
 import sys
+import uuid
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -208,7 +222,7 @@ def _min_count_ratio() -> float:
 
 
 # ---------------------------------------------------------------------------
-# sec.RolleDomaene — TRUNCATE+INSERT from roller + bopæl JSONL
+# sec.RolleDomaene — TRUNCATE+INSERT from roller JSONL
 # ---------------------------------------------------------------------------
 
 _TRUNCATE_ROLLE_DOMAENE_SQL = "TRUNCATE TABLE [sec].[RolleDomaene];"
@@ -223,51 +237,54 @@ _INSERT_ROLLE_DOMAENE_SQL = """
 """
 
 
+_ROLLE_PRIORITET = {"K": 0, "P": 1, "U": 2}
+
+
 def _build_rolle_domaene_rows(
     rolle_rows: list[dict],
-    bopael_rows: list[dict],
+    warn: Callable[[str], None] = print,
 ) -> list[tuple[str, str, str, str]]:
-    """Combine rolle + bopæl JSONL into (bruger, Sikkerhedsdomaene, Rolle, Populationsansvar).
+    """Reduce rolle JSONL to one (bruger, Sikkerhedsdomaene, Rolle, Populationsansvar) per key.
 
-    Bopæl hospital is mapped to Populationsansvar for every domain the user has.
     ``bruger`` gemmes som bart sAMAccountName (via ``_strip_bruger_domain``).
 
-    Dublet-regler: ved flere bopæle vælges den alfabetisk første;
-    ved flere roller for samme (bruger, Sikkerhedsdomaene) vælges K over U.
+    Dublet-regler: ved flere roller for samme (bruger, Sikkerhedsdomaene) vinder
+    K over P over U; ved P for flere sygehuse vælges det alfabetisk første. Begge
+    dubletter sendes til ``warn``.
     """
-    bopael_map: dict[str, str] = {}
-    for b in bopael_rows:
-        bruger = _strip_bruger_domain(b["bruger"]).lower()
-        hospital = b["hospital"]
-        if bruger not in bopael_map or hospital < bopael_map[bruger]:
-            bopael_map[bruger] = hospital
-
-    chosen: dict[tuple[str, str], tuple[str, str, str, str]] = {}
+    kandidater: dict[tuple[str, str], list[tuple[str, str, str, str]]] = {}
     for r in rolle_rows:
         bruger = _strip_bruger_domain(r["bruger"])
-        domain_name = r["domain"]
-        rolle = "U" if r.get("ubegraenset") else "K"
-        populationsansvar = bopael_map.get(bruger.lower(), "")
+        rolle = r["rolle"]
+        populationsansvar = r["populationsansvar"] if rolle == "P" else ""
+        kandidater.setdefault((bruger.lower(), r["domain"].lower()), []).append(
+            (bruger, r["domain"], rolle, populationsansvar)
+        )
 
-        key = (bruger.lower(), domain_name.lower())
-        if key not in chosen:
-            chosen[key] = (bruger, domain_name, rolle, populationsansvar)
-        elif rolle == "K" and chosen[key][2] == "U":
-            chosen[key] = (bruger, domain_name, "K", populationsansvar)
-
-    return list(chosen.values())
+    rows: list[tuple[str, str, str, str]] = []
+    for dubletter in kandidater.values():
+        valgt = min(dubletter, key=lambda r: (_ROLLE_PRIORITET[r[2]], r[3]))
+        bruger, domain, rolle, populationsansvar = valgt
+        roller = sorted({r[2] for r in dubletter}, key=_ROLLE_PRIORITET.__getitem__)
+        if len(roller) > 1:
+            warn(f"{bruger} har flere roller i {domain} ({', '.join(roller)}); {rolle} er valgt")
+        fravalgte = sorted({r[3] for r in dubletter if r[2] == "P"} - {populationsansvar})
+        if rolle == "P" and fravalgte:
+            warn(
+                f"{bruger} har populationsansvar for flere sygehuse i {domain}; "
+                f"{populationsansvar} er valgt, {', '.join(fravalgte)} er fravalgt"
+            )
+        rows.append(valgt)
+    return rows
 
 
 def _load_rolle_domaene(
     conn,
-    rolle_rows: list[dict],
-    bopael_rows: list[dict],
+    rows: list[tuple[str, str, str, str]],
     dry_run: bool,
     min_ratio: float,
 ) -> int:
     """TRUNCATE+INSERT rows into sec.RolleDomaene. Returns inserted row count."""
-    rows = _build_rolle_domaene_rows(rolle_rows, bopael_rows)
-
     if not rows:
         # Fail-safe med vilje: et tomt udtræk må IKKE truncate'e tabellen —
         # forældede rækker overlever hellere end at sikkerhedsdata tømmes.
@@ -562,13 +579,195 @@ def _load_rb_organisation(
 
 
 # ---------------------------------------------------------------------------
+# Historised sec tables — close changed rows, insert new open rows
+# ---------------------------------------------------------------------------
+
+_OPEN_VALID_TO = "9999-12-31 23:59:59"
+
+_STAGE_HISTORIK_BATCH_SIZE = 500
+
+
+@dataclass(frozen=True)
+class _HistorikTabel:
+    """A historised sec table: business key and tracked value columns with their SQL types."""
+
+    name: str
+    keys: tuple[tuple[str, str], ...]
+    values: tuple[tuple[str, str], ...]
+
+
+_ROLLE_DOMAENE_HISTORIK = _HistorikTabel(
+    "RolleDomaeneHistorik",
+    keys=(("bruger", "NVARCHAR(50)"), ("Sikkerhedsdomaene", "NVARCHAR(50)")),
+    values=(("Rolle", "CHAR(1)"), ("Populationsansvar", "NVARCHAR(50)")),
+)
+_SOR_TILDELING_HISTORIK = _HistorikTabel(
+    "SORTildelingHistorik",
+    keys=(("bruger", "NVARCHAR(50)"), ("SOR_kode", "VARCHAR(50)")),
+    values=(),
+)
+
+
+def _is_text(sql_type: str) -> bool:
+    return sql_type.startswith(("NVARCHAR", "VARCHAR", "CHAR"))
+
+
+def _historik_sql(tabel: _HistorikTabel) -> dict[str, str]:
+    """CREATE/stage/count/close/insert statements for ``tabel`` over the temp table #SrcHistorik."""
+    columns = tabel.keys + tabel.values
+    column_list = ", ".join(f"[{c}]" for c, _ in columns)
+    key_list = ", ".join(f"[{c}]" for c, _ in tabel.keys)
+    # The target columns do not always use the database default collation.
+    key_match = " AND ".join(
+        f"s.[{c}]{' COLLATE DATABASE_DEFAULT' if _is_text(t) else ''}"
+        f" = t.[{c}]{' COLLATE DATABASE_DEFAULT' if _is_text(t) else ''}"
+        for c, t in tabel.keys
+    )
+
+    def binary(alias: str, column: str, sql_type: str) -> str:
+        expression = f"{alias}.[{column}]"
+        return f"{expression} COLLATE Latin1_General_BIN2" if _is_text(sql_type) else expression
+
+    same_values = (
+        "\n            AND EXISTS (SELECT "
+        + ", ".join(binary("s", c, t) for c, t in tabel.values)
+        + " INTERSECT SELECT "
+        + ", ".join(binary("t", c, t) for c, t in tabel.values)
+        + ")"
+        if tabel.values
+        else ""
+    )
+    temp_columns = ", ".join(
+        f"[{c}] {t}"
+        + (" COLLATE DATABASE_DEFAULT" if _is_text(t) else "")
+        + (" NOT NULL" if (c, t) in tabel.keys else " NULL")
+        for c, t in columns
+    )
+    return {
+        "create": f"CREATE TABLE #SrcHistorik ({temp_columns}, PRIMARY KEY ({key_list}));",
+        "stage": f"INSERT INTO #SrcHistorik ({column_list}) VALUES ",
+        "count": (
+            f"SELECT COUNT(*) FROM [sec].[{tabel.name}] WHERE [dw_valid_to] = '{_OPEN_VALID_TO}';"
+        ),
+        "close": f"""
+    UPDATE t
+    SET t.[dw_valid_to] = %(nu)s, t.[dw_run_id_to] = %(run_id)s, t.[dw_timestamp_update] = %(nu)s
+    FROM [sec].[{tabel.name}] AS t
+    WHERE t.[dw_valid_to] = '{_OPEN_VALID_TO}'
+      AND NOT EXISTS (
+          SELECT 1
+          FROM #SrcHistorik AS s
+          WHERE {key_match}{same_values}
+      );
+""",
+        "insert": f"""
+    INSERT INTO [sec].[{tabel.name}]
+        ({column_list}, [dw_valid_from], [dw_run_id_from], [dw_timestamp_insert], [dw_timestamp_update])
+    SELECT {", ".join(f"s.[{c}]" for c, _ in columns)}, %(nu)s, %(run_id)s, %(nu)s, %(nu)s
+    FROM #SrcHistorik AS s
+    WHERE NOT EXISTS (
+        SELECT 1
+        FROM [sec].[{tabel.name}] AS t
+        WHERE {key_match}
+          AND t.[dw_valid_to] = '{_OPEN_VALID_TO}'
+    );
+""",
+    }
+
+
+def _build_sor_tildeling_rows(org_rows: list[dict]) -> list[tuple[str, str]]:
+    """(bruger, SOR_kode) per direct grant, before expansion; first row per user and code wins."""
+    chosen: dict[tuple[str, str], tuple[str, str]] = {}
+    for r in org_rows:
+        bruger = _strip_bruger_domain(r["bruger"])
+        chosen.setdefault((bruger.lower(), r["code_sor"]), (bruger, r["code_sor"]))
+    return list(chosen.values())
+
+
+def _load_historik(
+    conn,
+    tabel: _HistorikTabel,
+    rows: list[tuple],
+    *,
+    run_id: str,
+    dry_run: bool,
+    min_ratio: float,
+    close_rows: bool = True,
+) -> dict:
+    """Historise ``rows`` in sec.<tabel>. Returns open_before/closed/inserted row counts.
+
+    With ``close_rows=False`` no row closes and only keys without an open row are inserted, because
+    a partial extract can show a changed value as well as a missing key.
+    """
+    metrics = {"open_before": 0, "closed": 0, "inserted": 0}
+    label = f"sec.{tabel.name}"
+    sql = _historik_sql(tabel)
+
+    if not rows:
+        # Fail-safe med vilje: et tomt udtræk må IKKE lukke alle åbne rækker.
+        print(f"  {label}: ingen rækker at indlæse.")
+        return metrics
+
+    if dry_run:
+        print(f"  [DRY-RUN] {label}")
+        print(f"  Rækker: {len(rows)}")
+        for row in rows[:10]:
+            print(f"    {row}")
+        if len(rows) > 10:
+            print(f"    ... og {len(rows) - 10} flere")
+        print("  CLOSE SQL:")
+        print(sql["close"])
+        print("  INSERT SQL:")
+        print(sql["insert"])
+        return metrics
+
+    cur = conn.cursor()
+    cur.execute(sql["create"])
+    row_placeholder = "(" + ", ".join(["%s"] * (len(tabel.keys) + len(tabel.values))) + ")"
+    for i in range(0, len(rows), _STAGE_HISTORIK_BATCH_SIZE):
+        chunk = rows[i : i + _STAGE_HISTORIK_BATCH_SIZE]
+        cur.execute(
+            sql["stage"] + ", ".join([row_placeholder] * len(chunk)),
+            tuple(v for row in chunk for v in row),
+        )
+
+    cur.execute(sql["count"])
+    metrics["open_before"] = cur.fetchone()[0]
+    _validate_extract_size(label, metrics["open_before"], len(rows), min_ratio)
+
+    # One timestamp for both statements, so a closed row and its successor meet
+    # without a gap.
+    cur.execute("SELECT CAST(SYSDATETIME() AS DATETIME2(0));")
+    params = {"nu": cur.fetchone()[0], "run_id": run_id}
+    if close_rows:
+        cur.execute(sql["close"], params)
+        metrics["closed"] = cur.rowcount
+    else:
+        print(f"  {label}: medlemsopslag fejlede — ingen rækker lukkes, kun nye nøgler åbnes")
+    cur.execute(sql["insert"], params)
+    metrics["inserted"] = cur.rowcount
+
+    cur.execute("DROP TABLE #SrcHistorik")
+    conn.commit()
+
+    print(
+        f"  {label}: {metrics['closed']} rækker lukket, "
+        f"{metrics['inserted']} rækker indsat (før: {metrics['open_before']} åbne)"
+    )
+    return metrics
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Indlæs HealthPipe AD JSONL-data i sec.RolleDomaene og sec.RBOrganisation"
+        description=(
+            "Indlæs HealthPipe AD JSONL-data i sec.RolleDomaene, sec.RBOrganisation, "
+            "sec.RolleDomaeneHistorik og sec.SORTildelingHistorik"
+        )
     )
     parser.add_argument(
         "--dry-run",
@@ -580,8 +779,7 @@ def main() -> int:
     _load_dotenv_repo_root()
 
     # Skriv til STAGING (sandhedskilden). Den nattlige Dagster-sync
-    # (dso_sync_sec_rolledomaene / dso_sync_sec_rborganisation) propagerer
-    # staging->DSO. dim.Organisation (til RBOrganisation-join) findes på staging.
+    # (dso_sync_security-gruppen) propagerer staging->DSO. dim.Organisation (til RBOrganisation-join) findes på staging.
     host = (os.environ.get("MSSQL_TARGET_STAGING_HOST") or "mssql").strip()
     port = int((os.environ.get("MSSQL_TARGET_STAGING_PORT") or "1433").strip())
     db = (os.environ.get("MSSQL_TARGET_STAGING_DB") or "staging").strip()
@@ -605,40 +803,52 @@ def main() -> int:
         os.environ.get("LDAP_HP_OUTPUT_ROLE_JSONL")
         or str(default_output_dir / "healthpipe_roller.jsonl")
     )
-    bopael_jsonl = Path(
-        os.environ.get("LDAP_HP_OUTPUT_BOPAEL_JSONL")
-        or str(default_output_dir / "healthpipe_bopael.jsonl")
-    )
     org_jsonl = Path(
         os.environ.get("LDAP_HP_OUTPUT_JSONL")
         or str(default_output_dir / "healthpipe_grupper.jsonl")
     )
+    fejlede_jsonl = Path(
+        os.environ.get("LDAP_HP_OUTPUT_FEJLEDE_OPSLAG_JSONL")
+        or str(default_output_dir / "healthpipe_fejlede_opslag.jsonl")
+    )
 
     print(f"MSSQL: {host}:{port}/{db}")
     print(f"Input Rolle JSONL:  {rolle_jsonl}")
-    print(f"Input Bopæl JSONL:  {bopael_jsonl}")
     print(f"Input Org JSONL:    {org_jsonl}")
     if args.dry_run:
         print("Mode: DRY-RUN (ingen ændringer)")
     print("-" * 60)
 
     rolle_rows = _read_jsonl(rolle_jsonl)
-    bopael_rows = _read_jsonl(bopael_jsonl)
     org_rows = _read_jsonl(org_jsonl)
+    if not fejlede_jsonl.is_file():
+        print(f"FEJL: {fejlede_jsonl} mangler — kør eksporten igen.")
+        return 2
+    fejlede_opslag = _read_jsonl(fejlede_jsonl)
 
     print(f"Læst {len(rolle_rows)} rolle-rækker fra {rolle_jsonl.name}")
-    print(f"Læst {len(bopael_rows)} bopæl-rækker fra {bopael_jsonl.name}")
     print(f"Læst {len(org_rows)} org-rækker fra {org_jsonl.name}")
+    print(f"Læst {len(fejlede_opslag)} fejlede medlemsopslag fra {fejlede_jsonl.name}")
 
     if not rolle_rows and not org_rows:
         print("Ingen data at indlæse — afslutter.")
         return 0
 
+    rolle_domaene_rows = _build_rolle_domaene_rows(
+        rolle_rows, warn=lambda m: print(f"ADVARSEL: {m}")
+    )
+    historik = [
+        (_ROLLE_DOMAENE_HISTORIK, rolle_domaene_rows),
+        (_SOR_TILDELING_HISTORIK, _build_sor_tildeling_rows(org_rows)),
+    ]
+
     if args.dry_run:
         # Guard'en kræver en åben forbindelse (COUNT(*) mod måltabellen) og
         # køres derfor IKKE i dry-run (min_ratio er valideret, men ubrugt her).
-        _load_rolle_domaene(None, rolle_rows, bopael_rows, dry_run=True, min_ratio=min_ratio)
+        _load_rolle_domaene(None, rolle_domaene_rows, dry_run=True, min_ratio=min_ratio)
         _load_rb_organisation(None, org_rows, dry_run=True, min_ratio=min_ratio)
+        for tabel, rows in historik:
+            _load_historik(None, tabel, rows, run_id="", dry_run=True, min_ratio=min_ratio)
         print("-" * 60)
         print("DRY-RUN færdig — ingen ændringer foretaget.")
         return 0
@@ -650,10 +860,21 @@ def main() -> int:
         return 1
 
     try:
-        rd_ins = _load_rolle_domaene(
-            conn, rolle_rows, bopael_rows, dry_run=False, min_ratio=min_ratio
-        )
+        rd_ins = _load_rolle_domaene(conn, rolle_domaene_rows, dry_run=False, min_ratio=min_ratio)
         rb_metrics = _load_rb_organisation(conn, org_rows, dry_run=False, min_ratio=min_ratio)
+        run_id = f"cli-{uuid.uuid4()}"
+        historik_metrics = {
+            tabel.name: _load_historik(
+                conn,
+                tabel,
+                rows,
+                run_id=run_id,
+                dry_run=False,
+                min_ratio=min_ratio,
+                close_rows=not fejlede_opslag,
+            )
+            for tabel, rows in historik
+        }
     except ExtractTooSmallError as e:
         print(f"FEJL: {e}")
         try:
@@ -682,6 +903,8 @@ def main() -> int:
         f"RBOrganisation:  {rb_metrics['rows_new']} rækker "
         f"({rb_metrics['users_new']} brugere) swappet ind"
     )
+    for name, metrics in historik_metrics.items():
+        print(f"{name}: {metrics['closed']} lukket, {metrics['inserted']} indsat")
 
     try:
         conn.close()

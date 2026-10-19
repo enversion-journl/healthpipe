@@ -418,8 +418,6 @@ def setup_erp_infrastructure(dagster_instance, real_mssql_target_resource):
                 "staging_infra_erp",
                 "staging_infra_organisation",
                 "staging_infra_ref",
-                "staging_infra_udbudskategori",
-                "staging_infra_udbudskategori_seed",
             ],
             resources={
                 "mssql_target_staging": ResourceDefinition.hardcoded_resource(

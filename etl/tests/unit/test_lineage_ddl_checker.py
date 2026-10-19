@@ -145,6 +145,30 @@ def test_relationship_check_skips_ignored_tables():
     assert report.columns_missing_fk_annotation == []
 
 
+def test_fk_target_must_match_a_lineage_table_case_insensitively():
+    specs = {
+        "id": {"Type": "PK"},
+        "part_of_id": {"FK-Target": "fhir.organization"},  # self-reference, other case
+        "location_id": {"FK-Target": "fhir.Location"},
+        "bed_id": {"FK-Target": "fhir.Bed"},
+        "dato_id": {"FK-Target": "dim.Dato"},
+        "empty_id": {"FK-Target": None},
+    }
+    tables = {
+        "fhir.Organization": _lin_specs("fhir.Organization", specs),
+        "fhir.Location": _lin("fhir.Location", ["id"]),
+        "dim.Dato": _lin("dim.Dato", ["id"]),
+    }
+    ddl = {name: _ddl(name, table.columns) for name, table in tables.items()}
+    report = check(ddl, tables)
+    assert report.unresolved_fk_targets == [
+        "fhir.Organization.bed_id: 'fhir.Bed'",
+        "fhir.Organization.dato_id: 'dim.Dato'",
+        "fhir.Organization.empty_id: 'None'",
+    ]
+    assert report.has_findings
+
+
 def test_render_returns_str_with_result_line():
     report = check({"dim.A": _ddl("dim.A", ["K"])}, {})
     text = report.render()

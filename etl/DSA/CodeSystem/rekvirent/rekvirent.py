@@ -49,6 +49,7 @@ def build_rekvirent_hierarchy(
     rekv_data = (
         _rows_to_dicts(rekv_rows, rekv_columns) if rekv_columns else _ensure_dicts(rekv_rows)
     )
+    rekv_data = _dedupe_rekv_rows(rekv_data)
     rekvgrp_data = (
         _rows_to_dicts(rekvgrp_rows, rekvgrp_columns)
         if rekvgrp_columns
@@ -168,9 +169,56 @@ def build_rekvirent_hierarchy(
         properties.append(
             {"CODE": rnr_code, "KEY": "mapCode", "VALUE": f"{sgh}-{rnr}", "TYPE": "String"}
         )
+        # The address and contact columns are deliberately NOT properties; they
+        # are joined into stg_dim_Rekvirent from arc.ils_rekv. This table has no
+        # masking view and adr/adr2/kontakt hold home-patient PII — and this
+        # MERGE keeps stale property rows (no delete_stale_properties), so a
+        # value the source clears would never go away as a property.
         hierarchy.append({"CODE": rnr_code, "PARENT_CODE": parent_code})
 
     return concepts, properties, hierarchy
+
+
+def _dedupe_rekv_rows(rekv_data: list[dict]) -> list[dict]:
+    """Keep one arc.ils_rekv row per (sgh, rnr): newest pro2modified, lowest
+    prrowid on ties.
+
+    The same rule as build_kontaktinfo_update_sql's ROW_NUMBER in
+    stg_dim_Rekvirent — arc.ils_rekv has prrowid as its PK but (sgh, rnr) as the
+    logical key, and without a shared rule the concept's display/rgrp/rtyp could
+    come from one physical row while the joined address columns come from
+    another. Rows without an rnr never become leaf concepts and pass through
+    untouched (they still feed the sgh/rgrp/rtyp levels).
+    """
+
+    def _replaces(candidate: dict, incumbent: dict) -> bool:
+        cand_mod = candidate.get("pro2modified")
+        inc_mod = incumbent.get("pro2modified")
+        if cand_mod != inc_mod:
+            # NULL pro2modified loses to any dated row (DESC puts NULL last).
+            if cand_mod is None:
+                return False
+            if inc_mod is None:
+                return True
+            return cand_mod > inc_mod
+        return str(candidate.get("prrowid") or "") < str(incumbent.get("prrowid") or "")
+
+    deduped: list[dict] = []
+    best_index: dict[tuple[str, str], int] = {}
+    for row in rekv_data:
+        sgh = str(row["sgh"]).strip() if row.get("sgh") is not None else ""
+        rnr = str(row["rnr"]).strip() if row.get("rnr") is not None else ""
+        if not rnr:
+            deduped.append(row)
+            continue
+        key = (sgh, rnr)
+        index = best_index.get(key)
+        if index is None:
+            best_index[key] = len(deduped)
+            deduped.append(row)
+        elif _replaces(row, deduped[index]):
+            deduped[index] = row
+    return deduped
 
 
 def _rows_to_dicts(rows: list[tuple], columns: list[str]) -> list[dict]:

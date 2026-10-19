@@ -206,7 +206,7 @@ all_assets = [*my_extract_assets, ...]
 | `checkpoint_from` | No | `(schema, table)` — where to read the checkpoint |
 | `columns` | ** | Explicit column list (required for Oracle) |
 | `select_from_expr` | No | Full SELECT+FROM override (Oracle only, see below) |
-| `upper_bound_column` | No | Column for flow-start ceiling when it differs from `delta_column` (see below) |
+| `upper_bound_column` | No | Column the flow-start ceiling filters on; defaults to the delta column (see below) |
 | `flow_start_from` | No | `(schema, table)` — where to read the upper-bound value at runtime (see below) |
 | `column_types` | No | Column→type mapping for cross-platform DDL |
 | `index_keys` | No | Columns for post-load clustered index |
@@ -214,40 +214,25 @@ all_assets = [*my_extract_assets, ...]
 \* One of `delta_column` or `delta_expression` required unless `is_full_load=True`.
 \*\* Required for Oracle dialect.
 
-### upper_bound_column (split-column delta windows)
+### upper_bound_column (ceiling column)
 
-When the flow-start upper bound should filter on a **different column** than the checkpoint lower bound, set `upper_bound_column`. This produces a WHERE clause like:
+`upper_bound_column` names the column the flow-start ceiling filters on. It defaults to the delta column, which is what every IFDB extract uses:
 
 ```sql
-WHERE IFDB_MODIFICATION_DATETIME > TO_DATE('2026-05-26 13:00:23', 'YYYY-MM-DD HH24:MI:SS')
-  AND EPJI_MODIFICATION_DATETIME <= TO_DATE('2026-05-27 05:00:24', 'YYYY-MM-DD HH24:MI:SS')
+WHERE IFDB_MODIFICATION_DATETIME > TO_DATE('2026-10-05 09:20:11', 'YYYY-MM-DD HH24:MI:SS')
+  AND IFDB_MODIFICATION_DATETIME <= TO_DATE('2026-10-05 13:34:23', 'YYYY-MM-DD HH24:MI:SS')
 ```
 
-Use this for IFDB tables where:
-- `IFDB_MODIFICATION_DATETIME` tracks when IFDB processed the row (correct for checkpoint lower bound)
-- `EPJI_MODIFICATION_DATETIME` tracks when the source EPJ-I change occurred (correct for flow-start ceiling, which is derived from `JOB_LOG.SLUTTID`)
-
-```python
-ENCOUNTER_EXTRACT_CONFIG = DfmExtractConfig(
-    source_schema="IFDB",
-    source_table="ENCOUNTER",
-    target_table="ifdb_encounter",
-    delta_column="IFDB_MODIFICATION_DATETIME",
-    upper_bound_column="EPJI_MODIFICATION_DATETIME",
-    checkpoint_type="datetime",
-    checkpoint_from=("arc", "ifdb_encounter"),
-    columns=ENCOUNTER_COLUMNS,
-    column_types=ENCOUNTER_COLUMN_TYPES,
-    index_keys=("OBJECT_ID",),
-    description="IFDB Encounter (delta on IFDB_MODIFICATION_DATETIME, upper bound on EPJI_MODIFICATION_DATETIME).",
-)
-```
-
-When `upper_bound_column` is not set (the default), the upper bound uses the same column as the lower bound.
+The archive merge sets its checkpoint to the ceiling the extract read, and the next run compares that checkpoint with the delta column. The ceiling, the delta column and the upper-bound column must therefore follow one clock. A ceiling column on another clock than the delta column splits or repeats the source's load cycles; `tests/unit/test_ifdb_delta_ceilings.py` rejects it for IFDB. Most IFDB extracts set `upper_bound_column` to their delta column anyway, because DQA's archive reconciliation (`dqa/config/arc_subjects.py`) reads it to bound its own window.
 
 ### flow_start_from (upper-bound value source)
 
-When the extract needs a flow-start ceiling, set `flow_start_from` to tell the factory WHERE to read the upper-bound value from at runtime. The factory reads `dfm.get_checkpoint(schema, table)` and passes it as `upper_bound` to the WHERE builder (delta mode only).
+When the extract needs a flow-start ceiling, set `flow_start_from` to tell the factory WHERE to read the upper-bound value from at runtime. The factory reads `dfm.get_checkpoint(schema, table)` and passes it as `upper_bound` to the WHERE builder (delta mode only). IFDB has two ceilings, one per clock; pick the one that matches the delta column:
+
+- `IFDB_TRANSFER_CEILING` (`dfm.ifdb_transfer_ceiling`) for columns IFDB stamps when it transfers the row: `IFDB_MODIFICATION_DATETIME`, `OPDATERET_TID`, `UPDATE_TIME`.
+- `IFDB_EPJ_CEILING` (`dfm.ifdb_flow_start`) for tables that only carry the EPJ modification time (`MODTIDSPUNKT`, `REFERRAL_DATE`).
+
+The factory records the value it read under the config's `used_ceiling_key` (`dfm/<target_table>_flow_start` in `meta.DFMState`), in every mode. A delta archive's `flow_start_key` must be that key, so the archive checkpoint is the ceiling this extract applied, not one a later flow start wrote.
 
 ```python
 ENCOUNTER_EXTRACT_CONFIG = DfmExtractConfig(
@@ -255,18 +240,18 @@ ENCOUNTER_EXTRACT_CONFIG = DfmExtractConfig(
     source_table="ENCOUNTER",
     target_table="ifdb_encounter",
     delta_column="IFDB_MODIFICATION_DATETIME",
-    upper_bound_column="EPJI_MODIFICATION_DATETIME",
-    flow_start_from=("dfm", "ifdb_flow_start"),
+    upper_bound_column="IFDB_MODIFICATION_DATETIME",
+    flow_start_from=IFDB_TRANSFER_CEILING,
     checkpoint_type="datetime",
     checkpoint_from=("arc", "ifdb_encounter"),
     columns=ENCOUNTER_COLUMNS,
     column_types=ENCOUNTER_COLUMN_TYPES,
     index_keys=("OBJECT_ID",),
-    description="IFDB Encounter with flow-start ceiling.",
+    description="IFDB Encounter (delta on IFDB_MODIFICATION_DATETIME).",
 )
 ```
 
-This replaces the need for hand-written assets that manually call `dfm.get_checkpoint("dfm", "ifdb_flow_start")`. Currently used only for the IFDB source pattern.
+This replaces the need for hand-written assets that manually read the ceiling with `dfm.get_checkpoint`. Currently used only for the IFDB source pattern.
 
 **Note:** `flow_start_from` is only supported for the Oracle dialect. MSSQL extracts do not use the flow-start upper-bound pattern.
 
@@ -319,9 +304,9 @@ IFDB_EXTRACT_CONFIGS = [
         columns=ENCOUNTER_COLUMNS,
         column_types=ENCOUNTER_COLUMN_TYPES,
         index_keys=("OBJECT_ID",),
-        upper_bound_column="EPJI_MODIFICATION_DATETIME",
-        flow_start_from=("dfm", "ifdb_flow_start"),
-        description="IFDB Encounter (delta, upper bound on EPJI_MODIFICATION_DATETIME).",
+        upper_bound_column="IFDB_MODIFICATION_DATETIME",
+        flow_start_from=IFDB_TRANSFER_CEILING,
+        description="IFDB Encounter (delta on IFDB_MODIFICATION_DATETIME).",
     ),
     DfmExtractConfig(
         source_schema="IFDB",

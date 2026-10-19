@@ -18,8 +18,10 @@ from pydantic import Field
 
 SOFT_DELETE_THRESHOLDS: dict[str, int] = {
     "ref.PatientToBorger": 1000,
-    "ref.Patient_Address_To_Borger": 1000,
-    "dim.Borger": 1000,
+    # A citizen who becomes protected retires all her earlier address rows; a day's
+    # CPR delivery gives about a thousand of them.
+    "ref.Patient_Address_To_Borger": 10000,
+    "dim.Borger": 10000,
     "ref.Organisation": 1000,
     "fhir.Organization": 1000,
     # SDS' udredningsret-snapshot sletter reelt ~4.500 markoerer/md (0,06 %);
@@ -100,9 +102,9 @@ def check_soft_delete_threshold(
     that ratio fails even if the absolute count is under the cap.
 
     ``ratio`` overrides the ``SOFT_DELETE_RATIOS`` lookup for callers whose
-    asset names are dynamic and cannot live in the registry (e.g. the DRG
-    archive tables, keyed per dataset in the DSI layer, which core must not
-    import from).
+    asset names are dynamic and cannot live in the registry (e.g. the
+    udredningsret archive tables, keyed per dataset in the DSI layer, which core
+    must not import from).
     """
     threshold = get_soft_delete_threshold(asset_name, override)
     if ratio is None:

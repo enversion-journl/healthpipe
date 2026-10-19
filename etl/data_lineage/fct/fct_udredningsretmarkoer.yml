@@ -1,0 +1,54 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fact
+  TableName: fct.UdredningsretMarkoer
+  Domain: [Udredningsret]
+  Description: >
+    Forløbsmarkører fra SDS' datamart til monitorering af udredningsretten —
+    hændelsesfacten under fct.Udredningsforloeb med én række pr. leveret
+    markør. Markøren bærer leverancens egne indikatorflag (MRK_H, MRK_L_N),
+    sin kode via dim.Forloebsmarkoer og sin dato via dim.Dato. En markør uden
+    F_ID hører til intet forløb og står på sentinel -1 (beslutning U5).
+    Markører retireres med dw_is_deleted, aldrig slettes, og genoplives, når
+    leverancen bringer dem tilbage.
+  Grain: >
+    Én række pr. leveret markør, dvs. pr. (markoer_noegle, loebenummer) —
+    arkivets egen mergenøgle, så fact-rækken og arkivrækken er 1:1, og en
+    soft-slettet markør beholder sin nøgle.
+  Privacy: >
+    CPR opløses til dw_ek_Borger i staging og forlader aldrig staging-laget.
+    Hverken facten eller map-tabellen indeholder CPR — heller ikke hashet:
+    markørnøglen bærer det kun indirekte gennem arkivets helbredsforløbsnøgle.
+
+  SourceSystems:
+    - sds_udredningsret: [LPR_Udredningsret.UdredningsretMont]
+
+  Columns:
+    dw_ek_UdredningsretMarkoer: { Type: PK, DataType: INT, Description: "Entitetsnøgle fra map.UdredningsretMarkoer — mintet på arkivets egen mergenøgle, så en genleverance opdaterer den samme række." }
+    clean_code_UdredningsretMarkoer: { DataType: VARCHAR(100), Expr: "UDREDMRK_{markoer_noegle}_{loebenummer} — arkivets mergenøgle, hvor markoer_noegle er SHA2_256 over (helbredsforløbsnøgle, markørkode, markørdato)." }
+    dw_ek_Udredningsforloeb: { Type: FK, DataType: INT, FK-Target: fct.Udredningsforloeb, Description: "Forældreforløbet, opløst via map.Udredningsforloeb på det clean_code, staging danner af (helbredsforløb, F_ID). En staget ikke-NULL nøgle uden map-medlem fejler kørslen — facten kan ikke bære en forældreløs markør. -1 betyder, at markøren ikke har noget F_ID og derfor hører til intet forløb (1.168.808 rækker målt; design, ikke et opslagsfald — beslutning U5)." }
+    dw_ek_Helbredsforloeb: { DataType: INT, FK-None: true, Description: "Grupperingsnøgle mintet i map.Helbredsforloeb; ingen dimension. Samler markørerne under ét helbredsforløb, også de markører, der ikke danner et udredningsforløb (spec afsnit 6)." }
+    dw_ek_Forloebsmarkoer: { Type: FK, DataType: INT, FK-Target: dim.Forloebsmarkoer, Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.FORLOEBSMARKOER], Description: "Markørkoden som kodedimension; en ukendt kode er et normalt medlem (beslutning U7), mens en blank kode ikke får nogen clean_code og lander på sentinel -1." }
+    dw_ek_Borger: { Type: FK, DataType: INT, FK-Target: dim.Borger, Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.CPR], Description: "CPR opløses i staging mod dim.Borger (fallback tidligere_cpr) og lagres aldrig; -1 ukendt CPR, -2 strukturelt tomt CPR. Samme borger for hele helbredsforløbet." }
+    dw_ek_Organisation_forloeb: { Type: FK, DataType: INT, FK-Target: dim.Organisation, Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.ANSVARLIG_ENHED_FORLOB], Description: "SOR-koden for forløbets ansvarlige enhed på markøren, opslået direkte mod dim.Organisation.kode; blank og uden match giver -1." }
+    dw_ek_Dato_markoer: { Type: FK, DataType: INT, FK-Target: dim.Dato, Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.FORLOEBSMARKOER_DATO], Description: "Markørens egen dato — hændelsesdatoen for facten; en uparselig dato lander på sentinel." }
+
+    helbredsforloeb_id: { DataType: NVARCHAR(50), Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.DW_EK_HelbredsForloeb], Description: "SDS' egen surrogatnøgle som senest leveret — degenereret attribut, aldrig en nøgle (omnummereret ved kilden)." }
+    forloebselement_uuid: { DataType: NVARCHAR(36), Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.OBJEKTID_FORLOBELEMENT], Description: "Forløbselementets UUID (trimmet, små bogstaver) — degenereret attribut (B9)." }
+    markoer_uuid: { DataType: NVARCHAR(36), Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.OBJEKTID_FORLOBSMARKOR], Description: "Markørens UUID (trimmet, små bogstaver) — degenereret attribut. Indgår ikke i nøglen, så en genudstedt UUID opdaterer rækken i stedet for at danne en ny." }
+    indgaar_i_indikator_H: { DataType: BIT, Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.MRK_H], Expr: "1 når MRK_H = '1' — leverancens egen markering af en indikatormarkør (start eller slut)." }
+    indgaar_i_indikator_L_N: { DataType: BIT, Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.MRK_L_N], Expr: "1 når MRK_L_N = '1' — leverancens egen markering af den markør, der bærer årsagskoden." }
+    sygehusregion: { DataType: NVARCHAR(10), Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.C_SGHREGION], Description: "Regionskode for den behandlende enhed, som leveret (trimmet; blank giver NULL)." }
+    bopaelsregion: { DataType: NVARCHAR(10), Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.C_BOREGION], Description: "Borgerens bopælsregion på markøren, som leveret (trimmet; blank giver NULL)." }
+    antal_kilderaekker: { Type: Measure, DataType: INT, Expr: "Antal fuldstændigt identiske kilderækker, arkivet har foldet sammen til denne ene — SUM over levende fact-rækker gendanner leverancens eget rækketal (factens kontroltotal)." }
+    dw_haendelsestidspunkt: { DataType: DATETIME2, Source: [sds_udredningsret.LPR_Udredningsret.UdredningsretMont.FORLOEBSMARKOER_DATO], Expr: "Markørdatoen som tidsstempel (TRY_CONVERT; uparselig dato giver NULL) — markørens hændelsestidspunkt." }
+    dw_is_deleted: { DataType: BIT, Expr: "Arkivets egen soft-delete båret igennem staging; retireres, aldrig slettes, og genoplives når leverancen bringer markøren tilbage (spec afsnit 6)." }
+  Notes:
+    - "Ingen retireringsrutine i fact-asset'et: hver markør findes 1:1 i arkivet, staging bærer de soft-slettede rækker med i scopet, og arkivet hard-sletter aldrig — en markør kan derfor kun retireres gennem sin egen dw_is_deleted."
+    - "Kontroltotal i fact-asset'et: levende fact-rækker og SUM(antal_kilderaekker) holdes op mod hele arc.udredningsret_mont's levende rækker — afvigelse fejler kørslen."
+    - "FK-Target for dw_ek_Udredningsforloeb er forældrefacten fct.Udredningsforloeb og ikke transaktionsdimensionen dim.UdredningsretEgenskaber: DQA'ens referencetjek udleder forældrenøglen af målets navn (dw_ek_<Tabel>), og forløbets nøgle hedder dw_ek_Udredningsforloeb netop på facten."

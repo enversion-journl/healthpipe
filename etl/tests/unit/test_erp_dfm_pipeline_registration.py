@@ -58,6 +58,12 @@ class TestIlsDimensionsPipelineGraph:
         assert lookups and all(p.startswith("arc_ils_") for p in lookups), parents
         assert {"arc_ils_vareart", "arc_ils_zz_oper"} <= parents
 
+    def test_ilsbruger_chain_reads_zz_oper_and_sgh_and_runs_stg_map_dim_dso(self):
+        assert _parents("erp/stg_dim_ILSBruger") == {"arc_ils_zz_oper", "arc_ils_sgh"}
+        assert "erp/stg_dim_ILSBruger" in _parents("map_ILSBruger")
+        assert {"erp/stg_dim_ILSBruger", "map_ILSBruger"} <= _parents("dim_ILSBruger")
+        assert "dim_ILSBruger" in _parents("dso_sync_dim_ilsbruger")
+
 
 @pytest.mark.unit
 class TestVareKreditorPipelineGraph:

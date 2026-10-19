@@ -39,7 +39,9 @@ class TestBuildPatientQuery:
     def test_active_preferred_then_most_recent(self):
         sql = _build_patient_query("2025-06-01 00:00:00", _cfg("delta"))
         assert "CASE WHEN ISNULL(a.[SLETTET], '0') IN ('0', '0.0') THEN 0 ELSE 1 END" in sql
-        assert "a.[dw_timestamp_update] DESC" in sql
+        # Same tiebreak as patient_identity.order_rows
+        assert "a.[OPDATERET_TID] DESC" in sql
+        assert "a.[PATIENT_ID] ASC" in sql
         assert "WHERE _rn = 1" in sql
 
     def test_windowed_cpr_excludes_null_and_empty(self):

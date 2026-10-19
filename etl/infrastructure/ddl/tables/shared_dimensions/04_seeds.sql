@@ -10,7 +10,7 @@
 -- Includes Danish holiday flags (moveable Easter-based + fixed holidays)
 --
 -- Adapted from historical PopulateDato.sql
--- Populates static date attributes on calendar rows (dw_ek_Dato > 0).
+-- Populates static date attributes on calendar rows (dw_ek_Dato 19700101-20501231).
 -- Relative/afsluttet attributes are maintained by 05_dato_relativ.sql.
 -- ============================================================================
 
@@ -18,8 +18,8 @@ SET NOCOUNT ON;
 SET DATEFIRST 1;    -- Monday = 1 (European standard)
 SET LANGUAGE Danish; -- Danish month/day names from DATENAME()
 
--- Only populate if table is empty (idempotent — skip if already seeded)
-IF NOT EXISTS (SELECT 1 FROM dim.Dato WHERE dw_ek_Dato > 0)
+-- Only populate if no calendar rows exist; the range leaves out the 02_dims.sql sentinels.
+IF NOT EXISTS (SELECT 1 FROM dim.Dato WHERE dw_ek_Dato BETWEEN 19700101 AND 20501231)
 BEGIN
 
 -- ========================================================================
@@ -48,14 +48,14 @@ SET [aar] = CAST(YEAR([dato]) AS SMALLINT),
     [aar_startdato] = DATEFROMPARTS(YEAR([dato]), 1, 1),
     [aar_slutdato] = DATEFROMPARTS(YEAR([dato]), 12, 31)
 FROM dim.[Dato] d
-WHERE d.[dw_ek_Dato] > 0;
+WHERE d.[dw_ek_Dato] BETWEEN 19700101 AND 20501231;
 
 UPDATE d
 SET [aar_antal_dage]  = (
-    SELECT COUNT(*) FROM dim.[Dato] d2 WHERE d.[aar] = d2.[aar] AND d2.[dw_ek_Dato] > 0
+    SELECT COUNT(*) FROM dim.[Dato] d2 WHERE d.[aar] = d2.[aar] AND d2.[dw_ek_Dato] BETWEEN 19700101 AND 20501231
 )
 FROM dim.[Dato] d
-WHERE d.[dw_ek_Dato] > 0;
+WHERE d.[dw_ek_Dato] BETWEEN 19700101 AND 20501231;
 
 -- ========================================================================
 -- Step 3: Quarter attributes
@@ -70,36 +70,38 @@ SET [kvartal_id]          = CAST(DATEPART(QUARTER, [dato]) AS TINYINT),
     [kvartal_aar_id]      = YEAR([dato]) * 100 + DATEPART(QUARTER, [dato]),
     [kvartal_aar]         = N'K' + CAST(DATEPART(QUARTER, [dato]) AS NVARCHAR(1)) + N' '
         + CAST(YEAR([dato]) AS NVARCHAR(4))
-WHERE [dw_ek_Dato] > 0;
+WHERE [dw_ek_Dato] BETWEEN 19700101 AND 20501231;
 
 UPDATE d
 SET [kvartal_antal_dage]  = CAST(
-    (SELECT COUNT(*) FROM dim.[Dato] d2 WHERE d.[kvartal_aar_id] = d2.[kvartal_aar_id] AND d2.[dw_ek_Dato] > 0)
+    (SELECT COUNT(*) FROM dim.[Dato] d2 WHERE d.[kvartal_aar_id] = d2.[kvartal_aar_id] AND d2.[dw_ek_Dato] BETWEEN 19700101 AND 20501231)
     AS TINYINT
 )
 FROM dim.[Dato] d
-WHERE d.[dw_ek_Dato] > 0;
+WHERE d.[dw_ek_Dato] BETWEEN 19700101 AND 20501231;
 
 -- ========================================================================
 -- Step 4: Month attributes
 -- ========================================================================
 UPDATE dim.[Dato]
+-- Dansk DATENAME() er lowercase — navnekolonner skal have stort begyndelsesbogstav.
 SET [maaned_id]          = CAST(DATEPART(MONTH, [dato]) AS TINYINT),
-    [maaned_lang]        = DATENAME(MONTH, [dato]),
-    [maaned]             = LEFT(DATENAME(MONTH, [dato]), 3),
+    [maaned_lang]        = UPPER(LEFT(DATENAME(MONTH, [dato]), 1)) + SUBSTRING(DATENAME(MONTH, [dato]), 2, 48),
+    [maaned]             = UPPER(LEFT(DATENAME(MONTH, [dato]), 1)) + SUBSTRING(DATENAME(MONTH, [dato]), 2, 2),
     [maaned_startdato]   = DATEFROMPARTS(YEAR([dato]), MONTH([dato]), 1),
     [maaned_slutdato]    = EOMONTH([dato]),
     [maaned_aar_id]      = YEAR([dato]) * 100 + MONTH([dato]),
-    [maaned_aar]         = LEFT(DATENAME(MONTH, [dato]), 3) + N' ' + CAST(YEAR([dato]) AS NVARCHAR(4))
-WHERE [dw_ek_Dato] > 0;
+    [maaned_aar]         = UPPER(LEFT(DATENAME(MONTH, [dato]), 1)) + SUBSTRING(DATENAME(MONTH, [dato]), 2, 2)
+        + N' ' + CAST(YEAR([dato]) AS NVARCHAR(4))
+WHERE [dw_ek_Dato] BETWEEN 19700101 AND 20501231;
 
 UPDATE d
 SET [maaned_antal_dage]  = CAST(
-    (SELECT COUNT(*) FROM dim.[Dato] d2 WHERE d.[maaned_aar_id] = d2.[maaned_aar_id] AND d2.[dw_ek_Dato] > 0)
+    (SELECT COUNT(*) FROM dim.[Dato] d2 WHERE d.[maaned_aar_id] = d2.[maaned_aar_id] AND d2.[dw_ek_Dato] BETWEEN 19700101 AND 20501231)
     AS TINYINT
 )
 FROM dim.[Dato] d
-WHERE d.[dw_ek_Dato] > 0;
+WHERE d.[dw_ek_Dato] BETWEEN 19700101 AND 20501231;
 
 -- ========================================================================
 -- Step 5: Day and weekday attributes
@@ -111,9 +113,9 @@ SET [dag_aar]        = CAST(DATEPART(dy, [dato]) AS SMALLINT),
     [dag_kvartal]    = CAST(
         DATEDIFF(DAY, DATEADD(QUARTER, DATEDIFF(QUARTER, 0, [dato]), 0), [dato]) + 1 AS TINYINT
     ),
-    [ugedag_lang]    = DATENAME(dw, [dato]),
-    [ugedag]         = LEFT(DATENAME(dw, [dato]), 3)
-WHERE [dw_ek_Dato] > 0;
+    [ugedag_lang]    = UPPER(LEFT(DATENAME(dw, [dato]), 1)) + SUBSTRING(DATENAME(dw, [dato]), 2, 48),
+    [ugedag]         = UPPER(LEFT(DATENAME(dw, [dato]), 1)) + SUBSTRING(DATENAME(dw, [dato]), 2, 2)
+WHERE [dw_ek_Dato] BETWEEN 19700101 AND 20501231;
 
 -- ========================================================================
 -- Step 6: Week attributes (ISO 8601 — handles year-boundary edge cases)
@@ -125,7 +127,7 @@ SET d.[uge_aar_id] = CASE
                     ELSE [aar]
                 END * 100 + DATEPART(ISOWK, [dato])
 FROM dim.[Dato] d
-WHERE d.[dw_ek_Dato] > 0;
+WHERE d.[dw_ek_Dato] BETWEEN 19700101 AND 20501231;
 
 UPDATE d
 SET [uge_aar] = N'U' + RIGHT(N'00' + CAST(DATEPART(ISOWK, [dato]) AS NVARCHAR(2)), 2)
@@ -135,7 +137,7 @@ SET [uge_aar] = N'U' + RIGHT(N'00' + CAST(DATEPART(ISOWK, [dato]) AS NVARCHAR(2)
     [uge_startdato] = DATEADD(DAY, 1 - DATEPART(WEEKDAY, [dato]), [dato]),
     [uge_slutdato] = DATEADD(DAY, 7 - DATEPART(WEEKDAY, [dato]), [dato])
 FROM dim.[Dato] d
-WHERE d.[dw_ek_Dato] > 0;
+WHERE d.[dw_ek_Dato] BETWEEN 19700101 AND 20501231;
 
 -- ========================================================================
 -- Step 7: Weekday/weekend flags + holiday defaults
@@ -145,14 +147,24 @@ SET [er_hverdag]        = CASE WHEN [dag_uge] >= 1 AND [dag_uge] <= 5 THEN 1 ELS
     [hverdag_weekend]  = CASE WHEN [dag_uge] BETWEEN 1 AND 5 THEN N'Hverdag' ELSE N'Weekend' END,
     [er_helligdag]     = 0,
     [helligdag]        = N'Ikke en helligdag'
-WHERE [dw_ek_Dato] > 0;
+WHERE [dw_ek_Dato] BETWEEN 19700101 AND 20501231;
 
 -- ========================================================================
 -- Step 8: Danish moveable holidays (Easter-based, 1950-2099)
 -- ========================================================================
 IF OBJECT_ID('tempdb..#Helligdage') IS NOT NULL DROP TABLE #Helligdage;
 
-SELECT Aar, [Palmesøndag], [Skærtorsdag], Langfredag, [Påskedag], Paaskedag2, [Store Bededag], [Kristi Himmelfartsdag], Pinsedag, Pinsedag2
+-- UNPIVOT needs one type; VALUES sizes each column to its longest date (varchar(7..9)).
+SELECT Aar
+     , CAST([Palmesøndag] AS VARCHAR(20)) AS [Palmesøndag]
+     , CAST([Skærtorsdag] AS VARCHAR(20)) AS [Skærtorsdag]
+     , CAST([Langfredag] AS VARCHAR(20)) AS [Langfredag]
+     , CAST([Påskedag] AS VARCHAR(20)) AS [Påskedag]
+     , CAST([Paaskedag2] AS VARCHAR(20)) AS [Paaskedag2]
+     , CAST([Store Bededag] AS VARCHAR(20)) AS [Store Bededag]
+     , CAST([Kristi Himmelfartsdag] AS VARCHAR(20)) AS [Kristi Himmelfartsdag]
+     , CAST([Pinsedag] AS VARCHAR(20)) AS [Pinsedag]
+     , CAST([Pinsedag2] AS VARCHAR(20)) AS [Pinsedag2]
 INTO #Helligdage
 FROM ( VALUES
  (1950,'2. april','6. april','7. april','9. april','10. april','5. maj','18. maj','28. maj','29. maj' )
@@ -322,11 +334,13 @@ INNER JOIN (
       Dag
       FOR Hellig IN ([Skærtorsdag],[Langfredag],[Påskedag],[Paaskedag2],[Store Bededag],[Kristi Himmelfartsdag],[Pinsedag],[Pinsedag2])
     ) pvt
+    -- Store Bededag blev afskaffet som helligdag fra og med 2024
+    WHERE NOT (Hellig = 'Store Bededag' AND Aar > 2023)
 ) h ON d.[dw_ek_Dato] = h.DW_EK_Date;
 
 -- Rename internal aliases to display names
-UPDATE dim.[Dato] SET [helligdag] = N'2. Påskedag' WHERE [helligdag] = 'Paaskedag2';
-UPDATE dim.[Dato] SET [helligdag] = N'2. Pinsedag' WHERE [helligdag] = 'Pinsedag2';
+UPDATE dim.[Dato] SET [helligdag] = N'2. påskedag' WHERE [helligdag] = 'Paaskedag2';
+UPDATE dim.[Dato] SET [helligdag] = N'2. pinsedag' WHERE [helligdag] = 'Pinsedag2';
 
 -- ========================================================================
 -- Step 9: Fixed holidays (same date every year)
@@ -336,11 +350,11 @@ SET [er_helligdag] = 1, [helligdag] = N'Nytårsdag'
 WHERE [maaned_id] = 1 AND [dag_maaned] = 1;
 
 UPDATE dim.[Dato]
-SET [er_helligdag] = 1, [helligdag] = N'Juledag'
+SET [er_helligdag] = 1, [helligdag] = N'1. juledag'
 WHERE [maaned_id] = 12 AND [dag_maaned] = 25;
 
 UPDATE dim.[Dato]
-SET [er_helligdag] = 1, [helligdag] = N'2. Juledag'
+SET [er_helligdag] = 1, [helligdag] = N'2. juledag'
 WHERE [maaned_id] = 12 AND [dag_maaned] = 26;
 
 -- ========================================================================
@@ -356,12 +370,12 @@ SET [er_beredskabshelligdag] = CASE
         WHEN [er_helligdag] = 1
             THEN [helligdag]
         WHEN [maaned_id] = 12 AND [dag_maaned] = 24
-            THEN N'Juleaften'
+            THEN N'Juleaftensdag'
         WHEN [maaned_id] = 12 AND [dag_maaned] = 31
-            THEN N'Nytårsaften'
-        ELSE N'Ikke en beredskabshelligdag'
+            THEN N'Nytårsaftensdag'
+        ELSE N'Ikke en helligdag'
     END
-WHERE [dw_ek_Dato] > 0;
+WHERE [dw_ek_Dato] BETWEEN 19700101 AND 20501231;
 
 -- ========================================================================
 -- Rebuild clustered index after bulk insert

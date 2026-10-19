@@ -20,7 +20,7 @@ class TestPatientTransformation:
 
     def test_transform_patient_rows_to_fhir(self, sample_patient_rows, mock_dagster_context):
         """Test transformation of IFDB patient rows to FHIR Patient resources."""
-        from DSA.FHIR.utils.ifdb.transforms import transform_fhir_patient_ifdb
+        from DSA.FHIR.Patient.patient_ifdb_contribution import transform_fhir_patient_ifdb
 
         patients = transform_fhir_patient_ifdb(
             context=mock_dagster_context,
@@ -47,7 +47,7 @@ class TestPatientTransformation:
 
     def test_patient_identifier_systems(self, sample_patient_rows, mock_dagster_context):
         """Test that correct identifier systems are used."""
-        from DSA.FHIR.utils.ifdb.transforms import transform_fhir_patient_ifdb
+        from DSA.FHIR.Patient.patient_ifdb_contribution import transform_fhir_patient_ifdb
         from utils.fhir.identifier_systems import SYSTEM_CPR, SYSTEM_IFDB_PATIENT_ID
 
         patients = transform_fhir_patient_ifdb(
@@ -65,7 +65,7 @@ class TestPatientTransformation:
         self, sample_deceased_patient_row, mock_dagster_context
     ):
         """Test that deceased status is correctly mapped from PERSON_STATUSKODE=90."""
-        from DSA.FHIR.utils.ifdb.transforms import transform_fhir_patient_ifdb
+        from DSA.FHIR.Patient.patient_ifdb_contribution import transform_fhir_patient_ifdb
 
         patients = transform_fhir_patient_ifdb(
             context=mock_dagster_context,
@@ -84,7 +84,7 @@ class TestPatientTransformation:
         self, sample_annulled_patient_row, mock_dagster_context
     ):
         """Test that annulled status is correctly mapped from PERSON_STATUSKODE=80."""
-        from DSA.FHIR.utils.ifdb.transforms import transform_fhir_patient_ifdb
+        from DSA.FHIR.Patient.patient_ifdb_contribution import transform_fhir_patient_ifdb
 
         patients = transform_fhir_patient_ifdb(
             context=mock_dagster_context,
@@ -100,7 +100,7 @@ class TestPatientTransformation:
 
     def test_patient_general_practitioner_mapping(self, sample_patient_rows, mock_dagster_context):
         """Test that general practitioner is correctly mapped from doctor fields."""
-        from DSA.FHIR.utils.ifdb.transforms import transform_fhir_patient_ifdb
+        from DSA.FHIR.Patient.patient_ifdb_contribution import transform_fhir_patient_ifdb
         from utils.fhir.identifier_systems import SYSTEM_YDERNUMMER
 
         patients = transform_fhir_patient_ifdb(
@@ -125,7 +125,7 @@ class TestPatientTransformation:
         self, sample_protected_address_patient_row, mock_dagster_context
     ):
         """Protected citizens still carry the address; the flag travels alongside."""
-        from DSA.FHIR.utils.ifdb.transforms import transform_fhir_patient_ifdb
+        from DSA.FHIR.Patient.patient_ifdb_contribution import transform_fhir_patient_ifdb
         from utils.fhir.fhir_extensions import EXTENSION_ADDRESS_PROTECTION
 
         patients = transform_fhir_patient_ifdb(
@@ -154,7 +154,7 @@ class TestPatientTransformation:
 
     def test_patient_municipality_in_address(self, sample_patient_rows, mock_dagster_context):
         """Test that municipality is correctly mapped to address.district."""
-        from DSA.FHIR.utils.ifdb.transforms import transform_fhir_patient_ifdb
+        from DSA.FHIR.Patient.patient_ifdb_contribution import transform_fhir_patient_ifdb
 
         patients = transform_fhir_patient_ifdb(
             context=mock_dagster_context,
@@ -173,7 +173,7 @@ class TestPatientTransformation:
 
     def test_patient_district_extensions(self, sample_patient_rows, mock_dagster_context):
         """Test that district and social district extensions are correctly created."""
-        from DSA.FHIR.utils.ifdb.transforms import transform_fhir_patient_ifdb
+        from DSA.FHIR.Patient.patient_ifdb_contribution import transform_fhir_patient_ifdb
         from utils.fhir.fhir_extensions import (
             EXTENSION_DISTRICT,
             EXTENSION_SOCIAL_DISTRICT,
@@ -212,7 +212,7 @@ class TestPatientTransformation:
 
     def test_patient_active_status_default(self, sample_patient_rows, mock_dagster_context):
         """Test that active patients have active=True and no deceased flag."""
-        from DSA.FHIR.utils.ifdb.transforms import transform_fhir_patient_ifdb
+        from DSA.FHIR.Patient.patient_ifdb_contribution import transform_fhir_patient_ifdb
 
         patients = transform_fhir_patient_ifdb(
             context=mock_dagster_context,
@@ -227,7 +227,7 @@ class TestPatientTransformation:
         self, sample_deceased_patient_row, mock_dagster_context
     ):
         """Test that patients without GP info have no generalPractitioner."""
-        from DSA.FHIR.utils.ifdb.transforms import transform_fhir_patient_ifdb
+        from DSA.FHIR.Patient.patient_ifdb_contribution import transform_fhir_patient_ifdb
 
         # The deceased patient fixture has no GP info
         patients = transform_fhir_patient_ifdb(
@@ -240,7 +240,7 @@ class TestPatientTransformation:
 
     def test_patient_is_deleted_extension(self, sample_patient_rows, mock_dagster_context):
         """Flat urn:source:ifdb:patient_slettet extension (same style as healthissue_id)."""
-        from DSA.FHIR.utils.ifdb.transforms import transform_fhir_patient_ifdb
+        from DSA.FHIR.Patient.patient_ifdb_contribution import transform_fhir_patient_ifdb
         from utils.fhir.is_deleted_extension import EXTENSION_FHIR_IS_DELETED
 
         patients = transform_fhir_patient_ifdb(

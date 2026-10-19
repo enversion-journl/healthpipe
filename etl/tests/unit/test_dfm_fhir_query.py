@@ -162,6 +162,27 @@ class TestFhirQueryDelta:
         assert "[IFDB_MODIFICATION_DATETIME] >" in result
         assert "dw_timestamp_update" not in result
 
+    def test_upper_bound_closes_the_slice_inclusively(self):
+        result = build_fhir_archive_query(
+            _TABLE,
+            "2026-09-27 07:33:52",
+            _cfg("delta"),
+            delta_upper_bound="2026-09-27 22:23:57",
+        )
+        assert "[dw_timestamp_update] > '2026-09-27 07:33:52'" in result
+        assert "[dw_timestamp_update] <= '2026-09-27 22:23:57'" in result
+
+    def test_upper_bound_is_validated_like_a_checkpoint(self):
+        with pytest.raises(ValueError, match="Invalid checkpoint value"):
+            build_fhir_archive_query(
+                _TABLE, None, _cfg("delta"), delta_upper_bound="2026-01-01' OR 1=1 --"
+            )
+
+    def test_upper_bound_is_ignored_outside_delta(self):
+        cfg = _cfg("period", date_from="2023-10-01", date_to="2023-10-31")
+        result = build_fhir_archive_query(_TABLE, None, cfg, delta_upper_bound="2026-09-27")
+        assert "<=" not in result
+
 
 # ===========================================================================
 # lookback

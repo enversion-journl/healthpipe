@@ -20,14 +20,16 @@ from DSA.SQL.staging.drg_kontakt_kolonner import (
     clean_code_sql,
 )
 from DSA.SQL.staging.drg_staging_sql import (
-    build_borger_lookup_sql,
+    UOPLOEST_LOOKBACK_DAGE,
     build_delta_scope_sql,
     build_forloeb_kontroltotal_sql,
-    build_org_lookup_sql,
     build_pre_stg_sql,
     build_sor_coverage_sql,
     build_stg_dim_sql,
     build_stg_fct_sql,
+    build_unresolved_borger_scope_sql,
+    create_borger_cpr_lookup_tables_sql,
+    create_organisation_sor_lookup_table_sql,
 )
 
 pytestmark = pytest.mark.unit
@@ -93,7 +95,7 @@ def test_dim_sql_har_hverken_cpr_eller_borgernoegle():
 
 
 def test_borger_opslag_bruger_tidligere_cpr_som_fallback():
-    lookup = build_borger_lookup_sql()
+    lookup = create_borger_cpr_lookup_tables_sql()
     assert "[cpr_nummer]" in lookup and "[tidligere_cpr]" in lookup
     assert "MIN([dw_ek_Borger])" in lookup  # deterministisk kollaps over T2-raekker
     sql = build_pre_stg_sql(None)
@@ -144,6 +146,75 @@ def test_fuld_load_har_intet_delta_filter():
     assert build_delta_scope_sql(None) == ""
     sql = build_pre_stg_sql(None)
     assert "#delta_kontakt" not in sql
+    # Fuld load laeser hele arc alligevel, saa -1-scopet er overfloedigt der.
+    assert "#uoploest_borger" not in sql
+
+
+# ---------------------------------------------------------------------------
+# Gen-oploesning af dw_ek_Borger = -1
+# ---------------------------------------------------------------------------
+
+
+def test_uoploeste_borgere_er_deres_eget_delta_scope():
+    """En stub-Patient mintes i Aidbox, ikke i arc, saa kontaktens
+    dw_timestamp_update flytter sig ALDRIG (update_only_on_change=True).
+    Uden dette scope ville -1 vaere permanent indtil en manuel full_load."""
+    sql = build_unresolved_borger_scope_sql()
+
+    assert "#uoploest_borger" in sql
+    assert "[fct].[DRGKontakt]" in sql
+    assert "[dw_ek_Borger] = -1" in sql
+    # -2 (tom CPR) er uoploeselig pr. konstruktion og maa ikke gen-staged.
+    assert "[dw_ek_Borger] = -2" not in sql
+    assert "[dw_is_deleted] = 0" in sql
+
+
+def test_uoploest_scope_har_en_nedre_graense_paa_to_uger():
+    """Graensen maales paa FACTENS dw_timestamp_update: fct-MERGE'en skriver
+    kun ved reel aendring, saa en uoploeselig kontakts timestamp staar stille
+    og raekken aeldes selv ud af scopet."""
+    sql = build_unresolved_borger_scope_sql()
+
+    assert UOPLOEST_LOOKBACK_DAGE == 14
+    assert f"DAY, -{UOPLOEST_LOOKBACK_DAGE}," in sql
+    assert "[dw_timestamp_update] >= DATEADD(" in sql
+    # Uret er factens skrivetidspunkt, ikke arkivets eller checkpointets.
+    assert "SYSDATETIME()" in sql
+
+
+def test_uoploest_scope_er_sin_egen_batch():
+    """mssql-python taber en fejl efter en saetning med row count, og
+    delta-scopet aabner med to SELECT ... INTO — derfor egen batch."""
+    delta = build_delta_scope_sql("2026-08-27T00:00:00")
+
+    assert "#uoploest_borger" not in delta
+    assert "INSERT INTO #uoploest_borger" in build_unresolved_borger_scope_sql()
+
+
+def test_uoploest_scope_taaler_at_facten_ikke_findes_endnu():
+    """Paa en frisk database kan pre_stg koere foer fct.DRGKontakt er oprettet.
+    Temp-tabellen oprettes derfor ubetinget, og INSERT'en gaar gennem EXEC —
+    et IF forhindrer ikke T-SQL i at compile-validere grenen."""
+    sql = build_unresolved_borger_scope_sql()
+
+    assert "CREATE TABLE #uoploest_borger" in sql
+    assert "IF OBJECT_ID(N'[fct].[DRGKontakt]', N'U') IS NOT NULL" in sql
+    assert "EXEC(N'" in sql
+    # Praedikatet skal kunne compile uanset om INSERT'en koerte.
+    create_pos = sql.index("CREATE TABLE #uoploest_borger")
+    insert_pos = sql.index("INSERT INTO #uoploest_borger")
+    assert create_pos < insert_pos
+
+
+def test_delta_filter_gen_stager_uoploeste_kontakter_i_begge_grene():
+    """Baade somatik og psyk skal med — en psyk-kontakt paa -1 er lige saa
+    permanent som en somatisk."""
+    sql = build_pre_stg_sql("2026-08-27T00:00:00")
+
+    assert sql.count("FROM #uoploest_borger ub") == 2
+    # Joinet gaar paa forretningsnoeglen, ikke paa dw_ek: pre_stg kender kun
+    # clean_code, og fct baerer den med et unikt indeks.
+    assert "ub.[clean_code] =" in sql
 
 
 def test_checkpoint_vaerdi_escapes():
@@ -185,7 +256,7 @@ def test_sor_opslag_beholder_raa_kode_og_bruger_minus_1():
         assert f"AS [{key}]" in sql
         assert f"p.[{raw}]" in sql  # raa kode staar ved siden af noeglen
     assert "COALESCE(o0.[dw_ek_Organisation], -1)" in sql
-    assert "#org" in build_org_lookup_sql()
+    assert "#organisation_sor" in create_organisation_sor_lookup_table_sql()
 
 
 def test_sor_rapportering_skelner_tom_fra_udfyldt_uden_match():
@@ -245,7 +316,7 @@ def test_stg_fct_typer_maal_med_try_convert():
 
 
 def test_dato_noegler_for_ind_ud_og_henvisning():
-    from etl.DSA.SQL.common.dato_dimension import dato_key
+    from DSA.SQL.common.dato_dimension import dato_key
 
     sql = build_stg_fct_sql()
     for key in ("dw_ek_Dato_ind", "dw_ek_Dato_ud", "dw_ek_Dato_henvisning"):
@@ -280,21 +351,38 @@ def test_stgcolumn_select_udtryk_og_null_pr_leverancetype():
 # ---------------------------------------------------------------------------
 
 
-def test_fhir_tier_sql_daekker_begge_leverancetyper_og_ekskluderer_slettede():
-    from DSA.FHIR.Patient.Patient_DRG import TIER_SQL
+def test_fhir_cpr_sql_daekker_begge_leverancetyper_og_ekskluderer_slettede():
+    """CPR_SQL er en skabelon pr. leverancetype: de to kilder koerer i hvert
+    sit job, saa en faelles forespoergsel ville genindfoere den kobling,
+    jobsplittet fjerner."""
+    from DSA.FHIR.Patient.Patient_DRG import CPR_SQL, SOURCES
 
-    assert "[arc].[drg_kontakt]" in TIER_SQL and "[arc].[drgpsyk_kontakt]" in TIER_SQL
-    assert TIER_SQL.count("[dw_is_deleted] = 0") == 2  # begge kilde-grene
-    assert "DISTINCT" in TIER_SQL  # set-baseret (volumen-kravet)
-    assert "previous_ssn" in TIER_SQL  # tidligere CPR taeller som kendt
+    assert set(SOURCES) == {"DRG", "DRGPSYK"}
+    assert SOURCES["DRG"] == ("drg_kontakt", "CPR")
+    assert SOURCES["DRGPSYK"] == ("drgpsyk_kontakt", "CPRnummer")
+
+    for leverancetype, (kontakt_table, cpr_column) in SOURCES.items():
+        sql = CPR_SQL.format(kontakt_table=kontakt_table, cpr_column=cpr_column, takstsystemer="?")
+        assert f"[arc].[{kontakt_table}]" in sql, leverancetype
+        assert sql.count("[dw_is_deleted] = 0") == 1, leverancetype
+        assert "DISTINCT" in sql  # set-baseret (volumen-kravet)
+        # scopet til koerslens takstsystem: takstsystem er den LEDENDE
+        # PK-kolonne, saa det er et range-seek frem for en fuld scan
+        assert "[takstsystem] IN (" in sql, leverancetype
 
 
 def test_fhir_stub_baerer_kun_cpr_og_kildetag():
-    from DSA.FHIR.Patient.Patient_DRG import META_SOURCE, build_stub_patients
+    """Stubben skrives gennem Patient-indgangen: kun personnummer, og byggeren sætter
+    proveniensen — meta.source er byggerens URI, kildetagget er SDSDRG."""
+    from DSA.FHIR.Patient.field_ownership import SOURCE_DRG
+    from DSA.FHIR.Patient.patient_builder import build
+    from DSA.FHIR.Patient.patient_contributions import stub_contribution
+    from utils.fhir.identifier_systems import SOURCE_PATIENT_BUILDER
 
-    assert META_SOURCE == "SDSDRG"
-    (patient,) = build_stub_patients(["0101011111"])
-    assert patient.meta.source == "SDSDRG"
+    assert SOURCE_DRG == "SDSDRG"
+    patient = build([stub_contribution("0101011111", SOURCE_DRG)])
+    assert patient.meta.source == SOURCE_PATIENT_BUILDER
+    assert [t.code for t in patient.meta.tag] == ["SDSDRG"]
     assert len(patient.identifier) == 1
     assert patient.identifier[0].value == "0101011111"
     # stub by design: intet gaettes
@@ -328,8 +416,19 @@ def test_fhir_tier_klassificering_mod_fake_conn():
 
             return cm()
 
-    tiers = classify_cprs(_Res())
+    tiers = classify_cprs(_Res(), "DRG", ["T26"])
     assert tiers == {"A": ["0101011111"], "B": ["0202022222"], "C": ["0303033333"]}
+
+
+def test_fhir_tier_uden_takstsystemer_roerer_ikke_arkivet():
+    """Tomt manifest = ingen nye CPR'er. Arkivet maa ikke scannes."""
+    from DSA.FHIR.Patient.Patient_DRG import classify_cprs
+
+    class _Res:
+        def get_connection(self):
+            raise AssertionError("maa ikke aabne en forbindelse")
+
+    assert classify_cprs(_Res(), "DRG", []) == {"A": [], "B": [], "C": []}
 
 
 def test_cpr_joines_uden_trunkerende_laengdecast():
@@ -340,9 +439,13 @@ def test_cpr_joines_uden_trunkerende_laengdecast():
     # leverance-siden af borger-joinet maa aldrig laengdecastes
     assert "b.[cpr] = LTRIM(RTRIM(" in sql and "bt.[cpr] = LTRIM(RTRIM(" in sql
     assert "b.[cpr] = CAST(" not in sql and "bt.[cpr] = CAST(" not in sql
-    from DSA.FHIR.Patient.Patient_DRG import TIER_SQL
+    from DSA.FHIR.Patient.Patient_DRG import CPR_SQL, SOURCES
 
-    assert "CAST([CPR]" not in TIER_SQL and "CAST([CPRnummer]" not in TIER_SQL
+    for kontakt_table, cpr_column in SOURCES.values():
+        rendered = CPR_SQL.format(
+            kontakt_table=kontakt_table, cpr_column=cpr_column, takstsystemer="?"
+        )
+        assert f"CAST([{cpr_column}]" not in rendered
 
 
 def test_kontroltotal_identificerer_baerere_af_egenskab_ikke_maal():
@@ -385,9 +488,9 @@ def test_baerer_check_maales_i_arc_paa_tvaers_af_batches():
 def test_org_opslag_medtager_kun_levende_organisationer():
     """Skemaet garanterer kun kode-unikhed for levende raekker: en udgaaet
     organisations kode kan genudstedes under ny noegle, og uden filteret ville
-    det unikke index paa #org faelde hele koerslen — og nye fakta kunne
+    det unikke index paa #organisation_sor faelde hele koerslen — og nye fakta kunne
     resolvere til den udgaaede organisation."""
-    sql = build_org_lookup_sql()
+    sql = create_organisation_sor_lookup_table_sql()
     assert "[dw_is_deleted] = 0" in sql
 
 

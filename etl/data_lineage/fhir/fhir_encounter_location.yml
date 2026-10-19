@@ -8,8 +8,8 @@ dso_lineage:
   Type: fhir
   TableName: fhir.Encounter_Location
   Domain: [FHIR]
-  Description: "FHIR Encounter lokationer — kontakt-til-lokation-kobling"
-  Grain: "Én række pr. lokationstildeling pr. kontakt pr. periodestart"
+  Description: "FHIR Encounter lokationer — kontakt-til-afdelingslokation. Seng-entries (physicalType=bd) lander i fhir.Encounter_BedSpace; encounter_location_view ekskluderer bd."
+  Grain: "Én række pr. afdelingslokationstildeling pr. kontakt pr. periodestart"
   FhirResource: Encounter
 
   SourceSystems:

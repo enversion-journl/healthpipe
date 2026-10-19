@@ -15,12 +15,14 @@ from .pre_stg_AfdelingLagerbeholdning_ils import pre_stg_AfdelingLagerbeholdning
 from .pre_stg_Budget_sydax import pre_stg_Budget_sydax
 from .pre_stg_DRGKontakt import pre_stg_DRGKontakt
 from .pre_stg_Fakturalinje_mysupply import pre_stg_Fakturalinje_mysupply
+from .pre_stg_Helbredsforloeb import pre_stg_Helbredsforloeb
 from .pre_stg_Finanskladdelinje_sydax import pre_stg_Finanskladdelinje_sydax
 from .pre_stg_Lagerbeholdning_ils import pre_stg_Lagerbeholdning_ils
 from .pre_stg_Leverandoervare_ILSVare_delta_entiteter import (
     pre_stg_Leverandoervare_ILSVare_delta_entiteter,
 )
 from .pre_stg_Postering_sydax import pre_stg_Postering_sydax
+from .pre_stg_Udredningsforloeb import pre_stg_Udredningsforloeb
 from .pre_stg_Vareaftaler_ils import pre_stg_Vareaftaler_ils
 from .pre_stg_Vareudlevering_ils import pre_stg_Vareudlevering_ils
 from .stg_bridge_AftaleLager import stg_bridge_AftaleLager
@@ -40,7 +42,10 @@ from .stg_dim_Faktura_mysupply import stg_dim_Faktura_mysupply
 from .stg_dim_Fakturalinje_mysupply import stg_dim_Fakturalinje_mysupply
 from .stg_dim_Finanskladde_sydax import stg_dim_Finanskladde_sydax
 from .stg_dim_Finanskladdelinje_sydax import stg_dim_Finanskladdelinje_sydax
+from .stg_dim_Forloebsmarkoer import stg_dim_Forloebsmarkoer
+from .stg_dim_ILSBruger import stg_dim_ILSBruger
 from .stg_dim_ILSVare import stg_dim_ILSVare
+from .stg_dim_ILSLeverandoer import stg_dim_ILSLeverandoer
 from .stg_dim_Kontoplan_sydax import stg_dim_Kontoplan_sydax
 from .stg_dim_Kreditor import stg_dim_Kreditor
 from .stg_dim_Lager import stg_dim_Lager
@@ -48,6 +53,7 @@ from .stg_dim_LagerbeholdningEgenskaber_ils import stg_dim_LagerbeholdningEgensk
 from .stg_dim_Leverandoervare import stg_dim_Leverandoervare
 from .stg_dim_Postering_sydax import stg_dim_Postering_sydax
 from .stg_dim_Rekvirent import stg_dim_Rekvirent
+from .stg_dim_UdredningsretEgenskaber import stg_dim_UdredningsretEgenskaber
 from .stg_dim_UNSPSC import stg_dim_UNSPSC
 from .stg_dim_Vareudlevering_ils import stg_dim_Vareudlevering_ils
 from .stg_fct_AfdelingLagerbeholdning_ils import stg_fct_AfdelingLagerbeholdning_ils
@@ -59,6 +65,8 @@ from .stg_fct_Fakturalinje_mysupply import stg_fct_Fakturalinje_mysupply
 from .stg_fct_Finanskladdelinje_sydax import stg_fct_Finanskladdelinje_sydax
 from .stg_fct_Lagerbeholdning_ils import stg_fct_Lagerbeholdning_ils
 from .stg_fct_Postering_sydax import stg_fct_Postering_sydax
+from .stg_fct_Udredningsforloeb import stg_fct_Udredningsforloeb
+from .stg_fct_UdredningsretMarkoer import stg_fct_UdredningsretMarkoer
 from .stg_fct_Vareudlevering_ils import stg_fct_Vareudlevering_ils
 from .stg_Okosted import stg_Okosted
 from .stg_Organisation_sydax import stg_Organisation_sydax
@@ -81,6 +89,12 @@ staging_assets = [
     stg_bridge_DRGKontaktProcedure,
     stg_DRGDiagnoseGruppe,
     stg_DRGProcedureGruppe,
+    pre_stg_Helbredsforloeb,
+    pre_stg_Udredningsforloeb,
+    stg_dim_Forloebsmarkoer,
+    stg_fct_UdredningsretMarkoer,
+    stg_fct_Udredningsforloeb,
+    stg_dim_UdredningsretEgenskaber,
     pre_stg_Lagerbeholdning_ils,
     pre_stg_AfdelingLagerbeholdning_ils,
     stg_bridge_Leverandoervare_ILSVare,
@@ -89,7 +103,9 @@ staging_assets = [
     stg_dim_Aftale_ils,
     stg_dim_Faktura_mysupply,
     stg_dim_Fakturalinje_mysupply,
+    stg_dim_ILSBruger,
     stg_dim_ILSVare,
+    stg_dim_ILSLeverandoer,
     stg_dim_Kreditor,
     stg_dim_Leverandoervare,
     stg_dim_BudgetEgenskaber_sydax,
@@ -142,6 +158,12 @@ __all__ = [
     "stg_bridge_DRGKontaktProcedure",
     "stg_DRGDiagnoseGruppe",
     "stg_DRGProcedureGruppe",
+    "pre_stg_Helbredsforloeb",
+    "pre_stg_Udredningsforloeb",
+    "stg_dim_Forloebsmarkoer",
+    "stg_fct_UdredningsretMarkoer",
+    "stg_fct_Udredningsforloeb",
+    "stg_dim_UdredningsretEgenskaber",
     "stg_dim_Aftale_ils",
     "stg_dim_EAN",
     "stg_dim_Faktura_mysupply",
@@ -150,7 +172,9 @@ __all__ = [
     "stg_dim_Kontoplan_sydax",
     "stg_dim_Finanskladde_sydax",
     "stg_dim_Finanskladdelinje_sydax",
+    "stg_dim_ILSBruger",
     "stg_dim_ILSVare",
+    "stg_dim_ILSLeverandoer",
     "stg_dim_Kreditor",
     "stg_dim_Lager",
     "stg_dim_Postering_sydax",

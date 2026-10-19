@@ -33,4 +33,4 @@ dso_lineage:
     created_at:            { DataType: DATETIME2, FhirPath: "r.cts" }
 
   Notes:
-    - "Én Questionnaire pr. unik IFDB-model (MODELLERINGSNAVN|MODELLERINGSVERSION). SFI-koden lever FHIR-nativt på Questionnaire.item.code[]; de flade item-rækker ligger i fhir.Questionnaire_item (intern child-tabel, ikke en selvstændig lineage-ressource)."
+    - "Én Questionnaire pr. unik IFDB-model (MODELLERINGSNAVN|MODELLERINGSVERSION). SFI-koden lever FHIR-nativt på Questionnaire.item.code[]; de flade item-rækker ligger i fhir.Questionnaire_item (egen lineage-fil)."

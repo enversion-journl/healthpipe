@@ -136,7 +136,7 @@ def test_skipped_rows_do_not_leak_into_dependency_resolution(
     # Patch the three resolve_missing_* entry points where they are imported
     # inside _post_ris_ydelse_to_fhir, so we can capture the exact IDs.
     with (
-        patch("DSA.FHIR.utils.ifdb.dependency_resolver.resolve_missing_patients") as mock_pat,
+        patch("DSA.FHIR.Patient.patient_service.ensure_patients") as mock_pat,
         patch("DSA.FHIR.utils.ifdb.dependency_resolver.resolve_missing_encounters") as mock_enc,
         patch(
             "DSA.FHIR.utils.ifdb.dependency_resolver.resolve_missing_episodes_of_care"
@@ -164,8 +164,8 @@ def test_skipped_rows_do_not_leak_into_dependency_resolution(
     eoc_call = mock_eoc.call_args
 
     assert pat_call is not None, "resolve_missing_patients was not called"
-    assert pat_call.kwargs["patient_ids"] == {"PAT-keep"}
-    assert "PAT-SKIP-must-not-leak" not in pat_call.kwargs["patient_ids"]
+    assert pat_call.kwargs["ifdb_patient_ids"] == {"PAT-keep"}
+    assert "PAT-SKIP-must-not-leak" not in pat_call.kwargs["ifdb_patient_ids"]
 
     assert enc_call is not None, "resolve_missing_encounters was not called"
     assert enc_call.kwargs["encounter_ids"] == {"ENC-keep"}
@@ -196,7 +196,7 @@ def test_all_rows_skipped_means_no_dependency_resolution_at_all(
     mssql = MagicMock()
 
     with (
-        patch("DSA.FHIR.utils.ifdb.dependency_resolver.resolve_missing_patients") as mock_pat,
+        patch("DSA.FHIR.Patient.patient_service.ensure_patients") as mock_pat,
         patch("DSA.FHIR.utils.ifdb.dependency_resolver.resolve_missing_encounters") as mock_enc,
         patch(
             "DSA.FHIR.utils.ifdb.dependency_resolver.resolve_missing_episodes_of_care"

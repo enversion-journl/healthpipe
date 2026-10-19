@@ -42,36 +42,22 @@ class TestBuildSql:
         assert "[stg].[dim_UNSPSC]" in BUILD_SQL
         assert "dim_UNSPSC_ils" not in BUILD_SQL
         assert "dim_unspsc_kmd" not in BUILD_SQL
-        assert "dim_unspsc_udbud" not in BUILD_SQL
 
     def test_joins_map_for_dw_ek_and_flags(self):
         assert "JOIN [map].[UNSPSC]" in BUILD_SQL
         assert "m.dw_source_ils" in BUILD_SQL
         assert "m.dw_source_kmd" in BUILD_SQL
-        assert "m.dw_source_udbud" in BUILD_SQL
 
     def test_left_joins_full_arc_for_descriptions(self):
         assert "LEFT JOIN [arc].[ils_unspsc]" in BUILD_SQL
         assert "LEFT JOIN [arc].[kmd_uddata_unspsc]" in BUILD_SQL
-        assert "[arc].[unspsc_udbudskategori]" in BUILD_SQL
 
     def test_kmd_join_filters_by_dw_iscurrent(self):
         assert "[DW_IsCurrent] = 1" in BUILD_SQL
 
-    def test_udbud_descriptions_deduped(self):
-        assert "ROW_NUMBER() OVER" in BUILD_SQL
-        assert "d.rn = 1" in BUILD_SQL
-
     def test_builds_deltatomerge_temp(self):
         assert "INTO #DeltaToMerge" in BUILD_SQL
         assert "CREATE UNIQUE CLUSTERED INDEX" in BUILD_SQL
-
-    def test_selects_udbud_columns(self):
-        assert "AS dw_source_udbud" in BUILD_SQL
-        assert "AS beskrivelse_udbud" in BUILD_SQL
-        assert "AS udbudstype" in BUILD_SQL
-        for n in (1, 2, 3, 4):
-            assert f"AS udbudskategori_niveau_{n}" in BUILD_SQL
 
 
 class TestMergeSql:
@@ -91,18 +77,6 @@ class TestMergeSql:
         update_section = MERGE_SQL.split(") THEN UPDATE SET")[1].split("WHEN NOT MATCHED")[0]
         assert "tgt.dw_source_ils = src.dw_source_ils" in update_section
         assert "tgt.dw_source_kmd = src.dw_source_kmd" in update_section
-
-    def test_merge_includes_udbud_columns(self):
-        for col in (
-            "dw_source_udbud",
-            "beskrivelse_udbud",
-            "udbudstype",
-            "udbudskategori_niveau_1",
-            "udbudskategori_niveau_2",
-            "udbudskategori_niveau_3",
-            "udbudskategori_niveau_4",
-        ):
-            assert f"tgt.{col} = src.{col}" in MERGE_SQL, col
 
     def test_when_matched_has_change_guard(self):
         # Re-runs that change nothing must be no-ops (no timestamp churn / sync churn).

@@ -1,0 +1,23 @@
+{
+  "resourceType": "ViewDefinition",
+  "name": "practitioner_view",
+  "resource": "Practitioner",
+  "status": "active",
+  "select": [
+    {
+      "column": [
+        {"name": "practitioner_id", "path": "id"},
+        {"name": "identifier_cpr", "path": "identifier.where(system='urn:dk:cpr').value.first()"},
+        {"name": "identifier_cpr_previous", "path": "extension('urn:source:silkeborgdata:afloest_cpr').valueString.first()"},
+        {"name": "name_text", "path": "name.text.first()"},
+        {"name": "name_family", "path": "name.family.first()"},
+        {"name": "name_given", "path": "name.given.first()"},
+        {"name": "gender", "path": "gender"},
+        {"name": "birth_date", "path": "birthDate"},
+        {"name": "active", "path": "active"},
+        {"name": "source_table", "path": "meta.tag.where(system='urn:source:silkeborgdata:source_table').code.first()"},
+        {"name": "dw_is_deleted", "path": "extension('urn:fhir:isDeleted').valueInteger.first()"}
+      ]
+    }
+  ]
+}

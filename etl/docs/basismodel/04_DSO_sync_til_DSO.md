@@ -9,8 +9,10 @@
 # 04 — DSO: synkronisering til DSO
 
 DSO (Data Staging Out) er sidste lag i basismodellen. Opgaven er at flytte de
-færdige tabeller fra staging-databasen til rapporteringsdatabasen og udstille dem
-gennem views, som `datamarter`-repoet og rapportværktøjerne læser.
+færdige tabeller fra staging-databasen til DSO-databasen på datamartserveren. Dér
+er de til rådighed for datamart-teamet, som bygger datamarter oven på dem i
+sikkerhedsdomænerne. Basismodellen laver selv et view oven på en tabel, når der er
+en grund til det — se afsnit 5.
 
 DSO **ændrer ikke data**. Hører en beregning til et sted, er det i DSA.
 
@@ -20,15 +22,15 @@ Forudsætter et af 03-kapitlerne.
 
 Staging-databasen er et arbejdsområde: den bliver skrevet til hele natten, den
 indeholder mellemresultater, arkiver og personhenførbare nøgler, og den er ikke
-noget, aftagerne skal kunne se. Rapporteringsdatabasen er læsemiljøet: kun de
-færdige tabeller, med adgangsstyring på.
+noget, aftagerne skal kunne se. DSO-databasen er det, der bygges videre på: kun
+de færdige tabeller, med adgangsstyring på.
 
 Adskillelsen er derfor både en performancegrænse og en sikkerhedsgrænse.
 
 ## Sådan flyttes data
 
 ```
-Staging-database (DSA)                    Rapporteringsdatabase (DSO/DPA)
+Staging-database (DSA)                    DSO-database (datamartserveren)
   map.*                                     map.*
   dim.*      ──── STAGING_LINK (MERGE) ───▶  dim.*
   fct.*                                     fct.*
@@ -36,12 +38,12 @@ Staging-database (DSA)                    Rapporteringsdatabase (DSO/DPA)
   fhir.*                                    fhir.*
                                                 │
                                                 ▼
-                                          vw_dim.* / vw_fct.* / vw_dm.*
-                                          (præsentation + sikkerhed)
+                                          vw_*  (kun når der er en grund)
 ```
 
-**Den foretrukne vej er linked server.** MERGE'en eksekveres helt på DSO-serveren
-via 4-delt navngivning (`[STAGING_LINK].[DW].[skema].[tabel]`), så ingen data
+**Den foretrukne vej er linked server** — en forbindelse fra DSO-serveren direkte
+til staging-databasen. MERGE'en eksekveres helt på DSO-serveren via 4-delt
+navngivning (`[STAGING_LINK].[DW].[skema].[tabel]`), så ingen data
 passerer gennem Python.
 
 **Python-fallback** findes som nødløsning: hvis linked serveren ikke er
@@ -61,11 +63,15 @@ plus `fallback_reason`.
 Rækkefølgen er bundet i Dagster: **map → dim → fct**, hvor map findes. Hvert
 sync-asset afhænger af sit upstream staging-asset.
 
-## Watermark-reglerne
+## Checkpoint-reglerne
 
-En delta-synkronisering kan tabe rækker uden at fejle. Reglerne nedenfor er derfor
-eksplicitte, og de er implementeret i `build_delta_merge_statement` og `DfmManager`
-(`scope='dso'`).
+Sync'en holder styr på, hvor langt den er nået, med et checkpoint — ligesom resten
+af DFM. I koden hedder mode'en `watermark`, og kolonnen, der sammenlignes med
+checkpointet, hedder `watermark_column`; begrebet er det samme.
+
+En delta-synkronisering kan miste rækker, uden at der kommer en fejlbesked —
+rækkerne mangler bare på DSO. Reglerne nedenfor er derfor eksplicitte, og de er
+implementeret i `build_delta_merge_statement` og `DfmManager` (`scope='dso'`).
 
 **Filterudtrykket:**
 `COALESCE([watermark_kolonne], [dw_timestamp_insert]) > checkpoint`
@@ -113,7 +119,7 @@ Reset til en fuld re-sync sker med `meta.usp_dfm_reset` med
 
 ### 1. Konfigurationen
 
-`DSO/load/sync_configs.py` er **kilden til sandhed** for, hvilke tabeller der
+Det er i `DSO/load/sync_configs.py`, det bestemmes, hvilke tabeller der
 synkroniseres. Tilføj en `SyncTableConfig`:
 
 ```python
@@ -145,14 +151,15 @@ lag. Kopiér et naboasset — mønstret er altid: hent konfigurationen, kald
 `sync_table_via_linked_server(...)`, kald `compare_row_counts(...)`, og returnér
 begge dele som metadata.
 
-Navngivning: `dso_sync_{skema}_{tabel}`, group `{domæne}_dso_sync`.
+Navngivningen står i
+[navngivningsstandard_basismodel.md](../implementation/navngivningsstandard_basismodel.md#assets).
 Afhængigheder: det upstream staging-asset, plus map-sync'en hvis domænet
 synkroniserer map.
 
 ### 3. Registrér
 
-Læg assettet i den relevante `all_*_dso_sync_assets`-liste i samme fil, og eksportér
-fra `DSO/load/__init__.py`.
+Læg assettet i den relevante `all_*_dso_sync_assets`-liste i samme fil, og
+registrér det i `DSO/load/__init__.py`.
 
 ### 4. DDL på DSO
 
@@ -161,28 +168,39 @@ Schema validation kører automatisk (`validate_schemas=True`) og fejler ved fors
 Tilføj DDL'en under `infrastructure/ddl/tables/{domæne}/` og materialisér det
 tilhørende `dso_infra_*`-asset.
 
-### 5. Viewet
+### 5. Viewet — kun når der er en grund
 
-Views ligger som DDL under `infrastructure/ddl/views/{domæne}/` og bruger
-`CREATE OR ALTER VIEW`.
+En DSO-tabel får ikke automatisk et view. Datamart-teamet bygger selv datamarter
+oven på basismodellens tabeller, så basismodellen laver kun et view, når der er en
+grund til det. Grundene er i dag:
 
-| Viewtype | Navngivning |
+| Grund | Eksempel |
 |---|---|
-| Dimensionsview | `vw_dim_<Tabel>` |
-| Factview | `vw_fct_<Tabel>` |
-| dm-view | `vw_dm.<Tabel>` (eget skema) |
+| **Den sikre læsning skal være standarden.** Tabellen samler soft deleted rækker op, og den, der læser tabellen direkte, får dem med | `vw_dm.HAIBA_*` og `vw_fct.Lagerbeholdning` filtrerer `dw_is_deleted = 0` |
+| **Et opslag skal laves for den, der læser tabellen** — fx en relation, der bevidst blev efterladt som CleanCode i DSA, eller en organisation, der ikke er gemt på fact'en | `vw_fct.*` i ERP slår SOR-organisationen op via `conceptmap.*` |
+| **Persondata skal maskeres** | `vw_dim.Borger` er altid maskeret |
 
-View-laget har fire opgaver:
+Gælder ingen af dem, laver du ikke et view. De pass-through-views, der findes i
+dag (fx `vw_fhir.*`), bliver stående. Adgangsstyringen efter sikkerhedsmodellen
+lægges på i DPA-views — se [sikkerhedsmodel.md](../implementation/sikkerhedsmodel.md).
 
-1. **Slå `dw_sk` op** for type 2-dimensioner ved hjælp af `dw_haendelsestidspunkt`
-   på fact-rækken.
-2. **Slå komplekse relationer op**, der bevidst blev efterladt som CleanCodes i DSA
-   (fx fact-til-fact-relationer, der kan ændre sig over tid).
-3. **Filtrere.** `dw_is_deleted = 0` og gyldighedsfiltre. Den sikre læsning skal
-   være standarden.
-4. **Adgangsstyring.** Se [sikkerhedsmodel.md](../implementation/sikkerhedsmodel.md):
-   roller og rækkebaseret sikkerhed lægges på i view-laget, drevet af AD-grupper og
-   tabellerne `sec.RolleDomaene` / `sec.RBOrganisation`.
+Skal der et view til:
+
+- DDL'en ligger under `infrastructure/ddl/views/{domæne}/` og bruger
+  `CREATE OR ALTER VIEW`.
+- Viewet hedder det samme som tabellen, i skemaet `vw_` plus tabellens skema:
+  `vw_dm.HAIBA_CasesInfektion` ligger oven på `dm.HAIBA_CasesInfektion`.
+- Det køres af domænets `dso_infra_views_{domæne}`-asset, som er registreret i
+  `infrastructure/__init__.py`. Har domænet ikke et endnu, skal du lave det.
+- Lineage-filen beskriver, hvad viewet filtrerer på, så den, der læser tabellen,
+  kan se forskellen. Se [05 — Udfyld dokumentation](05_udfyld_dokumentation.md).
+
+Uanset om der er et view eller ej, leverer basismodellen det, der skal til for at
+læse tabellen rigtigt: `dw_ek` og `dw_haendelsestidspunkt` på facts (se
+[03b](03b_DSA_arkiv_til_dimensionel_model.md#dw_sk--versionsnøglen)),
+`dw_is_deleted` på tabeller, der samler slettede rækker op, og sikkerhedstabellerne
+`sec.RolleDomaene` og `sec.RBOrganisation`, som indlæses fra AD og synkroniseres
+til DSO.
 
 ## Verificér
 
@@ -202,7 +220,8 @@ Konkret at tjekke ved en ny tabel:
 2. **Anden kørsel** giver `watermark_delta` med 0 eller få rækker, og checkpointet er
    flyttet.
 3. `counts_match` er `true`.
-4. **Viewet** returnerer det forventede — og filtrerer slettede rækker.
+4. **Tabellen på DSO** har de samme rækker som på staging — også de slettede
+   (`dw_is_deleted = 1`). Har tabellen et view, filtrerer viewet dem fra.
 5. DQA-tjekket `dso_reconciliation` er konfigureret for tabellen. Det afstemmer DSA
    mod DSO løbende og er den langsigtede sikring.
 
@@ -215,14 +234,14 @@ Konkret at tjekke ved en ny tabel:
 | `sync_engine=python_fallback` | Linked serveren var utilgængelig. Undersøg netværk og credentials — behandl det som en hændelse, ikke som normal drift. |
 | `counts_match: false` med lille forskel | Rækker indsat mellem MERGE og optælling. Løser sig selv ved næste kørsel. |
 | `counts_match: false` med stor forskel | Enten rester på DSO (MERGE sletter dem ikke) eller en fejlet fallback-overførsel. Overvej at resette checkpointet og køre en fuld re-sync. |
-| Første watermark-kørsel MERGE'er alt | Forventet: `scope='dso'`-checkpointet var tomt. |
+| Første kørsel med `mode="watermark"` MERGE'er alt | Forventet: `scope='dso'`-checkpointet var tomt. |
 
 ## Videre herfra
 
 [05 — Udfyld dokumentation](05_udfyld_dokumentation.md). En DSO-synkroniseret tabel
 **skal** have lineage-dokumentation, før merge requesten kan lukkes.
 
-Uddybende (endnu ikke oversat):
+Uddybende (på engelsk):
 [dso_sync_guide.md](../implementation/dso_sync_guide.md) — den engelske
 originaludgave med performancetuning og fuld feltreference;
 [dso_delta_load_strategy.md](../architecture/dso_delta_load_strategy.md) —

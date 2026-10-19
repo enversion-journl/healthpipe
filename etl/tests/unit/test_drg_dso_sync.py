@@ -201,17 +201,18 @@ def test_publish_job_owns_the_dsa_rebuild_and_sync_ingest_does_not():
     """Split like HAIBA: ingest owns extract/archive/stub-creation; publish owns
     the DSA rebuild (pre-staging -> fct) plus the DSO sync, so nothing publishes
     between a delivery's unknown-CPR stub creation and the nightly mint. The
-    stub asset (drg_borger) MUST be in ingest — otherwise it runs in no job and
+    stub asset MUST be in an ingest job — otherwise it runs in no job and
     tier-C CPRs are never created, leaving those contacts at dw_ek_Borger = -1
     forever."""
-    from jobs.drg_jobs import drg_ingest_job, drg_publish_job
+    from jobs.drg_jobs import DRG_INGEST_JOBS, drg_publish_job
 
-    ingest = str(drg_ingest_job.selection)
+    ingest = " ".join(str(job.selection) for job in DRG_INGEST_JOBS)
     publish = str(drg_publish_job.selection)
 
-    for group in ("drg_extract", "drg_archive", "drg_borger"):
-        assert group in ingest, group
-        assert group not in publish, group
+    for asset in ("ext_drg", "ext_drgpsyk", "arc_drg_kontakt", "arc_drgpsyk_kontakt"):
+        assert asset in ingest, asset
+    for asset in ("fhir_patient_somatik_drg", "fhir_patient_psyk_drg"):
+        assert asset in ingest, asset
     for group in (
         "drg_pre_staging",
         "drg_staging",
@@ -222,3 +223,48 @@ def test_publish_job_owns_the_dsa_rebuild_and_sync_ingest_does_not():
     ):
         assert group in publish, group
         assert group not in ingest, group
+
+
+def test_ingest_jobs_are_split_per_leverancetype_and_kadence():
+    """A psyk failure must not be able to stop the somatic weekly work, and M/U
+    must not share an ext load."""
+    from jobs.drg_jobs import (
+        drg_ingest_psyk_maaned_job,
+        drg_ingest_somatik_maaned_job,
+        drg_ingest_somatik_uge_job,
+    )
+
+    somatik_m = str(drg_ingest_somatik_maaned_job.selection)
+    psyk_m = str(drg_ingest_psyk_maaned_job.selection)
+
+    assert "ext_drg" in somatik_m and "ext_drgpsyk" not in somatik_m
+    assert "ext_drgpsyk" in psyk_m and "arc_drg_kontakt" not in psyk_m
+
+    # Same assets for both somatik cadences — only the configured cadence differs.
+    assert str(drg_ingest_somatik_uge_job.selection) == somatik_m
+
+
+def test_each_ingest_job_carries_its_own_checkpoint_gate():
+    """Without the gate in the selection nothing advances the checkpoint, and
+    every run would re-read the same delivery forever."""
+    from jobs.drg_jobs import (
+        drg_ingest_psyk_maaned_job,
+        drg_ingest_somatik_maaned_job,
+        drg_ingest_somatik_uge_job,
+    )
+
+    for job, gate in (
+        (drg_ingest_somatik_maaned_job, "drg_leverance_checkpoint_drg"),
+        (drg_ingest_somatik_uge_job, "drg_leverance_checkpoint_drg"),
+        (drg_ingest_psyk_maaned_job, "drg_leverance_checkpoint_drgpsyk"),
+    ):
+        assert gate in str(job.selection), job.name
+
+
+def test_freshness_runs_outside_the_ingest_jobs():
+    """It must report whether or not anything loads."""
+    from jobs.drg_jobs import DRG_INGEST_JOBS, drg_freshness_job
+
+    assert "drg_freshness" in str(drg_freshness_job.selection)
+    for job in DRG_INGEST_JOBS:
+        assert "drg_freshness" not in str(job.selection), job.name

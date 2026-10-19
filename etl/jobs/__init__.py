@@ -24,13 +24,21 @@ from jobs.codesystem_jobs import (
 )
 
 # DRG job (SDS DRG-grouped LPR -> ext -> arc)
-from jobs.drg_jobs import drg_ingest_job, drg_publish_job
+from jobs.drg_jobs import (
+    DRG_INGEST_JOBS,
+    drg_freshness_job,
+    drg_publish_job,
+)
 
 # HAIBA job (weekly SDS deliveries -> ext -> arc)
+from jobs.cpr_jobs import cpr_ingest_job
 from jobs.haiba_jobs import haiba_ingest_job, haiba_publish_job
 
+# LPR3 Grunddata jobs (weekly/monthly SDS snapshot -> ext -> arc; share freshness)
+from jobs.lpr3_jobs import lpr3_freshness_job, lpr3_ingest_job
+
 # Udredningsret job (SDS LPR_Udredningsret weekly snapshot -> ext -> arc)
-from jobs.udredningsret_jobs import udredningsret_ingest_job
+from jobs.udredningsret_jobs import udredningsret_ingest_job, udredningsret_publish_job
 
 # FHIR IFDB jobs
 # Data quality jobs
@@ -39,6 +47,7 @@ from jobs.data_quality_jobs import data_quality_job
 # ERP daily DFM job (lagerbeholdning + KMD archive + dim.UNSPSC)
 from jobs.erp_daily_dfm_jobs import erp_daily_dfm_job
 from jobs.dim_dato_jobs import dim_dato_daily_job
+from jobs.populationsansvar_jobs import populationsansvar_ref_job
 
 # SQL ERP jobs
 from jobs.erp_jobs import (
@@ -83,6 +92,9 @@ from jobs.infrastructure_jobs import (
 # SQL KMD UdData jobs
 from jobs.kmd_uddata_jobs import kmd_uddata_archive_job
 
+# SilkeborgData archive job (delivery share -> ext -> arc)
+from jobs.silkeborgdata_jobs import silkeborgdata_daily_job
+
 # SQL Lager jobs
 from jobs.lager_jobs import lager_dim_job
 
@@ -111,19 +123,28 @@ all_jobs = [
     organisation_cs_job,
     # FHIR CodeSystem Job (clinical SKS/SOR terminology -> DSO + FHIR)
     fhir_codesystem_job,
-    drg_ingest_job,
+    *DRG_INGEST_JOBS,
+    drg_freshness_job,
     drg_publish_job,
+    cpr_ingest_job,
     haiba_ingest_job,
     haiba_publish_job,
+    lpr3_ingest_job,
+    lpr3_freshness_job,
     udredningsret_ingest_job,
+    udredningsret_publish_job,
     # DWH Lager Jobs
     lager_dim_job,
     # ERP Daily DFM Job (lagerbeholdning + KMD archive + dim.UNSPSC)
     erp_daily_dfm_job,
     # Shared date dimension daily refresh
     dim_dato_daily_job,
+    # Municipality to population responsibility reference table
+    populationsansvar_ref_job,
     # KMD UdData Jobs
     kmd_uddata_archive_job,
+    # SilkeborgData Archive Job
+    silkeborgdata_daily_job,
     # MySupply DFM Archive Job
     mysupply_archive_job,
     # ILS DFM Archive Job
@@ -172,18 +193,29 @@ __all__ = [
     "organisation_cs_job",
     # FHIR CodeSystem job
     "fhir_codesystem_job",
-    "drg_ingest_job",
+    "DRG_INGEST_JOBS",
+    "drg_freshness_job",
     "drg_publish_job",
+    "cpr_ingest_job",
     "haiba_ingest_job",
     "haiba_publish_job",
+    # LPR3 jobs
+    "lpr3_ingest_job",
+    "lpr3_freshness_job",
+    "udredningsret_ingest_job",
+    "udredningsret_publish_job",
     # Lager jobs
     "lager_dim_job",
     # ERP Daily DFM job
     "erp_daily_dfm_job",
     # Shared date dimension daily job
     "dim_dato_daily_job",
+    # Municipality to population responsibility reference job
+    "populationsansvar_ref_job",
     # KMD UdData jobs
     "kmd_uddata_archive_job",
+    # SilkeborgData archive job
+    "silkeborgdata_daily_job",
     # MySupply DFM Archive job
     "mysupply_archive_job",
     # ILS DFM Archive job

@@ -11,7 +11,7 @@ Tests the complete transform chain for each domain and validates that critical
 source data survives the FHIR transformation without loss or corruption.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 
 import pytest
 from DSA.FHIR.Condition.Condition_IFDB_Diagnose_dfm import _transform_diagnose_to_fhir
@@ -21,14 +21,21 @@ from DSA.FHIR.DocumentReference.DocumentReference_IFDB_CareDischargeReport_dfm i
 from DSA.FHIR.DocumentReference.DocumentReference_IFDB_Epikrise_dfm import (
     _transform_epikrise_to_fhir,
 )
+from DSA.FHIR.Practitioner.Practitioner_SilkeborgData_dfm import transform_practitioner_rows
+from DSA.FHIR.Practitioner.PractitionerRole_SilkeborgData_dfm import (
+    transform_practitioner_role_rows,
+)
 from DSA.FHIR.Procedure.Procedure_IFDB_AdminProc_dfm import _transform_adm_procedure_to_fhir
 from DSA.FHIR.Procedure.Procedure_IFDB_RisYdelse_dfm import _transform_ris_ydelse_to_fhir
 from utils.fhir.identifier_systems import (
+    SYSTEM_CPR,
     SYSTEM_IFDB_ADMINISTRATIVE_PROCEDURE,
     SYSTEM_IFDB_CARE_DISCHARGE_REPORT,
     SYSTEM_IFDB_EPIKRISE,
     SYSTEM_IFDB_PATIENT_ID,
     SYSTEM_IFDB_SOURCE_TABLE,
+    SYSTEM_SILKEBORGDATA_STILLINGSKODE,
+    SYSTEM_SILKEBORGDATA_TJENESTENUMMER,
     SYSTEM_SKS,
     SYSTEM_SKS_D,
 )
@@ -521,3 +528,78 @@ class TestCareDischargeDocumentReferenceRoundtrip:
         is_deleted = [ext for ext in d.extension if ext.url == EXTENSION_FHIR_IS_DELETED]
         assert len(is_deleted) == 1
         assert is_deleted[0].valueInteger == 1
+
+
+class TestSilkeborgDataPractitionerRoundtrip:
+    """Thin field-mapping roundtrip for E26PERS -> Practitioner/PractitionerRole.
+
+    Deep coverage (CPR validity gate, name split, code separation, sentinel
+    dates) lives in ``test_practitioner_transforms.py``. What this adds is the
+    all-fields-at-once path: a field dropped only when the others are present.
+    """
+
+    _PERSON = {
+        "CprNr": "0101903456",
+        "Navn": "Efternavn,Fornavn",
+        "Udtraeksdato": date(2026, 8, 26),
+        "_alias_cpr": None,
+        "_is_latest": 1,
+    }
+
+    _ROLE = {
+        "Inst": "OD",
+        "Tjenestenummer": "10001",
+        "CprNr": "0101903456",
+        "_practitioner_cpr": "0101903456",
+        "Udtraeksdato": date(2026, 8, 26),
+        "Ansaettelsesdato": date(2015, 3, 1),
+        "Stillingskode": "1362",
+        "Stilling": "Stillingsbetegnelse",
+        "Lederkode": "36",
+        "Discokode": "222110",
+        "Afdelingskode": "6VFS",
+        "_is_latest": 1,
+        "_episode_key": "20150401",
+    }
+
+    def test_practitioner_identity_preserved(self):
+        p = transform_practitioner_rows([dict(self._PERSON)])[0]
+        assert p.id is None
+        assert p.identifier[0].system == SYSTEM_CPR
+        assert p.identifier[0].value == "0101903456"
+        assert p.name[0].text == "Efternavn,Fornavn"
+        assert p.name[0].family == "Efternavn"
+        assert p.gender == "female"
+        assert p.birthDate == date(1990, 1, 1)
+        assert p.active is True
+        assert p.meta.tag[0].code == "silkeborgdata_e26_pers"
+
+    def test_role_identity_preserved(self):
+        r = transform_practitioner_role_rows([dict(self._ROLE)])[0]
+        assert r.id is None
+        assert r.identifier[0].system == SYSTEM_SILKEBORGDATA_TJENESTENUMMER
+        assert r.identifier[0].value == "OD-10001-20150401"
+        assert r.practitioner.identifier.value == "0101903456"
+        assert r.period.start == date(2015, 3, 1)
+        assert r.active is True
+        stilling = next(
+            c for c in r.code if c.coding[0].system == SYSTEM_SILKEBORGDATA_STILLINGSKODE
+        )
+        assert stilling.coding[0].code == "1362"
+        assert stilling.text == "Stillingsbetegnelse"
+        assert r.specialty[0].coding[0].code == "222110"
+        assert r.meta.tag[0].code == "silkeborgdata_e26_pers"
+
+    def test_is_deleted_extension_always_present_and_zero(self):
+        """The source never deletes, but the flag must still be carried.
+
+        Both resources set other extensions too, so this pins that the
+        isDeleted extension is not overwritten on the way.
+        """
+        for resource in (
+            transform_practitioner_rows([dict(self._PERSON)])[0],
+            transform_practitioner_role_rows([dict(self._ROLE)])[0],
+        ):
+            is_deleted = [e for e in resource.extension if e.url == EXTENSION_FHIR_IS_DELETED]
+            assert len(is_deleted) == 1
+            assert is_deleted[0].valueInteger == 0

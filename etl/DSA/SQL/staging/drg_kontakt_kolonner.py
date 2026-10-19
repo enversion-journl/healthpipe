@@ -14,7 +14,7 @@ pre_stg/stg_fct/stg_dim builders in drg_staging_sql.py.
 
 GDPR: CPR is resolved to dw_ek_Borger inside pre_stg and NEVER lands in any
 stg table. The raw CPR expression therefore lives
-in a separate constant consumed only by the #borger join — it is not part of
+in a separate constant consumed only by the #borger_current_cpr join — it is not part of
 the staged column set.
 
 Naming: clean_code_DRGKontakt is built from (leverancetype, takstsystem,
@@ -23,6 +23,8 @@ integer IDs (renumbered on every delivery).
 """
 
 from dataclasses import dataclass
+
+from DSA.SQL.common.hash_clean_code import build_attribute_hash_sql
 
 # Sentinels shared with the rest of the warehouse
 UNKNOWN = -1  # value present but not resolvable
@@ -71,7 +73,7 @@ def clean_code_sql(leverancetype: str) -> str:
     )
 
 
-# Raw CPR expression per delivery type — consumed ONLY by the #borger lookup
+# Raw CPR expression per delivery type — consumed ONLY by the #borger_current_cpr lookup
 # join inside pre_stg; never selected into a staging table.
 CPR_SQL = {"DRG": "k.[CPR]", "DRGPSYK": "k.[CPRnummer]"}
 
@@ -203,18 +205,11 @@ def klassifikation_clean_code_sql(alias: str) -> str:
     The code is a SHA2_256 over (leverancetype, takstsystem, attributes): a
     readable concatenation of 19 values can exceed SQL Server's 900-byte
     clustered-key limit, and the dimension row carries every attribute in
-    readable form anyway. Each value is length-prefixed before hashing, so
-    the concatenation is injective — without the prefix, ('AB','C') and
-    ('A','BC') would hash identically. Values are normalised like other
-    clean_codes (UPPER + trim); NULL and empty collapse to the same
-    combination by design.
+    readable form anyway. The shared builder length-prefixes each value, so
+    the concatenation is injective.
     """
-    parts = []
-    for col in ("leverancetype", "takstsystem", *KLASSIFIKATION_ATTRIBUTES):
-        norm = f"ISNULL(UPPER(LTRIM(RTRIM({alias}.[{col}]))), N'')"
-        parts.append(f"CONCAT(LEN({norm}), N':', {norm}, N'|')")
-    combined = f"CONCAT({', '.join(parts)})"
-    return f"'DRGKLASS_' + CONVERT(CHAR(64), HASHBYTES('SHA2_256', {combined}), 2)"
+    columns = ("leverancetype", "takstsystem", *KLASSIFIKATION_ATTRIBUTES)
+    return f"'DRGKLASS_' + {build_attribute_hash_sql(alias, columns)}"
 
 
 # SOR roles: staged raw-code column -> resolved key column.

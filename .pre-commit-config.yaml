@@ -23,19 +23,17 @@ repos:
 # <<< healthpipe-license-hooks <<<
   # Security gate: scan the STAGED diff for secrets/tokens and PII (CPR, email,
   # phone, person names) before anything else. Backed by gitleaks + .gitleaks.toml.
-  # Requires the gitleaks binary on PATH (installed by
-  # .devcontainer/startup_scripts/setup-precommit.sh; macOS host: `brew install gitleaks`).
   # Bypass a false positive with an inline `# gitleaks:allow` comment or the [allowlist].
-  - repo: local
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
     hooks:
       - id: gitleaks
         name: gitleaks (secret + PII scan of staged diff)
-        description: Block commits containing secrets, tokens, or PII
-        entry: gitleaks git --pre-commit --staged --redact --no-banner --config .gitleaks.toml
-        language: system
-        pass_filenames: false
+        args: [--no-banner, --config, .gitleaks.toml]
         always_run: true
 
+  - repo: local
+    hooks:
       - id: check-hook-entries
         name: pre-commit hook scripts are git-tracked
         description: Catch a hook entry that only exists on the author's machine
@@ -44,30 +42,21 @@ repos:
         pass_filenames: false
         always_run: true
 
-      - id: check-ruff-pin
-        name: ruff pin matches pyproject + pre-commit + installed
-        description: Block drift between the ruff versions CI and local run
-        entry: python3 infrastructure/devops/scripts/check_ruff_pin.py
-        language: system
-        pass_filenames: false
-        always_run: true
-
   # Pre-commit hooks for general file checks
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.6.0
+    rev: v5.0.0
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer
       - id: check-yaml
       - id: check-added-large-files
-        # Two tracked reference datasets are legitimately far past any sane
-        # threshold (UNSPSC ~11MB, rekvirent-to-SOR conceptmap ~5MB). The hook only
-        # inspects ADDED files, so they are invisible on incremental commits but hit
-        # every fresh checkout-and-add. Excluding them by path keeps the default
-        # 500kB ceiling meaningful for everything else.
+        # One tracked reference dataset is legitimately far past any sane
+        # threshold (rekvirent-to-SOR conceptmap ~5MB). The hook only inspects
+        # ADDED files, so it is invisible on incremental commits but hits every
+        # fresh checkout-and-add. Excluding it by path keeps the default 500kB
+        # ceiling meaningful for everything else.
         exclude: |
           (?x)^(
-            etl/DSI/csv_files/data/unspsc_udbudskategori\.csv|
             etl/DSI/organisation/conceptmaps/rekvirent-to-sor/conceptmap\.json
           )$
       - id: check-merge-conflict
@@ -86,7 +75,7 @@ repos:
 
   # Ruff for linting with auto-fixes
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.16.3
+    rev: v0.16.7
     hooks:
       # ruff-check, not the `ruff` legacy alias. Lint only — black is the formatter,
       # so the ruff-format hook is deliberately absent.

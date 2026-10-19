@@ -22,7 +22,9 @@ def get_dev_assets() -> list[AssetsDefinition]:
     """Return dev-only assets; empty in prod deployments."""
     if is_prod_environment():
         return []
-    return [erp_faktura_reset_tables]
+    return [
+        erp_faktura_reset_tables,
+    ]
 
 
 all_assets = get_dev_assets()

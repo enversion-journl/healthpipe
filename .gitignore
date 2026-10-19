@@ -86,9 +86,6 @@ poetry.lock
 pdm.lock
 __pypackages__/
 
-# uv
-uv.lock
-
 # mypy
 .mypy_cache/
 .dmypy.json
@@ -182,6 +179,9 @@ organization_dimension_plan.md
 
 # SOR raw data files (downloaded from Sundhedsdatastyrelsen)
 data/sor_raw/
+
+# SilkeborgData-leverancer (persondata: CPR, navn, adresse — må aldrig committes)
+data/silkeborgdata/
 
 *.sas
 *.session.sql

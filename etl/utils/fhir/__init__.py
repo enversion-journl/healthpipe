@@ -10,15 +10,13 @@ FHIR utility modules.
 This package consolidates FHIR-related utilities:
 - identifier_systems: Centralized identifier system URIs
 - fhir_extensions: Extension URLs for custom FHIR extensions
+- cpr_status: the CPR register's person status codes and their meaning (active/deceased)
 - is_deleted_extension: urn:fhir:isDeleted constant and builder
 - fhir_helper: FHIR development helper for profiles and specifications
 - fhir_validator: FHIR profile and validation tool
 """
 
 from .fhir_extensions import (
-    # CPR status codes
-    CPR_STATUS_DECEASED,
-    CPR_STATUS_INACTIVE,
     # Extension URLs
     EXTENSION_ADDRESS_PROTECTION,
     EXTENSION_DISTRICT,
@@ -74,7 +72,4 @@ __all__ = [
     "EXTENSION_ADDRESS_PROTECTION",
     "EXTENSION_FHIR_IS_DELETED",
     "build_is_deleted_extension",
-    # CPR status codes
-    "CPR_STATUS_DECEASED",
-    "CPR_STATUS_INACTIVE",
 ]

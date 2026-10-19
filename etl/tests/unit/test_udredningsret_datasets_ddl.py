@@ -9,7 +9,7 @@
 DDL (infrastructure/ddl/tables/udredningsret/00_archive.sql) and
 DSI/csv_files/udredningsret_datasets.py are kept in lockstep: columns (name +
 order), primary key, NOT NULL on the computed keys, and the ext table having
-the same widths as arc (HAIBA lesson [internal ticket]).
+the same widths as arc (HAIBA lesson).
 """
 
 import re
@@ -108,9 +108,18 @@ def test_kildekolonner_har_samme_bredde_i_ext_og_arc(ddl_tables):
         assert f"[{column}] NVARCHAR({VALUE_WIDTH}) NULL" in ext_sql, column
 
 
-def test_ingen_clean_code_og_ingen_domaenepraefiks_paa_arc_pk(ddl_sql):
+def test_ingen_clean_code_og_ingen_domaenepraefiks_paa_arc_pk(ddl_sql, ddl_tables):
     """The arc layer uses *_noegle (as DRG) and PK_arc_<table> (127 arc PKs in the repo)."""
-    assert "[clean_code" not in ddl_sql  # no clean_code_* columns; comments may mention it
+    # Scoped to the arc tables: clean_code_* is formed in pre_stg and belongs
+    # on map/dim/fct (02-05_*.sql), which this directory also holds.
+    arc_kolonner = [
+        kolonne
+        for navn, tabel in ddl_tables.items()
+        if navn.startswith("arc.")
+        for kolonne in tabel["columns"]
+    ]
+    assert arc_kolonner, "arkivtabellen blev ikke parset — guarden ville passere tomt"
+    assert not [k for k in arc_kolonner if k.startswith("clean_code")]
     assert "CONSTRAINT [PK_arc_udredningsret_mont]" in ddl_sql
     assert "PK_udredningsret_arc" not in ddl_sql
 

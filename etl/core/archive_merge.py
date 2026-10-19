@@ -52,6 +52,19 @@ def build_archive_merge_sql(config: ArchiveMergeConfig, *, track_actions: bool =
     return _build_upsert_sql(config, track_actions=track_actions)
 
 
+def _scoped_source(config: ArchiveMergeConfig) -> str:
+    """The source table, narrowed to the slices this run may merge.
+
+    Returns a bare table name when there is no scope, otherwise a derived
+    table WITHOUT an alias — callers alias it themselves, exactly as they
+    already do for the dedup wrapper.
+    """
+    plain = f"[{config.source_schema}].[{config.source_table}]"
+    if not config.source_scope_predicate:
+        return plain
+    return f"(SELECT * FROM {plain} WHERE {config.source_scope_predicate})"
+
+
 def _build_source_expr(config: ArchiveMergeConfig) -> str:
     """The source the MERGE/fast-load reads from — the ext table, or a deduped view of it.
 
@@ -65,7 +78,7 @@ def _build_source_expr(config: ArchiveMergeConfig) -> str:
     merge key there is nothing to order by and nothing to lose — the duplicates
     are identical — so the ordering degenerates to a constant.
     """
-    plain = f"[{config.source_schema}].[{config.source_table}]"
+    plain = _scoped_source(config)
     if not config.dedup_source_on_keys:
         return plain
 
@@ -87,7 +100,7 @@ def _build_source_expr(config: ArchiveMergeConfig) -> str:
         f"            SELECT {column_list},\n"
         f"                   ROW_NUMBER() OVER (PARTITION BY {partition_by}\n"
         f"                                      ORDER BY {order_by}) AS [_dedup_rn]\n"
-        f"            FROM {plain}\n"
+        f"            FROM {plain} AS scoped_src\n"
         "        ) AS deduped\n"
         "        WHERE deduped.[_dedup_rn] = 1\n"
         "    )"
@@ -252,11 +265,10 @@ def _build_empty_target_fastload_sql(config: ArchiveMergeConfig) -> str:
     SIMPLE/BULK_LOGGED recovery the TABLOCK insert into an empty clustered
     target with no enabled nonclustered indexes is minimally logged.
     """
-    src = _build_source_expr(config)
-    if config.dedup_source_on_keys:
-        # A derived table needs a name of its own in the FROM clause; the MERGE
-        # path gets one from its "AS src".
-        src = f"{src} AS src"
+    # Always aliased: the source may be a derived table (dedup and/or source
+    # scope), which T-SQL requires a name for, and an alias on a plain table
+    # name is harmless. The MERGE path gets its own "AS src".
+    src = f"{_build_source_expr(config)} AS src"
     tgt = f"[{config.target_schema}].[{config.target_table}]"
 
     all_cols = list(config.merge_keys) + list(config.non_key_columns)
@@ -590,6 +602,15 @@ def execute_archive_merge(
                 )
                 logged_checkpoint = dfm.get_checkpoint(
                     merge_config.target_schema, merge_config.target_table
+                )
+
+            if not will_advance and new_checkpoint is not None:
+                # Assets'ene logger «checkpoint → X» med den UDLEDTE værdi, også
+                # når den aldrig skrives. Uden den her linje ligner en kørsel, der
+                # bevidst lader checkpointet stå, én der har flyttet det.
+                context.log.info(
+                    f"Checkpointet er IKKE flyttet (advance_checkpoint=False). "
+                    f"Det ville ellers være blevet {new_checkpoint}."
                 )
 
             dfm.complete_dfm_run(

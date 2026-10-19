@@ -18,6 +18,13 @@
 #     --push \
 #     .
 
+FROM --platform=$BUILDPLATFORM python:3.12-slim-bookworm AS lock
+RUN pip install --no-cache-dir uv==0.12.19
+WORKDIR /src
+COPY pyproject.toml uv.lock ./
+RUN uv export --locked --extra dev --no-emit-project --no-emit-package pip \
+    --format requirements-txt -o /requirements.txt
+
 FROM python:3.12-slim-bookworm
 
 # System dependencies.
@@ -58,9 +65,11 @@ WORKDIR /opt/dagster/app
 
 # Copy pyproject.toml and install dependencies
 COPY pyproject.toml /opt/dagster/app/pyproject.toml
+COPY --from=lock /requirements.txt /tmp/requirements.txt
 
 # Install dependencies (using pip directly — uv segfaults under QEMU amd64 emulation on ARM hosts)
-RUN pip install --no-cache-dir ".[dev]"
+RUN pip install --no-cache-dir --require-hashes -r /tmp/requirements.txt \
+    && pip install --no-cache-dir --no-deps .
 
 # Verify dagster CLI is available
 RUN which dagster && dagster --version

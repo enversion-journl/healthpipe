@@ -40,6 +40,8 @@ from datetime import date, datetime
 from urllib.request import Request, urlopen
 
 import dagster as dg
+from core.dfm_manager import DfmManager
+from core.dfm_source import http_source
 from core.resources import MSSQLResource
 from dagster import AssetExecutionContext
 from dateutil.parser import parse as _dateutil_parse
@@ -365,30 +367,43 @@ def extract_sks_register(
             f"{config.classifications!r}."
         )
 
-    text = _fetch_sks_complete(config.source_url, context)
-    records = _parse_sks_lines(text)
+    dfm = DfmManager(mssql_target_staging, context)
+    run_ctx = dfm.start_dfm_run(
+        "ext",
+        "sks_register",
+        dagster_run_id=context.run_id,
+        mode="full_load",
+        **http_source(config.source_url),
+    )
+    try:
+        text = _fetch_sks_complete(config.source_url, context)
+        records = _parse_sks_lines(text)
 
-    if len(records) < config.min_records:
-        raise RuntimeError(
-            f"Only {len(records)} SKS records parsed from {config.source_url} "
-            f"(expected >= {config.min_records}). Refusing to load — the "
-            f"download is likely truncated or the file format has changed."
-        )
-    if not records:
-        raise RuntimeError(f"No SKS records parsed from {config.source_url}")
+        if len(records) < config.min_records:
+            raise RuntimeError(
+                f"Only {len(records)} SKS records parsed from {config.source_url} "
+                f"(expected >= {config.min_records}). Refusing to load — the "
+                f"download is likely truncated or the file format has changed."
+            )
+        if not records:
+            raise RuntimeError(f"No SKS records parsed from {config.source_url}")
 
-    context.log.info(f"Parsed {len(records)} version records")
+        context.log.info(f"Parsed {len(records)} version records")
 
-    newest_by_code, classifications_by_code = _deduplicate_newest(records)
+        newest_by_code, classifications_by_code = _deduplicate_newest(records)
 
-    today = date.today()
-    ext_rows = _build_ext_rows(newest_by_code, classifications_by_code, today, context)
+        today = date.today()
+        ext_rows = _build_ext_rows(newest_by_code, classifications_by_code, today, context)
 
-    if not ext_rows:
-        raise RuntimeError("No SKS ext rows built — nothing to load")
+        if not ext_rows:
+            raise RuntimeError("No SKS ext rows built — nothing to load")
 
-    with mssql_target_staging.get_connection() as conn:
-        row_count = _write_to_ext_table(conn, ext_rows, context)
+        with mssql_target_staging.get_connection() as conn:
+            row_count = _write_to_ext_table(conn, ext_rows, context)
+        dfm.complete_dfm_run(run_ctx.log_id, rows_affected=row_count)
+    except Exception as exc:
+        dfm.fail_dfm_run(run_ctx.log_id, error_message=str(exc))
+        raise
 
     classification_counts: dict[str, int] = {}
     for prefixes in classifications_by_code.values():

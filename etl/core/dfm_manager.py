@@ -41,11 +41,12 @@ Without the ``connection()`` context manager the old per-call pattern still work
 (each method opens and closes its own connection).
 """
 
+import json
+from collections.abc import Mapping
 from contextlib import contextmanager
 from typing import NamedTuple
 
 import dagster as dg
-from core.dfm_delivery import DELIVERY_SCHEMA, MAX_IDENTITY_LENGTH
 from core.resources import MSSQLResource
 from DSA.FHIR.utils.gdpr_masking import mask_cpr_numbers
 
@@ -74,10 +75,35 @@ CHECKPOINT_OWNER_SCHEMAS: frozenset[str] = frozenset(
 )
 
 
+KNOWN_TARGET_TYPES: frozenset[str] = frozenset(SCHEMA_TO_TARGET_TYPE.values())
+
+
 def _target_type_for_schema(schema: str) -> str:
     if schema not in SCHEMA_TO_TARGET_TYPE:
         raise ValueError(f"Unknown schema {schema!r} — add it to SCHEMA_TO_TARGET_TYPE")
     return SCHEMA_TO_TARGET_TYPE[schema]
+
+
+def _resolve_target_type(schema: str, override: str | None) -> str:
+    """The target_type for a checkpoint row — normally derived from the schema.
+
+    The override exists for the synthetic rows under ``schema_name = 'dfm'``,
+    where the schema name carries no information about what the checkpoint
+    actually guards. Deriving "dfm" from "dfm" says nothing; a caller that
+    knows the row gates the archive load can say "archive" and make the state
+    table self-describing.
+
+    Restricted to values the map already produces: target_type is part of the
+    DFMState primary key, so a typo would not fail — it would silently address
+    a second row and the checkpoint would read back as unset.
+    """
+    if override is None:
+        return _target_type_for_schema(schema)
+    if override not in KNOWN_TARGET_TYPES:
+        raise ValueError(
+            f"target_type {override!r} is not a known target type " f"{sorted(KNOWN_TARGET_TYPES)}"
+        )
+    return override
 
 
 class DfmRunContext(NamedTuple):
@@ -85,6 +111,10 @@ class DfmRunContext(NamedTuple):
 
     log_id: int
     checkpoint: str | None
+    # Server time the run was logged as started, before it reads anything. A
+    # reader moves its checkpoint here rather than to the time it finished, so
+    # rows written while it runs are read next time instead of skipped.
+    started_at: str | None = None
 
 
 class DfmManager:
@@ -117,6 +147,7 @@ class DfmManager:
         self._mssql = mssql_resource
         self._context = context
         self._shared_conn = None
+        self._runs: dict[int, dict] = {}
 
     @contextmanager
     def connection(self):
@@ -163,6 +194,7 @@ class DfmManager:
         table: str,
         *,
         scope: str = "staging",
+        target_type: str | None = None,
     ) -> str | None:
         """Read-only checkpoint peek. Does NOT create a log entry.
 
@@ -171,8 +203,11 @@ class DfmManager:
 
         Returns None if the row does not exist (first run). Raises on DB errors
         to prevent accidental full-load fallback from transient failures.
+
+        ``target_type`` defaults to the schema's own; pass it only for
+        synthetic ``dfm``-schema rows, and pass the SAME value the writer used.
         """
-        target_type = _target_type_for_schema(schema)
+        target_type = _resolve_target_type(schema, target_type)
         query = (
             f"SELECT [checkpoint_value] FROM {self.STATE_TABLE} "
             f"WHERE [scope] = ? AND [target_type] = ? "
@@ -196,11 +231,15 @@ class DfmManager:
         mode: str,
         checkpoint_from: tuple[str, str] | None = None,
         scope: str = "staging",
+        source_user: str | None = None,
+        source_host: str | None = None,
+        source_table: str | None = None,
     ) -> DfmRunContext:
         """Primary entry point for all pipeline assets.
 
         Inserts a "running" entry into DFMRunLog and returns a
-        DfmRunContext(log_id, checkpoint).
+        DfmRunContext(log_id, checkpoint). Extract runs pass the source
+        connection (source_user, source_host, source_table) for the same row.
 
         Checkpoint resolution:
           - checkpoint_from is set (ext, stg, pre_stg): reads checkpoint from
@@ -236,7 +275,7 @@ class DfmManager:
             )
 
         # Insert log entry
-        log_id = self._insert_run_log(
+        log_id, started_at = self._insert_run_log(
             scope=scope,
             target_type=target_type,
             schema=schema,
@@ -244,9 +283,111 @@ class DfmManager:
             mode=mode,
             checkpoint_before=checkpoint,
             dagster_run_id=dagster_run_id,
+            source_user=source_user,
+            source_host=source_host,
+            source_table=source_table,
         )
+        self._runs[log_id] = {
+            "id": log_id,
+            "scope": scope,
+            "target_type": target_type,
+            "schema_name": schema,
+            "table_name": table,
+            "mode": mode,
+            "checkpoint_before": checkpoint,
+            "dagster_run_id": dagster_run_id,
+            "run_started_at": started_at,
+            "source_user": source_user,
+            "source_host": source_host,
+            "source_table": source_table,
+        }
 
-        return DfmRunContext(log_id=log_id, checkpoint=checkpoint)
+        return DfmRunContext(log_id=log_id, checkpoint=checkpoint, started_at=started_at)
+
+    @contextmanager
+    def target_runs(
+        self,
+        schema: str,
+        targets: Mapping[str, str | None],
+        *,
+        dagster_run_id: str,
+        mode: str,
+        source_user: str | None = None,
+        source_host: str | None = None,
+    ):
+        """Log one run per target table (target -> source_table); yield a dict of row counts."""
+        with self.connection():
+            log_ids = {
+                table: self.start_dfm_run(
+                    schema,
+                    table,
+                    dagster_run_id=dagster_run_id,
+                    mode=mode,
+                    source_user=source_user,
+                    source_host=source_host,
+                    source_table=source_table,
+                ).log_id
+                for table, source_table in targets.items()
+            }
+        rows: dict[str, int] = {}
+        try:
+            yield rows
+        except Exception as exc:
+            for table, log_id in log_ids.items():
+                try:
+                    if table in rows:
+                        self.complete_dfm_run(log_id, rows_affected=rows[table])
+                    else:
+                        self.fail_dfm_run(log_id, error_message=str(exc))
+                except Exception as log_exc:
+                    dg.get_dagster_logger().warning(
+                        "Could not close DFM run %s for %s: %r", log_id, table, log_exc
+                    )
+            raise
+        pending = dict(log_ids)
+        for table, log_id in log_ids.items():
+            try:
+                self.complete_dfm_run(log_id, rows_affected=rows.get(table))
+            except Exception as exc:
+                for open_log_id in pending.values():
+                    self.fail_dfm_run(open_log_id, error_message=str(exc))
+                raise
+            del pending[table]
+
+    def safe_reader_checkpoint(self, started_at: str | None) -> str | None:
+        """The latest checkpoint a reader of an archive can safely move to.
+
+        That is the reader's own start, held back further to the start of any
+        archive run still in flight. An archive MERGE stamps dw_timestamp_update
+        when the statement starts, but its rows only become visible at commit —
+        for a large table many minutes later. A reader that finished in between
+        and moved past the MERGE's start would skip those rows for good.
+
+        Only runs started within the last 24 hours count: a MERGE does not run
+        that long, so an older 'running' row is a crashed run that
+        ``sweep_stale_runs`` has not closed yet.
+
+        ``started_at`` None falls back to now, the behaviour before this method.
+        """
+        sql = f"""
+            SELECT CONVERT(NVARCHAR(50), (
+                SELECT MIN(t) FROM (VALUES
+                    (COALESCE(TRY_CONVERT(datetime2, ?), SYSDATETIME())),
+                    ((SELECT MIN([run_started_at]) FROM {self.LOG_TABLE}
+                      WHERE [status] = 'running'
+                        AND [target_type] = 'archive'
+                        AND [run_started_at] > DATEADD(hour, -24, SYSDATETIME())))
+                ) AS v(t)
+            ), 121);
+        """
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute(sql, (started_at,))
+                row = cursor.fetchone()
+                return row[0] if row else None
+            finally:
+                cursor.close()
 
     def set_checkpoint(
         self,
@@ -256,6 +397,7 @@ class DfmManager:
         value: str | None = None,
         mode: str = "delta",
         scope: str = "staging",
+        target_type: str | None = None,
     ) -> None:
         """Set the checkpoint to an explicit value via MERGE upsert.
 
@@ -265,8 +407,10 @@ class DfmManager:
         Value and mode are passed as bound parameters to prevent SQL injection.
         Table/column names remain dynamic (they are internal constants, not
         user input).
+
+        ``target_type`` defaults to the schema's own; see _resolve_target_type.
         """
-        target_type = _target_type_for_schema(schema)
+        target_type = _resolve_target_type(schema, target_type)
 
         merge_sql = f"""
             MERGE {self.STATE_TABLE} AS tgt
@@ -315,51 +459,35 @@ class DfmManager:
             finally:
                 cursor.close()
 
-    def get_delivery_checkpoint(
+    def clear_checkpoint(
         self,
-        unit: str,
-        *,
-        scope: str = "staging",
-    ) -> str | None:
-        """Which delivery this file-source unit last ingested, or None.
-
-        ``unit`` is built by :mod:`core.dfm_delivery` (``drg_delivery_unit`` /
-        ``haiba_delivery_unit``). Like :meth:`get_checkpoint` this is a
-        read-only peek — it creates no DFMRunLog entry and no DFMState row, so
-        a unit that has never run reads as None ("everything is new") without
-        leaving a trace behind.
-        """
-        return self.get_checkpoint(DELIVERY_SCHEMA, unit, scope=scope)
-
-    def set_delivery_checkpoint(
-        self,
-        unit: str,
-        identity: str,
+        schema: str,
+        table: str,
         *,
         mode: str = "delta",
         scope: str = "staging",
+        target_type: str | None = None,
     ) -> None:
-        """Record that ``unit`` has ingested the delivery named by ``identity``.
+        """Set an EXISTING checkpoint row back to NULL.
 
-        Call only once the delivery is actually reflected in the archive — the
-        checkpoint is what stops the next run from re-reading the file.
+        ``set_checkpoint`` cannot express NULL: it COALESCEs a missing value to
+        SYSDATETIME(), because for a delta checkpoint "no value" means "now".
+        One-off markers (see 02_dfm_state.sql) give NULL a different meaning --
+        armed, not yet started -- so resetting one must be explicit. Only an
+        UPDATE, never an INSERT: a row that does not exist stays absent, so a
+        caller can still tell "never armed" from "armed and cleared".
 
-        An empty identity is refused rather than forwarded: :meth:`set_checkpoint`
-        substitutes SYSDATETIME() for a None value, which would stamp "now" as
-        the delivery identity and make every later comparison meaningless.
+        ``target_type`` defaults to the schema's own; see _resolve_target_type.
         """
-        if not isinstance(identity, str) or not identity:
-            raise ValueError(
-                f"delivery checkpoint for {unit!r} needs a non-empty identity "
-                f"string, got {identity!r}. A missing identity must fail here — "
-                f"set_checkpoint() would otherwise stamp SYSDATETIME()."
-            )
-        if len(identity) > MAX_IDENTITY_LENGTH:
-            raise ValueError(
-                f"delivery identity {identity!r} is {len(identity)} chars — "
-                f"meta.DFMState.checkpoint_value holds {MAX_IDENTITY_LENGTH}"
-            )
-        self.set_checkpoint(DELIVERY_SCHEMA, unit, value=identity, mode=mode, scope=scope)
+        target_type = _resolve_target_type(schema, target_type)
+        sql = (
+            f"UPDATE {self.STATE_TABLE} SET [checkpoint_value] = NULL, [last_mode] = ?, "
+            f"[updated_at] = CAST(SYSDATETIME() AS datetime2(0)) "
+            f"WHERE [scope] = ? AND [target_type] = ? "
+            f"AND [schema_name] = ? AND [table_name] = ?"
+        )
+        with self._get_conn() as conn:
+            self._execute_commit(conn, sql, (mode, scope, target_type, schema, table))
 
     def complete_dfm_run(
         self,
@@ -385,6 +513,9 @@ class DfmManager:
                 conn.commit()
             finally:
                 cursor.close()
+        self._log_run(
+            log_id, status="success", checkpoint_after=checkpoint_after, rows_affected=rows_affected
+        )
 
     def fail_dfm_run(
         self,
@@ -405,6 +536,7 @@ class DfmManager:
         # row values. Mask CPR before it is persisted to [meta].[DFMRunLog].
         if error_message is not None:
             error_message = mask_cpr_numbers(error_message)
+        self._log_run(log_id, status="failed", error_message=error_message)
         update_sql = f"""
             UPDATE {self.LOG_TABLE}
             SET
@@ -435,6 +567,11 @@ class DfmManager:
             f"fail_dfm_run: could not mark DFMRunLog id={log_id} as failed "
             f"({first_exc!r}); the row will be closed out by the stale-run sweeper"
         )
+
+    def _log_run(self, log_id: int, **outcome) -> None:
+        """Log the run's DFMRunLog values as one JSON line on the Dagster logger."""
+        entry = {"event": "dfm_run", **self._runs.pop(log_id, {"id": log_id}), **outcome}
+        self._context.log.info(json.dumps(entry, default=str))
 
     STALE_RUN_HOURS = 24
 
@@ -523,16 +660,26 @@ class DfmManager:
         mode: str,
         checkpoint_before: str | None,
         dagster_run_id: str | None,
-    ) -> int:
-        """Insert a 'running' row into DFMRunLog and return its id."""
+        source_user: str | None,
+        source_host: str | None,
+        source_table: str | None,
+    ) -> tuple[int, str | None]:
+        """Insert a 'running' row into DFMRunLog; return its id and start time.
+
+        The source columns are named only when the run has source values.
+        """
+        source = (source_user, source_host, source_table)
+        has_source = any(value is not None for value in source)
+        source_columns = ", [source_user], [source_host], [source_table]" if has_source else ""
+        source_values = ", ?, ?, ?" if has_source else ""
         insert_sql = f"""
             INSERT INTO {self.LOG_TABLE}
                 ([scope], [target_type], [schema_name], [table_name],
                  [mode], [status], [checkpoint_before],
-                 [dagster_run_id], [run_started_at])
-            OUTPUT INSERTED.[id]
+                 [dagster_run_id], [run_started_at]{source_columns})
+            OUTPUT INSERTED.[id], CONVERT(NVARCHAR(50), INSERTED.[run_started_at], 121)
             VALUES (?, ?, ?, ?, ?, 'running', ?, ?,
-                    CAST(SYSDATETIME() AS datetime2(0)));
+                    CAST(SYSDATETIME() AS datetime2(0)){source_values});
         """
         with self._get_conn() as conn:
             cursor = conn.cursor()
@@ -547,10 +694,11 @@ class DfmManager:
                         mode,
                         checkpoint_before,
                         dagster_run_id,
-                    ),
+                    )
+                    + (source if has_source else ()),
                 )
                 row = cursor.fetchone()
                 conn.commit()
-                return row[0]
+                return row[0], (row[1] if len(row) > 1 else None)
             finally:
                 cursor.close()

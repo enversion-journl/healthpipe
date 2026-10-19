@@ -37,7 +37,6 @@ logged or reported, only file names, counts and delivery dates.
 """
 
 import csv
-import io
 import os
 import re
 import tarfile
@@ -47,37 +46,67 @@ from datetime import date, datetime
 from typing import TypedDict
 
 import dagster as dg
+from core.dfm_manager import DfmManager
+from core.dfm_source import share_connection
 from core.resources import MSSQLResource
+from DSI.connectors.delivery_detection import (
+    DELIVERY_SCHEMA,
+    DELIVERY_TARGET_TYPE,
+    delivery_identity,
+    delivery_unit,
+    is_new_delivery,
+)
+from DSI.csv_files._sds_tar import (
+    DEFAULT_ENCODING,
+    DELIMITER,
+    INSERT_CHUNK_SIZE,
+    ExtWriter,
+    dataset_prefix,
+    execute_statements,
+    export_log_deviations,
+    ext_create_sql,
+    has_mojibake,
+    iter_members,
+    open_member_csv,
+    parse_archive_timestamp,
+    parse_export_log,
+    run_writers,
+    schema_drift,
+    source_dir,
+    source_encoding,
+)
 from DSI.csv_files.drg_datasets import (
     MIN_VALUE_WIDTH,
     PSYK_DATASETS,
     SOMATIK_DATASETS,
     DrgDataset,
 )
-from pydantic import Field
+from pydantic import Field, field_validator
 
 # Injected by the Nomad job that mounts the SMB share (per-branch opt-in via
 # SMB_SHARE_BRANCHES on the acr-watcher). Points at .../Fra-SDS.
 BASE_DIR_ENV = "DRG_BASE_DIR"
 ENCODING_ENV = "DRG_FILE_ENCODING"
 
-DEFAULT_ENCODING = "cp1252"
-DELIMITER = ";"
-INSERT_CHUNK_SIZE = 1000
 TAKSTSYSTEM_COLUMN = "takstsystem"
 DELIVERY_COLUMN = "leverance_dato"
+
+# One row per delivery this run actually loaded — the contract the archive
+# layer reads. Lives in ext because it is per-run provenance, and
+# there is one per leverancetype because the two extracts own separate ext
+# tables and must never clear each other's manifest.
+MANIFEST_SUFFIX = "leverance_manifest"
+
+# Sources for the delivery's data cap, recorded alongside it so a derived cap
+# is visible as such rather than inferred later.
+CAP_REAL = "reel"
+CAP_DERIVED = "afledt"
 
 # Forventet kadence: somatik faar U-leverancer ugentligt (mandag)
 # og M ca. d. 14.-18.; psyk kun M ca. d. 12. Graenserne giver slack for
 # helligdage. Kun den FRISKESTE leverance pr. leverancetype vurderes —
 # pensionerede takstsystemer (fx somatik T24) faar aldrig nye filer.
 MAX_DELIVERY_AGE_DAYS = {"DRG": 10, "DRGPSYK": 40}
-
-# Encoding-sanity: U+FFFD opstaar naar afsenderen selv har
-# erstattet udecodbare tegn; "ï¿½" er U+FFFD's UTF-8-bytes fejllaest som
-# cp1252 (dvs. filen var i virkeligheden UTF-8). Begge er entydige
-# korruptionsmarkoerer uden falske positiver i danske sundhedsdata.
-_MOJIBAKE_MARKERS = ("�", "ï¿½")
 
 # Region_1083_DRG_T26_U_20260824190546.tar.bz2 (kadence optional on the
 # oldest files: Region_1083_DRG_T24_20250812235425.tar.bz2).
@@ -97,24 +126,20 @@ def drg_dir() -> str:
     allocation, not with the code, and an unset variable must never fall back
     to a plausible-looking local path.
     """
-    root = os.getenv(BASE_DIR_ENV, "").strip()
-    if not root:
-        raise ValueError(
-            f"{BASE_DIR_ENV} is unset or empty. The DRG share is mounted per "
-            f"branch — this branch's slug must be added to SMB_SHARE_BRANCHES "
-            f"on the acr-watcher before the code-server gets /mnt/ftproot."
-        )
-    if not os.path.isdir(root):
-        raise ValueError(
-            f"{BASE_DIR_ENV}={root!r} is not a directory. The SMB share is "
-            f"probably not mounted in this allocation."
-        )
-    return root
+    return source_dir(
+        BASE_DIR_ENV,
+        hint_unset=(
+            "The DRG share is mounted per branch — this branch's slug must be "
+            "added to SMB_SHARE_BRANCHES on the acr-watcher before the "
+            "code-server gets /mnt/ftproot."
+        ),
+        hint_not_dir="The SMB share is probably not mounted in this allocation.",
+    )
 
 
 def drg_encoding() -> str:
     """Per-source encoding from the environment; SDS delivers cp1252."""
-    return os.getenv(ENCODING_ENV, "").strip() or DEFAULT_ENCODING
+    return source_encoding(ENCODING_ENV, DEFAULT_ENCODING)
 
 
 @dataclass(frozen=True)
@@ -137,6 +162,17 @@ class DrgArchiveFile:
 
 
 class DrgExtractConfig(dg.Config):
+    kadence: str | None = Field(
+        default=None,
+        description=(
+            "Cadence this run handles: 'M' (monthly — also picks up the oldest "
+            "files, which carry no cadence letter) or 'U' (weekly). Set by the "
+            "job. Left unset, the run takes the newest file per takstsystem "
+            "regardless of cadence AND performs no delivery detection, i.e. the "
+            "pre-detection behaviour — useful for an ad-hoc reload, expensive "
+            "as a schedule."
+        ),
+    )
     takstsystemer: list[str] | None = Field(
         default=None,
         description=(
@@ -164,16 +200,107 @@ class DrgExtractConfig(dg.Config):
         ),
     )
 
+    # Validator, not typing.Literal — Dagster's config mapping cannot express
+    # Literal. A typo ("m") must be rejected at launch: it would otherwise
+    # filter every file away and be green as "intet nyt" forever.
+    @field_validator("kadence")
+    @classmethod
+    def _kadence_er_kendt(cls, value: str | None) -> str | None:
+        if value is not None and value not in VALID_KADENCER:
+            raise ValueError(f"kadence {value!r} skal vaere en af {VALID_KADENCER} eller None")
+        return value
+
 
 def parse_archive_name(name: str) -> tuple[str, str, str | None, datetime] | None:
     match = ARCHIVE_RE.match(name)
     if not match:
         return None
-    try:
-        timestamp = datetime.strptime(match["timestamp"], "%Y%m%d%H%M%S")
-    except ValueError:
+    timestamp = parse_archive_timestamp(match["timestamp"])
+    if timestamp is None:
         return None
     return match["leverancetype"], match["takstsystem"], match["kadence"], timestamp
+
+
+# The checkpoint key space per takstsystem is exactly these two: the cadence
+# comes from the JOB, not from the filename's cadence letter. A file with no
+# letter is mapped to "M" by the monthly job's file filter, at selection time —
+# so an unmapped None here would silently become a third bucket.
+VALID_KADENCER = ("M", "U")
+VALID_LEVERANCETYPER = ("DRG", "DRGPSYK")
+_TAKSTSYSTEM_RE = re.compile(r"^T\d{2}$")
+
+
+def drg_delivery_unit(leverancetype: str, takstsystem: str, kadence: str) -> str:
+    """DRG's delivery unit: (leverancetype, takstsystem, kadence).
+
+    The leverancetype IS the unit prefix — "drg_leverance_T26_M" and
+    "drgpsyk_leverance_T26_M" — rather than a "drg" prefix with the
+    leverancetype repeated inside. It carries the same information in one
+    place, and it matches how the two feeds are already told apart everywhere
+    else in this source (arc.drg_kontakt vs arc.drgpsyk_kontakt).
+
+    Lives here rather than in the shared detection module: that module must not
+    name the systems that use it, or every new source would have to edit it.
+    """
+    if leverancetype not in VALID_LEVERANCETYPER:
+        raise ValueError(f"leverancetype {leverancetype!r} must be one of {VALID_LEVERANCETYPER}")
+    if not _TAKSTSYSTEM_RE.match(takstsystem or ""):
+        raise ValueError(f"takstsystem {takstsystem!r} must look like 'T26'")
+    if kadence not in VALID_KADENCER:
+        raise ValueError(
+            f"kadence {kadence!r} must be one of {VALID_KADENCER} — it is the "
+            f"JOB's cadence, so a file without a cadence letter belongs to the "
+            f"monthly job's 'M' bucket by its file filter, not by a None key"
+        )
+    return delivery_unit(leverancetype.lower(), takstsystem, kadence)
+
+
+def matches_kadence(archive: DrgArchiveFile, kadence: str | None) -> bool:
+    """Does this file belong to the cadence the run is handling?
+
+    The monthly bucket also takes files with NO cadence letter: the oldest
+    deliveries (4 x T24, 4 x T25) predate the M/U convention and are monthly
+    full deliveries. That defaulting lives HERE, at selection time, and nowhere
+    else — the checkpoint key's cadence comes from the job, so an unmapped None
+    would otherwise become a silent third bucket.
+    """
+    if kadence is None:
+        return True
+    if kadence == "M":
+        return archive.kadence in ("M", None)
+    return archive.kadence == kadence
+
+
+def detection_enabled(kadence: str | None, on_or_before: date | None) -> bool:
+    """Should this run skip deliveries it has already ingested?
+
+    No, for the two deliberate re-reads: a pin reproduces an earlier state, and
+    an unset cadence is an ad-hoc reload. Detection would skip exactly the
+    delivery the operator is trying to re-read. Same convention RunModeConfig
+    uses for period/ids, which never advance a checkpoint either.
+    """
+    return kadence is not None and on_or_before is None
+
+
+def select_pending(
+    archives: list[DrgArchiveFile],
+    checkpoints: dict[str, str | None],
+) -> tuple[list[DrgArchiveFile], list[str]]:
+    """Drop the deliveries already ingested, per takstsystem.
+
+    This is tier 1: pure file identity against the DFM checkpoint, decided on
+    the filename alone. It is what makes a run with no new delivery cost an
+    os.listdir instead of ~16 GB of decompression.
+    """
+    pending: list[DrgArchiveFile] = []
+    notes: list[str] = []
+    for archive in archives:
+        identity = delivery_identity(archive.timestamp)
+        if is_new_delivery(checkpoints.get(archive.takstsystem), identity):
+            pending.append(archive)
+        else:
+            notes.append(f"{archive.takstsystem}: {archive.filename} er allerede indlaest")
+    return pending, notes
 
 
 def discover_archives(root: str, leverancetype: str) -> list[DrgArchiveFile]:
@@ -295,6 +422,9 @@ def check_delivery_age(
     nyeste fil betyder at SMB-mountet er defekt, at SDS er holdt op med at
     levere, eller at pre-flighten afviser alt.
     Returnerer alderen i dage pr. takstsystem til asset-metadata.
+
+    Naas kun af ufiltrerede ad-hoc-koersler: alle schedulerede jobs saetter
+    kadence, saa det schedulerede check ejes af drg_leverance_freshness.
     """
     limit = max_age_days if max_age_days is not None else MAX_DELIVERY_AGE_DAYS[leverancetype]
     ages = {t: (today - archive.delivery_date).days for t, archive in selected.items()}
@@ -317,16 +447,186 @@ def check_delivery_age(
     return ages
 
 
+def manifest_table(leverancetype: str) -> str:
+    """ext table holding this leverancetype's delivery manifest."""
+    return f"{leverancetype.lower()}_{MANIFEST_SUFFIX}"
+
+
+def _manifest_create_sql(leverancetype: str) -> str:
+    return (
+        f"DROP TABLE IF EXISTS [ext].[{manifest_table(leverancetype)}];\n"
+        f"CREATE TABLE [ext].[{manifest_table(leverancetype)}] (\n"
+        f"    [leverancetype] NVARCHAR(10) NOT NULL,\n"
+        f"    [{TAKSTSYSTEM_COLUMN}] NVARCHAR(3) NOT NULL,\n"
+        f"    [kadence] NVARCHAR(1) NULL,\n"
+        f"    [leverance_ts] DATETIME2(0) NOT NULL,\n"
+        f"    [filnavn] NVARCHAR(200) NOT NULL,\n"
+        f"    [{DELIVERY_COLUMN}] DATE NOT NULL,\n"
+        f"    [lpropdateringsdato] NVARCHAR(10) NULL,\n"
+        f"    [cap_kilde] NVARCHAR(6) NULL,\n"
+        f"    [dw_timestamp_insert] DATETIME2(0) NOT NULL DEFAULT GETDATE()\n"
+        f");"
+    )
+
+
+def normalise_cap(value: str) -> str:
+    """LPROPDATERINGSDATO as an ISO date, or a loud failure.
+
+    The cap decides which activity-year slices may overwrite the archive, and
+    it is compared as a STRING. A non-ISO spelling would compare wrongly and
+    mis-order M against U silently — exactly the failure the design refuses to
+    accept — so an unrecognised value fails the run instead.
+    """
+    text = (value or "").strip()
+    try:
+        return date.fromisoformat(text).isoformat()
+    except ValueError as exc:
+        raise ValueError(
+            f"LPROPDATERINGSDATO {text!r} is not an ISO date. The cap is "
+            f"compared as a string, so an unknown spelling would silently "
+            f"mis-order deliveries — verify the delivery before loading."
+        ) from exc
+
+
+def read_delivery_cap(conn, datasets: tuple[DrgDataset, ...], takstsystem: str) -> str | None:
+    """The delivery's real data cap, from the LEVERANCEINFO member in ext.
+
+    Returns None when the leverancetype has no LEVERANCEINFO dataset at all
+    (psyk), which is the signal that the slice-level comparison does not apply.
+    """
+    info = next((d for d in datasets if d.source_prefix == "LEVERANCEINFO"), None)
+    if info is None:
+        return None
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            f"SELECT DISTINCT [LPROPDATERINGSDATO] FROM [ext].[{info.ext_table}] "
+            f"WHERE [{TAKSTSYSTEM_COLUMN}] = ?",
+            takstsystem,
+        )
+        values = [row[0] for row in cursor.fetchall() if row[0] and row[0].strip()]
+    finally:
+        cursor.close()
+    # Normalise every value BEFORE taking the max: MAX on the raw NVARCHAR only
+    # orders correctly if all spellings are ISO, and would let normalise_cap
+    # validate only the (possibly wrongly chosen) winner.
+    return max(normalise_cap(value) for value in values) if values else None
+
+
+def write_manifest(
+    conn,
+    leverancetype: str,
+    archive: DrgArchiveFile,
+    cap: str | None,
+    cap_kilde: str | None,
+) -> None:
+    """Record that this run loaded `archive`, with the cap it carries."""
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            f"INSERT INTO [ext].[{manifest_table(leverancetype)}] "
+            f"([leverancetype], [{TAKSTSYSTEM_COLUMN}], [kadence], [leverance_ts], "
+            f"[filnavn], [{DELIVERY_COLUMN}], [lpropdateringsdato], [cap_kilde]) "
+            f"VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            leverancetype,
+            archive.takstsystem,
+            archive.kadence,
+            archive.timestamp,
+            archive.filename,
+            archive.delivery_date.isoformat(),
+            cap,
+            cap_kilde,
+        )
+        conn.commit()
+    finally:
+        cursor.close()
+
+
+# Freshness caps per (leverancetype, kadence). U is weekly, M monthly — an
+# M-check on the U cap would false-alarm every month between the 18th and the
+# next 10th.
+FRESHNESS_CAPS = {("DRG", "U"): 10, ("DRG", "M"): 40, ("DRGPSYK", "M"): 40}
+
+
+def top_two_takstsystemer(archives: list[DrgArchiveFile], leverancetype: str) -> list[str]:
+    """The takstsystemer a live feed is expected from, per leverancetype.
+
+    Measured from the delivery inventory (drg_profileringsrapport.md §4), not
+    guessed: several takstsystemer deliver M at once (T25 M and T26 M share
+    2026-08-18), and a series only stops AFTER it has become third-highest
+    (somatik T24 M stopped 2026-03-17; T26 M started 2025-12-14). So the two
+    highest are exactly the ones that should still be arriving — a closed
+    tariff year leaves the set by itself, with no configuration.
+    """
+    return sorted({a.takstsystem for a in archives if a.leverancetype == leverancetype})[-2:]
+
+
+def evaluate_freshness(
+    archives: list[DrgArchiveFile],
+    today: date,
+    caps: dict[tuple[str, str], int] | None = None,
+) -> tuple[list[str], dict[str, int]]:
+    """Stale-feed problems on the share, and the age of each checked series.
+
+    Reads filenames only — no tar is opened, no database is touched, and no
+    checkpoint or run filter is consulted. It reports on the SHARE, not on what
+    a given run chose to load, which is the whole reason it lives outside the
+    load path.
+    """
+    limits = {**FRESHNESS_CAPS, **(caps or {})}
+    problems: list[str] = []
+    ages: dict[str, int] = {}
+    for leverancetype in ("DRG", "DRGPSYK"):
+        systems = top_two_takstsystemer(archives, leverancetype)
+        if not systems:
+            continue
+        in_scope = [
+            a for a in archives if a.leverancetype == leverancetype and a.takstsystem in systems
+        ]
+        for kadence in ("M", "U"):
+            limit = limits.get((leverancetype, kadence))
+            if limit is None:
+                continue
+            relevant = [a for a in in_scope if matches_kadence(a, kadence)]
+            if not relevant:
+                # The series has never existed for these takstsystemer (psyk has
+                # no U at all). Nothing to be stale about.
+                continue
+            if kadence == "U":
+                # Aggregated across the two: the U series belongs to the ACTIVE
+                # tariff year and moves between takstsystemer at rollover, with
+                # an overlap (T26 U started 2026-02-25, T25 U stopped
+                # 2026-03-09). Checking it per takstsystem would false-alarm for
+                # the months a new takstsystem has M but no U yet.
+                newest = max(relevant, key=lambda a: a.timestamp)
+                age = (today - newest.delivery_date).days
+                ages[f"{leverancetype}/U"] = age
+                if age > limit:
+                    problems.append(
+                        f"{leverancetype}/U: nyeste U-leverance ({newest.filename}) er "
+                        f"{age} dage gammel (graense {limit}) — det ugentlige spor ser doedt ud"
+                    )
+                continue
+            for takstsystem in systems:
+                files = [a for a in relevant if a.takstsystem == takstsystem]
+                if not files:
+                    continue
+                newest = max(files, key=lambda a: a.timestamp)
+                age = (today - newest.delivery_date).days
+                ages[f"{leverancetype}/M/{takstsystem}"] = age
+                if age > limit:
+                    problems.append(
+                        f"{leverancetype}/M/{takstsystem}: nyeste leverance "
+                        f"({newest.filename}) er {age} dage gammel (graense {limit})"
+                    )
+    return problems, ages
+
+
 def _dataset_prefix(csv_filename: str) -> str | None:
-    match = DATA_MEMBER_RE.match(csv_filename)
-    return match["prefix"] if match else None
+    return dataset_prefix(csv_filename, DATA_MEMBER_RE)
 
 
-def _parse_export_log(text: str) -> dict[str, int]:
-    rows: dict[str, int] = {}
-    for record in csv.DictReader(text.splitlines(), delimiter=DELIMITER):
-        rows[record["FilNavn"]] = int(record["AntalRaekker"])
-    return rows
+_parse_export_log = parse_export_log
 
 
 def _parse_metadata(text: str) -> list[str]:
@@ -345,18 +645,17 @@ def validate_member_schema(
     takstsystem's schema is a regression: the merge would overwrite the
     archived values with NULL across the whole slice.
     """
-    unknown = [c for c in columns if c not in dataset.source_columns]
-    if unknown:
-        raise ValueError(
-            f"{filename}: ukendte kolonner {unknown} — SDS har aendret skemaet. "
-            f"Opdater drg_datasets.py (og arc-DDL) foer indlaesning."
-        )
     allowed_missing = (
         set(dataset.optional_columns)
         if takstsystem is None or takstsystem in dataset.optional_takstsystemer
         else set()
     )
-    missing = [c for c in dataset.source_columns if c not in columns and c not in allowed_missing]
+    unknown, missing = schema_drift(columns, dataset.source_columns, allowed_missing)
+    if unknown:
+        raise ValueError(
+            f"{filename}: ukendte kolonner {unknown} — SDS har aendret skemaet. "
+            f"Opdater drg_datasets.py (og arc-DDL) foer indlaesning."
+        )
     if missing:
         raise ValueError(
             f"{filename}: obligatoriske kolonner mangler: {missing} — SDS har "
@@ -366,74 +665,41 @@ def validate_member_schema(
 
 
 def _ext_create_sql(dataset: DrgDataset) -> str:
+    """Key columns are NOT NULL at their declared (narrow) width; every other
+    column gets at least MIN_VALUE_WIDTH so ext and arc can never diverge."""
     key_source_columns = {k for k in dataset.merge_keys if k in dataset.source_columns}
-    lines = [f"[{TAKSTSYSTEM_COLUMN}] NVARCHAR(3) NOT NULL"]
+    columns: list[tuple[str, int, bool]] = []
     for name in dataset.source_columns:
         if name in key_source_columns:
-            width = dataset.key_widths.get(name, dataset.source_widths.get(name, 100))
-            lines.append(f"[{name}] NVARCHAR({width}) NOT NULL")
+            columns.append(
+                (name, dataset.key_widths.get(name, dataset.source_widths.get(name, 100)), True)
+            )
         else:
-            width = max(MIN_VALUE_WIDTH, dataset.source_widths.get(name, 100))
-            lines.append(f"[{name}] NVARCHAR({width}) NULL")
-    lines.append(f"[{DELIVERY_COLUMN}] DATE NOT NULL")
-    lines.append("[dw_timestamp_insert] DATETIME2(0) NOT NULL DEFAULT GETDATE()")
-    lines.append("[dw_timestamp_update] DATETIME2(0) NOT NULL DEFAULT GETDATE()")
-    return (
-        f"DROP TABLE IF EXISTS [ext].[{dataset.ext_table}];\n"
-        f"CREATE TABLE [ext].[{dataset.ext_table}] (\n    " + ",\n    ".join(lines) + "\n);"
+            columns.append(
+                (name, max(MIN_VALUE_WIDTH, dataset.source_widths.get(name, 100)), False)
+            )
+    return ext_create_sql(
+        dataset.ext_table, [f"[{TAKSTSYSTEM_COLUMN}] NVARCHAR(3) NOT NULL"], columns
     )
 
 
-class _ExtWriter:
-    """Chunked writer for one ext table; created lazily on first data row."""
+class _ExtWriter(ExtWriter):
+    """Chunked writer for one ext table; created lazily on first data row.
+
+    INSERT_CHUNK_SIZE is read from THIS module at construction time, so a test
+    that patches drg.INSERT_CHUNK_SIZE still forces a flush per row.
+    """
 
     def __init__(self, conn, dataset: DrgDataset, context: dg.AssetExecutionContext):
-        self.dataset = dataset
-        self.context = context
-        self.cursor = conn.cursor()
-        if hasattr(self.cursor, "fast_executemany"):
-            self.cursor.fast_executemany = True
-        columns = [TAKSTSYSTEM_COLUMN, *dataset.source_columns, DELIVERY_COLUMN]
-        placeholders = ", ".join("?" for _ in columns)
-        column_sql = ", ".join(f"[{c}]" for c in columns)
-        self.insert_sql = (
-            f"INSERT INTO [ext].[{dataset.ext_table}] ({column_sql}) VALUES ({placeholders})"
+        super().__init__(
+            conn,
+            dataset.ext_table,
+            [TAKSTSYSTEM_COLUMN, *dataset.source_columns, DELIVERY_COLUMN],
+            context,
+            chunk_size=INSERT_CHUNK_SIZE,
+            row_word="raekker",
         )
-        self.buffer: list[tuple] = []
-        self.total = 0
-
-    def add(self, row: tuple) -> None:
-        self.buffer.append(row)
-        if len(self.buffer) >= INSERT_CHUNK_SIZE:
-            self.flush()
-
-    def flush(self) -> None:
-        if self.buffer:
-            self.cursor.executemany(self.insert_sql, self.buffer)
-            self.total += len(self.buffer)
-            if self.total % 500_000 < INSERT_CHUNK_SIZE:
-                self.context.log.info(f"ext.{self.dataset.ext_table}: {self.total:,} raekker")
-            self.buffer.clear()
-
-    def close(self) -> None:
-        self.flush()
-        self.cursor.close()
-
-
-class _NonSeekableReader(io.RawIOBase):
-    """RawIOBase-adapter: tarfile's stream-mode file objects lack seekable(),
-    which io.TextIOWrapper requires."""
-
-    def __init__(self, fileobj):
-        self._fileobj = fileobj
-
-    def readable(self) -> bool:
-        return True
-
-    def readinto(self, buffer) -> int:
-        data = self._fileobj.read(len(buffer))
-        buffer[: len(data)] = data
-        return len(data)
+        self.dataset = dataset
 
 
 def _stream_data_member(
@@ -446,10 +712,7 @@ def _stream_data_member(
     aar_counter: Counter,
 ) -> int:
     """Stream one CSV member from the tar into its ext table. Returns row count."""
-    text = io.TextIOWrapper(
-        io.BufferedReader(_NonSeekableReader(handle)), encoding=encoding, newline=""
-    )
-    reader = csv.reader(text, delimiter=DELIMITER)
+    reader = open_member_csv(handle, encoding, DELIMITER)
     header = next(reader, None)
     if header is None:
         raise ValueError(f"{filename}: filen er tom (ingen header)")
@@ -485,7 +748,7 @@ def _stream_data_member(
                 continue  # optional kolonne der ikke findes i dette takstsystems skema
             value = raw[src_index].strip()
             name = dataset.source_columns[spec_index]
-            if value and (_MOJIBAKE_MARKERS[0] in value or _MOJIBAKE_MARKERS[1] in value):
+            if has_mojibake(value):
                 mojibake[name] += 1
             if name in key_source_columns:
                 max_width = dataset.key_widths.get(name, dataset.source_widths.get(name, 100))
@@ -552,44 +815,31 @@ def load_archive_into_ext(
     aar_counter: Counter = Counter()
     context.log.info(f"laeser {archive.filename}")
 
-    with tarfile.open(archive.path, mode="r|bz2") as tar:
-        for member in tar:
-            if not member.isfile():
-                continue
-            base = os.path.basename(member.name)
-            handle = tar.extractfile(member)
-            if handle is None:
-                continue
-            if base.startswith("Metadata_"):
-                continue  # skemaet valideres mod headeren i selve datafilen
-            if base.startswith("SDP_ExportLog"):
-                export_log = _parse_export_log(handle.read().decode(encoding))
-                continue
-            prefix = _dataset_prefix(base)
-            if prefix is None:
-                context.log.warning(f"{archive.filename}: ignorerer ukendt medlem {base}")
-                continue
-            dataset = by_prefix.get(prefix)
-            if dataset is None:
-                raise ValueError(
-                    f"{archive.filename}: ukendt datasaet {base} — SDS har "
-                    f"tilfoejet et datasaet. Opdater drg_datasets.py."
-                )
-            actual_counts[base] = _stream_data_member(
-                handle, dataset, archive, writers[dataset.ext_table], encoding, base, aar_counter
+    for base, handle in iter_members(archive.path):
+        if base.startswith("Metadata_"):
+            continue  # skemaet valideres mod headeren i selve datafilen
+        if base.startswith("SDP_ExportLog"):
+            export_log = _parse_export_log(handle.read().decode(encoding))
+            continue
+        prefix = _dataset_prefix(base)
+        if prefix is None:
+            context.log.warning(f"{archive.filename}: ignorerer ukendt medlem {base}")
+            continue
+        dataset = by_prefix.get(prefix)
+        if dataset is None:
+            raise ValueError(
+                f"{archive.filename}: ukendt datasaet {base} — SDS har "
+                f"tilfoejet et datasaet. Opdater drg_datasets.py."
             )
+        actual_counts[base] = _stream_data_member(
+            handle, dataset, archive, writers[dataset.ext_table], encoding, base, aar_counter
+        )
 
     if export_log is None:
         raise ValueError(
             f"{archive.filename}: SDP_ExportLog mangler — kontroltotaller kan ikke haandhaeves"
         )
-    deviations = {}
-    for filename, expected in export_log.items():
-        if filename.startswith("Metadata_"):
-            continue
-        actual = actual_counts.get(filename)
-        if actual != expected:
-            deviations[filename] = {"eksportlog": expected, "indlaest": actual}
+    deviations = export_log_deviations(export_log, actual_counts)
     if deviations:
         raise ValueError(
             f"{archive.filename}: raekkeantal afviger fra SDP_ExportLog: {deviations} — "
@@ -602,6 +852,30 @@ def load_archive_into_ext(
         "raekker": dict(sorted(actual_counts.items())),
         "aktivitetsaar": dict(sorted(aar_counter.items())),
     }
+
+
+def _read_checkpoints(
+    mssql: MSSQLResource,
+    context: dg.AssetExecutionContext,
+    leverancetype: str,
+    kadence: str,
+    candidates: list[DrgArchiveFile],
+) -> dict[str, str | None]:
+    """The delivery already ingested per takstsystem, from meta.DFMState.
+
+    A read-only peek through the framework's existing checkpoint API — the
+    detection adds no DFM machinery of its own. A takstsystem with no row has
+    never been loaded, and NULL reads as "everything is new".
+    """
+    dfm = DfmManager(mssql, context)
+    checkpoints: dict[str, str | None] = {}
+    with dfm.connection():
+        for takstsystem in sorted({a.takstsystem for a in candidates}):
+            unit = drg_delivery_unit(leverancetype, takstsystem, kadence)
+            checkpoints[takstsystem] = dfm.get_checkpoint(
+                DELIVERY_SCHEMA, unit, target_type=DELIVERY_TARGET_TYPE
+            )
+    return checkpoints
 
 
 def _run_extract(
@@ -619,8 +893,31 @@ def _run_extract(
         context.log.warning(f"leverance-pin aktiv: paa/foer {on_or_before}")
 
     archives = discover_archives(root, leverancetype)
+    candidates = [a for a in archives if matches_kadence(a, config.kadence)]
+    if config.kadence is not None:
+        context.log.info(
+            f"kadence {config.kadence}: {len(candidates)} af {len(archives)} filer i spil"
+        )
+
+    # Tier 1. A pin or a backfill deliberately re-reads an already-ingested
+    # delivery, so detection is off there — the same convention RunModeConfig
+    # uses for period/ids.
+    detection_on = detection_enabled(config.kadence, on_or_before)
+    already_loaded: list[str] = []
+    if detection_on:
+        checkpoints = _read_checkpoints(mssql, context, leverancetype, config.kadence, candidates)
+        candidates, already_loaded = select_pending(candidates, checkpoints)
+        for note in already_loaded:
+            context.log.info(note)
+    else:
+        context.log.warning(
+            "leverancedetektion er slaaet fra for denne koersel — hele den "
+            "nyeste leverance genlaeses (saet kadence, og undlad "
+            "delivery_on_or_before, for at slaa den til)"
+        )
+
     selected, notes = select_newest(
-        archives,
+        candidates,
         datasets,
         encoding,
         context=context,
@@ -628,56 +925,128 @@ def _run_extract(
         takstsystemer=config.takstsystemer,
     )
     if not selected:
+        if detection_on:
+            # Nothing pending is the NORMAL outcome on most days. ext is left
+            # exactly as it was — the tables are not even recreated, so the
+            # previous delivery stays available for debugging. The manifest
+            # must still be EMPTIED, though: the arc assets declare their
+            # no-op off it, and a stale manifest would keep scoping every
+            # downstream run to the previous delivery.
+            with mssql.get_connection() as conn:
+                execute_statements(conn, _manifest_create_sql(leverancetype))
+            context.log.info(f"{leverancetype}: ingen nye leverancer — ext roeres ikke")
+            return dg.MaterializeResult(
+                metadata={
+                    "leverancetype": leverancetype,
+                    "besluttet": "intet nyt",
+                    "kadence": config.kadence,
+                    "allerede_indlaest": already_loaded or ["ingen"],
+                    "fallbacks": notes or ["ingen"],
+                }
+            )
         raise ValueError(
             f"Ingen brugbare {leverancetype}-leverancer fundet i {root} "
-            f"(takstsystem-filter: {config.takstsystemer})"
+            f"(takstsystem-filter: {config.takstsystemer}, kadence: {config.kadence})"
         )
 
     leverance_alder: dict[str, int] = {}
-    if on_or_before is None:
-        discovered = {
-            a.takstsystem
-            for a in archives
-            if config.takstsystemer is None or a.takstsystem in config.takstsystemer
-        }
+    if on_or_before is not None:
+        context.log.warning("leverance-pin aktiv — foraeldelses-checket springes over")
+    elif config.kadence is None and config.takstsystemer is None:
+        discovered = {a.takstsystem for a in archives}
         leverance_alder = check_delivery_age(
             selected, discovered, leverancetype, date.today(), config.max_delivery_age_days
         )
     else:
-        context.log.warning("leverance-pin aktiv — foraeldelses-checket springes over")
+        # A filtered run sees one cadence and often one takstsystem, so
+        # "the active takstsystem" cannot be derived here without lying. The
+        # standalone freshness asset owns that check — it reads the whole share
+        # and is deliberately independent of this run's filters.
+        context.log.info(
+            "filtreret koersel — foraeldelses-checket haandteres af det "
+            "selvstaendige freshness-asset, ikke her"
+        )
 
-    per_takst: list[dict] = []
-    with mssql.get_connection() as conn:
-        cursor = conn.cursor()
-        try:
-            for dataset in datasets:
-                for statement in _ext_create_sql(dataset).split(";\n"):
-                    if statement.strip():
-                        cursor.execute(statement)
-            conn.commit()
-        finally:
-            cursor.close()
+    manifest_rows: list[dict] = []
+    context.log.info(
+        f"indlaeser {len(selected)} leverance(r): "
+        + ", ".join(a.filename for a in selected.values())
+    )
+    with (
+        DfmManager(mssql, context).target_runs(
+            "ext",
+            {d.ext_table: d.source_prefix for d in datasets},
+            dagster_run_id=context.run_id,
+            mode="full_load",
+            **share_connection(root),
+        ) as rows,
+        mssql.get_connection() as conn,
+    ):
+        # One commit for the whole DDL block: the ext tables and the manifest are
+        # recreated together or not at all.
+        for dataset in datasets:
+            execute_statements(conn, _ext_create_sql(dataset), commit=False)
+        execute_statements(conn, _manifest_create_sql(leverancetype), commit=False)
+        conn.commit()
 
         writers = {d.ext_table: _ExtWriter(conn, d, context) for d in datasets}
-        try:
-            for takstsystem in sorted(selected):
-                per_takst.append(
-                    load_archive_into_ext(
-                        conn, selected[takstsystem], datasets, writers, encoding, context
-                    )
-                )
-            for writer in writers.values():
-                writer.flush()
-            conn.commit()
-        finally:
-            for writer in writers.values():
-                writer.close()
 
-    totals = {d.ext_table: 0 for d in datasets}
-    by_prefix = {d.source_prefix: d.ext_table for d in datasets}
-    for entry in per_takst:
-        for filename, count in entry["raekker"].items():
-            totals[by_prefix[_dataset_prefix(filename)]] += count
+        def _load_selected() -> list[LoadArchiveResult]:
+            return [
+                load_archive_into_ext(
+                    conn, selected[takstsystem], datasets, writers, encoding, context
+                )
+                for takstsystem in sorted(selected)
+            ]
+
+        # run_writers discards the buffers on any exception, so a designed
+        # (GDPR-safe) failure mid-load is the error that surfaces instead of a
+        # driver error from the doomed final INSERT (review F19, [internal ticket]).
+        per_takst = run_writers(writers, _load_selected)
+        conn.commit()
+
+        # The manifest is written AFTER the rows commit, and the cap is read
+        # back out of ext: LEVERANCEINFO sorts after the big data members in
+        # the tar, so the cap is not known while they stream.
+        supports_cap = any(d.source_prefix == "LEVERANCEINFO" for d in datasets)
+        for takstsystem in sorted(selected):
+            archive = selected[takstsystem]
+            cap: str | None = None
+            cap_kilde: str | None = None
+            if supports_cap:
+                cap = read_delivery_cap(conn, datasets, takstsystem)
+                if cap is None:
+                    # Never observed in 113 archives, but is_usable() permits a
+                    # 0-row LEVERANCEINFO. Fall back to the packaging date so
+                    # the delivery can still be ordered — marked as derived,
+                    # because for an M file it overstates the real cap.
+                    cap = archive.delivery_date.isoformat()
+                    cap_kilde = CAP_DERIVED
+                    context.log.warning(
+                        f"{archive.filename}: LEVERANCEINFO har ingen "
+                        f"LPROPDATERINGSDATO — bruger filnavnets dato {cap} som "
+                        f"afledt cap. Undersoeg leverancen."
+                    )
+                else:
+                    cap_kilde = CAP_REAL
+            write_manifest(conn, leverancetype, archive, cap, cap_kilde)
+            manifest_rows.append(
+                {
+                    "takstsystem": takstsystem,
+                    "fil": archive.filename,
+                    "kadence": archive.kadence or "-",
+                    "leverance_ts": archive.timestamp.isoformat(timespec="seconds"),
+                    "cap": cap or "-",
+                    "cap_kilde": cap_kilde or "-",
+                }
+            )
+
+        totals = {d.ext_table: 0 for d in datasets}
+        by_prefix = {d.source_prefix: d.ext_table for d in datasets}
+        for entry in per_takst:
+            for filename, count in entry["raekker"].items():
+                totals[by_prefix[_dataset_prefix(filename)]] += count
+        rows.update(totals)
 
     return dg.MaterializeResult(
         metadata={
@@ -685,7 +1054,10 @@ def _run_extract(
             "takstsystemer": ", ".join(sorted(selected)),
             "leverancer": per_takst,
             "raekker_pr_ext_tabel": dict(sorted(totals.items())),
-            "leverance_alder_dage": leverance_alder or "pin aktiv — ikke vurderet",
+            "leverance_alder_dage": leverance_alder or "ikke vurderet her",
+            "kadence": config.kadence,
+            "allerede_indlaest": already_loaded or ["ingen"],
+            "manifest": manifest_rows,
             "fallbacks": notes or ["ingen"],
         }
     )
@@ -725,6 +1097,44 @@ ext_drgpsyk = _build_asset(
     "validated against SDS' own export log.",
 )
 
-drg_extract_assets = [ext_drg, ext_drgpsyk]
 
-__all__ = ["drg_extract_assets", "ext_drg", "ext_drgpsyk"]
+@dg.asset(
+    name="drg_leverance_freshness",
+    group_name="drg_freshness",
+    compute_kind="python",
+    tags={"domain": "drg", "layer": "extract", "source": "drg"},
+    description=(
+        "Alarm when a DRG delivery series on the share has gone stale. Checks "
+        "DRG/M, DRG/U and DRGPSYK/M across the two highest takstsystemer per "
+        "leverancetype. Filenames only — deliberately independent of what any "
+        "ingest run chose to load, so it reports whether or not anything loads."
+    ),
+)
+def drg_leverance_freshness(context: dg.AssetExecutionContext) -> dg.MaterializeResult:
+    root = drg_dir()
+    archives = discover_archives(root, "DRG") + discover_archives(root, "DRGPSYK")
+    problems, ages = evaluate_freshness(archives, date.today())
+    for problem in problems:
+        context.log.error(problem)
+    if problems:
+        raise ValueError(
+            "Foraeldede DRG-leverancer paa sharet: "
+            + " | ".join(problems)
+            + ". Er SMB-sharet mountet, og leverer SDS stadig?"
+        )
+    return dg.MaterializeResult(
+        metadata={"alder_dage": ages or "ingen serier fundet", "filer_paa_share": len(archives)}
+    )
+
+
+drg_extract_assets = [ext_drg, ext_drgpsyk]
+drg_freshness_assets = [drg_leverance_freshness]
+
+__all__ = [
+    "drg_delivery_unit",
+    "drg_extract_assets",
+    "drg_freshness_assets",
+    "drg_leverance_freshness",
+    "ext_drg",
+    "ext_drgpsyk",
+]

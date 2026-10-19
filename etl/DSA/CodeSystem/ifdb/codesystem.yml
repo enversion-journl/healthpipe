@@ -1,0 +1,12 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+resourceType: CodeSystem
+url: "urn:source:ifdb:kodeliste"
+name: "IFDBKodeliste"
+description: "IFDB's egne administrative kodelister. Koden er kildens fuldt kvalificerede vaerdi, «<liste>.<kode>»; listenavnet ligger som egenskaben kodeliste."
+status: active
+content: not-present

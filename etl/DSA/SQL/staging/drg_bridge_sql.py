@@ -31,7 +31,7 @@ order-independent. The child tables carry no CPR.
 """
 
 from DSA.SQL.staging.drg_kontakt_kolonner import clean_code_sql
-from DSA.SQL.staging.drg_staging_sql import build_org_lookup_sql
+from DSA.SQL.staging.drg_staging_sql import create_organisation_sor_lookup_table_sql
 
 DIAGNOSE_STG = "[stg].[bridge_DRGKontaktDiagnose]"
 PROCEDURE_STG = "[stg].[bridge_DRGKontaktProcedure]"
@@ -406,7 +406,7 @@ def build_procedure_gruppe_stg_sql() -> str:
         "DRGPROCGRP", element, "[clean_code_DRGProcedure], [dw_ek_Organisation_producerende]"
     )
     return (
-        build_org_lookup_sql()
+        create_organisation_sor_lookup_table_sql()
         + f"""
 DROP TABLE IF EXISTS #ccp;
 SELECT DISTINCT
@@ -415,7 +415,7 @@ SELECT DISTINCT
     COALESCE(o.[dw_ek_Organisation], -1) AS [dw_ek_Organisation_producerende]
 INTO #ccp
 FROM {PROCEDURE_STG} s
-LEFT JOIN #org o
+LEFT JOIN #organisation_sor o
     ON o.[kode] = s.[producerende_sor]
    AND s.[producerende_sor] IS NOT NULL
    AND s.[producerende_sor] <> '';

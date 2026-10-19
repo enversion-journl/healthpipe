@@ -9,6 +9,7 @@ DFM configuration classes.
 
 RunModeConfig      — run-time config applied to every DFM-enabled asset.
 FlowStartConfig    — run-time config for the dfm_ifdb_flow_start asset.
+IFDBCycleWaitConfig — run-time config for the dfm_ifdb_cycle_wait asset.
 ArchiveMergeConfig — design-time config driving the MERGE SQL generator.
 DfmResetConfig     — config for the ad-hoc checkpoint reset asset.
 """
@@ -126,11 +127,25 @@ class FlowStartConfig(dg.Config):
     flow_start_override: str | None = Field(
         default=None,
         description="Manually set the flow-start upper-bound timestamp. "
-        "When set, the source system query is skipped entirely. "
+        "When set, the source system query is skipped entirely; for IFDB the value "
+        "sets both the transfer ceiling and the EPJ ceiling. "
         "When left empty (default), the timestamp is read from the source "
-        "(IFDB: MAX(JOBSLUT) in JOB_LOG/JOB_STATUS); if that returns NULL "
-        "(e.g. local dev), it falls back to MSSQL SYSDATETIME(). "
+        "(IFDB: Oracle SYSDATE at a complete cycle and MIN(MAX(SLUTTID)) in "
+        "JOB_LOG/JOB_STATUS); if JOB_LOG returns no rows (e.g. local dev), it falls "
+        "back to MSSQL SYSDATETIME(). "
         'Format: "YYYY-MM-DD HH:MM:SS". Example: "2025-06-01 12:00:00".',
+    )
+
+
+class IFDBCycleWaitConfig(dg.Config):
+    """Run-time config for dfm_ifdb_cycle_wait, which holds the IFDB flow start."""
+
+    cycle_wait_timeout_minutes: int = Field(
+        default=180,
+        ge=0,
+        description="How long to wait for every active IFDB job type to finish the same "
+        "cycle before the asset fails. 0 turns the wait off: the asset then returns at once "
+        "without reading IFDB.",
     )
 
 
@@ -202,6 +217,17 @@ class ArchiveMergeConfig:
     # archive — e.g. a delivery that covers only some activity years.
     # Computed per run from ext; ignored unless detect_deletes is effective.
     delete_scope_predicate: str | None = None
+    # Extra predicate narrowing which SOURCE rows reach the MERGE (T-SQL:
+    # source columns, UNQUALIFIED — it is applied inside a derived table over
+    # the source). Use when the run must merge only part of what ext holds,
+    # e.g. only the activity-year slices whose delivery is actually newer than
+    # what the archive reflects.
+    #
+    # MUST be kept consistent with delete_scope_predicate: both describe the
+    # same slice set. Narrowing the source while delete detection still covers
+    # a slice makes WHEN NOT MATCHED BY SOURCE soft-delete that whole slice
+    # (the [internal ticket] failure class).
+    source_scope_predicate: str | None = None
 
     def __post_init__(self) -> None:
         if isinstance(self.merge_keys, str):

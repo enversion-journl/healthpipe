@@ -45,13 +45,15 @@ SET
         WHEN d.[uge_aar_id] < (@today_week_year * 100 + @today_week) THEN 1
         ELSE 0
     END,
-    [aar_relativ] = CAST(@today_year - d.[aar] AS SMALLINT),
+    -- Rækkens dato minus dags dato: passerede perioder negative, fremtidige
+    -- positive (fx aar_relativ = -1 i fjor, 0 i år, +1 næste år).
+    [aar_relativ] = CAST(d.[aar] - @today_year AS SMALLINT),
     [kvartal_relativ] = CAST(
-        (@today_year * 4 + @today_quarter) - (d.[aar] * 4 + d.[kvartal_id]) AS SMALLINT
+        (d.[aar] * 4 + d.[kvartal_id]) - (@today_year * 4 + @today_quarter) AS SMALLINT
     ),
-    [maaned_relativ] = CAST(DATEDIFF(MONTH, d.[maaned_startdato], @today_month_start) AS SMALLINT),
-    [uge_relativ] = CAST(DATEDIFF(WEEK, d.[uge_startdato], @today_week_start) AS SMALLINT),
-    [dag_relativ] = CAST(DATEDIFF(DAY, d.[dato], @today) AS SMALLINT)
+    [maaned_relativ] = CAST(DATEDIFF(MONTH, @today_month_start, d.[maaned_startdato]) AS SMALLINT),
+    [uge_relativ] = CAST(DATEDIFF(WEEK, @today_week_start, d.[uge_startdato]) AS SMALLINT),
+    [dag_relativ] = CAST(DATEDIFF(DAY, @today, d.[dato]) AS SMALLINT)
 FROM [dim].[Dato] d
 WHERE d.[dw_ek_Dato] BETWEEN 19700101 AND 20501231;
 GO

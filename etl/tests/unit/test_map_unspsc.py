@@ -44,14 +44,12 @@ class TestMergeSql:
     def test_no_old_stg_tables(self):
         assert "dim_UNSPSC_ils" not in MERGE_SQL
         assert "dim_unspsc_kmd" not in MERGE_SQL
-        assert "dim_unspsc_udbud" not in MERGE_SQL
 
     def test_change_guard_on_update_arm(self):
         # UPDATE kører kun når mindst ét flag faktisk flipper 0->1.
         assert "WHEN MATCHED AND (" in MERGE_SQL
         assert "m.dw_source_kmd   = 0 AND s.dw_source_kmd   = 1" in MERGE_SQL
         assert "m.dw_source_ils   = 0 AND s.dw_source_ils   = 1" in MERGE_SQL
-        assert "m.dw_source_udbud = 0 AND s.dw_source_udbud = 1" in MERGE_SQL
 
     def test_sticky_assignments(self):
         assert (
@@ -60,10 +58,6 @@ class TestMergeSql:
         )
         assert (
             "m.dw_source_ils   = CASE WHEN m.dw_source_ils   = 1 THEN 1 ELSE s.dw_source_ils   END"
-            in MERGE_SQL
-        )
-        assert (
-            "m.dw_source_udbud = CASE WHEN m.dw_source_udbud = 1 THEN 1 ELSE s.dw_source_udbud END"
             in MERGE_SQL
         )
 

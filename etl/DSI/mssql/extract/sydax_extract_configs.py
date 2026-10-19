@@ -42,6 +42,7 @@ filters the NULLs; the factory appends the delta filter via AND.
 
 import dagster as dg
 from core.dfm_manager import DfmManager
+from core.dfm_source import resource_source
 from core.resources import MSSQLResource, SydaxMSSQLResource
 from DSI.connectors.extract_config import DfmExtractConfig
 from DSI.connectors.factory import create_dfm_extraction_assets
@@ -268,7 +269,11 @@ def _build_sydax_flow_start_asset(target_table: str):
     ) -> dg.MaterializeResult:
         dfm = DfmManager(mssql_target_staging, context)
         run_ctx = dfm.start_dfm_run(
-            "dfm", dfm_table, dagster_run_id=context.run_id, mode="flow_start"
+            "dfm",
+            dfm_table,
+            dagster_run_id=context.run_id,
+            mode="flow_start",
+            **resource_source(sydax_mssql, None),
         )
         try:
             with sydax_mssql.get_connection() as src:

@@ -18,13 +18,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import psycopg
 from core.cache import SharedIdentifierCache
+from core.fhir.alias_lookup import lookup_values
 from core.parallel import env_bool, env_int
 from fhir.resources.R4B.resource import Resource
 from utils.fhir.identifier_systems import _SAFE_IDENTIFIER_SYSTEM_RE
 from utils.fhir.index_config import IDENTIFIER_UNIQUE_INDEX_SET
 
-IdentifierLookup = SharedIdentifierCache | dict[tuple[str, str], str]
-IdentifierLookupSpec = tuple[str, list[str] | None]
+type IdentifierLookup = SharedIdentifierCache | dict[tuple[str, str], str]
+type IdentifierLookupSpec = tuple[str, list[str] | None]
 
 
 def _logger():
@@ -192,7 +193,7 @@ def resolve_identifier_values(
 
     # Indexed path: always hits live Postgres via _resolve_identifier_values_direct
     # (no in-process cache), so force_reload is intentionally a no-op here.
-    if not use_indexed_path:
+    if not use_indexed_path and resource_type != "Patient":
         cache_key = self._cache_key(resource_type, [identifier_system])
         if force_reload:
             _discard_loaded_identifier_cache(self, cache_key)
@@ -322,6 +323,29 @@ def _resolve_identifier_values_direct(
     start_time = time.perf_counter()
     resolved: dict[str, str] = {}
 
+    if resource_type == "Patient":
+        # Every alias must resolve, including historical CPR and secondary EPJ
+        # ids, which the expression index does not see -- and a value that is
+        # primary on one resource and an alias on another must surface both.
+        # Every value is probed by containment on the GIN alias index: one
+        # probe per value, never a scan per batch (core.fhir.alias_lookup).
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SET LOCAL plan_cache_mode = force_custom_plan")
+                found = lookup_values(
+                    cur, resource_type="Patient", system=identifier_system, values=value_list
+                )
+        for value, fhir_ids in found.items():
+            if len(fhir_ids) > 1:
+                raise ValueError("Patient identifier belongs to multiple resources")
+            resolved[value] = next(iter(fhir_ids))
+        elapsed = time.perf_counter() - start_time
+        logger.info(
+            f"[IdentifierLookup] Targeted Patient lookup (all-identifiers path) resolved "
+            f"{len(resolved)}/{len(value_list)} values in {elapsed:.2f}s"
+        )
+        return resolved
+
     # Choose query shape based on whether a UNIQUE partial expression index
     # exists for this (resource_type, identifier_system). When it does, use
     # extract_identifier_value(...) + @> so the planner can match the index
@@ -334,6 +358,7 @@ def _resolve_identifier_values_direct(
         identifier_system,
     ) in IDENTIFIER_UNIQUE_INDEX_SET
 
+    query: str | psycopg.sql.Composable
     if use_indexed_path:
         if not _SAFE_IDENTIFIER_SYSTEM_RE.match(identifier_system):
             raise ValueError(

@@ -44,6 +44,11 @@ _DSO_WEEKLY_CRONS: dict[str, str] = {
     # Between publishes the DSO copy cannot drift on its own, so weekly is enough.
     "haiba": "30 10 * * 6",  # Sat 10:30
     "drg": "0 11 * * 6",  # Sat 11:00 (10:30 taken by haiba; keep the 30-min stagger)
+    # Udredningsret is the same case as HAIBA: udredningsret_publish_sensor is
+    # delivery-driven, so nothing guarantees a publish on a Saturday and the
+    # after-publish sensor requests the DWH jobs, never a dso job. Without a cron
+    # the five dso_reconciliation checks would only ever run by hand.
+    "udredningsret": "30 11 * * 6",  # Sat 11:30 (11:00 taken by drg; keep the stagger)
 }
 
 _ALWAYS_STOPPED_DOMAINS: frozenset[str] = frozenset({"erp"})

@@ -183,68 +183,35 @@ class TestResolveResourceIdsForUpsert:
 
 
 class TestPatientPostingWithIdResolution:
-    """Tests for the patient posting function with ID resolution."""
+    """The entry point's writer resolves existing ids before it writes."""
 
-    def test_counts_resolved_and_new_patients(self):
-        """Test that the posting function correctly counts resolved vs new patients."""
-        from DSA.FHIR.Patient.Patient_IFDB_dfm import _post_patients_to_fhir
+    def test_existing_ids_are_attached_before_upsert(self):
+        from DSA.FHIR.Patient.patient_service import write_patients
 
         patients = [
             _create_test_patient("P001", "0101901234"),
             _create_test_patient("P002", "0202902345"),
             _create_test_patient("P003", "0303903456"),
         ]
-
-        # Create mock context
-        mock_context = MagicMock()
-        mock_context.has_partition_key = True
-        mock_context.partition_key = "2025-01-15"
-
-        # Create mock database
         mock_db = MagicMock()
-        # Simulate that P001 and P002 exist (2 resolved, 1 new)
-        mock_db.resolve_resource_ids.return_value = {
-            0: "existing-uuid-001",
-            1: "existing-uuid-002",
-        }
+        mock_db.is_stale.return_value = False
+        # P001 and P002 exist; P003 is new
+        mock_db.resolve_resource_ids.return_value = {0: "existing-uuid-001", 1: "existing-uuid-002"}
         mock_db.batch_upsert_resources.return_value = (3, 0, [])
 
-        result = _post_patients_to_fhir(
-            context=mock_context,
-            patients=patients,
-            fhir_database=mock_db,
-            extracted_count=3,
-        )
+        result = write_patients(MagicMock(), mock_db, patients, source_name="test")
 
-        # Verify metadata includes resolved/new counts
-        metadata = result.metadata
-        assert "resolved_count" in metadata
-        assert "new_count" in metadata
-        assert metadata["resolved_count"].value == 2
-        assert metadata["new_count"].value == 1
+        assert [p.id for p in result[:2]] == ["existing-uuid-001", "existing-uuid-002"]
+        assert result[2].id is None  # the upsert assigns the new id
+        kwargs = mock_db.batch_upsert_resources.call_args.kwargs
+        assert kwargs["resource_type"] == "Patient" and len(kwargs["resources"]) == 3
 
-    def test_empty_patients_list_returns_zero_counts(self):
-        """Test that empty patient list returns zeros for all counts."""
-        from DSA.FHIR.Patient.Patient_IFDB_dfm import _post_patients_to_fhir
-
-        mock_context = MagicMock()
-        mock_context.has_partition_key = True
-        mock_context.partition_key = "2025-01-15"
+    def test_empty_patients_list_writes_nothing(self):
+        from DSA.FHIR.Patient.patient_service import write_patients
 
         mock_db = MagicMock()
-
-        result = _post_patients_to_fhir(
-            context=mock_context,
-            patients=[],
-            fhir_database=mock_db,
-            extracted_count=0,
-        )
-
-        metadata = result.metadata
-        assert metadata["posted_count"].value == 0
-        assert metadata["failed_count"].value == 0
-        assert metadata["resolved_count"].value == 0
-        assert metadata["new_count"].value == 0
+        assert write_patients(MagicMock(), mock_db, [], source_name="test") == []
+        mock_db.batch_upsert_resources.assert_not_called()
 
 
 class TestIdResolutionForOtherResources:

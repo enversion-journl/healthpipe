@@ -210,7 +210,7 @@ def staging_infra_ref(
             "tables": (
                 "ref.PatientToBorger, ref.Patient_Address_To_Borger, "
                 "ref.Organisation, ref.FakturalinjeMatchKeys, "
-                "ref.RekvirentUndtagelse, ref.SKS_* views"
+                "ref.RekvirentUndtagelse, ref.ILSAendringslog, ref.SKS_* views"
             ),
         }
     )
@@ -272,7 +272,7 @@ def staging_infra_erp(
     return dg.MaterializeResult(
         metadata={
             "files_executed": all_files,
-            "tables": "map.Kontoplan, map.Kreditor, map.Leverandoervare, map.Aftale, map.AftaleVarePris, map.Faktura, map.Fakturalinje, map.Postering, map.Lager, map.Vareudlevering, map.Rekvirent, map.ean, map.LagerbeholdningEgenskaber, map.AfdelingLagerbeholdningEgenskaber, map.Okosted, dim.Kontoplan, dim.Kreditor, dim.Leverandoervare, dim.Aftale, dim.Faktura, dim.Fakturalinje, dim.Postering, dim.Lager, dim.Vareudlevering, dim.Rekvirent, dim.ean, dim.LagerbeholdningEgenskaber, dim.AfdelingLagerbeholdningEgenskaber, dim.Okosted, fct.Faktura, fct.Fakturalinje, fct.Postering, fct.Vareudlevering, fct.Lagerbeholdning, fct.AfdelingLagerbeholdning, fct.AftaleVarePris",
+            "tables": "map.Kontoplan, map.Kreditor, map.Leverandoervare, map.Aftale, map.ILSLeverandoer, map.AftaleVarePris, map.Faktura, map.Fakturalinje, map.Postering, map.Lager, map.Vareudlevering, map.Rekvirent, map.ean, map.LagerbeholdningEgenskaber, map.AfdelingLagerbeholdningEgenskaber, map.Okosted, dim.Kontoplan, dim.Kreditor, dim.Leverandoervare, dim.Aftale, dim.ILSLeverandoer, dim.Faktura, dim.Fakturalinje, dim.Postering, dim.Lager, dim.Vareudlevering, dim.Rekvirent, dim.ean, dim.LagerbeholdningEgenskaber, dim.AfdelingLagerbeholdningEgenskaber, dim.Okosted, fct.Faktura, fct.Fakturalinje, fct.Postering, fct.Vareudlevering, fct.Lagerbeholdning, fct.AfdelingLagerbeholdning, fct.AftaleVarePris",
         }
     )
 
@@ -311,6 +311,43 @@ def staging_infra_kmd_uddata(
 
 
 # ============================================================================
+# SILKEBORGDATA
+# ============================================================================
+
+
+@dg.asset(
+    name="staging_infra_silkeborgdata",
+    group_name="staging_infrastructure",
+    compute_kind="mssql",
+    deps=["staging_infra_schemas", "staging_infra_functions", "staging_migrations"],
+    tags={"layer": "staging", "type": "infrastructure", "domain": "silkeborgdata"},
+    description="Create SilkeborgData archive tables (arc.silkeborgdata_*).",
+)
+def staging_infra_silkeborgdata(
+    context: dg.AssetExecutionContext,
+    mssql_target_staging: MSSQLResource,
+) -> dg.MaterializeResult:
+    """Create arc.silkeborgdata_* archive infrastructure.
+
+    Executes the whole tables/silkeborgdata directory, so a future SD file's DDL
+    is picked up by dropping a 01_*.sql into it — no change to this asset. Keep
+    the name and description at domain level, not at E26PERS level.
+    """
+
+    results = execute_sql_files_from_directory(
+        mssql_target_staging, "tables/silkeborgdata", context
+    )
+    context.log.info("✅ SilkeborgData archive infrastructure created")
+
+    return dg.MaterializeResult(
+        metadata={
+            "files_executed": list(results.keys()),
+            "tables": "arc.silkeborgdata_e26_pers",
+        }
+    )
+
+
+# ============================================================================
 # SECURITY
 # ============================================================================
 
@@ -330,15 +367,18 @@ def staging_infra_security(
     """Create security infrastructure (tables, functions)"""
 
     results = execute_sql_files_from_directory(mssql_target_staging, "tables/security", context)
+    results |= execute_sql_files_from_directory(
+        mssql_target_staging, "tables/security_historik", context
+    )
 
     context.log.info("✅ Security infrastructure created")
     return dg.MaterializeResult(
         metadata={
             "files_executed": list(results.keys()),
-            "tables": "sec.RolleDomaene, sec.RBOrganisation",
+            "tables": "sec.RolleDomaene, sec.RBOrganisation, sec.RolleDomaeneHistorik, sec.SORTildelingHistorik",
             "functions": (
                 "sec.HentBrugerRolleDomaene, sec.BeskytDimLeverandoervare_v1, sec.HentDPASikkerhed, "
-                "sec.HentRBOrganisation, sec.BeskytPersonoplysning, sec.BeskytDimBorger"
+                "sec.HentRBOrganisation"
             ),
         }
     )
@@ -374,7 +414,8 @@ def staging_infra_fhir(
                 "fhir.Questionnaire, fhir.Questionnaire_item, fhir.QuestionnaireResponse, "
                 "fhir.QuestionnaireResponse_item, fhir.EpisodeOfCare, fhir.Location, "
                 "fhir.Organization, fhir.CarePlan, fhir.CarePlan_Activity, fhir.Appointment, "
-                "fhir.SFI_datapoint_store"
+                "fhir.SFI_datapoint_store, fhir.WardUnit, fhir.WardUnit_Capacity, fhir.Bed, "
+                "fhir.Encounter_BedSpace, fhir.Encounter_Absence"
             ),
         }
     )
@@ -904,6 +945,25 @@ def staging_infra_haiba(
 
 
 @dg.asset(
+    name="staging_infra_cpr",
+    group_name="staging_infrastructure",
+    deps=["staging_infra_schemas", "staging_migrations"],
+    compute_kind="mssql",
+    description=(
+        "Create the CPR register archive tables arc.cpr_* (one per record type) and "
+        "the control tables meta.CPRLeverance and meta.CPRAbonnementKandidat. The "
+        "ext.cpr_* landing tables are created by the extract asset."
+    ),
+)
+def staging_infra_cpr(
+    context: dg.AssetExecutionContext,
+    mssql_target_staging: MSSQLResource,
+) -> dg.MaterializeResult:
+    results = execute_sql_files_from_directory(mssql_target_staging, "tables/cpr", context)
+    return dg.MaterializeResult(metadata={"files_executed": len(results)})
+
+
+@dg.asset(
     name="staging_infra_drg",
     group_name="staging_infrastructure",
     deps=["staging_infra_schemas", "staging_migrations"],
@@ -929,10 +989,12 @@ def staging_infra_drg(
     deps=["staging_infra_schemas", "staging_migrations"],
     compute_kind="mssql",
     description=(
-        "Create the udredningsret archive table (arc.udredningsret_mont) and "
-        "meta.UdredningsretLeverance. The ext.udredningsret* landing tables and "
-        "the ext.udredningsret_mont_noegler key table are created by the extract/archive "
-        "assets themselves, as for DRG and HAIBA."
+        "Create the udredningsret tables: the archive (arc.udredningsret_mont), "
+        "meta.UdredningsretLeverance, the five maps, the three dimensions, "
+        "fct.Udredningsforloeb, fct.UdredningsretMarkoer and the -1 sentinel seeds. "
+        "The ext.udredningsret* "
+        "landing tables and the ext.udredningsret_mont_noegler key table are created "
+        "by the extract/archive assets themselves, as for DRG and HAIBA."
     ),
 )
 def staging_infra_udredningsret(
@@ -942,4 +1004,23 @@ def staging_infra_udredningsret(
     results = execute_sql_files_from_directory(
         mssql_target_staging, "tables/udredningsret", context
     )
+    return dg.MaterializeResult(metadata={"files_executed": len(results)})
+
+
+@dg.asset(
+    name="staging_infra_lpr3",
+    group_name="staging_infrastructure",
+    deps=["staging_infra_schemas", "staging_migrations"],
+    compute_kind="mssql",
+    description=(
+        "Create the 38 LPR3 archive tables and meta.LPR3Leverance from the "
+        "Metadata-derived dataset contract. Extract and identity tables are "
+        "owned by ingestion. LPR3 creates no DSO or FHIR tables."
+    ),
+)
+def staging_infra_lpr3(
+    context: dg.AssetExecutionContext,
+    mssql_target_staging: MSSQLResource,
+) -> dg.MaterializeResult:
+    results = execute_sql_files_from_directory(mssql_target_staging, "tables/lpr3", context)
     return dg.MaterializeResult(metadata={"files_executed": len(results)})

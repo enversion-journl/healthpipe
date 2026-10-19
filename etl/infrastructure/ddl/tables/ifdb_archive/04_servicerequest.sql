@@ -14,9 +14,9 @@
 --
 -- ifdb_henvisning:             delta via OPDATERET_TID; UPSERT on OBJEKT_ID;
 --                              soft-delete driven by SLETTET.
--- ifdb_henvisning_historik:    delta via BESLUT_TIDSPUNKT; UPSERT on
+-- ifdb_henvisning_historik:    delta via HENVISNING.OPDATERET_TID; UPSERT on
 --                              (HENVISNING_ID, ORDNING). Read per batch to pick
---                              the latest status-history row per henvisning.
+--                              the current history row by ORDNING and reopening rules.
 -- ifdb_referralinformation:    delta via REFERRAL_DATE; UPSERT on OBJECT_ID,
 --                              which is the episode-of-care id the transform
 --                              joins on (not a surrogate key).
@@ -24,7 +24,7 @@
 
 
 -- ----------------------------------------------------------------------------
--- arc.ifdb_henvisning  (1:1 from IFDB.HENVISNING — 23 source columns)
+-- arc.ifdb_henvisning  (1:1 from IFDB.HENVISNING — 53 source columns)
 -- ----------------------------------------------------------------------------
 
 IF NOT EXISTS (
@@ -56,6 +56,37 @@ BEGIN
         [AFSENDER_AFDELING_SORKODE]     NVARCHAR(512)   NULL,
         [BEHANDLER_AFDELING_SORKODE]    NVARCHAR(512)   NULL,
         [OPDATERET_TID]                 NVARCHAR(100)   NULL,
+
+        [HENVIST_TIL_YDER_NAVN] NVARCHAR(512) NULL,
+        [HENVIST_TIL_YDER_NUMMER] NVARCHAR(512) NULL,
+        [HENVIST_TIL_AFDELING_KODE] NVARCHAR(512) NULL,
+        [HENVIST_TIL_AFDELING_KODETEKST] NVARCHAR(512) NULL,
+        [HENVIST_TIL_MUNI_KODE] NVARCHAR(512) NULL,
+        [HENVIST_TIL_MUNI_KODETEKST] NVARCHAR(512) NULL,
+        [HENVIST_TIL_MUNI_LOCATION] NVARCHAR(512) NULL,
+        [HENVIST_FRA_YDER_NAVN] NVARCHAR(512) NULL,
+        [HENVIST_FRA_YDER_NUMMER] NVARCHAR(512) NULL,
+        [HENVIST_FRA_AFDELING_KODE] NVARCHAR(512) NULL,
+        [HENVIST_FRA_AFDELING_KODETEKST] NVARCHAR(512) NULL,
+        [HENVIST_FRA_INSTITUTION_NAVN] NVARCHAR(512) NULL,
+        [HENVIST_FRA_INSTITUTION_POSTNR] NVARCHAR(512) NULL,
+        [HENVIST_FRA_INSTITUTION_VEJ] NVARCHAR(512) NULL,
+        [HENVIST_FRA_INSTITUTION_TLF_NR] NVARCHAR(512) NULL,
+        [AFSLUTNINGSAARSAG_KODE] NVARCHAR(512) NULL,
+        [AFSLUTNINGSAARSAG_KODETEKST] NVARCHAR(512) NULL,
+        [AFSENDER_YDER_NAVN] NVARCHAR(512) NULL,
+        [AFSENDER_YDER_NUMMER] NVARCHAR(512) NULL,
+        [AFSENDER_AFDELING_KODE] NVARCHAR(512) NULL,
+        [AFSENDER_AFDELING_KODETEKST] NVARCHAR(512) NULL,
+        [AFSENDER_INSTITUTION_NAVN] NVARCHAR(512) NULL,
+        [AFSENDER_INSTITUTION_POSTNR] NVARCHAR(512) NULL,
+        [AFSENDER_INSTITUTION_VEJ] NVARCHAR(512) NULL,
+        [AFSENDER_INSTITUTION_TLF_NR] NVARCHAR(512) NULL,
+        [BEHANDLER_YDER_NAVN] NVARCHAR(512) NULL,
+        [BEHANDLER_YDER_NUMMER] NVARCHAR(512) NULL,
+        [BEHANDLER_AFDELING_KODE] NVARCHAR(512) NULL,
+        [BEHANDLER_AFDELING_KODETEKST] NVARCHAR(512) NULL,
+        [SENT_ELECTRONICAL] NVARCHAR(512) NULL,
 
         -- DWH audit columns
         [dw_timestamp_insert]           DATETIME2(0)    NOT NULL,

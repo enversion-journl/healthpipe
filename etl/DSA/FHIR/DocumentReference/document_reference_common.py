@@ -139,26 +139,3 @@ def fetch_child_rows_for_batch(
             cursor.close()
 
     return grouped
-
-
-def advance_fhir_checkpoint(
-    dfm: Any,
-    mssql: MSSQLResource,
-    resource_name: str,
-    config: Any,
-    total_fetched: int,
-) -> str | None:
-    """Advance the fhir_server checkpoint to SYSDATETIME() (shared with Encounter pattern)."""
-    new_checkpoint: str | None = None
-    if config.should_advance_checkpoint and total_fetched > 0:
-        with mssql.get_connection() as conn:
-            cursor = conn.cursor()
-            try:
-                cursor.execute("SELECT CONVERT(NVARCHAR(50), SYSDATETIME(), 121)")
-                row = cursor.fetchone()
-                new_checkpoint = row[0] if row else None
-            finally:
-                cursor.close()
-        if new_checkpoint:
-            dfm.set_checkpoint("fhir_server", resource_name, value=new_checkpoint, mode=config.mode)
-    return new_checkpoint

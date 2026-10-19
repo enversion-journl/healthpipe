@@ -37,7 +37,7 @@ eksisterende dimensioner er bygget den vej.
 |---|---|---|---|
 | **pre_stg** (valgfrit) | `arc.*` | `stg.pre_*` | Logik, som flere downstream facts/dimensioner deler — defineret ét sted |
 | **stg** | `stg.pre_*` eller `arc.*` | `stg.dim_*`, `stg.fct_*` | Én tabel per målentitet, med præcis de kolonner målet skal have |
-| **map** | `stg.dim_*`, `stg.fct_*` | `map.*` | Oversætter CleanCode til entitetsnøgle (`dw_ek_*`) |
+| **map** | `stg.dim_*`, `stg.fct_*` | `map.*` | Mapper CleanCode til entity key (`dw_ek_*`) |
 | **dim / fct** | `stg.*` og `map.*` | `dim.*`, `fct.*` | MERGE ind i de færdige tabeller med opslåede nøgler |
 
 **Skemaregler, der ikke må brydes:**
@@ -94,7 +94,7 @@ Navngivning: `clean_code_<Tabel>[_<rolle>]`, fx `clean_code_Kreditor`.
 > konsistente hele vejen (pre_stg-alias → stg-kolonne → joins i MapUpd/DimUpd/FctUpd);
 > en halv omdøbning viser sig som "Invalid column name" ved kørsel, ikke ved import.
 
-### dw_ek — entitetsnøglen
+### dw_ek — entity key
 
 `dw_ek_<Tabel>` er et heltal, der entydigt identificerer en entitet: én kreditor, én
 kontoplan, én borger. Den tildeles i map-tabellen ved første møde med en CleanCode
@@ -113,8 +113,9 @@ bærer `dw_ek_Kreditor`. Hvor ofte sentinelen bruges, overvåges af DQA-tjekket
 historik. Hvor `dw_ek` peger på entiteten, peger `dw_sk` på en bestemt *version* af
 entiteten inden for et gyldighedsinterval (`dw_valid_from` / `dw_valid_to`).
 
-**Facts gemmer `dw_ek`, ikke `dw_sk`.** Versionen slås først op i view-laget på DSO
-ved hjælp af `dw_haendelsestidspunkt` på fact-rækken. Det gør historiske
+**Facts gemmer `dw_ek`, ikke `dw_sk`.** Versionen slås først op, når fact'en
+læses — i et view i DSO eller i datamarten — ved hjælp af `dw_haendelsestidspunkt`
+på fact-rækken. Det gør historiske
 opdateringer af dimensionen langt enklere: entiteten er stabil, versionerne kan
 ændre sig.
 
@@ -130,7 +131,7 @@ opdateringer af dimensionen langt enklere: entiteten er stabil, versionerne kan
 
 ## Navngivning
 
-Følger [navngivningsstandarden](../implementation/navngivningsstandard.md). Kort
+Følger [navngivningsstandarden](../implementation/navngivningsstandard_basismodel.md). Kort
 fortalt fra arkivet og downstream:
 
 | Element | Regel | Eksempel |
@@ -153,7 +154,7 @@ flowchart TD
     MAP["<b>4 · Map-opdatering</b> — <i>map/map_Entitet.py</i><br/>INSERT … WHERE NOT EXISTS · aldrig MERGE"]
     DIM["<b>5 · Dim- og fact-opdatering</b> — <i>dim/ og fct/</i><br/>CleanCode → dw_ek via map · fct afhænger af både dim og map"]
     GRP["<b>6 · Grupper og job</b><br/>erp_pre_staging → erp_staging → erp_map → erp_dimension → erp_fact"]
-    DSO["<b>7 · DSO-sync og views</b> — <i>DSO/load/sync_configs.py</i>"]
+    DSO["<b>7 · DSO-sync</b> — <i>DSO/load/sync_configs.py</i>"]
     LIN["<b>8 · Lineage-YAML og DQA</b> — <i>data_lineage/ og dqa/config/</i>"]
     VER{"Grain holder?<br/>Få -1-fremmednøgler?<br/>Anden kørsel stabil?"}
     OK(["Færdig"])
@@ -242,7 +243,7 @@ Assets lægges i lag-grupper, som den daglige kæde vælger på:
 `erp_pre_staging` → `erp_staging` → `erp_map` → `erp_dimension` → `erp_fact` →
 `erp_dso_sync`.
 
-### 7. DSO-sync og views
+### 7. DSO-sync
 
 Se [04 — DSO](04_DSO_sync_til_DSO.md).
 
@@ -278,7 +279,7 @@ filen kører igen.
 
 ### Faldgruber i migrationer
 
-Disse får den første kørsel til at fejle eller stille gøre ingenting:
+Disse får den første kørsel til at fejle eller til ikke at gøre noget — uden en fejlbesked:
 
 - **Pak kolonne-guards i et tabel-eksistenstjek.** `COL_LENGTH` og `sys.columns`
   svarer også "findes ikke" for en tabel, der slet ikke er der — et bart
@@ -291,8 +292,8 @@ Disse får den første kørsel til at fejle eller stille gøre ingenting:
   tidspunkt, hvor skemaet er nået videre. `IF EXISTS`-guards hjælper ikke: T-SQL
   validerer kolonnenavne ved compile-time for hele batchen, også i grene der aldrig
   eksekveres.
-- **Brug aldrig CURSOR eller procedurale batches** — de bliver stille droppet, og
-  trackeren registrerer så en no-op som gennemført.
+- **Brug aldrig CURSOR eller procedurale batches** — de bliver droppet uden en fejlbesked, og
+  trackeren registrerer så en kørsel, der ikke har gjort noget, som gennemført.
 - **Navngiv altid DEFAULT-constraints eksplicit**
   (`CONSTRAINT [DF_<Tabel>_<kolonne>] DEFAULT …`). Et auto-navngivet constraint får et
   genereret navn per database og kan derfor ikke droppes forudsigeligt — og en kolonne
@@ -360,10 +361,10 @@ dem, når facts er færdige.
 
 ## Videre herfra
 
-- Ud til rapporteringsdatabasen: [04 — DSO](04_DSO_sync_til_DSO.md)
+- Ud til DSO-databasen: [04 — DSO](04_DSO_sync_til_DSO.md)
 - Dokumentation: [05 — Udfyld dokumentation](05_udfyld_dokumentation.md)
 
-Uddybende (endnu ikke oversat):
+Uddybende (på engelsk):
 [sql_etl_guide.md](../implementation/sql_etl_guide.md) — den engelske originaludgave
 med fuld DDL-eksempler; [shared_dimensions.md](../shared_dimensions.md) — de fælles
 dimensioner på tværs af domæner.

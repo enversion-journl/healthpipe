@@ -26,6 +26,7 @@ from core.dfm_config import RunModeConfig
 from core.dfm_manager import DfmManager
 from core.resources import FHIRDatabaseResource, MSSQLResource
 from DSA.FHIR.utils.dfm_query import build_fhir_archive_query
+from DSA.FHIR.utils.fhir_checkpoint import advance_fhir_checkpoint
 from DSA.FHIR.utils.fhir_utils import fhir_datetime
 from DSA.FHIR.utils.ifdb.arc_lookup import chunked_in_fetch
 from DSA.FHIR.utils.ifdb.fhir_posting import (
@@ -319,21 +320,9 @@ def fhir_server_location_sor_dfm(
             f"Done: {total_fetched} fetched, {total_posted} posted in {batch_num} batches"
         )
 
-        new_checkpoint: str | None = None
-        if config.should_advance_checkpoint and total_fetched > 0:
-            with mssql_target_staging.get_connection() as conn:
-                cursor = conn.cursor()
-                try:
-                    cursor.execute("SELECT CONVERT(NVARCHAR(50), SYSDATETIME(), 121)")
-                    row = cursor.fetchone()
-                    new_checkpoint = row[0] if row else None
-                finally:
-                    cursor.close()
-
-            if new_checkpoint:
-                dfm.set_checkpoint(
-                    "fhir_server", "Location_SOR", value=new_checkpoint, mode=config.mode
-                )
+        new_checkpoint = advance_fhir_checkpoint(
+            dfm, run_ctx, "Location_SOR", config, total_fetched
+        )
 
         dfm.complete_dfm_run(
             run_ctx.log_id,

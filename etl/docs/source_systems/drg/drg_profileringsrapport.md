@@ -350,7 +350,7 @@ udledes af DRG-koden og er ikke konstant pr. DRG.
 
 ### 11.1 Udvidet analysedimension — kardinalitetsmåling (2026-08-26)
 
-Beslutning på featuren (Jacob, 2026-08-26): dimensionen må gerne udvides ud
+Beslutning på featuren (2026-08-26): dimensionen må gerne udvides ud
 over de rent FD-afhængige attributter — map-tabellens clean_code udvides
 blot, og øget udfald accepteres — så længe resultatet er én dimension, der
 dækker 80-90 % af analyserne, så egenskabsdimensionen (1:1 med facten)
@@ -374,7 +374,7 @@ trimpunkt og standardtakst denormaliseret på DRG-delen (FD — ingen ekstra
 kardinalitet). Grain: den distinkte kombination af attributterne; nøglen
 mintes i map-laget på clean_code = alle attributværdier.
 
-**BESLUTTET (Jacob, 2026-08-26): fuld V3 med navnet
+**BESLUTTET (2026-08-26): fuld V3 med navnet
 `dim.DRGKontaktKlassifikation`** (parallelt med `dim.DRGKontaktEgenskaber`,
 som beholder lav-frekvens- og fritekst-attributterne). Facten bærer
 `dw_ek_DRGKontaktKlassifikation`; nøglen mintes i

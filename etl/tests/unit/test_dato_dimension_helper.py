@@ -7,7 +7,7 @@
 import re
 from pathlib import Path
 
-from etl.DSA.SQL.common.dato_dimension import (
+from DSA.SQL.common.dato_dimension import (
     DATO_AFTER_KEY,
     DATO_BEFORE_KEY,
     DATO_BLANK_KEY,

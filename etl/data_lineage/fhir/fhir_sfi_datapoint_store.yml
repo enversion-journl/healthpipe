@@ -1,0 +1,89 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fhir
+  TableName: fhir.SFI_datapoint_store
+  ConsumerView: vw_fhir.SFI_datapoint
+  Domain: [FHIR]
+  Description: "Alle kliniske datapunkter fra IFDB's SFI-skemaer i én flad tabel, uanset om de er gemt som Observation eller QuestionnaireResponse, beriget med SFI-kataloget. Aftagerne læser den gennem viewet vw_fhir.SFI_datapoint (= fhir.SFI_datapoint), som viser alle kolonner undtagen sfi_datapoint_id og refreshed_at. Brugervejledning: docs/guides/sfi_datapoint_brugervejledning.md."
+  Grain: "Én række pr. datapunkt — datapoint_key: ét svar på ét SFI-element i én besvarelse (QuestionnaireResponse) eller én måling (Observation)."
+
+  SourceSystems:
+    - ifdb_aktivitetsresultat: [IFDB.AKTIVITETSRESULTAT]
+
+  # Tabellen er ikke en SoF-projektion af én ressource. Den materialiseres af
+  # DSO/load/refresh_sfi_datapoint.py som UNION af to ben: Observation-benet
+  # (fhir.Observation med SFI-kode) og QR-benet (fhir.QuestionnaireResponse_item +
+  # fhir.QuestionnaireResponse). Begge ben beriges med SFI-kataloget
+  # (codesystem.SFIConcept/SFIProperties), som selv er udledt af samme XML.
+  # Expr angiver benene som «Obs:» og «QR:»; kataloget som «katalog».
+  Columns:
+    sfi_datapoint_id:      { DataType: BIGINT, FK-None: true, Description: "Løbenummer fra sekvensen fhir.seq_SFI_datapoint_store. Intern; ikke i viewet og ikke en nøgle for aftagere." }
+    datapoint_key:         { Type: PK, DataType: NVARCHAR(64), Expr: "SHA-256 over kildetype, ressource-id, link_id, item_key, answer_index og SFI-kode.", Description: "Datapunktets stabile nøgle. Den samme besvarelse giver altid samme nøgle." }
+    fhir_resource_id:      { DataType: NVARCHAR(255), FK-None: true, Expr: "Obs: observation_id. QR: qr_id.", Description: "Id på den FHIR-ressource, datapunktet stammer fra; afhængigt af source_resource peger den på fhir.Observation eller fhir.QuestionnaireResponse." }
+    source_resource_id:    { DataType: NVARCHAR(255), FK-None: true, Expr: "Samme som fhir_resource_id." }
+    source_link_id:        { DataType: NVARCHAR(255), FK-None: true, Expr: "QR: QuestionnaireResponse_item.link_id. Obs: NULL." }
+    source_item_key:       { DataType: NVARCHAR(100), Expr: "QR: QuestionnaireResponse_item.item_key. Obs: NULL." }
+    source_answer_index:   { DataType: NVARCHAR(10), Expr: "QR: QuestionnaireResponse_item.answer_index. Obs: NULL." }
+    source_last_updated:   { DataType: DATETIME2, Expr: "Seneste dw_timestamp_update/-insert på kilderækken (QR: item før besvarelse)." }
+    ifdb_aktivitet_id:     { DataType: NVARCHAR(255), FK-None: true, Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.OBJEKT_ID], Description: "Aktivitetsresultatets id i IFDB. Samler datapunkterne fra samme registrering." }
+    ifdb_aktivitet_sfi_id: { DataType: NVARCHAR(255), FK-None: true, Expr: "Obs: Observation.ifdb_aktivitet_sfi_id. QR: NULL." }
+    patient_id:            { DataType: NVARCHAR(255), FK-Target: fhir.Patient, FK-Key: patient_id, FK-Required: false, Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.PATIENT_ID], Description: "FHIR-tildelt Patient-reference fra Observation eller QuestionnaireResponse." }
+    encounter_id:          { DataType: NVARCHAR(255), FK-Target: fhir.Encounter, FK-Key: encounter_id, FK-Required: false, Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.ENCOUNTER_ID], Description: "FHIR-tildelt Encounter-reference (kontakt/besøg)." }
+    organization_id:       { DataType: NVARCHAR(255), FK-Target: fhir.Organization, FK-Key: organization_id, FK-Required: false, Expr: "Ressourcens egen organisation; ellers kontaktens service_provider_id fra fhir.Encounter.", Description: "Organisationen bag registreringen. Navn og SOR-kode slås op i vw_fhir.Organization." }
+    practitioner_id:       { DataType: NVARCHAR(255), FK-None: true, Description: "Behandler-identifikatorværdi fra IFDB (urn:source:ifdb:staff) — ikke en reference." }
+    practitioner_display:  { DataType: NVARCHAR(500), Description: "Behandlerens navn, som kilden skrev det." }
+    source_resource:       { DataType: NVARCHAR(50), Expr: "Konstant 'Observation' eller 'QuestionnaireResponse' efter ben." }
+    occurred_at:           { DataType: NVARCHAR(50), Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.PERIOD_START, ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.UDFOERT_TIDSPUNKT], Expr: "Obs: effective_date. QR: authored.", Description: "Tidspunktet for registreringen som tekst." }
+    occurred_at_dt:        { DataType: DATETIME2(0), Expr: "TRY_CONVERT(DATETIME2(0), occurred_at) med formaterne 126, 121 og 23.", Description: "occurred_at som dato-tid. Tabellen er partitioneret pr. måned på denne kolonne; filtrér på den ved tidsafgrænsning." }
+    source_model_name:     { DataType: NVARCHAR(500), Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.MODELLERINGSNAVN], Expr: "katalog source_model_name; ellers ressourcens modelnavn.", Description: "Navnet på IFDB-skemaet (formularen)." }
+    source_model_version:  { DataType: NVARCHAR(100), Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.MODELLERINGSVERSION], Expr: "katalog last_seen_in_version; ellers source_model_version; ellers ressourcens version." }
+    source_element_id:     { DataType: NVARCHAR(500), FK-None: true, Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML], Expr: "katalog source_element_id.", Description: "Teknisk element-id fra IFDB." }
+    source_element_name:   { DataType: NVARCHAR(500), Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML], Expr: "katalog source_element_name." }
+    source_element_label:  { DataType: NVARCHAR(500), Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML], Expr: "katalog source_element_label; ellers ressourcens eller katalogets ledetekst." }
+    sfi_path:              { DataType: NVARCHAR(1000), Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML], Expr: "katalog sfi_path.", Description: "Hierarkisk sti til elementet i skemaet." }
+    source_hierarchy_path: { DataType: NVARCHAR(1000), Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML], Expr: "katalog source_hierarchy_path." }
+    source_group_path:     { DataType: NVARCHAR(1000), Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML], Expr: "katalog source_group_path." }
+    source_repetition_path: { DataType: NVARCHAR(1000), Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML], Expr: "katalog source_repetition_path." }
+    klynge_niveau:         { DataType: NVARCHAR(100), Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML], Expr: "katalog klynge_niveau." }
+    repetition_niveau:     { DataType: NVARCHAR(100), Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML], Expr: "katalog repetition_niveau." }
+    raekke_type:           { DataType: NVARCHAR(100), Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML], Expr: "katalog raekke_type." }
+    klynge_type:           { DataType: NVARCHAR(100), Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML], Expr: "katalog klynge_type." }
+    klynge_valg_ledetekst: { DataType: NVARCHAR(MAX), Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML], Expr: "Fra ressourcens sfiInstanceMeta." }
+    element_code:          { DataType: NVARCHAR(450), Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML, ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.MODELLERINGSNAVN], Expr: "Obs: Observation.element_code. QR: QuestionnaireResponse_item.link_id.", Description: "SFI-koden (Skema.FeltId) — den stabile nøgle til elementet på tværs af besvarelser." }
+    element_display:       { DataType: NVARCHAR(500), Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML], Expr: "Ressourcens ledetekst eller katalogets display.", Description: "Ledeteksten fra IFDB-formularen — elementets kliniske navn." }
+    value_type:            { DataType: NVARCHAR(50), Expr: "Det første udfyldte værdifelt: integer, quantity, decimal, bool, datetime, coding eller string. NULL uden værdi.", Description: "Hvilken værdikolonne der bærer svaret." }
+    has_value:             { DataType: BIT, Expr: "1, når mindst ét værdifelt har indhold; ellers 0." }
+    value_int:             { DataType: NVARCHAR(50), Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    value_dec:             { DataType: NVARCHAR(50), Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    value_text:            { DataType: NVARCHAR(MAX), Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML], Expr: "value_string fra Observation eller QuestionnaireResponse_item." }
+    value_datetime:        { DataType: NVARCHAR(50), Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    value_bool:            { DataType: NVARCHAR(10), Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    value_quantity:        { DataType: NVARCHAR(100), Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    value_unit:            { DataType: NVARCHAR(100), Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    value_coding_code:     { DataType: NVARCHAR(255), Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    value_coding_display:  { DataType: NVARCHAR(500), Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    element_nummer:        { DataType: NVARCHAR(50), Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    klynge_id:             { DataType: NVARCHAR(50), FK-None: true, Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    klynge_id_hierarki:    { DataType: NVARCHAR(500), Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    klynge_parent_id:      { DataType: NVARCHAR(50), FK-None: true, Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    repetition_id:         { DataType: NVARCHAR(50), FK-None: true, Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    element_kode:          { DataType: NVARCHAR(255), Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    element_original_kode: { DataType: NVARCHAR(255), Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    element_administrativ_enhed_id: { DataType: NVARCHAR(255), FK-None: true, Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    klynge_navne:          { DataType: NVARCHAR(MAX), Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML], Expr: "katalog klynge_navne." }
+    klynge_ledetekster:    { DataType: NVARCHAR(MAX), Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML], Expr: "katalog klynge_ledetekster." }
+    klynge_ledetekst:      { DataType: NVARCHAR(500), Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML], Expr: "katalog klynge_ledetekst." }
+    repetition_id_hierarki: { DataType: NVARCHAR(500), Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    opdateret_tid:         { DataType: NVARCHAR(50), Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    xml_status:            { DataType: INT, Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    xml_status_text:       { DataType: NVARCHAR(255), Source: [ifdb_aktivitetsresultat.IFDB.AKTIVITETSRESULTAT.XML] }
+    refreshed_at:          { Type: Audit, DataType: DATETIME2(0), Expr: "SYSUTCDATETIME() ved materialisering. Intern; ikke i viewet." }
+
+  Notes:
+    - "Tabellen har ingen dw_is_deleted-kolonne. Datapunkterne bygges fra fhir.Observation og fhir.QuestionnaireResponse(_item) uden filter på kildernes dw_is_deleted; en ressource, der forsvinder helt, fjernes ved afstemningen."
+    - "Procedurer udledt af SFI ligger ikke her, men i vw_fhir.IFDB_procedure_event."

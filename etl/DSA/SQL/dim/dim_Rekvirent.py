@@ -22,12 +22,112 @@ from core.dfm_manager import DfmManager
 from core.resources import MSSQLResource
 from dagster import AssetExecutionContext, AssetKey, MaterializeResult, asset
 from DSA.SQL.common.ils_clean_code_shared import sql_norm_code
+from DSA.SQL.common.rekvirent_kontaktinfo import KONTAKTINFO_COLUMNS
 
 # Normalize dim property values the same way ref.RekvirentUndtagelse builds
 # sgh/rnr — shared expression, not a hand-copy: the two sides of this join must
 # move together, and hand-copying is what let the ILS keys drift apart before.
 _SGH_NORM = sql_norm_code("{alias}.[sgh]")
 _RNR_NORM = sql_norm_code("{alias}.[rnr]")
+
+# KONTAKTINFO_COLUMNS is imported rather than hand-copied: staging and dim are
+# two sides of one contract and have to move together.
+
+
+def build_resolve_sql() -> str:
+    """SELECT ... INTO #Rekvirent_Resolved with resolved DW_EK keys."""
+    sgh_stg = _SGH_NORM.format(alias="stg")
+    rnr_stg = _RNR_NORM.format(alias="stg")
+    kontaktinfo_select = "".join(f"                    stg.[{c}],\n" for c in KONTAKTINFO_COLUMNS)
+
+    return f"""
+                DROP TABLE IF EXISTS #Rekvirent_Resolved;
+
+                SELECT
+                    m.dw_ek_Rekvirent,
+                    stg.code,
+                    stg.display,
+                    stg.parent_code,
+                    stg.[level],
+                    stg.entity_type,
+                    stg.sgh,
+                    stg.rgrp,
+                    stg.rtyp,
+                    stg.rnr,
+                    stg.code_sor,
+                    stg.sor_relationship,
+{kontaktinfo_select}                    COALESCE(m_parent.dw_ek_Rekvirent, -1) AS dw_ek_Rekvirent_parent,
+                    COALESCE(m_org.dw_ek_Organisation, -1) AS dw_ek_Organisation,
+                    CAST(CASE WHEN u.clean_code_Rekvirent IS NOT NULL THEN 1 ELSE 0 END AS BIT)
+                        AS er_undtaget
+                INTO #Rekvirent_Resolved
+                FROM [stg].[dim_Rekvirent] stg
+                LEFT JOIN [map].[Rekvirent] m
+                    ON m.clean_code_Rekvirent = stg.clean_code_Rekvirent
+                LEFT JOIN [map].[Rekvirent] m_parent
+                    ON m_parent.clean_code_Rekvirent = stg.parent_code
+                LEFT JOIN [ref].[Organisation] m_org
+                    ON m_org.sor_code = stg.code_sor
+                    AND m_org.dw_is_deleted = 0
+                    AND stg.code_sor IS NOT NULL
+                LEFT JOIN [ref].[RekvirentUndtagelse] u
+                    ON u.sgh = {sgh_stg}
+                   AND u.rnr = {rnr_stg}
+                   AND stg.sgh IS NOT NULL
+                   AND stg.rnr IS NOT NULL
+"""
+
+
+def _merge_sql() -> str:
+    update_set = "".join(
+        f"                        [{c}] = source.[{c}],\n" for c in KONTAKTINFO_COLUMNS
+    )
+    insert_cols = "".join(f"                        [{c}],\n" for c in KONTAKTINFO_COLUMNS)
+    insert_vals = "".join(f"                        source.[{c}],\n" for c in KONTAKTINFO_COLUMNS)
+
+    return f"""
+                MERGE INTO [dim].[Rekvirent] AS target
+                USING #Rekvirent_Resolved AS source
+                ON target.dw_ek_Rekvirent = source.dw_ek_Rekvirent
+                WHEN MATCHED THEN
+                    UPDATE SET
+                        code = source.code,
+                        display = source.display,
+                        parent_code = source.parent_code,
+                        [level] = source.[level],
+                        entity_type = source.entity_type,
+                        sgh = source.sgh,
+                        rgrp = source.rgrp,
+                        rtyp = source.rtyp,
+                        rnr = source.rnr,
+                        code_sor = source.code_sor,
+                        sor_relationship = source.sor_relationship,
+{update_set}                        dw_ek_Organisation = source.dw_ek_Organisation,
+                        dw_ek_Rekvirent_parent = source.dw_ek_Rekvirent_parent,
+                        er_undtaget = source.er_undtaget,
+                        dw_timestamp_update = CAST(SYSDATETIME() AS datetime2(0))
+                WHEN NOT MATCHED BY TARGET THEN
+                    INSERT (
+                        dw_ek_Rekvirent, code, display, parent_code, [level],
+                        entity_type, sgh, rgrp, rtyp, rnr,
+                        code_sor, sor_relationship,
+{insert_cols}                        dw_ek_Organisation, dw_ek_Rekvirent_parent, er_undtaget,
+                        dw_timestamp_insert, dw_timestamp_update
+                    )
+                    VALUES (
+                        source.dw_ek_Rekvirent, source.code, source.display,
+                        source.parent_code, source.[level],
+                        source.entity_type, source.sgh, source.rgrp, source.rtyp, source.rnr,
+                        source.code_sor, source.sor_relationship,
+{insert_vals}                        source.dw_ek_Organisation, source.dw_ek_Rekvirent_parent,
+                        source.er_undtaget,
+                        CAST(SYSDATETIME() AS datetime2(0)), CAST(SYSDATETIME() AS datetime2(0))
+                    )
+                OUTPUT $action;
+"""
+
+
+MERGE_SQL = _merge_sql()
 
 
 @asset(
@@ -84,94 +184,13 @@ def dim_Rekvirent(
                         "Ensure map_Rekvirent runs before dim_Rekvirent and staging CleanCodes are valid."
                     )
 
-                sgh_stg = _SGH_NORM.format(alias="stg")
-                rnr_stg = _RNR_NORM.format(alias="stg")
-
-                cursor.execute(
-                    f"""
-                DROP TABLE IF EXISTS #Rekvirent_Resolved;
-
-                SELECT
-                    m.dw_ek_Rekvirent,
-                    stg.code,
-                    stg.display,
-                    stg.parent_code,
-                    stg.[level],
-                    stg.entity_type,
-                    stg.sgh,
-                    stg.rgrp,
-                    stg.rtyp,
-                    stg.rnr,
-                    stg.code_sor,
-                    stg.sor_relationship,
-                    COALESCE(m_parent.dw_ek_Rekvirent, -1) AS dw_ek_Rekvirent_parent,
-                    COALESCE(m_org.dw_ek_Organisation, -1) AS dw_ek_Organisation,
-                    CAST(CASE WHEN u.clean_code_Rekvirent IS NOT NULL THEN 1 ELSE 0 END AS BIT)
-                        AS er_undtaget
-                INTO #Rekvirent_Resolved
-                FROM [stg].[dim_Rekvirent] stg
-                LEFT JOIN [map].[Rekvirent] m
-                    ON m.clean_code_Rekvirent = stg.clean_code_Rekvirent
-                LEFT JOIN [map].[Rekvirent] m_parent
-                    ON m_parent.clean_code_Rekvirent = stg.parent_code
-                LEFT JOIN [ref].[Organisation] m_org
-                    ON m_org.sor_code = stg.code_sor
-                    AND m_org.dw_is_deleted = 0
-                    AND stg.code_sor IS NOT NULL
-                LEFT JOIN [ref].[RekvirentUndtagelse] u
-                    ON u.sgh = {sgh_stg}
-                   AND u.rnr = {rnr_stg}
-                   AND stg.sgh IS NOT NULL
-                   AND stg.rnr IS NOT NULL
-            """
-                )
+                cursor.execute(build_resolve_sql())
 
                 cursor.execute("SELECT COUNT(*) FROM #Rekvirent_Resolved")
                 resolved_count = cursor.fetchone()[0]
                 context.log.info(f"Resolved {resolved_count} rows for dim.Rekvirent")
 
-                cursor.execute(
-                    """
-                MERGE INTO [dim].[Rekvirent] AS target
-                USING #Rekvirent_Resolved AS source
-                ON target.dw_ek_Rekvirent = source.dw_ek_Rekvirent
-                WHEN MATCHED THEN
-                    UPDATE SET
-                        code = source.code,
-                        display = source.display,
-                        parent_code = source.parent_code,
-                        [level] = source.[level],
-                        entity_type = source.entity_type,
-                        sgh = source.sgh,
-                        rgrp = source.rgrp,
-                        rtyp = source.rtyp,
-                        rnr = source.rnr,
-                        code_sor = source.code_sor,
-                        sor_relationship = source.sor_relationship,
-                        dw_ek_Organisation = source.dw_ek_Organisation,
-                        dw_ek_Rekvirent_parent = source.dw_ek_Rekvirent_parent,
-                        er_undtaget = source.er_undtaget,
-                        dw_timestamp_update = CAST(SYSDATETIME() AS datetime2(0))
-                WHEN NOT MATCHED BY TARGET THEN
-                    INSERT (
-                        dw_ek_Rekvirent, code, display, parent_code, [level],
-                        entity_type, sgh, rgrp, rtyp, rnr,
-                        code_sor, sor_relationship,
-                        dw_ek_Organisation, dw_ek_Rekvirent_parent, er_undtaget,
-                        dw_timestamp_insert, dw_timestamp_update
-                    )
-                    VALUES (
-                        source.dw_ek_Rekvirent, source.code, source.display,
-                        source.parent_code, source.[level],
-                        source.entity_type, source.sgh, source.rgrp, source.rtyp, source.rnr,
-                        source.code_sor, source.sor_relationship,
-                        source.dw_ek_Organisation, source.dw_ek_Rekvirent_parent,
-                        source.er_undtaget,
-                        CAST(SYSDATETIME() AS datetime2(0)), CAST(SYSDATETIME() AS datetime2(0))
-                    )
-                OUTPUT $action;
-            """
-                )
+                cursor.execute(MERGE_SQL)
 
                 merge_results = cursor.fetchall()
                 inserted = sum(1 for r in merge_results if r[0] == "INSERT")

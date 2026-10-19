@@ -26,13 +26,14 @@ import os
 import dagster as dg
 import pytest
 from DSA.SQL.staging.drg_staging_sql import (
-    build_borger_lookup_sql,
     build_delta_scope_sql,
     build_forloeb_kontroltotal_sql,
-    build_org_lookup_sql,
     build_pre_stg_sql,
     build_stg_dim_sql,
     build_stg_fct_sql,
+    build_unresolved_borger_scope_sql,
+    create_borger_cpr_lookup_tables_sql,
+    create_organisation_sor_lookup_table_sql,
 )
 
 pytestmark = pytest.mark.integration
@@ -219,9 +220,9 @@ def _koer_kaeden(res):
     with res.get_connection() as conn:
         cursor = conn.cursor()
         try:
-            cursor.execute(build_borger_lookup_sql())
+            cursor.execute(create_borger_cpr_lookup_tables_sql())
             cursor.execute(build_pre_stg_sql(None))
-            cursor.execute(build_org_lookup_sql())
+            cursor.execute(create_organisation_sor_lookup_table_sql())
             cursor.execute(build_stg_fct_sql())
             cursor.execute(build_stg_dim_sql())
             conn.commit()
@@ -479,8 +480,9 @@ def test_9_delta_scope_stager_kun_beroerte_kontakter(staging_db):
     with staging_db.get_connection() as conn:
         cursor = conn.cursor()
         try:
-            cursor.execute(build_borger_lookup_sql())
+            cursor.execute(create_borger_cpr_lookup_tables_sql())
             cursor.execute(build_delta_scope_sql(cp))
+            cursor.execute(build_unresolved_borger_scope_sql())
             cursor.execute(build_pre_stg_sql(cp))
             conn.commit()
         finally:
@@ -499,8 +501,9 @@ def test_9_delta_scope_stager_kun_beroerte_kontakter(staging_db):
     with staging_db.get_connection() as conn:
         cursor = conn.cursor()
         try:
-            cursor.execute(build_borger_lookup_sql())
+            cursor.execute(create_borger_cpr_lookup_tables_sql())
             cursor.execute(build_delta_scope_sql(cp))
+            cursor.execute(build_unresolved_borger_scope_sql())
             cursor.execute(build_pre_stg_sql(cp))
             conn.commit()
         finally:

@@ -453,8 +453,8 @@ class TestSfiDdlAdditions:
         )
         assert "ifdb_aktivitet_id" in ddl_cols
 
-    def test_procedure_tillaegskode_view_excludes_user_selected_primary(self):
-        view = _load_view("procedure_tillaegskode_view")
+    def test_procedure_supplementary_code_view_excludes_user_selected_primary(self):
+        view = _load_view("procedure_supplementary_code_view")
         for_each = [block.get("forEach") for block in view["select"] if block.get("forEach")]
         assert for_each == ["code.coding.where(userSelected.empty() or userSelected = false)"]
 

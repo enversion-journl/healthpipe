@@ -11,8 +11,8 @@ stg table and the same fact, and two assets writing one table would race.
 The SQL lives in drg_staging_sql.py so it is unit-testable without a
 database.
 
-GDPR: CPR is resolved to dw_ek_Borger inside the SELECT (via #borger /
-#borger_tidl against dim.Borger, tidligere_cpr as fallback) and never
+GDPR: CPR is resolved to dw_ek_Borger inside the SELECT (via #borger_current_cpr /
+#borger_previous_cpr against dim.Borger, tidligere_cpr as fallback) and never
 enters the staging table. Unknown CPRs get -1 (created in FHIR by the
 two-pass asset fhir_patient_drg); blank gets -2.
 
@@ -35,9 +35,10 @@ from dagster import (
 )
 from DSA.SQL.staging.drg_staging_sql import (
     build_borger_coverage_sql,
-    build_borger_lookup_sql,
     build_delta_scope_sql,
     build_pre_stg_sql,
+    build_unresolved_borger_scope_sql,
+    create_borger_cpr_lookup_tables_sql,
 )
 
 _ARC_DEPS = [
@@ -107,10 +108,13 @@ def pre_stg_DRGKontakt(
         with mssql_target_staging.get_connection() as conn:
             cursor = conn.cursor()
             try:
-                cursor.execute(build_borger_lookup_sql())
+                cursor.execute(create_borger_cpr_lookup_tables_sql())
                 delta_sql = build_delta_scope_sql(checkpoint)
                 if delta_sql:
                     cursor.execute(delta_sql)
+                    # Own execute() so a failure is not masked by the batch
+                    # above's row counts (see build_unresolved_borger_scope_sql).
+                    cursor.execute(build_unresolved_borger_scope_sql())
                 cursor.execute(build_pre_stg_sql(checkpoint))
                 conn.commit()
 

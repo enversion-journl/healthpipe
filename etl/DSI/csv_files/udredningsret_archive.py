@@ -5,7 +5,7 @@
 # root for the full AGPL-3.0 license text.
 
 """Udredningsret archive layer — MERGE ext.udredningsret_mont into arc on
-business keys ([internal ticket], [internal ticket], decisions B3/B6).
+business keys (SDS LPR_Udredningsret, decisions B3/B6).
 
 The source's own ids identify nothing across deliveries: F_ID is renumbered for
 whole helbredsforloeb at a time (31 % of the markers in 27 days), PK
@@ -42,7 +42,23 @@ uniqueness guard (so a duplicate fails with the guard's message, not a raw
 index error) and verified BEFORE the merge, because
 enable_bulk_insert_on_first_load presupposes it.
 
-DELIVERY MANIFEST ([internal ticket] pattern): the extract writes one row to
+SURROGATE IDS (decision U1 in udredningsret_model.md): PK and F_ID are outside
+change-detect — a pure renumbering is not a change and must not bump
+dw_timestamp_update or leverance_dato on 1.5 M rows a week. But staging groups
+markers into udredningsforloeb on F_ID WITHIN the delivery (B3/B4), so a stale
+F_ID on unchanged rows would split a renumbered helbredsforloeb into two
+groups. Hence, AFTER a successful merge, refresh_surrogate_ids runs one narrow
+UPDATE that copies PK/F_ID from the key table onto the live arc rows where they
+differ — nothing else is written on that step (no timestamp, no
+leverance_dato). It reads the key table, so it runs before the table is
+dropped, and it is SKIPPED on backfill_historical: an older delivery must not
+push older ids over newer ones. A REGROUPING of markers between F_ID groups is
+not a relabel and must re-stage: the same function therefore detects it BEFORE
+the id UPDATE (the only moment both labellings exist) and bumps
+dw_timestamp_update on those helbredsforloeb afterwards — decision U15, see
+build_regroup_detection_sql.
+
+DELIVERY MANIFEST (delivery-detection pattern): the extract writes one row to
 ext.udredningsret_leverance_manifest when it loaded a delivery and none when
 the run was a no-op. An empty manifest short-circuits this asset BEFORE any
 key table, guard or merge — re-merging ext's old content would be pure cost.
@@ -112,6 +128,26 @@ RATIO_MIN_LIVE_ROWS = 1000
 # A lower share means the source changed the first marker at scale, and the
 # merge would soft-delete the helbredsforloeb and recreate them under new keys.
 MIN_HELBREDSFORLOEB_GENFINDELSE = 0.999
+
+# Share of the live helbredsforloeb whose dw_timestamp_update the regrouping
+# detector may bump in one delivery. A handful of split or merged forloeb is
+# ordinary in this datamart; a percent of the population is SDS changing their
+# own F_ID algorithm, and bumping that many would re-stage the whole datamart
+# behind a human's back. Judged on the same RATIO_MIN_LIVE_ROWS floor as the
+# soft-delete ratio: below it the denominator is too small for a percentage to
+# mean anything (first load, integration fixtures).
+REGROUP_RATIO = 0.01
+
+# Session-scoped work table with the helbredsforloeb that need a bump. Written
+# by build_regroup_detection_sql, read and dropped by build_regroup_bump_sql —
+# on the SAME connection, like the staging layer's #scope: temp tables live for
+# the session, not for the batch.
+REGROUP_TABLE = "#omgruppering"
+
+# The surrogate id staging groups markers into udredningsforloeb on, within the
+# delivery (B3/B4). Its RENUMBERING is a non-event (decision U1); its
+# REGROUPING is what the detector below exists for.
+REGROUP_COLUMN = "F_ID"
 
 
 def source_table_name(dataset: UdredningsretDataset) -> str:
@@ -240,6 +276,268 @@ def drop_source_table_sql(dataset: UdredningsretDataset = UDREDNINGSRET_MONT) ->
     return f"DROP TABLE IF EXISTS [ext].[{source_table_name(dataset)}];"
 
 
+def build_refresh_surrogate_ids_sql(dataset: UdredningsretDataset = UDREDNINGSRET_MONT) -> str:
+    """T-SQL that copies SURROGATE_ID_COLUMNS from the key table onto live arc rows.
+
+    Runs AFTER the merge (decision U1): the merge did not touch the rows whose
+    only difference is a renumbered PK/F_ID, so this UPDATE brings those ids
+    up to the delivery's values. Deliberately narrow — only the surrogate
+    columns are in the SET list, never dw_timestamp_update or leverance_dato,
+    because a renumbering is still not a change. Restricted to rows that
+    actually differ, so a rerun of the same delivery updates nothing. Pure
+    function: the SQL is unit-tested without a database.
+
+    Known assumption: a changed F_ID is a 1:1 relabel of the whole
+    helbredsforloeb (measured: always). A REGROUPING with no other column
+    changed (one F_ID group split in two, two merged, a marker swapping groups,
+    or an F_ID going blank) would bump no timestamp here and hence never
+    re-enter staging's delta scope on its own. That case is NOT left to DQA —
+    subject 6 only counts fact rows that were already re-staged and subject 9
+    covers a changed first marker, so neither sees it. It is caught in this
+    module instead (decision U15): build_regroup_detection_sql runs BEFORE this
+    UPDATE, while both labellings still exist, and build_regroup_bump_sql bumps
+    dw_timestamp_update on the affected helbredsforloeb after it. The fact's
+    control total (U13) is the backstop, and a net one — a split and a merge in
+    the same window cancel out. Documented in udredningsret_kilde.md
+    (merge/guard semantics) and udredningsret_model.md section 10.
+    """
+    set_clause = ", ".join(f"tgt.[{c}] = src.[{c}]" for c in SURROGATE_ID_COLUMNS)
+    on_clause = " AND ".join(f"src.[{k}] = tgt.[{k}]" for k in dataset.merge_keys)
+    differs = " OR ".join(
+        f"ISNULL(tgt.[{c}], N'') <> ISNULL(src.[{c}], N'')" for c in SURROGATE_ID_COLUMNS
+    )
+    return (
+        f"UPDATE tgt SET {set_clause}\n"
+        f"FROM [arc].[{dataset.ext_table}] AS tgt\n"
+        f"JOIN [ext].[{source_table_name(dataset)}] AS src ON {on_clause}\n"
+        f"WHERE tgt.[dw_is_deleted] = 0 AND ({differs});"
+    )
+
+
+def build_regroup_detection_sql(dataset: UdredningsretDataset = UDREDNINGSRET_MONT) -> list[str]:
+    """T-SQL that fills REGROUP_TABLE with the helbredsforloeb that need a timestamp bump.
+
+    Returns [scaffold, populate], executed in that order on the same connection;
+    only the LAST statement takes a parameter (the prune threshold from
+    read_merge_start). The split is deliberate: the driver (mssql_python) runs a
+    parameterised statement as a PREPARED batch, and a temp table created inside
+    one dies with that batch — measured: the bump then fails with "Invalid
+    object name '#omgruppering'". The table is created by the unparameterised
+    scaffold (session scope) and only FILLED by the parameterised INSERT — the
+    pattern DSA/CodeSystem/utils.py uses, and the reason the staging layer keeps
+    its #scope batches free of parameters.
+
+    Decision U1 keeps PK/F_ID out of change detection because SDS renumbers
+    F_ID for whole helbredsforloeb at a time: a pure RELABEL is not a change,
+    and treating it as one would re-stage ~1.5 M rows a week. A REGROUP is a
+    change. If markers move between F_ID groups inside one helbredsforloeb (a
+    split, a merge, a marker swapping groups, an F_ID going blank) and every
+    change-detect column is byte-identical, the merge leaves the rows alone,
+    refresh_surrogate_ids writes the new F_ID onto them, and the helbredsforloeb
+    never re-enters staging's delta scope — until the fact's control total
+    (U13) fails the whole nightly chain, run after run, on that one forloeb.
+
+    The two inequalities are exact for the LABELLING, not a heuristic. Let R be
+    the set of (old group, new group) pairs realised by the matched markers of
+    one helbredsforloeb. Every old and every new group occurs at least once, so
+    |R| >= max(|old|, |new|). |R| = |old| iff R is a function old -> new; given
+    that, |R| = |new| iff every new group has exactly one preimage. So
+    |R| = |old| = |new| IS "the relabel is a bijection on groups", and
+    everything else is a regroup — including the membership swap that every
+    count-based check misses. par is already DISTINCT on (hf, old, new), so
+    COUNT(*) per helbredsforloeb is |R| and the two DISTINCTs run over roughly
+    one row per group, not over 8.2 M.
+
+    Blank is where that argument stops, and hence the third HAVING term.
+    '#BLANK' is a label on both sides, but it is NOT a group downstream:
+    stg.pre_Udredningsforloeb forms one forloeb per (helbredsforloeb, NON-BLANK
+    F_ID) and the fact's control total counts exactly those groups (U13). A
+    marker crossing the blank boundary therefore adds or removes a whole group
+    while the labelling stays a bijection — measured on SQL Server with these
+    very expressions: one whole group of two going blank gives |R| = |old| =
+    |new| = 2, and a blank marker given an F_ID gives the same, so both
+    inequalities stay silent on exactly the drift that changes arc_antal. With
+    1.17 M markers (14 %) belonging to no forloeb at all, that drift is ordinary
+    here. The third term flags any helbredsforloeb with a pair that is blank on
+    exactly ONE side; it adds no false positive, because such a pair can only
+    occur on a row the merge left alone and it always changes the group
+    population. A pure relabel is still not flagged (verified the same way).
+
+    The prune drops the rows THIS RUN's merge changed: their helbredsforloeb
+    already got a timestamp and is already in scope, and their untouched
+    siblings would otherwise make a half-updated helbredsforloeb look
+    non-bijective. The threshold is the server's own clock read BEFORE the merge
+    (read_merge_start), not the delivery date — nothing forbids two deliveries
+    packed on the same DATE (the direction guard rejects only a strictly older
+    one, and the DFM identity is the pack timestamp to the second), and a date
+    prune would then also drop rows an EARLIER run changed, whose helbredsforloeb
+    may have been staged since: a regrouping whose evidence lies in exactly those
+    rows would be pruned away and never bumped — the same silent, chain-stopping
+    outcome this detector exists to prevent. The merge stamps
+    CAST(SYSDATETIME() AS datetime2(0)) like the bump does, so every row this run
+    wrote is >= the threshold and none of them survives the prune. Hence the
+    metric means "helbredsforloeb needing a bump", not "helbredsforloeb
+    regrouped".
+
+    Pure function: the SQL is unit-tested without a database.
+    """
+    index_name = f"IX_{REGROUP_TABLE.lstrip('#')}"
+    on_clause = "\n     AND ".join(f"src.[{k}] = tgt.[{k}]" for k in dataset.merge_keys)
+    scaffold = (
+        f"DROP TABLE IF EXISTS {REGROUP_TABLE};\n"
+        f"CREATE TABLE {REGROUP_TABLE} ([hf] CHAR({NOEGLE_WIDTH}) NOT NULL);\n"
+        f"CREATE UNIQUE CLUSTERED INDEX [{index_name}] ON {REGROUP_TABLE}([hf]);"
+    )
+    populate = f"""WITH par AS (
+    SELECT DISTINCT
+        tgt.[helbredsforloeb_noegle] AS [hf],
+        ISNULL(NULLIF(LTRIM(RTRIM(tgt.[{REGROUP_COLUMN}])), N''), N'#BLANK') AS [gammel],
+        ISNULL(NULLIF(LTRIM(RTRIM(src.[{REGROUP_COLUMN}])), N''), N'#BLANK') AS [ny]
+    FROM [arc].[{dataset.ext_table}] AS tgt
+    JOIN [ext].[{source_table_name(dataset)}] AS src
+      ON {on_clause}
+    WHERE tgt.[dw_is_deleted] = 0
+      AND ISNULL(tgt.[dw_timestamp_update], '1900-01-01') < CAST(? AS datetime2(0))
+)
+INSERT INTO {REGROUP_TABLE} ([hf])
+SELECT p.[hf]
+FROM par AS p
+GROUP BY p.[hf]
+HAVING COUNT(*) <> COUNT(DISTINCT p.[gammel])
+    OR COUNT(*) <> COUNT(DISTINCT p.[ny])
+    OR MAX(CASE WHEN (CASE WHEN p.[gammel] = N'#BLANK' THEN 1 ELSE 0 END)
+                  <> (CASE WHEN p.[ny] = N'#BLANK' THEN 1 ELSE 0 END)
+                THEN 1 ELSE 0 END) = 1;"""
+    return [scaffold, populate]
+
+
+def build_regroup_bump_sql(dataset: UdredningsretDataset = UDREDNINGSRET_MONT) -> str:
+    """T-SQL that bumps dw_timestamp_update on the live rows of the detected helbredsforloeb.
+
+    ONLY dw_timestamp_update, never leverance_dato: that column means "the
+    delivery in which this row last changed" (review F16), no value changed
+    here, and writing it would blind the detector's own prune on the next
+    delivery. The bump is what puts the helbredsforloeb back into staging's
+    delta scope (_scope_sql branch 1), so the new grouping is re-staged and the
+    fact's control total stays green. It seeks the existing nonclustered index
+    (helbredsforloeb_noegle, dw_is_deleted). Takes no parameters — the work
+    table must stay visible to it (see build_regroup_detection_sql) — and drops
+    the work table, so the connection is left as it was found.
+    """
+    return (
+        f"UPDATE tgt SET tgt.[dw_timestamp_update] = CAST(SYSDATETIME() AS datetime2(0))\n"
+        f"FROM [arc].[{dataset.ext_table}] AS tgt\n"
+        f"JOIN {REGROUP_TABLE} AS o ON o.[hf] = tgt.[helbredsforloeb_noegle]\n"
+        f"WHERE tgt.[dw_is_deleted] = 0;\n"
+        f"DROP TABLE IF EXISTS {REGROUP_TABLE};"
+    )
+
+
+def read_merge_start(conn) -> str:
+    """The server's own clock, truncated to the second, read BEFORE the merge.
+
+    It is the regrouping detector's prune threshold: every row the merge writes
+    carries CAST(SYSDATETIME() AS datetime2(0)) from a moment at or after this
+    one (core/archive_merge.py), so "dw_timestamp_update < threshold" is exactly
+    "this run did not change the row" — while a row an older run changed stays
+    in the comparison, whatever date it was delivered on (see
+    build_regroup_detection_sql). Read on the SERVER, never in Python: the
+    stamps it is compared against are the server's, and ISO 8601 (style 126)
+    parses back to datetime2 independently of language settings.
+    """
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT CONVERT(NVARCHAR(19), CAST(SYSDATETIME() AS datetime2(0)), 126)")
+        return str(cursor.fetchone()[0])
+    finally:
+        cursor.close()
+
+
+def refresh_surrogate_ids(
+    conn,
+    dataset: UdredningsretDataset,
+    merge_start: str,
+    live_helbredsforloeb: int,
+) -> tuple[int, int]:
+    """Detect regroupings, refresh PK/F_ID, bump the regrouped helbredsforloeb.
+
+    Returns (rows refreshed, helbredsforloeb bumped). The three steps run on ONE
+    cursor and are committed ONCE, in this order — and the order is the whole
+    point. Detection must read arc BEFORE the id UPDATE: afterwards arc.F_ID
+    already equals the delivery's F_ID and the old grouping is gone, and the
+    key table it compares against is dropped a moment later, so this is the only
+    moment where both labellings coexist. Splitting the steps across commits
+    would be worse than not detecting at all: a crash between the UPDATE and the
+    bump destroys the evidence, and the rerun — whose refresh only touches rows
+    that still differ — then finds nothing and leaves the stale grouping in
+    place in silence.
+
+    Over the REGROUP_RATIO cap the id refresh is still applied and committed
+    (U1's purpose must not be rolled back) but the bump is SKIPPED and the run
+    fails with the count: a mass regrouping is a change in SDS' own F_ID
+    algorithm and must reach a human, not re-stage 2 M helbredsforloeb by
+    itself. A rerun will NOT reproduce that failure — the ids are refreshed by
+    then, so detection comes up empty; the repair is the full_load the message
+    names.
+
+    The refresh runs on its own connection AFTER execute_archive_merge has
+    completed the arc DFM run, so a failure here leaves the merge committed
+    with stale ids and the DFM run marked completed — the state U1 exists to
+    prevent. That window is repaired by the rerun: the manifest is still
+    present, the merge finds 0/0/0 and the refresh runs again (idempotent —
+    only rows that still differ are written).
+    """
+    over_cap = False
+    cursor = conn.cursor()
+    try:
+        scaffold, populate = build_regroup_detection_sql(dataset)
+        cursor.execute(scaffold)
+        cursor.execute(populate, merge_start)
+        cursor.execute(f"SELECT COUNT(*) FROM {REGROUP_TABLE}")
+        row = cursor.fetchone()
+        regrouped = int(row[0]) if row and row[0] is not None else 0
+
+        cursor.execute(build_refresh_surrogate_ids_sql(dataset))
+        # the driver reports -1 when the server sends no count (SET NOCOUNT ON,
+        # a trigger on arc); never surface that as "-1 rows refreshed"
+        refreshed = cursor.rowcount if cursor.rowcount is not None and cursor.rowcount >= 0 else 0
+
+        cap = (
+            int(live_helbredsforloeb * REGROUP_RATIO)
+            if live_helbredsforloeb >= RATIO_MIN_LIVE_ROWS
+            else None
+        )
+        over_cap = cap is not None and regrouped > cap
+        if not over_cap:
+            cursor.execute(build_regroup_bump_sql(dataset))
+        conn.commit()
+    finally:
+        cursor.close()
+    if over_cap:
+        share = regrouped / live_helbredsforloeb
+        raise dg.Failure(
+            description=(
+                f"arc.{dataset.ext_table}: {regrouped:,} helbredsforloeb changed their "
+                f"{REGROUP_COLUMN} grouping in this delivery ({share:.2%} of "
+                f"{live_helbredsforloeb:,} live) and exceed the {REGROUP_RATIO:.0%} cap. "
+                f"PK/F_ID were refreshed and committed, but the dw_timestamp_update bump was "
+                f"SKIPPED — re-staging that many helbredsforloeb must be a human's decision. "
+                f"A regrouping at this scale is a change in SDS' own {REGROUP_COLUMN} "
+                f"algorithm: confirm the cause, then re-stage with udredningsret_publish_job "
+                f"and mode=full_load. A plain rerun will not find it again (the ids are "
+                f"already refreshed)."
+            ),
+            metadata={
+                "omgrupperinger": regrouped,
+                "levende_helbredsforloeb": live_helbredsforloeb,
+                "andel": round(share, 6),
+                "graense": REGROUP_RATIO,
+                "tabel": f"arc.{dataset.ext_table}",
+            },
+        )
+    return int(refreshed), regrouped
+
+
 # ---------------------------------------------------------------------------
 # Merge configuration
 # ---------------------------------------------------------------------------
@@ -256,7 +554,11 @@ def build_merge_config(dataset: UdredningsretDataset = UDREDNINGSRET_MONT) -> Ar
     # F16; "which delivery does the archive reflect" is answered by
     # meta.UdredningsretLeverance). PK/F_ID are SDS' delivery-internal sequence
     # numbers (see SURROGATE_ID_COLUMNS) and do not count either; every non_key
-    # column IS written whenever a real change is found.
+    # column IS written whenever a real change is found. Unlike leverance_dato,
+    # PK/F_ID are ALSO refreshed on the rows the merge left alone —
+    # refresh_surrogate_ids runs after the merge without a timestamp bump
+    # (decision U1: staging groups markers into udredningsforloeb on F_ID
+    # within the delivery, so the archive must carry the delivery's F_ID).
     ignored = {DELIVERY_COLUMN, *SURROGATE_ID_COLUMNS}
     change_detect = tuple(c for c in non_key if c not in ignored)
     return ArchiveMergeConfig(
@@ -713,6 +1015,10 @@ def _run_archive(
         expected_soft_deletes = (
             count_expected_soft_deletes(conn, dataset) if merge_config.detect_deletes else 0
         )
+        # The regrouping detector's prune threshold, read BEFORE the merge: the
+        # rows the merge is about to write get a stamp from after this moment,
+        # and only those must be pruned (build_regroup_detection_sql).
+        merge_start = read_merge_start(conn)
 
     # The cap is enforced BEFORE the merge on the expected count: the merge is
     # not transactional with the guard, and a rerun after a failure would see 0 new.
@@ -738,6 +1044,32 @@ def _run_archive(
     )
 
     with mssql.get_connection() as conn:
+        # Decision U1: bring PK/F_ID on the rows the merge left alone up to the
+        # delivery's values, without a timestamp bump — but bump the ones whose
+        # F_ID GROUPING changed, which is a real change the merge cannot see
+        # (build_regroup_detection_sql). Both read the key table and the arc
+        # rows as the merge left them, so this must run before the DROP below.
+        # Skipped on backfill: an older delivery's ids must never overwrite the
+        # newer ones already in arc, and its grouping is not the archive's.
+        if config.backfill_historical:
+            refreshed, regrouped = 0, 0
+            context.log.warning(
+                "backfill_historical: PK/F_ID refresh and regrouping detection skipped — an "
+                "older delivery must not push older surrogate ids over the archive's newer "
+                "ones, and its grouping is not the one the archive should follow."
+            )
+        else:
+            refreshed, regrouped = refresh_surrogate_ids(
+                conn,
+                dataset,
+                merge_start,
+                int(recovery["levende_helbredsforloeb"]),
+            )
+            context.log.info(
+                f"{refreshed:,} live rows got PK/F_ID refreshed without a content change; "
+                f"{regrouped:,} helbredsforloeb were regrouped and got dw_timestamp_update "
+                f"bumped so staging re-reads them"
+            )
         record_delivery(
             conn, dataset, delivery, result, parity, recovery, config.backfill_historical
         )
@@ -756,6 +1088,8 @@ def _run_archive(
     metadata["raekkeparitet"] = parity
     metadata["helbredsforloeb_genfindelse"] = recovery
     metadata["levende_raekker_foer"] = live
+    metadata["surrogat_id_opdateret"] = refreshed
+    metadata["omgrupperinger"] = regrouped
     metadata["noegletabel_droppet"] = source
     return dg.MaterializeResult(metadata=metadata)
 
@@ -814,9 +1148,11 @@ def _run_checkpoint_gate(
                 "identitet": delivery.checkpoint_identitet,
             }
         )
+    if not delivery.checkpoint_identitet or len(delivery.checkpoint_identitet) > 50:
+        raise ValueError("manifest checkpoint identity must contain 1–50 characters")
     dfm = DfmManager(mssql, context)
-    previous = dfm.get_delivery_checkpoint(DELIVERY_UNIT)
-    dfm.set_delivery_checkpoint(DELIVERY_UNIT, delivery.checkpoint_identitet)
+    previous = dfm.get_checkpoint("dfm", DELIVERY_UNIT)
+    dfm.set_checkpoint("dfm", DELIVERY_UNIT, value=delivery.checkpoint_identitet)
     return dg.MaterializeResult(
         metadata={
             "besluttet": "checkpoint rykket",
@@ -859,6 +1195,9 @@ __all__ = [
     "ExtDelivery",
     "UdredningsretArchiveConfig",
     "build_merge_config",
+    "build_refresh_surrogate_ids_sql",
+    "build_regroup_bump_sql",
+    "build_regroup_detection_sql",
     "build_source_index_sql",
     "build_source_table_sql",
     "count_expected_soft_deletes",
@@ -872,6 +1211,8 @@ __all__ = [
     "guard_source_unique_index",
     "read_manifest",
     "record_delivery",
+    "read_merge_start",
+    "refresh_surrogate_ids",
     "source_index_name",
     "source_table_name",
     "udredningsret_archive_assets",

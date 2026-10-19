@@ -76,8 +76,8 @@ from core.dfm_manager import DfmManager
 from core.parallel import ChunkedPipelineStage
 from core.parallel.chunked_pipeline import _read_int_metadata
 from core.resources import FHIRDatabaseResource, MSSQLResource
-from DSA.FHIR.DocumentReference.document_reference_common import advance_fhir_checkpoint
 from DSA.FHIR.utils.dfm_query import build_fhir_archive_query
+from DSA.FHIR.utils.fhir_checkpoint import advance_fhir_checkpoint
 from DSA.FHIR.utils.fhir_utils import fhir_datetime
 from DSA.FHIR.utils.ifdb.fhir_posting import (
     post_resources_direct,
@@ -1068,7 +1068,7 @@ def fhir_server_careplan_dfm(
 
         new_checkpoint = advance_fhir_checkpoint(
             dfm,
-            mssql_target_staging,
+            run_ctx,
             "CarePlan",
             config,
             total_patients,

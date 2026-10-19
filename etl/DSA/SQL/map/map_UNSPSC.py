@@ -22,17 +22,15 @@ ON m.clean_code_UNSPSC = s.clean_code_UNSPSC
 WHEN MATCHED AND (
        (m.dw_source_kmd   = 0 AND s.dw_source_kmd   = 1)
     OR (m.dw_source_ils   = 0 AND s.dw_source_ils   = 1)
-    OR (m.dw_source_udbud = 0 AND s.dw_source_udbud = 1)
 ) THEN UPDATE SET
     m.dw_source_kmd   = CASE WHEN m.dw_source_kmd   = 1 THEN 1 ELSE s.dw_source_kmd   END,
     m.dw_source_ils   = CASE WHEN m.dw_source_ils   = 1 THEN 1 ELSE s.dw_source_ils   END,
-    m.dw_source_udbud = CASE WHEN m.dw_source_udbud = 1 THEN 1 ELSE s.dw_source_udbud END,
     m.dw_timestamp_update = SYSDATETIME()
 WHEN NOT MATCHED BY TARGET THEN INSERT (
-    clean_code_UNSPSC, dw_source_ils, dw_source_kmd, dw_source_udbud,
+    clean_code_UNSPSC, dw_source_ils, dw_source_kmd,
     dw_timestamp_insert, dw_timestamp_update
 ) VALUES (
-    s.clean_code_UNSPSC, s.dw_source_ils, s.dw_source_kmd, s.dw_source_udbud,
+    s.clean_code_UNSPSC, s.dw_source_ils, s.dw_source_kmd,
     SYSDATETIME(), SYSDATETIME()
 );
 """

@@ -162,6 +162,30 @@ BEGIN
 END
 GO
 
+-- map.ILSLeverandoer - grain: ILS supplier number (dbo.lev.lnr)
+-- CleanCode format: ILSLEV_{lnr}
+IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[map].[ILSLeverandoer]') AND type = 'U')
+BEGIN
+    CREATE TABLE [map].[ILSLeverandoer](
+        [dw_ek_ILSLeverandoer] INT IDENTITY(1,1) NOT NULL,
+        [clean_code_ILSLeverandoer] NVARCHAR(255) NOT NULL,
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_ILSLeverandoer_dw_timestamp_insert] DEFAULT SYSDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_ILSLeverandoer_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        CONSTRAINT [PK_Map_ILSLeverandoer] PRIMARY KEY CLUSTERED ([clean_code_ILSLeverandoer] ASC)
+    ) ON [PRIMARY];
+END
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'[map].[ILSLeverandoer]') AND name = 'IX_Map_ILSLeverandoer_DW_EK')
+   AND EXISTS (SELECT 1 FROM sys.objects WHERE object_id = OBJECT_ID(N'[map].[ILSLeverandoer]') AND type = 'U')
+BEGIN
+    EXEC('
+        CREATE UNIQUE NONCLUSTERED INDEX [IX_Map_ILSLeverandoer_DW_EK] ON [map].[ILSLeverandoer]
+        ([dw_ek_ILSLeverandoer] ASC) INCLUDE ([clean_code_ILSLeverandoer]) ON [PRIMARY]
+    ');
+END
+GO
+
 -- map.AftaleVarePris - grain: aftalelinje x lvnr (lnr, aftale, vnr, lvnr)
 -- CleanCode format: AFTALE_{lnr}_{aftale}_VARE_{vnr}[_LEVVARE_{lvnr}]
 IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[map].[AftaleVarePris]') AND type = 'U')
@@ -574,6 +598,36 @@ BEGIN
 END
 GO
 
+-- map.ILSBruger
+IF NOT EXISTS (
+    SELECT * FROM sys.objects
+    WHERE object_id = OBJECT_ID(N'[map].[ILSBruger]') AND type = 'U'
+) BEGIN
+CREATE TABLE [map].[ILSBruger] (
+    [dw_ek_ILSBruger]       INT IDENTITY(1, 1) NOT NULL,
+    [clean_code_ILSBruger]  NVARCHAR(100)      NOT NULL,
+    [dw_timestamp_insert]   DATETIME2          NOT NULL CONSTRAINT [DF_ILSBruger_dw_timestamp_insert] DEFAULT SYSDATETIME(),
+    [dw_timestamp_update]   DATETIME2          NOT NULL CONSTRAINT [DF_ILSBruger_dw_timestamp_update] DEFAULT SYSDATETIME(),
+    CONSTRAINT [PK_Map_ILSBruger] PRIMARY KEY CLUSTERED ([clean_code_ILSBruger] ASC)
+) ON [PRIMARY];
+END
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE object_id = OBJECT_ID(N'[map].[ILSBruger]') AND name = 'IX_Map_ILSBruger_DW_EK'
+) AND EXISTS (
+    SELECT 1 FROM sys.objects
+    WHERE object_id = OBJECT_ID(N'[map].[ILSBruger]') AND type = 'U'
+)
+BEGIN
+    CREATE UNIQUE NONCLUSTERED INDEX [IX_Map_ILSBruger_DW_EK]
+    ON [map].[ILSBruger] ([dw_ek_ILSBruger] ASC)
+    INCLUDE ([clean_code_ILSBruger])
+    ON [PRIMARY];
+END
+GO
+
 -- map.Finanskladde
 IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[map].[Finanskladde]') AND type = 'U')
 CREATE TABLE [map].[Finanskladde] (
@@ -608,7 +662,6 @@ BEGIN
         [clean_code_UNSPSC]    NVARCHAR(50) NOT NULL,
         [dw_source_ils]       BIT NOT NULL CONSTRAINT [DF_UNSPSC_dw_source_ils] DEFAULT 0,
         [dw_source_kmd]       BIT NOT NULL CONSTRAINT [DF_UNSPSC_dw_source_kmd] DEFAULT 0,
-        [dw_source_udbud]     BIT NOT NULL CONSTRAINT [DF_UNSPSC_dw_source_udbud] DEFAULT 0,
         [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_UNSPSC_dw_timestamp_insert] DEFAULT SYSDATETIME(),
         [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_UNSPSC_dw_timestamp_update] DEFAULT SYSDATETIME(),
         CONSTRAINT [PK_Map_UNSPSC] PRIMARY KEY CLUSTERED ([clean_code_UNSPSC] ASC)

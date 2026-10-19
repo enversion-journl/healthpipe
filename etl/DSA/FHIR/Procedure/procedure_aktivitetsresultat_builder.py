@@ -37,11 +37,13 @@ from utils.fhir.fhir_extensions import (
     EXTENSION_EPISODE_OF_CARE,
 )
 from utils.fhir.identifier_systems import (
+    PERFORMER_FUNCTION_UDFOERENDE,
     SYSTEM_IFDB_AKTIVITETSRESULTAT_PROCEDURE,
     SYSTEM_IFDB_EPISODE_OF_CARE_ID,
     SYSTEM_IFDB_OBJECT_ID,
     SYSTEM_IFDB_PATIENT_ID,
     SYSTEM_IFDB_STAFF,
+    SYSTEM_PERFORMER_FUNCTION,
     SYSTEM_SKS,
     SYSTEM_SOR,
 )
@@ -180,21 +182,18 @@ def _build_aktivitetsresultat_procedure_dict(
         proc["performedDateTime"] = start_str
 
     performer_entries: list[dict] = []
-    performer_refs = build_performer_dict(row_dict)
-    if performer_refs:
-        performer_entries.extend([{"actor": ref} for ref in performer_refs])
-
-    udfoert_sorcode = row_dict.get("UDFOERT_ADMENHED_SORCODE")
-    if udfoert_sorcode is not None:
-        sor_val = str(udfoert_sorcode).strip()
-        if sor_val:
-            performer_entries.append(
-                {
-                    "actor": {
-                        "identifier": {"system": SYSTEM_SOR, "value": sor_val},
-                    },
-                }
-            )
+    for ref in build_performer_dict(row_dict):
+        entry = {"actor": ref}
+        if ref.get("identifier", {}).get("system") == SYSTEM_SOR:
+            entry["function"] = {
+                "coding": [
+                    {
+                        "system": SYSTEM_PERFORMER_FUNCTION,
+                        "code": PERFORMER_FUNCTION_UDFOERENDE,
+                    }
+                ]
+            }
+        performer_entries.append(entry)
 
     if performer_entries:
         proc["performer"] = performer_entries

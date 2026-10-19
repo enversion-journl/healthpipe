@@ -20,6 +20,13 @@ from DSA.SQL.checks.partition_completeness_checks import (
     dq_partition_completeness_postering,
     dq_archive_completeness_vareudlevering,
 )
+from DSA.SQL.checks.silkeborgdata_checks import (
+    silkeborgdata_e26_pers_checkpoint_alignment,
+    silkeborgdata_e26_pers_checkpoint_not_stalled,
+    silkeborgdata_e26_pers_period_continuity,
+    silkeborgdata_e26_pers_period_volume,
+    silkeborgdata_practitionerrole_no_orphans,
+)
 
 __all__ = [
     "dw_quality",
@@ -34,4 +41,9 @@ __all__ = [
     "dq_partition_completeness_finanskladdelinje",
     "dq_partition_completeness_postering",
     "dq_archive_completeness_vareudlevering",
+    "silkeborgdata_e26_pers_period_continuity",
+    "silkeborgdata_e26_pers_period_volume",
+    "silkeborgdata_e26_pers_checkpoint_alignment",
+    "silkeborgdata_e26_pers_checkpoint_not_stalled",
+    "silkeborgdata_practitionerrole_no_orphans",
 ]

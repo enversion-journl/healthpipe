@@ -123,9 +123,12 @@ FHIR-ressourcer afhængigt af indholdet. Routingen sker automatisk:
 
 ### Hvad ser du i `SFI_datapoint`?
 
-`SFI_datapoint` viewet samler **Observations** og beriger dem med metadata fra
-SFI-kataloget. Procedures og QuestionnaireResponses har deres egne views
-(`fhir.IFDB_procedure_event` og `fhir.QuestionnaireResponse`).
+`SFI_datapoint` samler **både Observations og QuestionnaireResponse-svar** (ét datapunkt
+pr. udfyldt element — i praksis kommer over 99 % af rækkerne fra skemabesvarelser) og
+beriger dem med metadata fra SFI-kataloget. Det er **aftagerindgangen** til alle
+SFI-data. `fhir.Questionnaire*` og `fhir.QuestionnaireResponse*` er de underliggende
+tabeller, viewet bygges af, og er ikke beregnet til analyse. Procedurer udledt af SFI
+har deres eget view (`fhir.IFDB_procedure_event`).
 
 ---
 

@@ -151,8 +151,8 @@ TJEK: tuple[Tjek, ...] = (
     Tjek(
         "proc_tillaeg_ri",
         "kontrakt",
-        "SELECT COUNT(*), (SELECT COUNT(*) FROM [fhir].[Procedure_tillaegskode]) "
-        "FROM [fhir].[Procedure_tillaegskode] t WHERE NOT EXISTS "
+        "SELECT COUNT(*), (SELECT COUNT(*) FROM [fhir].[Procedure_SupplementaryCode]) "
+        "FROM [fhir].[Procedure_SupplementaryCode] t WHERE NOT EXISTS "
         "(SELECT 1 FROM [fhir].[Procedure] p WHERE p.[procedure_id] = t.[procedure_id])",
         "Tillægskoder uden forælder er forældreløse.",
     ),
@@ -207,8 +207,8 @@ TJEK: tuple[Tjek, ...] = (
     Tjek(
         "cond_tillaeg_ri",
         "kontrakt",
-        "SELECT COUNT(*), (SELECT COUNT(*) FROM [fhir].[Condition_tillaegskode]) "
-        "FROM [fhir].[Condition_tillaegskode] t WHERE NOT EXISTS "
+        "SELECT COUNT(*), (SELECT COUNT(*) FROM [fhir].[Condition_SupplementaryCode]) "
+        "FROM [fhir].[Condition_SupplementaryCode] t WHERE NOT EXISTS "
         "(SELECT 1 FROM [fhir].[Condition] c WHERE c.[condition_id] = t.[condition_id])",
         "Tillægskoder uden forælder er forældreløse.",
     ),
@@ -296,10 +296,10 @@ FORDELINGER = (
 # kædens sync. (Kolonnen qr_id-nøglen m.v. er ligegyldig her — kun COUNT.)
 AFSTEMNINGSTABELLER = (
     "Condition",
-    "Condition_tillaegskode",
+    "Condition_SupplementaryCode",
     "Observation",
     "Procedure",
-    "Procedure_tillaegskode",
+    "Procedure_SupplementaryCode",
     "Questionnaire",
     "Questionnaire_item",
     "QuestionnaireResponse",

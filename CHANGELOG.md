@@ -7,6 +7,106 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.0.5] - 2026-10-19
+
+### Added
+
+- New source system: SilkeborgData (the payroll extract E26PERS). FHIR
+  `fhir.Practitioner` (one row for each person) and `fhir.PractitionerRole` (one row
+  for each employment episode) come from it.
+- New source system: SDS LPR3 Grunddata. The `lpr3_ingest_job` loads the deliveries
+  into the archive. No DSO table uses the data yet, and the schedule is stopped by
+  default.
+- SDS Udredningsret tables in the DSO: `fct.Udredningsforloeb` (one row for each
+  assessment course), `fct.UdredningsretMarkoer` (one row for each delivered marker),
+  `dim.UdredningsretEgenskaber`, `dim.UdredningsretKlassifikation` and
+  `dim.Forloebsmarkoer`.
+- Beds from IFDB: `fhir.WardUnit` and `fhir.WardUnit_Capacity` (ward units and their
+  available and planned beds), `fhir.Bed`, `fhir.Encounter_BedSpace` (bed stays) and
+  `fhir.Encounter_Absence` (absence periods).
+- `fhir.Condition_henvisning` from IFDB (the referrals of a PAS diagnosis).
+- `fhir.Observation_Speciale` from IFDB (the specialties of an SFI activity).
+- `dim.ILSBruger` from ILS (one row for each ILS user).
+- `dim.ILSLeverandoer` from ILS (one row for each ILS supplier number). It links to
+  `dim.Kreditor` where the CVR number is known.
+- `ref.ILSAendringslog` from ILS (the ILS change log as it is in the source).
+- `codesystem.IFDBConcept` and `codesystem.IFDBProperties` (the code texts of IFDB).
+
+### Changed
+
+- **Breaking:** The FHIR supplementary-code tables have English names.
+  `fhir.Condition_tillaegskode` is now `fhir.Condition_SupplementaryCode`, and
+  `fhir.ServiceRequest_tillaegskode` is now `fhir.ServiceRequest_SupplementaryCode`.
+  `fhir.Procedure_SupplementaryCode` replaces `fhir.Procedure_tillaegskode` and also
+  loads from `IFDB.ADMINISTRATIVE_PROCEDURE`. The columns `tillaegskode_kode`,
+  `tillaegskode_system` and `tillaegskode_display` are now `supplementary_code`,
+  `supplementary_code_system` and `supplementary_code_display`. A migration removes the
+  old tables and views. Change your queries to the new names.
+- **Breaking:** `dim.Lager` renames `adr` to `adresse`, `postdi` to `postnummer` and
+  `tlf` to `telefon`. Change your queries to the new names.
+- **Breaking:** `fhir.Procedure` removes `body_site_display`.
+- **Breaking:** `dim.Borger` has the new column `fhir_Patient_id` at position 3. A
+  migration creates the views over `dim.Borger` again. Change each query that reads
+  the columns by position.
+- **Breaking:** A migration empties the DRG tables in staging and in the DSO. The next
+  DRG load loads all deliveries again. The DRG tables are empty until that load is
+  complete.
+- `fhir.Patient` also gets data from HAIBA, SDS DRG and SDS Udredningsret. The new
+  columns `meta_source` and `source_cpr`, `source_haiba`, `source_ifdb`,
+  `source_sdsdrg` and `source_sdsudred` tell which sources contributed to the patient.
+  The new columns `cpr_updated` and `municipality_code` come from the CPR register.
+- `dim.Borger` and `fhir.Patient` no longer load from the CPR health-card table
+  (`CPR.Sundhedskort`). `dim.Borger` has the new column `populationsansvar` (the
+  hospital that is responsible for the municipality of the citizen) and the masking
+  row `-99`.
+- `dim.Aftale` has more columns from ILS: delivery days, the system date, freight and
+  fee terms, the active flag and the user.
+- `dim.Kreditor` has the new column `soegenavn_sydax` from SYDAX.
+- `dim.Lager` has the warehouse owner and the shrinkage requisitioner as
+  `dim.Rekvirent` keys, the default delivery days, the address and the active flag
+  from ILS.
+- `dim.Rekvirent` has the address and contact columns from ILS (`dbo.rekv` and
+  `dbo.postdi`). `vw_dim.Rekvirent` masks them for home patients.
+- `fhir.Procedure` has more columns from IFDB: the practitioner, the location, the
+  home department, the source department codes, the source status code and the
+  source timestamps.
+- `fhir.ServiceRequest` has more referral columns from IFDB, for example the sender
+  and the reason for completion.
+- `fhir.Condition` has the new column `opdateret_tid` (the time IFDB last updated a
+  PAS diagnosis).
+- `fhir.Encounter_Location` holds only the department locations, and `fhir.Location`
+  holds only the locations with a SOR code. The beds and the ward units are in the new
+  bed tables.
+- `dim.Dato` corrects its content: month and weekday names start with a capital
+  letter, the holidays are calculated again, and the emergency-holiday columns include
+  24 December and 31 December.
+- A migration resets the Encounter child checkpoint. The next Encounter load adds the
+  bed stays and the absence periods to the existing encounters.
+- `dim.UNSPSC` no longer loads the tender categories. See "Removed".
+- DRG and HAIBA detect a new delivery and load only then. A sensor publishes the DRG
+  data after the load.
+- The new CPR schedule loads one CPR delivery each day at 22:00.
+- The new `ifdb_fhir_fuldload_nightly_schedule` loads the IFDB to FHIR history one
+  window each night. It is stopped by default.
+- `meta.DFMRunLog` records the user, the host and the table of the source connection
+  of each extract run.
+- `sec.RolleDomaene` accepts the role `P` (population responsibility for each
+  security domain).
+
+### Removed
+
+- **Breaking:** The tender-category source (`unspsc_udbudskategori.csv`) and
+  `arc.unspsc_udbudskategori`. `dim.UNSPSC` removes `beskrivelse_udbud`,
+  `dw_source_udbud`, `udbudstype` and `udbudskategori_niveau_1` to
+  `udbudskategori_niveau_4`, and deletes the codes that came only from that file.
+- **Breaking:** The security functions `sec.BeskytPersonoplysning`,
+  `sec.BeskytDimBorger` and `sec.HarAdgang`. Remove the calls to them from your own
+  views.
+
+### Security
+
+- Upgrade pyjwt, urllib3 and virtualenv for known vulnerabilities.
+
 ## [1.0.4] - 2026-10-16
 
 ### Added
@@ -149,7 +249,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - First public release.
 
-[Unreleased]: https://github.com/enversion-journl/healthpipe/compare/v1.0.4...HEAD
+[Unreleased]: https://github.com/enversion-journl/healthpipe/compare/v1.0.5...HEAD
+[1.0.5]: https://github.com/enversion-journl/healthpipe/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/enversion-journl/healthpipe/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/enversion-journl/healthpipe/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/enversion-journl/healthpipe/compare/v1.0.1...v1.0.2

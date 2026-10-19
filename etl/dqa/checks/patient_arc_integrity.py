@@ -8,7 +8,7 @@
 
 Patient is deduped by CPR in the ETL: per CPR exactly one arc.ifdb_patient row is
 POSTed -- non-deleted preferred, then latest OPDATERET_TID (see
-``Patient_IFDB_dfm._dedup_rows_by_cpr``). So a plain ``source_reconciliation`` on
+``patient_ifdb_contribution._dedup_rows_by_cpr``). So a plain ``source_reconciliation`` on
 PATIENT_ID false-flags the *dropped* duplicates: a deleted PATIENT_ID that was
 intentionally not POSTed looks like ``missing_in_target``. Person-level presence
 ("every CPR reached fhir") is the separate CPR ``source_reconciliation``; this

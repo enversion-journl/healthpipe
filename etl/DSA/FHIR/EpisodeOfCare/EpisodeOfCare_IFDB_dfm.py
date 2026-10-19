@@ -41,6 +41,7 @@ from core.dfm_config import RunModeConfig
 from core.dfm_manager import DfmManager
 from core.resources import FHIRDatabaseResource, MSSQLResource
 from DSA.FHIR.utils.dfm_query import build_fhir_archive_query
+from DSA.FHIR.utils.fhir_checkpoint import advance_fhir_checkpoint
 from DSA.FHIR.utils.fhir_utils import fhir_datetime
 from DSA.FHIR.utils.ifdb.fhir_posting import prepare_resources_for_upsert
 from DSA.FHIR.utils.ifdb.patient_cpr_fallback import build_patient_cpr_fallback
@@ -517,14 +518,15 @@ def _post_episodes_to_fhir(
             patient_ids_needed.add(str(eoc.patient.identifier.value))
 
     if resolve_missing_dependencies and mssql and patient_ids_needed:
-        from DSA.FHIR.utils.ifdb.dependency_resolver import resolve_missing_patients
+        from DSA.FHIR.Patient.patient_service import NEED_REFERENCE, ensure_patients
 
         logger.info(f"[DEPENDENCY] Ensuring {len(patient_ids_needed)} patients exist")
-        resolve_missing_patients(
-            patient_ids=patient_ids_needed,
+        ensure_patients(
+            ifdb_patient_ids=patient_ids_needed,
             mssql=mssql,
             fhir_database=fhir_database,
             context=context,
+            need=NEED_REFERENCE,
         )
 
     logger.info(f"Using direct database insertion for {len(episodes)} EpisodeOfCare resources")
@@ -831,21 +833,9 @@ def fhir_server_eoc_dfm(
             f"Done: {total_fetched} fetched, {total_posted} posted in {batch_num} batches"
         )
 
-        new_checkpoint: str | None = None
-        if config.should_advance_checkpoint and total_fetched > 0:
-            with mssql_target_staging.get_connection() as conn:
-                cursor = conn.cursor()
-                try:
-                    cursor.execute("SELECT CONVERT(NVARCHAR(50), SYSDATETIME(), 121)")
-                    row = cursor.fetchone()
-                    new_checkpoint = row[0] if row else None
-                finally:
-                    cursor.close()
-
-            if new_checkpoint:
-                dfm.set_checkpoint(
-                    "fhir_server", "EpisodeOfCare", value=new_checkpoint, mode=config.mode
-                )
+        new_checkpoint = advance_fhir_checkpoint(
+            dfm, run_ctx, "EpisodeOfCare", config, total_fetched
+        )
 
         dfm.complete_dfm_run(
             run_ctx.log_id,
