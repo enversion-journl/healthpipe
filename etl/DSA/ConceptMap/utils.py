@@ -8,131 +8,47 @@
 Shared utilities for ConceptMap assets.
 
 Provides the merge_conceptmap_table function that handles the temp-table + MERGE
-pattern for conceptmap tables, plus common row-conversion helpers used by
-individual ConceptMap builders.
+pattern for conceptmap tables, the conceptmap_rows_from_csv converter for the
+curated CSV-based ConceptMaps, plus hierarchy helpers shared with the security
+layer (SOR expansion).
 """
 
 import re
 from collections import defaultdict
-from collections.abc import Callable
-from difflib import SequenceMatcher
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-ScoringAdjuster = Callable[[str, str], float]
 
-# Danish/common glue words — base list extended per ConceptMap domain via ``extra_stop_words``.
-_DEFAULT_STOP_WORDS: frozenset[str] = frozenset(
-    {"og", "af", "i", "på", "til", "for", "med", "den", "det", "de", "en", "et"}
-)
+def conceptmap_rows_from_csv(rows: list[dict[str, Any]]) -> list[tuple]:
+    """Convert DSI ``ext_csv_*`` CSV rows (dicts) to conceptmap MERGE tuples.
 
-# Legacy default when ``extract_keywords(text)`` is called with no overrides (backward compatible).
-_LEGACY_STOP_WORDS: frozenset[str] = frozenset(
-    {
-        "og",
-        "af",
-        "i",
-        "på",
-        "til",
-        "for",
-        "med",
-        "den",
-        "det",
-        "de",
-        "en",
-        "et",
-        "rsd",
-        "vs",
-        "fam",
-        "dki",
-        "fat",
-        "open",
-        "master",
-    }
-)
-
-
-def extract_keywords(
-    text: str,
-    stop_words: set[str] | None = None,
-    extra_stop_words: set[str] | None = None,
-    important_acronyms: set[str] | None = None,
-) -> set[str]:
-    """Split display text into keyword tokens; optional per-domain stop-word and acronym rules."""
-    text_lower = text.lower()
-    words = text_lower.replace(",", " ").replace("(", " ").replace(")", " ").split()
-
-    if stop_words is not None:
-        effective_stops = set(stop_words)
-        if extra_stop_words:
-            effective_stops |= extra_stop_words
-    elif extra_stop_words is not None or important_acronyms is not None:
-        effective_stops = set(_DEFAULT_STOP_WORDS) | (extra_stop_words or set())
-    else:
-        effective_stops = set(_LEGACY_STOP_WORDS)
-
-    keywords = {w for w in words if len(w) > 3 and w not in effective_stops}
-    if important_acronyms:
-        for word in words:
-            if word in important_acronyms:
-                keywords.add(word)
-    return keywords
-
-
-def semantic_similarity(
-    source_lower: str,
-    target_lower: str,
-    source_keywords: set[str] | None = None,
-    target_keywords: set[str] | None = None,
-    *,
-    extract_kw: Callable[[str], set[str]] = extract_keywords,
-    scoring_adjuster: ScoringAdjuster | None = None,
-    clamp_upper: bool = False,
-) -> float:
-    """Blend SequenceMatcher ratio with keyword overlap (50/50) when both keyword sets are non-empty."""
-    direct_score = SequenceMatcher(None, source_lower, target_lower).ratio()
-    if source_keywords is None:
-        source_keywords = extract_kw(source_lower)
-    if target_keywords is None:
-        target_keywords = extract_kw(target_lower)
-
-    if source_keywords and target_keywords:
-        kw_overlap = len(source_keywords & target_keywords) / max(
-            len(source_keywords), len(target_keywords)
+    Returns ``(source_code, source_display, relationship, target_code,
+    target_display)`` tuples. Rows missing source_code, target_code or
+    relationship are skipped; duplicate (source_code, target_code) pairs keep
+    the first occurrence (the conceptmap tables have that pair as PK).
+    """
+    results: list[tuple] = []
+    seen: set[tuple[str, str]] = set()
+    for row in rows:
+        source_code = str(row.get("source_code") or "").strip()
+        target_code = str(row.get("target_code") or "").strip()
+        relationship = str(row.get("relationship") or "").strip()
+        if not source_code or not target_code or not relationship:
+            continue
+        if (source_code, target_code) in seen:
+            continue
+        seen.add((source_code, target_code))
+        results.append(
+            (
+                source_code,
+                str(row.get("source_display") or "").strip() or None,
+                relationship,
+                target_code,
+                str(row.get("target_display") or "").strip() or None,
+            )
         )
-        combined = (direct_score * 0.5) + (kw_overlap * 0.5)
-    else:
-        combined = direct_score
-
-    if scoring_adjuster is not None:
-        adjusted = combined + scoring_adjuster(source_lower, target_lower)
-        if clamp_upper:
-            return max(0.0, min(1.0, adjusted))
-        return max(0.0, adjusted)
-
-    return combined
-
-
-def determine_relationship(
-    score: float,
-    is_hierarchical_fallback: bool = False,
-    *,
-    is_known_mapping: bool = False,
-) -> str:
-    if is_known_mapping:
-        return "equal" if score >= 0.95 else "equivalent"
-    if is_hierarchical_fallback:
-        return "narrower"
-    if score >= 0.95:
-        return "equal"
-    elif score >= 0.85:
-        return "equivalent"
-    elif score >= 0.7:
-        return "narrower"
-    elif score >= 0.5:
-        return "inexact"
-    return "unmatched"
+    return results
 
 
 def find_all_descendants(root_code: str, hierarchy: dict[str, list[str]]) -> set[str]:
@@ -146,111 +62,6 @@ def find_all_descendants(root_code: str, hierarchy: dict[str, list[str]]) -> set
 
     _traverse(root_code)
     return descendants
-
-
-def get_parent_code(code: str, hierarchy: dict[str, list[str]]) -> str | None:
-    for parent, children in hierarchy.items():
-        if code in children:
-            return parent
-    return None
-
-
-def find_root_code_region_syd(
-    hierarchy: dict[str, list[str]], concepts: dict[str, str]
-) -> str | None:
-    """Pick hierarchy root: prefer REGION_SYD, else display containing 'region', else arbitrary root."""
-    all_children: set[str] = set()
-    for children in hierarchy.values():
-        all_children.update(children)
-    roots = set(concepts.keys()) - all_children
-    if "REGION_SYD" in roots:
-        return "REGION_SYD"
-    for root in roots:
-        if "region" in concepts[root].lower():
-            return root
-    return next(iter(roots)) if roots else None
-
-
-def find_best_match(
-    source_display: str,
-    target_concepts: dict[str, str],
-    target_properties: dict[str, dict[str, str]],
-    target_keywords_cache: dict[str, set[str]] | None = None,
-    source_keywords: set[str] | None = None,
-    entity_type_filter: str | None = None,
-    min_similarity: float = 0.3,
-    *,
-    extract_kw: Callable[[str], set[str]] = extract_keywords,
-    scoring_adjuster: ScoringAdjuster | None = None,
-    clamp_upper: bool = False,
-) -> tuple[str, float] | None:
-    best_match: tuple[str, float] | None = None
-    best_score = 0.0
-    if source_keywords is None:
-        source_keywords = extract_kw(source_display)
-    source_lower = source_display.lower()
-
-    for target_code, target_display in target_concepts.items():
-        if best_score >= 0.95:
-            break
-        if entity_type_filter:
-            if target_properties.get(target_code, {}).get("entityType") != entity_type_filter:
-                continue
-        target_lower = target_display.lower()
-        if source_lower == target_lower:
-            return (target_code, 1.0)
-
-        if target_keywords_cache is not None and target_code in target_keywords_cache:
-            target_kw = target_keywords_cache[target_code]
-        else:
-            target_kw = extract_kw(target_display)
-            if target_keywords_cache is not None:
-                target_keywords_cache[target_code] = target_kw
-
-        if source_keywords and target_kw:
-            if len(source_keywords & target_kw) == 0 and (
-                len(source_lower) > 10 or len(target_lower) > 10
-            ):
-                continue
-
-        score = semantic_similarity(
-            source_lower,
-            target_lower,
-            source_keywords,
-            target_kw,
-            extract_kw=extract_kw,
-            scoring_adjuster=scoring_adjuster,
-            clamp_upper=clamp_upper,
-        )
-        if score > best_score and score >= min_similarity:
-            best_score = score
-            best_match = (target_code, score)
-    return best_match
-
-
-def manual_mappings_from_os2mo_rows(
-    rows: list[dict[str, Any]],
-) -> dict[str, tuple[str, str]]:
-    """Build manual override map from DSI ``ext_os2mo_*`` asset output (CSV rows as dicts)."""
-    mappings: dict[str, tuple[str, str]] = {}
-    for row in rows:
-        source_code = str(row.get("source_code", "")).strip()
-        target_code = str(row.get("target_code", "")).strip()
-        relationship = str(row.get("relationship", "")).strip()
-        if source_code and target_code:
-            mappings[source_code] = (target_code, relationship)
-    return mappings
-
-
-def rows_to_concept_dict(rows: list[tuple]) -> dict[str, str]:
-    return {str(r[0]): str(r[1]) if r[1] else "" for r in rows}
-
-
-def rows_to_properties_dict(rows: list[tuple]) -> dict[str, dict[str, str]]:
-    props: dict[str, dict[str, str]] = defaultdict(dict)
-    for r in rows:
-        props[str(r[0])][str(r[1])] = str(r[2]) if r[2] else ""
-    return dict(props)
 
 
 def rows_to_hierarchy_dict(rows: list[tuple]) -> dict[str, list[str]]:
@@ -286,7 +97,7 @@ def merge_conceptmap_table(
     cursor.execute(
         """
         CREATE TABLE #tmp_mapping (
-            [source_code]    NVARCHAR(100) COLLATE DATABASE_DEFAULT NOT NULL,
+            [source_code]    NVARCHAR(120) COLLATE DATABASE_DEFAULT NOT NULL,
             [source_display] NVARCHAR(500) COLLATE DATABASE_DEFAULT NULL,
             [relationship]  NVARCHAR(50)  COLLATE DATABASE_DEFAULT NOT NULL,
             [target_code]    NVARCHAR(100) COLLATE DATABASE_DEFAULT NOT NULL,

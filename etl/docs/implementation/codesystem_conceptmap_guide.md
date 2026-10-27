@@ -23,24 +23,27 @@ The pipeline transforms organisational reference data from source systems into p
 Source Systems          DSI (ext.*)              DSA (codesystem.*/conceptmap.*)     DSA SQL (stg/map/dim)
 ──────────────          ───────────              ──────────────────────────────      ─────────────────────
 
-ILS (sgh, rekv,    ──→  ext.ils_sgh          ──→  cs_rekvirent ──→ cm_rekvirent_to_sor ──→ stg_dim_Rekvirent
-     rekvgrp)           ext.ils_rekv                                                      → map → dim
-                        ext.ils_rekvgrp
+ILS (sgh, rekv,    ──→  ext.ils_sgh          ──→  cs_rekvirent ─────────────┐
+     rekvgrp)           ext.ils_rekv                                        ├──→ stg_dim_Rekvirent → map → dim
+                        ext.ils_rekvgrp           cm_rekvirent_to_sor ──────┘
 
-ILS (sgh, lgr)     ──→  ext.ils_sgh          ──→  cs_lager ──→ cm_lager_to_sor ──→ stg_dim_Lager
-                        ext.ils_lgr                                                 → map → dim
+ILS (sgh, lgr)     ──→  ext.ils_sgh          ──→  cs_lager + cm_lager_to_sor ──→ stg_dim_Lager → map → dim
+                        ext.ils_lgr
 
-SydAX              ──→  ext.omkostningssted*  ──→  cs_okosted ──→ cm_okosted_to_sor ──→ stg_organization_okosted
+SydAX              ──→  ext.omkostningssted*  ──→  cs_okosted + cm_okosted_to_sor ──→ stg_organization_okosted
 
-NemHandel API      ──→  ext.ean_nemhandel    ──→  cs_ean ──→ cm_ean_to_sor ──→ stg_dim_EAN
+NemHandel API      ──→  ext.ean_nemhandel    ──→  cs_ean + cm_ean_to_sor ──→ stg_dim_EAN
 
-SOR Registry       ──→  ext.sor_register     ──→  cs_sor (used by all ConceptMap assets)
+Kuraterede CSV'er  ──→  ext_csv_*            ──→  cm_{ean,lager,rekvirent,okosted}_to_sor
+(DSI/csv_files/data/)                             (eneste mapping-kilde — ingen fuzzy matching)
+
+SOR Registry       ──→  ext.sor_register     ──→  cs_sor
 ```
 
 **Key principles:**
 1. **DSI is 1:1 raw extraction** — source tables are copied to `ext.*` schema without business logic
 2. **DSA CodeSystem assets build hierarchies** — read from `ext.*`, construct concepts/properties/hierarchy, MERGE into `codesystem.*` schema
-3. **DSA ConceptMap assets build mappings** — read from `codesystem.*`, apply fuzzy matching + manual overrides, MERGE into `conceptmap.*` schema
+3. **DSA ConceptMap assets build mappings** — the ERP maps (ean/lager/rekvirent/okosted → SOR) come exclusively from curated CSV files in `DSI/csv_files/data/`; SHAK and SHAK-a-like come from authoritative source crosswalks. Everything MERGEs into the `conceptmap.*` schema
 4. **Downstream staging assets read from database** — `stg_dim_*` assets SELECT from `codesystem.*` and `conceptmap.*` tables instead of CSV files
 
 ## Database Schema
@@ -65,17 +68,20 @@ Each conceptmap produces one table:
 |-------|------------|---------|---------|
 | `conceptmap.{source}_to_{target}` | `(source_code, target_code)` | `source_code`, `source_display`, `relationship`, `target_code`, `target_display`, audit columns | One row per source→target mapping |
 
-The four conceptmaps are: `rekvirent_to_sor`, `lager_to_sor`, `ean_to_sor`, `okosted_to_sor`.
+The six conceptmaps are: `RekvirentToSOR`, `LagerToSOR`, `EANToSOR`, `OkostedToSOR`, `SHAKToSOR`, `SHAKAlikeToSOR`.
 
 ### Relationship types (FHIR standard)
 
-| Relationship | Meaning | When used |
-|-------------|---------|-----------|
-| `equal` | Identical meaning | Exact match (similarity ≥ 0.95) |
-| `equivalent` | Clinically equivalent | Very close match (similarity ≥ 0.85) |
-| `narrower` | Target is broader than source | Hierarchical fallback or moderate match (0.7–0.85) |
-| `inexact` | Approximate match | Weak match (0.5–0.7) |
-| `unmatched` | No suitable match | Below threshold |
+| Relationship | Meaning |
+|-------------|---------|
+| `equal` | Identical meaning |
+| `equivalent` | Clinically equivalent |
+| `narrower` | Target is broader than source |
+| `inexact` | Approximate match |
+
+For the CSV-based ERP maps the relationship is whatever the curated CSV row
+says; for SHAK→SOR the builder sets `equivalent` (direct crosswalk entry) or
+`inexact` (indirect fallback), and SHAK-a-like→SOR is always `equivalent`.
 
 ## YAML Metadata
 
@@ -136,18 +142,21 @@ etl/
 │   │
 │   └── ConceptMap/
 │       ├── __init__.py                    # Exports conceptmap_dsa_assets
-│       ├── utils.py                       # merge_conceptmap_table() + shared matching helpers
+│       ├── utils.py                       # merge_conceptmap_table() + conceptmap_rows_from_csv() + dw_ek resolution
+│       ├── csv_to_sor.py                  # Factory for the four CSV-based assets: cm_{ean,lager,rekvirent,okosted}_to_sor
 │       ├── rekvirent_to_sor/
-│       │   ├── rekvirent_to_sor.py        # @asset cm_rekvirent_to_sor + build_rekvirent_to_sor_mappings()
-│       │   └── conceptmap.yml
+│       │   └── conceptmap.yml             # FHIR metadata only — mappings live in DSI/csv_files/data/rekvirent_to_sor.csv
 │       ├── lager_to_sor/
-│       │   ├── lager_to_sor.py            # @asset cm_lager_to_sor + build_lager_to_sor_mappings()
 │       │   └── conceptmap.yml
 │       ├── ean_to_sor/
-│       │   ├── ean_to_sor.py              # @asset cm_ean_to_sor + build_ean_to_sor_mappings()
 │       │   └── conceptmap.yml
-│       └── okosted_to_sor/
-│           ├── okosted_to_sor.py          # @asset cm_okosted_to_sor + build_okosted_to_sor_mappings()
+│       ├── okosted_to_sor/
+│       │   └── conceptmap.yml
+│       ├── shak_to_sor/
+│       │   ├── shak_to_sor.py             # @asset cm_shak_to_sor (authoritative SHAKSORMap crosswalk)
+│       │   └── conceptmap.yml
+│       └── shakalike_to_sor/
+│           ├── shakalike_to_sor.py        # @asset cm_shakalike_to_sor (EPJI SorIdentifier)
 │           └── conceptmap.yml
 │
 ├── infrastructure/
@@ -230,106 +239,76 @@ Returns a dict with `concepts_inserted`, `concepts_updated`, `properties_inserte
 | `cs_ean` | `extract_ean_nemhandel` | `build_ean_codesystem` | `codesystem.ean_*` |
 | `cs_sor` | `extract_sor_register` | `build_sor_codesystem` | `codesystem.sor_*` |
 
-## ConceptMap Asset Pattern
+### Okosted: composite node identity
 
-Each ConceptMap asset follows a three-step pattern: **read codesystem tables → build mappings → MERGE**.
+Okosted is the one codesystem where a node is not "one row = one code". The
+source (`arc.sydax_omkostningssted_hierarki`) is a path table: each row holds
+up to 20 levels, and the same `nummer` value can recur at different levels as
+a genuinely different organisational unit. `build_okosted_hierarchy` keys a
+node on the pair `(nummer, niveau)` instead of on `nummer` alone, so it
+returns a **4-tuple** — `(concepts, properties, hierarchy, counters)` — the
+one builder that doesn't follow the plain 3-tuple pattern above.
 
-### Asset Definition
+- **Code**: `<nummer>_NIVEAU_<n>`, e.g. `RSD_NIVEAU_1`, `SHD.SHS_NIVEAU_4`.
+- **Properties per node**: `nummer` (the raw source number, for lookups and
+  reporting); `enhedstype` (`juridisk enhed` / `virksomhedsenhed` /
+  `afdeling` / `omkostningssted`, derived from which typed id column —
+  `jeId`/`veId`/`afId`/`osId` — is filled at that level; `Ukendt` when none
+  is) and `startsdate`/`enddate`/`kildesystem` all come from the node's
+  **newest row**, picked across *every* row where the node's `(nummer,
+  niveau)` cell appears — own-row or ancestor-occurrence alike — so a pure
+  grouping node can still carry these, inherited from a descendant-path row.
+  Only `aktiv`/`slettet` and `OmkostningsstedHierarkiId` are genuinely
+  own-row-sourced (rows where this cell is *that row's* deepest filled
+  level) — a grouping node with no own row gets neither.
+- **Hierarchy**: every edge goes from level N to level N−1 in the same
+  source row, so the tree is 1:1 with the source path table and acyclic by
+  construction — a cycle cannot arise regardless of source data quality.
+- **`counters`**: `parent_conflicts`, `path_gaps` and `unknown_enhedstype` —
+  data-quality signals (not failures) that `cs_okosted` logs as warnings and
+  surfaces in its `MaterializeResult` metadata.
 
-```python
-@dg.asset(
-    name="cm_rekvirent_to_sor",
-    deps=["cs_rekvirent", "cs_sor"],
-    group_name="conceptmap",
-    compute_kind="mssql",
-    tags={"domain": "conceptmap", "layer": "conceptmap", "module": "rekvirent_to_sor"},
-    description="Build rekvirent-to-sor mappings and MERGE into conceptmap.rekvirent_to_sor",
-)
-def cm_rekvirent_to_sor(
-    context: dg.AssetExecutionContext,
-    mssql_target_staging: MSSQLResource,
-) -> dg.MaterializeResult:
-    ...
-```
+## ConceptMap Asset Pattern (CSV-based ERP maps)
 
-### Step 1: Read from codesystem.* tables
+The four ERP conceptmaps are generated by a single factory,
+`DSA/ConceptMap/csv_to_sor.py`. Each asset follows **read CSV → convert → MERGE**:
 
-```python
-cursor.execute("SELECT Code, display FROM [codesystem].[rekvirent_concept]")
-source_concepts = cursor.fetchall()
+1. **Read CSV** — the asset takes its `ext_csv_{name}` extract (the curated
+   CSV in `DSI/csv_files/data/{name}.csv`, columns
+   `source_code,source_display,target_code,target_display,relationship,note`)
+   as its only upstream input.
+2. **Convert** — `conceptmap_rows_from_csv()` turns the CSV dict rows into
+   `(source_code, source_display, relationship, target_code, target_display)`
+   tuples, skipping rows missing a required field and deduplicating
+   `(source_code, target_code)` pairs.
+3. **MERGE** — `merge_conceptmap_table(..., delete_stale=True)` writes the full
+   snapshot: removing a CSV row also removes it from the database. Afterwards
+   `update_conceptmap_dw_ek()` resolves the `dw_ek_*` columns against `map.*`.
 
-cursor.execute("SELECT Code, PropertyCode, value FROM [codesystem].[rekvirent_properties]")
-source_properties = cursor.fetchall()
-
-cursor.execute("SELECT ParentCode, ChildCode FROM [codesystem].[rekvirent_hierarchy]")
-source_hierarchy = cursor.fetchall()
-
-# Same for SOR codesystem
-```
-
-### Step 2: Build mappings
-
-Matcher functions live alongside the asset in `DSA/ConceptMap/{source}_to_{target}/{source}_to_{target}.py`. They apply fuzzy matching, manual overrides, and hierarchical fallbacks:
-
-```python
-rows = build_rekvirent_to_sor_mappings(
-    source_concepts, source_properties, source_hierarchy,
-    sor_concepts, sor_properties, sor_hierarchy,
-)
-```
-
-Returns `list[tuple]` of `(source_code, source_display, relationship, target_code, target_display)`.
-
-### Step 3: MERGE into database
-
-```python
-from DSA.ConceptMap.utils import merge_conceptmap_table
-
-result = merge_conceptmap_table(cursor, "rekvirent_to_sor", rows)
-conn.commit()
-```
+A mapping exists **if and only if** it has a CSV row. New source codes are
+unmapped (NULL `code_sor` downstream) until someone adds a row to the CSV —
+there is no fuzzy matching and no hierarchical fallback.
 
 ### ConceptMap assets reference
 
-| Asset | Dependencies | Builder | ConceptMap table |
-|-------|-------------|---------|-----------------|
-| `cm_rekvirent_to_sor` | `cs_rekvirent`, `cs_sor` | `build_rekvirent_to_sor_mappings` | `conceptmap.rekvirent_to_sor` |
-| `cm_lager_to_sor` | `cs_lager`, `cs_sor` | `build_lager_to_sor_mappings` | `conceptmap.lager_to_sor` |
-| `cm_ean_to_sor` | `cs_ean`, `cs_sor` | `build_ean_to_sor_mappings` | `conceptmap.ean_to_sor` |
-| `cm_okosted_to_sor` | `cs_okosted`, `cs_sor` | `build_okosted_to_sor_mappings` | `conceptmap.okosted_to_sor` |
-
-## Fuzzy Matching Architecture
-
-ConceptMap matchers use a layered matching strategy:
-
-### Matching pipeline
-
-1. **Manual overrides** — Standardised CSV files in `csv_files/` (repo root) loaded via `ext_os2mo_*` assets take precedence
-2. **Exact match** — Case-insensitive string equality (relationship: `equal`)
-3. **Fuzzy match** — Combined score from `SequenceMatcher` ratio (50%) and keyword overlap (50%), with domain-specific penalties
-4. **Hierarchical fallback** — If no good match, map to parent's target with `narrower` relationship
+| Asset | Mapping source | ConceptMap table |
+|-------|----------------|-----------------|
+| `cm_rekvirent_to_sor` | `DSI/csv_files/data/rekvirent_to_sor.csv` | `conceptmap.RekvirentToSOR` |
+| `cm_lager_to_sor` | `DSI/csv_files/data/lager_to_sor.csv` | `conceptmap.LagerToSOR` |
+| `cm_ean_to_sor` | `DSI/csv_files/data/ean_to_sor.csv` | `conceptmap.EANToSOR` |
+| `cm_okosted_to_sor` | `DSI/csv_files/data/okosted_to_sor.csv` | `conceptmap.OkostedToSOR` |
+| `cm_shak_to_sor` | `ext.shaksor_map` (Sundhedsdatastyrelsens SHAKSORMap.csv) | `conceptmap.SHAKToSOR` |
+| `cm_shakalike_to_sor` | `arc.epji_location` (EPJI SorIdentifier) | `conceptmap.SHAKAlikeToSOR` |
 
 ### Shared utilities (`ConceptMap/utils.py`)
 
 | Function | Purpose |
 |----------|---------|
-| `extract_keywords()` | Tokenize text, remove stop words, return keyword set (optional per-domain `extra_stop_words` / `important_acronyms`) |
-| `semantic_similarity()` | 50/50 blend of `SequenceMatcher` ratio and keyword overlap; optional `scoring_adjuster` for domain penalties |
-| `find_best_match()` | Fuzzy match a source display to SOR concepts (entityType filter, keyword cache, pluggable `extract_kw` / adjuster) |
-| `find_all_descendants()` | All codes in a hierarchy subtree from a root |
-| `get_parent_code()` | Parent code for a child in a parent→children map |
-| `find_root_code_region_syd()` | Choose REGION_SYD / “region” root in a codesystem tree |
-| `determine_relationship()` | Map similarity score to FHIR relationship type (supports known-mapping + hierarchical flags) |
-| `rows_to_concept_dict()` | Convert `cursor.fetchall()` tuples to `{code: display}` dict |
-| `rows_to_properties_dict()` | Convert to `{code: {key: value}}` nested dict |
-| `rows_to_hierarchy_dict()` | Convert to `{parent: [children]}` dict |
-
-### Domain-specific penalties
-
-- **Rekvirent**: Department keywords boosted, non-department (warehouse) keywords penalized
-- **Lager**: Warehouse keywords boosted, non-warehouse (clinical) keywords penalized
-- **ean**: No domain penalties (pure string + keyword matching)
-- **Okosted**: Depth-ordered matching with parent fallback, manual mappings for top levels
+| `conceptmap_rows_from_csv()` | Convert `ext_csv_*` CSV dict rows to MERGE tuples (validation + dedup) |
+| `merge_conceptmap_table()` | Temp-table + MERGE into `conceptmap.*` (optional `delete_stale` full-snapshot semantics) |
+| `update_conceptmap_dw_ek()` | Resolve `dw_ek_*` columns from `map.*` via `conceptmap_dw_ek_resolution.sql` |
+| `find_all_descendants()` | All codes in a hierarchy subtree from a root (also used by the security SOR expansion) |
+| `rows_to_hierarchy_dict()` | Convert to `{parent: [children]}` dict (also used by the security SOR expansion) |
 
 ## Consuming CodeSystem/ConceptMap Data
 
@@ -380,7 +359,7 @@ Staging assets should depend on the relevant `cs_*` and `cm_*` assets:
 |------|---------|
 | `infrastructure/ddl/common/00_schemas.sql` | `codesystem` and `conceptmap` schema creation |
 | `infrastructure/ddl/tables/codesystem/01_codesystem_tables.sql` | All 15 codesystem tables (5 × 3) |
-| `infrastructure/ddl/tables/conceptmap/01_conceptmap_tables.sql` | All 4 conceptmap tables |
+| `infrastructure/ddl/tables/conceptmap/01_conceptmap_tables.sql` | The four CSV-based conceptmap tables (SHAK-tabellerne har egne DDL-filer) |
 
 ### Infrastructure assets
 
@@ -402,10 +381,11 @@ These depend on `staging_infra_schemas` and are included in the standard `full_i
 ## Adding a New ConceptMap
 
 1. **Create DDL** — Add table to `infrastructure/ddl/tables/conceptmap/01_conceptmap_tables.sql`
-2. **Create asset** — Add `DSA/ConceptMap/{source}_to_{target}/{source}_to_{target}.py` with a `build_{source}_to_{target}_mappings()` function and a `@dg.asset` that reads codesystem.* tables, calls the builder, and calls `merge_conceptmap_table()`
-3. **Create YAML** — Add `DSA/ConceptMap/{source}_to_{target}/conceptmap.yml`
-4. **Register** — Add to `DSA/ConceptMap/__init__.py`
-5. **Manual mappings** — If needed, add a CSV file to `csv_files/` (repo root) with columns: `source_code,source_display,target_code,target_display,relationship,note`, register it in `DSI/csv_files/os2mo.py`, and add the `ext_os2mo_*` asset as a dependency
+2. **Create CSV** — Add `DSI/csv_files/data/{source}_to_{target}.csv` with columns `source_code,source_display,target_code,target_display,relationship,note` and register it in `DSI/csv_files/conceptmap_csv.py` (gives you the `ext_csv_*` extract asset)
+3. **Create asset** — Add an entry to `_CSV_CONCEPTMAPS` in `DSA/ConceptMap/csv_to_sor.py` (CSV-based) — or, for an authoritative source crosswalk like SHAK, a dedicated builder module
+4. **Create YAML** — Add `DSA/ConceptMap/{source}_to_{target}/conceptmap.yml`
+5. **Register** — Add to `DSA/ConceptMap/__init__.py`
+6. **dw_ek resolution** — Add a section to `DSA/ConceptMap/conceptmap_dw_ek_resolution.sql` for the new table
 
 ## Idempotency and MERGE Behaviour
 
@@ -441,5 +421,5 @@ All CodeSystem and ConceptMap assets include:
 
 ---
 
-**Version**: 1.0
-**Last Updated**: 2026-04-07
+**Version**: 2.0 (fuzzy matching fjernet — kuraterede CSV'er er eneste mapping-kilde for ERP-maps)
+**Last Updated**: 2026-10-14

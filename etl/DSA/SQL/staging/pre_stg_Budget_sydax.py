@@ -270,6 +270,19 @@ def _build_reconstruction_sql(bp_filter: str) -> str:
                 CAST(omk_hier.[nummer2] AS NVARCHAR(50)),
                 CAST(omk_hier.[nummer1] AS NVARCHAR(50))
             ) AS omkostningsstednummer,
+            CASE
+                WHEN omk_hier.[nummer20] IS NOT NULL THEN 20 WHEN omk_hier.[nummer19] IS NOT NULL THEN 19
+                WHEN omk_hier.[nummer18] IS NOT NULL THEN 18 WHEN omk_hier.[nummer17] IS NOT NULL THEN 17
+                WHEN omk_hier.[nummer16] IS NOT NULL THEN 16 WHEN omk_hier.[nummer15] IS NOT NULL THEN 15
+                WHEN omk_hier.[nummer14] IS NOT NULL THEN 14 WHEN omk_hier.[nummer13] IS NOT NULL THEN 13
+                WHEN omk_hier.[nummer12] IS NOT NULL THEN 12 WHEN omk_hier.[nummer11] IS NOT NULL THEN 11
+                WHEN omk_hier.[nummer10] IS NOT NULL THEN 10 WHEN omk_hier.[nummer9] IS NOT NULL THEN 9
+                WHEN omk_hier.[nummer8] IS NOT NULL THEN 8 WHEN omk_hier.[nummer7] IS NOT NULL THEN 7
+                WHEN omk_hier.[nummer6] IS NOT NULL THEN 6 WHEN omk_hier.[nummer5] IS NOT NULL THEN 5
+                WHEN omk_hier.[nummer4] IS NOT NULL THEN 4 WHEN omk_hier.[nummer3] IS NOT NULL THEN 3
+                WHEN omk_hier.[nummer2] IS NOT NULL THEN 2 WHEN omk_hier.[nummer1] IS NOT NULL THEN 1
+                ELSE NULL
+            END AS omkostningssted_niveau,
 
             TRY_CONVERT(DATE, bp.[Budgetdato]) AS Budgetdato,
             TRY_CONVERT(DATE, bp.[BudgetAdoptedDate]) AS BudgetAdoptedDate,

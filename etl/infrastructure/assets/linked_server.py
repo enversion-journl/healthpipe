@@ -17,12 +17,27 @@ NOTE: The staging-side login/user (Part A) lives in staging_infrastructure.py
 as `staging_infra_linked_server_user`. This file only handles the DSO side.
 """
 
+import re
+from typing import Any
+
 import dagster as dg
 from core.resources import MSSQLResource, get_linked_server_config
 
 # ============================================================================
 # LINKED SERVER INFRASTRUCTURE
 # ============================================================================
+
+
+def _with_uid(provstr: str, user: str) -> str:
+    """Add UID=<user> to a provider string without UID, to avoid error 7416 without sysadmin."""
+    if not provstr or re.search(r"(^|;)\s*(UID|User ID)\s*=", provstr, re.IGNORECASE):
+        return provstr
+    return f"{provstr.rstrip(';')};UID={user}"
+
+
+def _nvarchar_or_null(value: str) -> str:
+    """Return the value as an escaped N'...' SQL literal, or NULL when it is empty."""
+    return "N'" + value.replace("'", "''") + "'" if value else "NULL"
 
 
 @dg.asset(
@@ -50,6 +65,8 @@ def dso_infra_linked_server(
     - MSSQL_LINKED_SERVER_USER: Username for staging connection
     - MSSQL_LINKED_SERVER_PASSWORD: Password for staging connection
     - MSSQL_LINKED_SERVER_NAME: Name of the linked server (default: STAGING_LINK)
+    - MSSQL_LINKED_SERVER_PROVSTR: Provider string (optional; when unset, keep the current one).
+      A provider string without UID gets UID=<linked server user>.
 
     Falls back to MSSQL_SOURCE_STAGING_* when linked-server-specific vars are unset.
 
@@ -63,6 +80,7 @@ def dso_infra_linked_server(
     staging_password = linked_server_config["password"]
     linked_server_name = linked_server_config["name"]
     staging_datasrc = linked_server_config["datasrc"]
+    staging_provstr = linked_server_config["provstr"]
 
     with mssql_target_dso.get_connection() as conn:
         cursor = conn.cursor()
@@ -130,15 +148,20 @@ def dso_infra_linked_server(
             needs_recreate = False
             if exists:
                 cursor.execute(
-                    f"SELECT data_source FROM sys.servers "
+                    f"SELECT data_source, provider_string FROM sys.servers "
                     f"WHERE name = N'{linked_server_name_sql}'"
                 )
-                current_datasrc = cursor.fetchone()[0] or ""
-                if current_datasrc != staging_datasrc:
+                current_datasrc, current_provstr = cursor.fetchone()
+                current_datasrc = current_datasrc or ""
+                current_provstr = current_provstr or ""
+                staging_provstr = _with_uid(staging_provstr or current_provstr, staging_user)
+                if current_datasrc != staging_datasrc or current_provstr != staging_provstr:
                     context.log.warning(
                         f"Linked server config drift detected: "
                         f"current data_source='{current_datasrc}', "
-                        f"expected='{staging_datasrc}'. Dropping and recreating."
+                        f"expected='{staging_datasrc}', "
+                        f"current provider_string='{current_provstr}', "
+                        f"expected='{staging_provstr}'. Dropping and recreating."
                     )
                     needs_recreate = True
                 else:
@@ -180,6 +203,7 @@ def dso_infra_linked_server(
                     connectivity_status = f"failed: {str(e)}"
 
             if not exists:
+                staging_provstr = _with_uid(staging_provstr, staging_user)
                 context.log.info(
                     f"Creating linked server '{linked_server_name}' pointing to "
                     f"{staging_host}:{staging_port}..."
@@ -199,7 +223,8 @@ def dso_infra_linked_server(
                             @server = N'{linked_server_name_sql}',
                             @srvproduct = N'',
                             @provider = N'{provider}',
-                            @datasrc = N'{staging_datasrc_sql}'
+                            @datasrc = N'{staging_datasrc_sql}',
+                            @provstr = {_nvarchar_or_null(staging_provstr)}
                         """
                     )
                     context.log.info(
@@ -368,7 +393,7 @@ def dso_verify_linked_server(
     linked_server_name = linked_server_config["name"]
     staging_db = linked_server_config["database"]
 
-    verification_results = {}
+    verification_results: dict[str, Any] = {}
 
     with mssql_target_dso.get_connection() as conn:
         cursor = conn.cursor()

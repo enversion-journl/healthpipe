@@ -41,6 +41,7 @@ from core.org_config import DATA_DIR
 from core.resources import MSSQLResource
 from dagster import AssetExecutionContext
 from pydantic import Field
+from utils.sor_codes import clean_sor_id
 
 BASE_URL = "https://sor-filer.sundhedsdata.dk/sor2_produktion/V1_00"
 DAILY_CSV_URL = f"{BASE_URL}/data/SorEntity_daily.csv"
@@ -114,16 +115,6 @@ _SOR_ID_CSV_COLUMNS = {
     "InstitutionOwnerSorId",
     "InstitutionOwnerCvrNumberId",
 }
-
-
-def clean_sor_id(value: str) -> str:
-    """Remove Excel formula wrapping: =\"21000016006\" -> 21000016006."""
-    if not value:
-        return ""
-    value = value.strip()
-    if value.startswith('="') and value.endswith('"'):
-        value = value[2:-1]
-    return value.strip()
 
 
 def _download_to_file(url: str, file_path: str, timeout: int) -> int:

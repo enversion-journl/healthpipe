@@ -12,7 +12,7 @@ from time import perf_counter
 from typing import Any
 
 import dagster as dg
-from core.fhir.child_resource_reconcile import ChildFamily, RetireCeiling
+from core.fhir.child_resource_reconcile import ChildFamily
 from core.parallel import ParallelCall, run_parallel_calls
 from core.resources import FHIRDatabaseResource, IFDBOracleResource, MSSQLResource
 from DSA.CodeSystem.sfi.catalog import (
@@ -70,10 +70,7 @@ from DSA.FHIR.utils.ifdb.dict_validation import (
     _validate_observation_dicts_sample,
     _validate_procedure_dicts_sample,
 )
-from DSA.FHIR.utils.ifdb.posting_config import (
-    aktivitetsresultat_chunk_size_from_context,
-    retire_ceiling_from_context,
-)
+from DSA.FHIR.utils.ifdb.posting_config import aktivitetsresultat_chunk_size_from_context
 from DSA.FHIR.utils.ifdb.routing import RoutingResolver
 from DSA.FHIR.utils.ifdb.transforms import normalize_oracle_id as _normalize_oracle_id
 from DSA.FHIR.utils.ifdb.xml_aktivitetsresultat import (
@@ -172,7 +169,6 @@ def _reconcile_posted_xml_children(
     condition_dicts: list[tuple[str, dict]],
     build_errors: int,
     logger: Any,
-    retire_ceiling: RetireCeiling | None,
 ) -> None:
     if parsed_data_by_index is None:
         # Bevidst tavs på stier uden XML-parse (ikke-SFI): uden parse findes
@@ -188,7 +184,6 @@ def _reconcile_posted_xml_children(
         condition_dicts=condition_dicts,
         build_errors=build_errors,
         logger=logger,
-        retire_ceiling=retire_ceiling,
     )
 
 
@@ -751,7 +746,6 @@ def _process_chunk(
     sfi_catalog_sink: dict[str, list[SfiElement]] | None,
     questionnaires_by_id: dict[str, dict],
     unified_sfi_outputs: bool,
-    retire_ceiling: RetireCeiling | None,
     logger: Any,
 ) -> _ChunkTally:
     """Én chunk fra rækker til postede ressourcer — den ENESTE sti gennem chunk-forløbet.
@@ -831,7 +825,6 @@ def _process_chunk(
         condition_dicts=cond_dicts,
         build_errors=build_errors,
         logger=logger,
-        retire_ceiling=retire_ceiling,
     )
 
     questionnaire_ids: list[str] = []
@@ -927,7 +920,6 @@ def _run_aktivitetsresultat_pipeline_chunked(
         ON CONFLICT (id) DO UPDATE on the FHIR side.
     """
     logger = dg.get_dagster_logger()
-    retire_ceiling = retire_ceiling_from_context(context)
     total_rows = len(extracted_data)
     unified_sfi_outputs = emit_questionnaire_outputs and _sfi_mode_enabled()
     cleanup_resource_types = {"Observation", "Procedure", "Condition"}
@@ -992,7 +984,6 @@ def _run_aktivitetsresultat_pipeline_chunked(
                 sfi_catalog_sink=sfi_catalog_sink,
                 questionnaires_by_id=questionnaires_by_id,
                 unified_sfi_outputs=unified_sfi_outputs,
-                retire_ceiling=retire_ceiling,
                 logger=logger,
             )
             # Rækkerne frigives, før næste batch bygges — ellers ligger to

@@ -20,6 +20,8 @@ Sensors:
 - haiba_publish_sensor: Publishes the HAIBA dm layer to DSO after the nightly
   Borger chain has minted dw_ek_Borger for stub patients, gated on the
   archive's delivery watermark (built via a factory in definitions.py)
+- os2mo_delivery_sensor: Delivers the codesystems to OS2mo after
+  organisation_cs_job has rebuilt them (built via a factory in definitions.py)
 - cpr_backlog_sensor: After a successful CPR ingest, requests one more ingest
   run while deliveries are still waiting on the share, so a backlog is caught
   up one delivery at a time in production-date order (factory in definitions.py)
@@ -46,6 +48,7 @@ from sensors.drg_queue_sensor import (
 )
 from sensors.haiba_publish_sensor import build_haiba_publish_sensor
 from sensors.nightly_failure_sensor import build_nightly_failure_sensor
+from sensors.os2mo_delivery_sensor import build_os2mo_delivery_sensor
 from sensors.udredningsret_publish_sensor import build_udredningsret_publish_sensor
 
 nightly_failure_report_sensor = build_nightly_failure_sensor()
@@ -61,6 +64,7 @@ __all__ = [
     "build_drg_queue_sensor",
     "build_haiba_publish_sensor",
     "build_nightly_failure_sensor",
+    "build_os2mo_delivery_sensor",
     "build_udredningsret_publish_sensor",
     "nightly_failure_report_sensor",
     "all_sensors",

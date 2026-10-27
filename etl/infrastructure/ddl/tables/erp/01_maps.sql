@@ -186,8 +186,8 @@ BEGIN
 END
 GO
 
--- map.AftaleVarePris - grain: aftalelinje x lvnr (lnr, aftale, vnr, lvnr)
--- CleanCode format: AFTALE_{lnr}_{aftale}_VARE_{vnr}[_LEVVARE_{lvnr}]
+-- map.AftaleVarePris - grain: aftalelinje (lnr, aftale, vnr)
+-- CleanCode format: AFTALE_{lnr}_{aftale}_VARE_{vnr}
 IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[map].[AftaleVarePris]') AND type = 'U')
 BEGIN
     CREATE TABLE [map].[AftaleVarePris](
@@ -685,8 +685,8 @@ IF NOT EXISTS (
 BEGIN
     CREATE TABLE [map].[Okosted] (
         [dw_ek_Okosted] [int] IDENTITY(1, 1) NOT NULL,
-        [clean_code_Okosted] [varchar](100) UNIQUE NOT NULL,
-        [bk_code] [varchar](50) NOT NULL,
+        [clean_code_Okosted] [varchar](120) UNIQUE NOT NULL,
+        [bk_code] [varchar](120) NOT NULL,
         [dw_timestamp_insert] [datetime2](7) NOT NULL CONSTRAINT [DF_Okosted_dw_timestamp_insert] DEFAULT GETDATE(),
         [dw_timestamp_update] [datetime2](7) NOT NULL CONSTRAINT [DF_Okosted_dw_timestamp_update] DEFAULT GETDATE(),
         CONSTRAINT [PK_Map_Okosted] PRIMARY KEY CLUSTERED ([dw_ek_Okosted] ASC)

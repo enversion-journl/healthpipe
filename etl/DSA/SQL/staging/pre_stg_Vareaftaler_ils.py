@@ -157,8 +157,6 @@ def pre_stg_Vareaftaler_ils(
                         -- Agreement line data
                         laftd.[start_] AS linje_start,
                         laftd.slut AS linje_slut,
-                        laftd.[lvnr##2] AS lvnr2,
-                        laftd.[lvnr##3] AS lvnr3,
 
                         -- Pricing data (nyeste aktive pris — dim-lag; fuld historik ligger i stg.fct_AftaleVarePris_ils)
                         laftdpris.[pakstr##1] AS pakstr1,

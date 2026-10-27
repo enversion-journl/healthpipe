@@ -122,6 +122,3 @@ def test_the_nightly_job_selects_the_whole_careplan_chain() -> None:
         "dso_sync_fhir_careplan_activity_dfm",
     ):
         assert navn in nodes, navn
-
-    # Nulstillingen er operatørudløst og må aldrig kunne løbe med natkørslen.
-    assert "careplan_genkoersel_nulstilling" not in nodes

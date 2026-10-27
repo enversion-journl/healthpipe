@@ -20,7 +20,7 @@
 -- chronological only because the extract refuses any LPROPDATERINGSDATO that
 -- is not ISO YYYY-MM-DD (review F14). helbredsforloeb_genfindelse is the
 -- share of the archive's live helbredsforloeb keys recovered in the delivery
--- (the B3 guard).
+-- (the B3 measurement).
 --
 -- A control table, not an archive table: it mirrors no source file and takes
 -- no part in the MERGE. Hence meta, not arc.

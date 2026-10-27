@@ -1171,11 +1171,12 @@ IF NOT EXISTS (
 BEGIN
     CREATE TABLE [dim].[Okosted] (
         [dw_ek_Okosted] [int] PRIMARY KEY,
-        [code_okosted] [varchar](50) NOT NULL,
+        [code_okosted] [varchar](120) NOT NULL,
+        [nummer] [varchar](100) NULL,
         [name] [nvarchar](500),
         [level] [int],
         [dw_ek_Okosted_parent] [int],
-        [parent_code] [varchar](50),
+        [parent_code] [varchar](120),
         [active] [bit] CONSTRAINT [DF_Okosted_active] DEFAULT 1,
         [dw_timestamp_insert] [datetime2](7) NOT NULL CONSTRAINT [DF_Okosted_dw_timestamp_insert] DEFAULT GETDATE(),
         [dw_timestamp_update] [datetime2](7) NOT NULL CONSTRAINT [DF_Okosted_dw_timestamp_update] DEFAULT GETDATE()

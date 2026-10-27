@@ -280,7 +280,7 @@ INDKOEB_SYNC_CONFIGS = ERP_SYNC_CONFIGS
 # SHARED DIMENSIONS CONFIGURATIONS
 # =============================================================================
 
-SHARED_DIMS_MAP_CONFIGS = {
+SHARED_DIMS_MAP_CONFIGS: dict[str, SyncTableConfig] = {
     # map.Borger removed — dw_ek_Borger is assigned by ref.PatientToBorger
     # (INT IDENTITY) in the new FHIR + ref-table architecture.
     # map.Organisation removed — dim.Organisation is built from
@@ -666,6 +666,8 @@ FHIR_SYNC_CONFIGS = {
         primary_key=["questionnaire_id", "link_id", "item_key"],
         mode="watermark",
         watermark_column="dw_timestamp_update",
+        exclude_columns=["link_id_exact"],
+        exact_match_keys={"link_id": "link_id_exact"},
     ),
     # De to største FHIR-tabeller (20,9 mio. QR / 29,8 mio. items efter to
     # kvartaler). Under backfill-vinduer er deltaet på størrelse med målet, og

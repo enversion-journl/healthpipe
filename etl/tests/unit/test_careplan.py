@@ -25,7 +25,6 @@ from DSA.FHIR.CarePlan.CarePlan_IFDB_dfm import (
     _build_alle_markoerer_careplan_dict,
     _key_careplans_on_fhir_patient,
     _post_careplans_to_fhir,
-    _refuse_old_scheme_resources,
     _stage_careplans,
     _transform_careplan_to_fhir,
 )
@@ -509,61 +508,15 @@ def test_staff_reference_is_carried_but_not_resolved_to_practitioner():
     assert careplan_module.SYSTEM_IFDB_STAFF in systems
 
 
-# ─── Deploy-rækkefølgen ──────────────────────────────────────────────
-
-
-def _staging_with_stale_rows(stale: int):
-    cursor = MagicMock()
-    cursor.fetchone.return_value = (stale,)
-    conn = MagicMock()
-    conn.cursor.return_value = cursor
-    cm = MagicMock()
-    cm.__enter__ = MagicMock(return_value=conn)
-    cm.__exit__ = MagicMock(return_value=False)
-    resource = MagicMock()
-    resource.get_connection.return_value = cm
-    return resource, cursor
+# ─── Kørselslog ──────────────────────────────────────────────────────
 
 
 @pytest.mark.unit
-def test_preflight_passes_once_the_reload_has_run():
-    mssql, _ = _staging_with_stale_rows(0)
-    _refuse_old_scheme_resources(mssql, _logger())  # no raise
+def test_a_failure_after_start_is_logged_as_a_failed_dfm_run():
+    """start_dfm_run has already opened a DFMRunLog row when the first lookup runs.
 
-
-@pytest.mark.unit
-def test_preflight_refuses_while_old_scheme_resources_remain():
-    """Forgetting the reload fails silently otherwise.
-
-    The lookup would miss every time, so every patient in the window gets a
-    SECOND CarePlan while the first is left behind — and a delta window never
-    contains both, so nothing complains until the first wide window.
-    """
-    mssql, _ = _staging_with_stale_rows(1_270_000)
-    with pytest.raises(dg.Failure) as excinfo:
-        _refuse_old_scheme_resources(mssql, _logger())
-    assert "careplan_genkoersel_nulstilling" in str(excinfo.value)
-
-
-@pytest.mark.unit
-def test_preflight_compares_identifier_against_patient_id_on_live_rows():
-    """The invariant is exact, not heuristic: under the new identity every live
-    row has identifier_value == patient_id + '_alle_markoerer'."""
-    mssql, cursor = _staging_with_stale_rows(0)
-    _refuse_old_scheme_resources(mssql, _logger())
-
-    sql = " ".join(str(cursor.execute.call_args.args[0]).split())
-    assert "[dw_is_deleted] = 0" in sql
-    assert "[identifier_value]" in sql and "[patient_id]" in sql
-    assert "'_alle_markoerer'" in sql
-
-
-@pytest.mark.unit
-def test_a_refusal_is_logged_as_a_failed_dfm_run():
-    """start_dfm_run has already opened a DFMRunLog row when the guard runs.
-
-    The guard is built to raise, so a refusal outside the try would be the
-    ordinary path to a row left at *running* until the stale sweep abandons it.
+    A failure outside the try would leave the row at *running* until the stale
+    sweep abandons it.
     """
     resource = MagicMock()
 
@@ -571,8 +524,8 @@ def test_a_refusal_is_logged_as_a_failed_dfm_run():
         patch.object(careplan_module, "DfmManager") as dfm_cls,
         patch.object(
             careplan_module,
-            "_refuse_old_scheme_resources",
-            side_effect=dg.Failure(description="gamle ressourcer tilbage"),
+            "build_patient_cpr_fallback",
+            side_effect=RuntimeError("staging utilgængelig"),
         ),
     ):
         dfm = dfm_cls.return_value
@@ -580,7 +533,7 @@ def test_a_refusal_is_logged_as_a_failed_dfm_run():
         context = dg.build_asset_context(
             resources={"mssql_target_staging": resource, "fhir_database": resource}
         )
-        with pytest.raises(dg.Failure):
+        with pytest.raises(RuntimeError):
             careplan_module.fhir_server_careplan_dfm(context, config=RunModeConfig())
 
     dfm.fail_dfm_run.assert_called_once()

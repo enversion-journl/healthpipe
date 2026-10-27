@@ -19,14 +19,11 @@ from dataclasses import dataclass
 from typing import Any
 
 import dagster as dg
-from core.fhir.child_resource_reconcile import DEFAULT_RETIRE_CEILING, RetireCeiling
 
 # Tag keys for configurable parameters
 TAG_CHUNK_SIZE = "fhir/chunk_size"
 TAG_MAX_WORKERS = "fhir/max_workers"
 TAG_ID_RESOLUTION_BATCH_SIZE = "fhir/id_resolution_batch_size"
-TAG_RETIRE_CEILING_FLOOR = "fhir/retire_ceiling_floor"
-TAG_RETIRE_CEILING_FRACTION = "fhir/retire_ceiling_fraction"
 TAG_AKTRES_CHUNK_SIZE = "fhir/aktres_chunk_size"
 
 
@@ -41,27 +38,6 @@ def _merged_context_tags(context: dg.AssetExecutionContext) -> dict[str, str]:
     except Exception:
         pass
     return {**asset_tags, **run_tags}
-
-
-def retire_ceiling_from_context(context: dg.AssetExecutionContext) -> RetireCeiling:
-    """Pensioneringsloftet for kørslen, med run-tag-override.
-
-    Defaults er DEFAULT_RETIRE_CEILING — bevidst u-kalibrerede sikkerhedsgrænser.
-    En varslet masseoprydning køres med hævet loft via run-tags, fx
-    ``fhir/retire_ceiling_fraction=1.0`` (slår loftet fra, da retire aldrig kan
-    overstige de levende børn) eller et højere ``fhir/retire_ceiling_floor``.
-    """
-    tags = _merged_context_tags(context)
-    ceiling = RetireCeiling(
-        floor=int(tags.get(TAG_RETIRE_CEILING_FLOOR, DEFAULT_RETIRE_CEILING.floor)),
-        fraction=float(tags.get(TAG_RETIRE_CEILING_FRACTION, DEFAULT_RETIRE_CEILING.fraction)),
-    )
-    if ceiling != DEFAULT_RETIRE_CEILING:
-        dg.get_dagster_logger().info(
-            f"Retire ceiling overridden by run tags: floor={ceiling.floor}, "
-            f"fraction={ceiling.fraction}"
-        )
-    return ceiling
 
 
 def aktivitetsresultat_chunk_size_from_context(

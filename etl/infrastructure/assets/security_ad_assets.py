@@ -69,9 +69,12 @@ def populate_security(
         _build_rolle_domaene_rows,
         _build_sor_tildeling_rows,
         _connect,
+        _HistorikTabel,
         _load_historik,
         _load_rb_organisation,
         _load_rolle_domaene,
+        _max_lost_users_ratio,
+        _max_removed_grants_ratio,
         _min_count_ratio,
     )
 
@@ -84,15 +87,17 @@ def populate_security(
         raise ValueError("MSSQL_TARGET_STAGING_USER and MSSQL_TARGET_STAGING_PASSWORD must be set")
 
     min_ratio = _min_count_ratio()
+    max_removed_grants_ratio = _max_removed_grants_ratio()
+    max_lost_users_ratio = _max_lost_users_ratio()
 
-    # ExtractTooSmallError (udtræk væsentligt mindre end sidste load) propagerer
+    # ExtractTooSmallError (udtræk for lille eller for forskelligt fra sidste load) propagerer
     # bevidst uden at blive fanget her, så Dagster-runet markeres failed.
     source = extract_security.get("source") or {}
     base_dn = source.get("table")
     rolle_domaene_rows = _build_rolle_domaene_rows(
         extract_security["roller"], warn=context.log.warning
     )
-    historik = [
+    historik: list[tuple[_HistorikTabel, list[tuple]]] = [
         (_ROLLE_DOMAENE_HISTORIK, rolle_domaene_rows),
         (_SOR_TILDELING_HISTORIK, _build_sor_tildeling_rows(extract_security["org"])),
     ]
@@ -121,7 +126,12 @@ def populate_security(
             )
             rows["RolleDomaene"] = rd_ins
             rb = _load_rb_organisation(
-                conn, extract_security["org"], dry_run=False, min_ratio=min_ratio
+                conn,
+                extract_security["org"],
+                dry_run=False,
+                min_ratio=min_ratio,
+                max_removed_grants_ratio=max_removed_grants_ratio,
+                max_lost_users_ratio=max_lost_users_ratio,
             )
             rows["RBOrganisation"] = rb["rows_new"] if rb["swapped"] else 0
             for tabel, tabel_rows in historik:
@@ -131,7 +141,6 @@ def populate_security(
                     tabel_rows,
                     run_id=context.run_id,
                     dry_run=False,
-                    min_ratio=min_ratio,
                     close_rows=not extract_security["fejlede_opslag"],
                 )
                 historik_metrics[tabel.name] = metrics
@@ -162,6 +171,8 @@ def populate_security(
             "rborganisation_rows_new": rb["rows_new"],
             "rborganisation_users_old": rb["users_old"],
             "rborganisation_users_new": rb["users_new"],
+            "rborganisation_removed_grants": rb["removed_grants"],
+            "rborganisation_lost_users": rb["lost_users"],
             "rborganisation_swapped": rb["swapped"],
             **{
                 f"{name.lower()}_{key}": value

@@ -25,7 +25,6 @@ Usage:
 
 import os
 import re
-from collections.abc import Sequence
 from typing import Any
 
 import dagster as dg
@@ -71,28 +70,19 @@ def get_postfixed_name(name: str) -> str:
     return name
 
 
-def get_postfixed_asset_key(key: dg.AssetKey | str | Sequence[str]) -> dg.AssetKey:
+def get_postfixed_asset_key(key: dg.AssetKey | str) -> dg.AssetKey:
     """
     Get a postfixed AssetKey.
 
     Args:
-        key: The original AssetKey, string, or sequence of strings
+        key: The original AssetKey or string
 
     Returns:
         A postfixed AssetKey if DAGSTER_BRANCH_POSTFIX is set to a feature branch.
     """
     postfix = get_branch_postfix()
 
-    # Convert to AssetKey if needed - check AssetKey FIRST before Sequence
-    if isinstance(key, dg.AssetKey):
-        asset_key = key
-    elif isinstance(key, str):
-        asset_key = dg.AssetKey([key])
-    elif isinstance(key, list | tuple):
-        asset_key = dg.AssetKey(list(key))
-    else:
-        # Assume it's already an AssetKey-like object
-        asset_key = key
+    asset_key = key if isinstance(key, dg.AssetKey) else dg.AssetKey([key])
 
     if postfix:
         # Append postfix to the last element of the key path
@@ -199,7 +189,7 @@ def postfix_assets(
     all_key_replacements = key_replacements or build_key_replacement_map(assets)
 
     # Apply replacements to all assets
-    result = []
+    result: list[dg.AssetsDefinition | dg.SourceAsset] = []
     for asset in assets:
         if isinstance(asset, dg.AssetsDefinition):
             result.append(postfix_asset(asset, all_key_replacements))
@@ -244,7 +234,10 @@ def postfix_asset_checks(
     if not postfix or not key_replacements:
         return checks
 
-    return [check.with_attributes(asset_key_replacements=key_replacements) for check in checks]
+    return [
+        check.with_attributes(asset_key_replacements=key_replacements)  # type: ignore[misc]
+        for check in checks
+    ]
 
 
 def postfix_asset_selection(
@@ -529,7 +522,6 @@ def log_branch_info(logger: Any = None) -> None:
 # Backwards compatibility aliases (deprecated, use postfix_* functions)
 get_branch_postfix = get_branch_postfix
 get_prefixed_name = get_postfixed_name
-get_prefixed_asset_key = get_postfixed_asset_key
 prefix_asset = postfix_asset
 prefix_assets = postfix_assets
 prefix_job = postfix_job

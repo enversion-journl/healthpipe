@@ -933,8 +933,8 @@ def test_manglende_fact_er_ukendt_daekning_ikke_nul_uafklarede(unresolved_tag):
     assert "every live forloeb resolved" not in result.skip_message
 
 
-def test_publish_genforsoeg_koerer_ikke_arkivets_regroup_kontrol():
-    """REGROUP-cap belongs to ingest; a publish retry cannot execute that guard."""
+def test_publish_genforsoeg_koerer_ikke_arkivets_merge():
+    """The archive merge belongs to the ingest job; a publish retry does not run it."""
     from definitions import defs
     from jobs.udredningsret_jobs import udredningsret_ingest_job, udredningsret_publish_job
 

@@ -20,6 +20,7 @@ which upstream SOF asset triggers the sync in the pipeline.
 
 import dagster as dg
 from core.resources import MSSQLResource
+from DSA.FHIR.SqlOnFhir.DWKeys_dfm import DW_KEYS_CONFIG
 from DSO.load.sync_configs import FHIR_SYNC_CONFIGS
 from DSO.load.sync_utils import (
     SyncTableConfig,
@@ -245,6 +246,10 @@ def _create_dso_sync_dfm(
     group_name: str = "fhir_dso_sync_dfm",
 ) -> dg.AssetsDefinition:
     config = FHIR_SYNC_CONFIGS[config_key]
+    deps = [f"sof_{sof_name}_dfm", "dso_infra_fhir"]
+    if sof_name in DW_KEYS_CONFIG:
+        # The dw-keys must be on the rows before they are synced.
+        deps.append(DW_KEYS_CONFIG[sof_name].asset_name)
 
     @dg.asset(
         name=f"dso_sync_fhir_{sof_name}_dfm",
@@ -253,7 +258,7 @@ def _create_dso_sync_dfm(
         # dso_infra_fhir applies the DSO fhir.* tables + their migrations (e.g.
         # the item_key occurrence-grain PK widening); depend on it so the MERGE
         # never runs against a stale target schema/PK.
-        deps=[f"sof_{sof_name}_dfm", "dso_infra_fhir"],
+        deps=deps,
         tags={"domain": "fhir", "layer": "dso_sync"},
         description=f"Sync fhir.{mssql_table} from staging to DSO (DFM upstream)",
     )

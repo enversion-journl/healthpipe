@@ -126,15 +126,8 @@ når alle 47 kilder er arkiveret af den aktuelle kørsel.
 | Manglende eller tom kilde | En manglende kildefil, eller en påkrævet `Dim*`-fil med 0 rækker, springer alle afhængige merges over. Ingen FK sættes til NULL, intet soft-slettes, og checkpointet flyttes ikke |
 | Paritet og merge-nøgle | Afvises før merge ved manglende 1:1-paritet eller dubletter |
 | Cutoff | En ældre cutoff end den senest arkiverede afvises før skrivninger |
-| Soft-delete | 0,5 % af de levende rækker, 3 % for markører og betalingsoplysninger; under 1.000 levende rækker gælder 1.000. Alle tabeller med identitetsnøgle tjekkes i `lpr3_archive_noegler`, før første merge, og hver tabel igen før sin egen merge |
 | Genindlæsning | Et fald i min eller antal distinkte `DW_ID_Audit_Insert` pr. tabel giver en advarsel, ikke en fejl |
 | Alder | `lpr3_leverance_alder` fejler, når den nyeste pakke på sharet er over 12 dage gammel |
-
-Soft-delete-grænserne bygger på U 2026-09-07 → M 2026-09-15: kontakter 0,06 %,
-procedurer 0,03 %, markører 1,33 % og betalingsoplysninger 0,23 % forsvundet.
-Fra M 2026-08-12 til M 2026-09-15 forsvandt 3,69 % af markørerne. En overgang mellem to
-månedsleverancer uden de mellemliggende ugeleverancer overskrider derfor markørgrænsen;
-se [Drift og genopretning](#drift-og-genopretning).
 
 ## Drift og genopretning
 
@@ -152,17 +145,6 @@ konsistent pr. tabel, og checkpointet flytter sig ikke.
 **Afvist leverance.** En leverance, der afvises af en vagt, er fortsat den nyeste efter
 checkpointet. Den daglige kørsel prøver den igen hver nat, indtil årsagen er løst, eller
 SDS leverer en nyere pakke, som så vælges i stedet. Stop schedulet, mens årsagen undersøges.
-
-**Pause i kørslerne.** Andelen af forsvundne rækker vokser med afstanden mellem arkivet
-og den valgte leverance. Efter en pause kan soft-delete-vagten derfor afvise den nyeste
-leverance, selv om den er korrekt. Der er to veje:
-
-1. Indhent de mellemliggende leverancer, der stadig ligger på sharet, med en pinnet
-   kørsel pr. leverance (`ops.lpr3_leverance_plan.config.delivery_on_or_before`). Den
-   efterfølgende normale kørsel vælger den nyeste leverance og flytter checkpointet.
-2. Kør med `ops.arc_lpr3_<tabel>.config.soft_delete_threshold` sat over det forventede
-   antal for de berørte tabeller, efter at antallet er forklaret. Værdien gælder kun det
-   run og læses også af forhåndstjekket i `lpr3_archive_noegler`.
 
 ## Implementering
 

@@ -19,7 +19,7 @@ import time
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, cast
 
 from core.partitions import is_first_partition as _is_first_partition
 from dagster import AssetExecutionContext
@@ -357,6 +357,7 @@ def _is_valid_for_type(
                     if col_precision is not None:
                         sign, digits, exp = d.as_tuple()
                         num_digits = len(digits)
+                        exp = cast(int, exp)
                         scale = -exp if exp < 0 else 0
                         integer_digits = num_digits - scale
                         allowed_integer = col_precision - (col_scale or 0)
@@ -932,7 +933,7 @@ class MssqlExtractor(SqlExtractor):
         if is_scheduled_catchup:
             self.context.log.info("Running in SCHEDULED CATCHUP mode: Extracting 25-hour window.")
 
-        first_partition = bool(partition_key) and _is_first_partition(partition_key)
+        first_partition = bool(partition_key and _is_first_partition(partition_key))
         if first_partition:
             self.context.log.info(
                 f"First partition detected ({partition_key}): using upper-bound-only filtering "
@@ -1045,7 +1046,7 @@ class MssqlExtractor(SqlExtractor):
         self, config, partition_key: str | None, partition_type: str
     ) -> ExtractResult:
         is_scheduled_catchup = _detect_scheduled_catchup(self.context)
-        first_partition = bool(partition_key) and _is_first_partition(partition_key)
+        first_partition = bool(partition_key and _is_first_partition(partition_key))
 
         columns_info, column_names = get_table_columns_info(self.source_conn, config)
 
@@ -1099,7 +1100,7 @@ class MssqlExtractor(SqlExtractor):
             )
 
         is_scheduled_catchup = _detect_scheduled_catchup(self.context)
-        first_partition = bool(partition_key) and _is_first_partition(partition_key)
+        first_partition = bool(partition_key and _is_first_partition(partition_key))
 
         columns_info, column_names = get_table_columns_info(self.source_conn, config)
 
@@ -1208,7 +1209,7 @@ class MssqlExtractor(SqlExtractor):
         columns_info, column_names = get_table_columns_info(self.source_conn, config)
         source_cursor = self.source_conn.cursor()
         try:
-            first_partition = bool(partition_key) and _is_first_partition(partition_key)
+            first_partition = bool(partition_key and _is_first_partition(partition_key))
 
             where_clause = self._resolve_where_clause(
                 config,

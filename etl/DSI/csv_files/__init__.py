@@ -14,7 +14,7 @@ from DSI.csv_files.lpr3 import lpr3_extract_assets
 from DSI.csv_files.lpr3_archive import lpr3_archive_assets
 from DSI.csv_files.haiba import haiba_assets
 from DSI.csv_files.haiba_archive import haiba_archive_assets
-from DSI.csv_files.os2mo import os2mo_assets
+from DSI.csv_files.conceptmap_csv import conceptmap_csv_assets
 from DSI.csv_files.shaksor_map import extract_shak_register
 from DSI.csv_files.silkeborgdata_e26_pers import extract_silkeborgdata_e26_pers
 from DSI.csv_files.silkeborgdata_e26_pers_archive import arc_silkeborgdata_e26_pers
@@ -25,7 +25,7 @@ from DSI.csv_files.udredningsret import udredningsret_extract_assets
 from DSI.csv_files.udredningsret_archive import udredningsret_archive_assets
 
 all_extract_assets = [
-    *os2mo_assets,
+    *conceptmap_csv_assets,
     *cpr_extract_assets,
     *cpr_archive_assets,
     *haiba_assets,

@@ -35,11 +35,6 @@ buys nothing here.
 """
 
 import dagster as dg
-from core.etl_thresholds import (
-    SoftDeleteThresholdConfig,
-    check_soft_delete_threshold,
-    get_soft_delete_threshold,
-)
 from core.resources import MSSQLResource
 
 
@@ -58,7 +53,6 @@ from core.resources import MSSQLResource
 def ref_organisation(
     context: dg.AssetExecutionContext,
     mssql_target_staging: MSSQLResource,
-    config: SoftDeleteThresholdConfig,
 ) -> dg.MaterializeResult:
     """Build / refresh ref.Organisation from fhir.Organization."""
 
@@ -66,9 +60,6 @@ def ref_organisation(
         cursor = conn.cursor()
         try:
             context.log.info("Merging identifiers from fhir.Organization into ref.Organisation...")
-
-            cursor.execute("SELECT COUNT(*) FROM [ref].[Organisation] WHERE dw_is_deleted = 0")
-            live_before = cursor.fetchone()[0]
 
             # (1) fhir says deleted. Deletions only — the MERGE resurrects, so that
             # a cleared flag and a corrected sor_code land in the same statement.
@@ -156,13 +147,6 @@ def ref_organisation(
             merge_affected = cursor.rowcount
 
             soft_deleted = flag_deletes + unidentified_deletes + anti_join_deleted
-            check_soft_delete_threshold(
-                "ref.Organisation",
-                soft_deleted,
-                context,
-                override=config.soft_delete_threshold,
-                live_row_count=live_before,
-            )
 
             conn.commit()
 
@@ -188,9 +172,6 @@ def ref_organisation(
             "flag_deletes": flag_deletes,
             "unidentified_deletes": unidentified_deletes,
             "anti_join_deleted": anti_join_deleted,
-            "threshold": get_soft_delete_threshold(
-                "ref.Organisation", config.soft_delete_threshold
-            ),
             "total_rows": total_rows,
             "deleted_rows_total": deleted_total,
             "table": "ref.Organisation",

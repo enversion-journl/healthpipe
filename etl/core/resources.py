@@ -29,7 +29,16 @@ from core.fhir import identifier_lookup as _identifier_lookup
 from core.fhir.aidbox_json import (
     transform_references_for_aidbox as _transform_references_for_aidbox,
 )
-from core.parallel import env_int
+from core.os2mo.client import (
+    DEFAULT_FILE_STORE as _OS2MO_DEFAULT_FILE_STORE,
+)
+from core.os2mo.client import (
+    DEFAULT_GRAPHQL_VERSION as _OS2MO_DEFAULT_GRAPHQL_VERSION,
+)
+from core.os2mo.client import (
+    OS2moClient as _OS2moClient,
+)
+from core.parallel import env_bool, env_int
 from dotenv import load_dotenv
 
 # Try to import psycopg for PostgreSQL support
@@ -71,7 +80,7 @@ try:
 
     MSSQL_PYTHON_AVAILABLE = True
 except ImportError:
-    mssql_python = None
+    mssql_python = None  # type: ignore[assignment]
     MSSQL_PYTHON_AVAILABLE = False
 
 
@@ -167,10 +176,10 @@ class MySupplyMSSQLResource(dg.ConfigurableResource):
     Uses mssql-python for extraction.
     """
 
-    host: str = dg.EnvVar("MYSUPPLY_PROD_MSSQL_SERVER").get_value()
-    port: int = int(dg.EnvVar("MYSUPPLY_PROD_MSSQL_PORT").get_value())
-    database: str = dg.EnvVar("MYSUPPLY_PROD_MSSQL_DATABASE").get_value()
-    user: str = dg.EnvVar("MYSUPPLY_PROD_MSSQL_USERNAME").get_value()
+    host: str = dg.EnvVar("MYSUPPLY_PROD_MSSQL_SERVER")
+    port: int = dg.EnvVar.int("MYSUPPLY_PROD_MSSQL_PORT")
+    database: str = dg.EnvVar("MYSUPPLY_PROD_MSSQL_DATABASE")
+    user: str = dg.EnvVar("MYSUPPLY_PROD_MSSQL_USERNAME")
     password: str = dg.EnvVar("MYSUPPLY_PROD_MSSQL_PASSWORD")
 
     @contextmanager
@@ -193,10 +202,10 @@ class SydaxMSSQLResource(dg.ConfigurableResource):
     Uses mssql-python for extraction.
     """
 
-    host: str = dg.EnvVar("SYDAX_PROD_MSSQL_SERVER").get_value()
-    port: int = int(dg.EnvVar("SYDAX_PROD_MSSQL_PORT").get_value())
-    database: str = dg.EnvVar("SYDAX_PROD_MSSQL_DATABASE").get_value()
-    user: str = dg.EnvVar("SYDAX_PROD_MSSQL_USERNAME").get_value()
+    host: str = dg.EnvVar("SYDAX_PROD_MSSQL_SERVER")
+    port: int = dg.EnvVar.int("SYDAX_PROD_MSSQL_PORT")
+    database: str = dg.EnvVar("SYDAX_PROD_MSSQL_DATABASE")
+    user: str = dg.EnvVar("SYDAX_PROD_MSSQL_USERNAME")
     password: str = dg.EnvVar("SYDAX_PROD_MSSQL_PASSWORD")
 
     @contextmanager
@@ -216,23 +225,20 @@ class SydaxMSSQLResource(dg.ConfigurableResource):
 class ILSMSSQLResource(dg.ConfigurableResource):
     """A Dagster resource for connecting to the ILS Microsoft SQL Server database."""
 
-    host: str = dg.EnvVar("ILS_PROD_MSSQL_SERVER").get_value()
-    port: int = int(dg.EnvVar("ILS_PROD_MSSQL_PORT").get_value())
-    database: str = dg.EnvVar("ILS_PROD_MSSQL_DATABASE").get_value()
-    user: str = dg.EnvVar("ILS_PROD_MSSQL_USERNAME").get_value()
+    host: str = dg.EnvVar("ILS_PROD_MSSQL_SERVER")
+    port: int = dg.EnvVar.int("ILS_PROD_MSSQL_PORT")
+    database: str = dg.EnvVar("ILS_PROD_MSSQL_DATABASE")
+    user: str = dg.EnvVar("ILS_PROD_MSSQL_USERNAME")
     password: str = dg.EnvVar("ILS_PROD_MSSQL_PASSWORD")
 
     @contextmanager
     def get_connection(self):
         """A context manager that yields a pymssql database connection and closes it when exiting."""
-        password = self.password
-        if hasattr(password, "get_value"):
-            password = password.get_value()
         conn = pymssql.connect(
             server=self.host,
             port=self.port,
             user=self.user,
-            password=password,
+            password=self.password,
             database=self.database,
         )
         try:
@@ -249,10 +255,10 @@ class KmdUddataMSSQLResource(dg.ConfigurableResource):
     level handles transient connection failures.
     """
 
-    host: str = os.environ.get("SPEND_KMD_MSSQL_SERVER", "")
-    port: int = int(os.environ.get("SPEND_KMD_MSSQL_PORT", "1433"))
-    database: str = os.environ.get("SPEND_KMD_MSSQL_DATABASE", "")
-    user: str = os.environ.get("SPEND_KMD_MSSQL_USER", "")
+    host: str = dg.EnvVar("SPEND_KMD_MSSQL_SERVER")
+    port: int = dg.EnvVar.int("SPEND_KMD_MSSQL_PORT")
+    database: str = dg.EnvVar("SPEND_KMD_MSSQL_DATABASE")
+    user: str = dg.EnvVar("SPEND_KMD_MSSQL_USER")
     password: str = dg.EnvVar("SPEND_KMD_MSSQL_PASSWORD")
 
     @contextmanager
@@ -413,15 +419,12 @@ class IFDBOracleResource(dg.ConfigurableResource):
     Encoding: Uses UTF-8 encoding to properly handle Danish characters (æ, ø, å).
     """
 
-    host: str = dg.EnvVar("IFDB_PROD_ORACLE_SERVER").get_value()
-    port: int = int(dg.EnvVar("IFDB_PROD_ORACLE_PORT").get_value())
-    database: str = dg.EnvVar("IFDB_PROD_ORACLE_DATABASE").get_value()
-    user: str = dg.EnvVar("IFDB_PROD_ORACLE_USERNAME").get_value()
+    host: str = dg.EnvVar("IFDB_PROD_ORACLE_SERVER")
+    port: int = dg.EnvVar.int("IFDB_PROD_ORACLE_PORT")
+    database: str = dg.EnvVar("IFDB_PROD_ORACLE_DATABASE")
+    user: str = dg.EnvVar("IFDB_PROD_ORACLE_USERNAME")
     password: str = dg.EnvVar("IFDB_PROD_ORACLE_PASSWORD")
-    schema_name: str = dg.EnvVar("IFDB_PROD_ORACLE_SCHEMA").get_value()
-
-    if "ext" in user.lower() and '"' not in user:
-        user = f'"{user}"'
+    schema_name: str = dg.EnvVar("IFDB_PROD_ORACLE_SCHEMA")
 
     @contextmanager
     def get_connection(self):
@@ -432,8 +435,11 @@ class IFDBOracleResource(dg.ConfigurableResource):
         Encoding: Uses output type handler to properly decode Danish characters (æ, ø, å).
         The IFDB database uses WE8MSWIN1252 (Windows-1252) character set.
         """
+        user = self.user
+        if "ext" in user.lower() and '"' not in user:
+            user = f'"{user}"'
         dsn = oracledb.makedsn(self.host, self.port, service_name=self.database)
-        conn = oracledb.connect(user=self.user, password=self.password, dsn=dsn)
+        conn = oracledb.connect(user=user, password=self.password, dsn=dsn)
         conn.outputtypehandler = _ifdb_oracle_output_type_handler
 
         try:
@@ -594,9 +600,9 @@ class FHIRServerResource(dg.ConfigurableResource):
         """Returns the base URL with /fhir appended if USE_FHIR_API is true.
 
         Raises:
-            ValueError: If base_url is not configured (e.g., "NOT SET")
+            ValueError: If base_url is empty
         """
-        if self.base_url == "NOT SET" or not self.base_url:
+        if not self.base_url:
             raise ValueError(
                 "FHIR_SERVER_URL is not configured. "
                 "Set FHIR_SERVER_URL in your .env; the local devcontainer reaches "
@@ -879,7 +885,7 @@ class FHIRServerResource(dg.ConfigurableResource):
         Uses pagination to get all resources.
         """
         resources = []
-        url = f"{self.effective_base_url}/{resource_type}"
+        url: str | None = f"{self.effective_base_url}/{resource_type}"
         params = {
             "_count": str(batch_size),
             "_elements": "id,meta",
@@ -1012,7 +1018,7 @@ class FHIRServerResource(dg.ConfigurableResource):
 
             # Build FHIR Bundle
             start_time = time.perf_counter()
-            bundle = {
+            bundle: dict[str, Any] = {
                 "resourceType": "Bundle",
                 "type": bundle_type,
                 "entry": [],
@@ -1087,7 +1093,7 @@ class FHIRServerResource(dg.ConfigurableResource):
 
             # Submit chunk with retries
             response = None
-            last_error = None
+            last_error: requests.RequestException | None = None
             chunk_retry_backoff = retry_backoff_sec  # Local copy for this chunk
 
             for attempt in range(max_retries + 1):  # +1 for initial attempt
@@ -1455,7 +1461,7 @@ class FHIRServerResource(dg.ConfigurableResource):
             )
 
             # Build FHIR Batch Bundle (for read operations)
-            bundle = {
+            bundle: dict[str, Any] = {
                 "resourceType": "Bundle",
                 "type": "batch",
                 "entry": [],
@@ -1760,7 +1766,7 @@ class FHIRServerResource(dg.ConfigurableResource):
             )
 
             # Build FHIR Bundle for deletion
-            bundle = {
+            bundle: dict[str, Any] = {
                 "resourceType": "Bundle",
                 "type": bundle_type,
                 "entry": [],
@@ -1779,7 +1785,7 @@ class FHIRServerResource(dg.ConfigurableResource):
 
             # Submit chunk with retries
             response = None
-            last_error = None
+            last_error: requests.RequestException | None = None
 
             for attempt in range(max_retries + 1):  # +1 for initial attempt
                 try:
@@ -1868,13 +1874,19 @@ def get_linked_server_config() -> dict[str, str]:
     Canonical variables (MSSQL_LINKED_SERVER_*) take precedence.
     Falls back to MSSQL_SOURCE_STAGING_* for backward compatibility.
     """
-    host = os.getenv("MSSQL_LINKED_SERVER_HOST") or os.getenv(
+    host = os.getenv("MSSQL_LINKED_SERVER_HOST") or os.environ.get(
         "MSSQL_SOURCE_STAGING_HOST", "localhost"
     )
-    port = os.getenv("MSSQL_LINKED_SERVER_PORT") or os.getenv("MSSQL_SOURCE_STAGING_PORT", "1433")
-    database = os.getenv("MSSQL_LINKED_SERVER_DB") or os.getenv("MSSQL_SOURCE_STAGING_DB", "DW")
-    user = os.getenv("MSSQL_LINKED_SERVER_USER") or os.getenv("MSSQL_SOURCE_STAGING_USER", "sa")
-    password = os.getenv("MSSQL_LINKED_SERVER_PASSWORD") or os.getenv(
+    port = os.getenv("MSSQL_LINKED_SERVER_PORT") or os.environ.get(
+        "MSSQL_SOURCE_STAGING_PORT", "1433"
+    )
+    database = os.getenv("MSSQL_LINKED_SERVER_DB") or os.environ.get(
+        "MSSQL_SOURCE_STAGING_DB", "DW"
+    )
+    user = os.getenv("MSSQL_LINKED_SERVER_USER") or os.environ.get(
+        "MSSQL_SOURCE_STAGING_USER", "sa"
+    )
+    password = os.getenv("MSSQL_LINKED_SERVER_PASSWORD") or os.environ.get(
         "MSSQL_SOURCE_STAGING_PASSWORD", ""
     )
     name = os.getenv("MSSQL_LINKED_SERVER_NAME", "STAGING_LINK")
@@ -1888,6 +1900,7 @@ def get_linked_server_config() -> dict[str, str]:
         "password": password,
         "name": name,
         "datasrc": datasrc,
+        "provstr": os.getenv("MSSQL_LINKED_SERVER_PROVSTR", ""),
     }
 
 
@@ -1919,18 +1932,18 @@ def mssql_defs() -> dg.Definitions:
     # ========================================
 
     mssql_source_staging = MSSQLResource(
-        host=os.getenv("MSSQL_SOURCE_STAGING_HOST", "localhost"),
-        port=int(os.getenv("MSSQL_SOURCE_STAGING_PORT", "1433")),
-        database=os.getenv("MSSQL_SOURCE_STAGING_DB", "DW"),
-        user=os.getenv("MSSQL_SOURCE_STAGING_USER", "sa"),
+        host=dg.EnvVar("MSSQL_SOURCE_STAGING_HOST"),
+        port=dg.EnvVar.int("MSSQL_SOURCE_STAGING_PORT"),
+        database=dg.EnvVar("MSSQL_SOURCE_STAGING_DB"),
+        user=dg.EnvVar("MSSQL_SOURCE_STAGING_USER"),
         password=dg.EnvVar("MSSQL_SOURCE_STAGING_PASSWORD"),
     )
 
     mssql_target_staging = MSSQLResource(
-        host=os.getenv("MSSQL_TARGET_STAGING_HOST", "localhost"),
-        port=int(os.getenv("MSSQL_TARGET_STAGING_PORT", "1433")),
-        database=os.getenv("MSSQL_TARGET_STAGING_DB", "DW"),
-        user=os.getenv("MSSQL_TARGET_STAGING_USER", "sa"),
+        host=dg.EnvVar("MSSQL_TARGET_STAGING_HOST"),
+        port=dg.EnvVar.int("MSSQL_TARGET_STAGING_PORT"),
+        database=dg.EnvVar("MSSQL_TARGET_STAGING_DB"),
+        user=dg.EnvVar("MSSQL_TARGET_STAGING_USER"),
         password=dg.EnvVar("MSSQL_TARGET_STAGING_PASSWORD"),
     )
 
@@ -1938,21 +1951,19 @@ def mssql_defs() -> dg.Definitions:
     # DSO Database Resources (Reporting Layer)
     # ========================================
 
-    dso_host = os.getenv("MSSQL_SOURCE_DSO_HOST", "localhost")
-
     mssql_source_dso = MSSQLResource(
-        host=dso_host,
-        port=int(os.getenv("MSSQL_SOURCE_DSO_PORT", "1433")),
-        database=os.getenv("MSSQL_SOURCE_DSO_DB", "DW"),
-        user=os.getenv("MSSQL_SOURCE_DSO_USER", "sa"),
+        host=dg.EnvVar("MSSQL_SOURCE_DSO_HOST"),
+        port=dg.EnvVar.int("MSSQL_SOURCE_DSO_PORT"),
+        database=dg.EnvVar("MSSQL_SOURCE_DSO_DB"),
+        user=dg.EnvVar("MSSQL_SOURCE_DSO_USER"),
         password=dg.EnvVar("MSSQL_SOURCE_DSO_PASSWORD"),
     )
 
     mssql_target_dso = MSSQLResource(
-        host=os.getenv("MSSQL_TARGET_DSO_HOST", "localhost"),
-        port=int(os.getenv("MSSQL_TARGET_DSO_PORT", "1433")),
-        database=os.getenv("MSSQL_TARGET_DSO_DB", "DW"),
-        user=os.getenv("MSSQL_TARGET_DSO_USER", "sa"),
+        host=dg.EnvVar("MSSQL_TARGET_DSO_HOST"),
+        port=dg.EnvVar.int("MSSQL_TARGET_DSO_PORT"),
+        database=dg.EnvVar("MSSQL_TARGET_DSO_DB"),
+        user=dg.EnvVar("MSSQL_TARGET_DSO_USER"),
         password=dg.EnvVar("MSSQL_TARGET_DSO_PASSWORD"),
     )
 
@@ -1981,7 +1992,7 @@ SqliteIdentifierCache = SharedIdentifierCache
 # Concrete lookup backends used by cache consumers. Keeping this alias explicit
 # avoids the extra Protocol class indirection while still documenting the
 # supported runtime types.
-IdentifierLookup = SharedIdentifierCache | dict[tuple[str, str], str]
+type IdentifierLookup = SharedIdentifierCache | dict[tuple[str, str], str]
 IdentifierLookupSpec = tuple[str, list[str] | None]
 
 
@@ -2001,11 +2012,11 @@ class FHIRDatabaseResource(dg.ConfigurableResource):
     This is significantly faster for batch ID resolution operations.
     """
 
-    host: str = os.getenv("PG_FHIR_HOST", "fhir-server-db")
-    port: int = env_int("PG_FHIR_PORT", 5432, minimum=1)
-    database: str = os.getenv("PG_FHIR_DATABASE", "aidbox")
-    user: str = os.getenv("PG_FHIR_USER", "postgres_user")
-    password: str = os.getenv("PG_FHIR_PASSWORD", "postgres_password")
+    host: str = dg.EnvVar("PG_FHIR_HOST")
+    port: int = dg.EnvVar.int("PG_FHIR_PORT")
+    database: str = dg.EnvVar("PG_FHIR_DATABASE")
+    user: str = dg.EnvVar("PG_FHIR_USER")
+    password: str = dg.EnvVar("PG_FHIR_PASSWORD")
 
     def __init__(self, **data):
         """Initialize resource."""
@@ -2047,7 +2058,7 @@ class FHIRDatabaseResource(dg.ConfigurableResource):
             psycopg.Connection: Database connection
 
         Raises:
-            ValueError: If host is not configured (e.g., "NOT SET")
+            ValueError: If host is empty
             ImportError: If psycopg is not available
         """
         if not PSYCOPG_AVAILABLE:
@@ -2056,7 +2067,7 @@ class FHIRDatabaseResource(dg.ConfigurableResource):
                 "Install with: pip install 'psycopg[binary]>=3.1,<4'"
             )
 
-        if self.host == "NOT SET" or not self.host:
+        if not self.host:
             raise ValueError(
                 "PG_FHIR_HOST is not configured. "
                 "Set PG_FHIR_HOST (and PG_FHIR_PORT/USER/PASSWORD/DATABASE) in your .env; "
@@ -2642,7 +2653,8 @@ class FHIRDatabaseResource(dg.ConfigurableResource):
             resource_type=resource_type,
             batch_size=batch_size,
             invalidate_cache=invalidate_cache,
-            **({"identity_safe": True, "create_only": create_only} if identity_safe else {}),
+            identity_safe=identity_safe,
+            create_only=create_only,
         )
 
     def batch_upsert_resource_dicts(
@@ -2762,17 +2774,143 @@ def fhir_defs() -> dg.Definitions:
     return dg.Definitions(
         resources={
             "fhir_server": FHIRServerResource(
-                base_url=os.getenv("FHIR_SERVER_URL", "NOT SET"),
-                client_username=os.getenv("FHIR_CLIENT_USERNAME", "NOT SET"),
+                base_url=dg.EnvVar("FHIR_SERVER_URL"),
+                client_username=dg.EnvVar("FHIR_CLIENT_USERNAME"),
                 client_password=dg.EnvVar("FHIR_CLIENT_PASSWORD"),
                 use_fhir_api=use_fhir_api,
             ),
-            "fhir_database": FHIRDatabaseResource(
-                host=os.getenv("PG_FHIR_HOST", "NOT SET"),
-                port=env_int("PG_FHIR_PORT", 5432, minimum=1),
-                database=os.getenv("PG_FHIR_DATABASE", "NOT SET"),
-                user=os.getenv("PG_FHIR_USER", "NOT SET"),
-                password=dg.EnvVar("PG_FHIR_PASSWORD"),
+            "fhir_database": FHIRDatabaseResource(),
+        }
+    )
+
+
+class OS2moResource(dg.ConfigurableResource):
+    """Dagster resource for the OS2mo (Magenta) GraphQL API.
+
+    A thin facade over :class:`core.os2mo.client.OS2moClient` — the same split
+    as ``FHIRDatabaseResource`` over ``core.fhir.direct_upsert`` — so both the
+    outgoing file delivery (codesystems -> OS2mo) and the incoming extract
+    (OS2mo -> ext.*) speak to Magenta through one configured transport.
+
+    ``enabled`` is the deployment kill switch: the devcontainer and CI run with
+    OS2MO_ENABLED=false so nothing can accidentally write to Magenta from a
+    developer machine.
+    """
+
+    base_url: str = "NOT SET"
+    graphql_version: str = _OS2MO_DEFAULT_GRAPHQL_VERSION
+    # The Keycloak realm root. The token endpoint is read from its .well-known
+    # document, so the realm is the only auth path a deployment configures.
+    realm_url: str = "NOT SET"
+    client_id: str = "NOT SET"
+    client_secret: str | None = None
+    enabled: bool = False
+    timeout_sec: int = 120
+    max_retries: int = 3
+
+    def __init__(self, **data):
+        """Initialize the resource and set up the lazily built client."""
+        super().__init__(**data)
+        self._client: _OS2moClient | None = None
+
+    @property
+    def client(self) -> _OS2moClient:
+        """The underlying transport, built once per resource instance."""
+        if self._client is None:
+            self._client = _OS2moClient(
+                base_url=self.base_url,
+                graphql_version=self.graphql_version,
+                realm_url=self.realm_url,
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+                timeout_sec=self.timeout_sec,
+                max_retries=self.max_retries,
+            )
+        return self._client
+
+    @property
+    def graphql_url(self) -> str:
+        """The pinned ``/graphql/vNN`` endpoint this resource talks to."""
+        return self.client.graphql_url
+
+    def ensure_enabled(self) -> None:
+        """Fail loudly when an asset tries to reach OS2mo in a disabled deployment.
+
+        Raises:
+            dagster.Failure: when OS2MO_ENABLED is not set for this deployment.
+        """
+        if not self.enabled:
+            raise dg.Failure(
+                description=(
+                    "OS2mo access is disabled in this deployment "
+                    "(OS2MO_ENABLED=false). Set it as a Nomad variable where "
+                    "OS2mo is reachable; an upload can still run with dry_run=true."
+                )
+            )
+
+    def upload_file(
+        self,
+        filename: str,
+        content: bytes,
+        file_store: str = _OS2MO_DEFAULT_FILE_STORE,
+        force: bool = True,
+    ) -> dict[str, Any]:
+        """Upload a file to OS2mo's file store — the only write we make there."""
+        self.ensure_enabled()
+        return self.client.upload_file(filename, content, file_store=file_store, force=force)
+
+    def paginate(
+        self,
+        document: str,
+        variables: dict[str, Any],
+        extract: Any,
+        operation: str | None = None,
+    ) -> Iterator[dict[str, Any]]:
+        """Yield every object across OS2mo's cursor pagination."""
+        self.ensure_enabled()
+        return self.client.paginate(document, variables, extract, operation=operation)
+
+
+def os2mo_defs() -> dg.Definitions:
+    """
+    Defines the OS2mo resource, making it available to assets.
+
+    Configuration comes from environment variables the way the database
+    resources do: hosts and ids through ``os.getenv``, the secret through
+    ``dg.EnvVar`` so it stays a Dagster secret reference until run time. In
+    production these are Nomad variables (see the healthpipe-infrastructure repo).
+    """
+    return dg.Definitions(
+        resources={
+            "os2mo": OS2moResource(
+                base_url=os.getenv("OS2MO_BASE_URL", "NOT SET"),
+                # `or`, not a getenv default: the deployment forwards an unseeded key as "".
+                graphql_version=(
+                    os.getenv("OS2MO_GRAPHQL_VERSION") or _OS2MO_DEFAULT_GRAPHQL_VERSION
+                ),
+                realm_url=os.getenv("OS2MO_KEYCLOAK_REALM_URL", "NOT SET"),
+                client_id=os.getenv("OS2MO_CLIENT_ID", "NOT SET"),
+                # Optional: dg.EnvVar raises on an unset variable, and a deployment
+                # without OS2mo must still load and dry-run.
+                client_secret=(
+                    dg.EnvVar("OS2MO_CLIENT_SECRET")
+                    if "OS2MO_CLIENT_SECRET" in os.environ
+                    else None
+                ),
+                enabled=env_bool("OS2MO_ENABLED", False),
+                timeout_sec=env_int("OS2MO_TIMEOUT_SEC", 120, minimum=1),
+                max_retries=env_int("OS2MO_MAX_RETRIES", 3, minimum=0),
             ),
         }
     )
+
+
+def missing_resource_env_vars(resources: Mapping[str, Any]) -> list[str]:
+    """Sorted names of the unset or empty environment variables behind dg.EnvVar fields."""
+    names = {
+        value.env_var_name
+        for resource in resources.values()
+        for field in getattr(type(resource), "model_fields", {})
+        if hasattr(value := getattr(resource, field), "env_var_name")
+    }
+    return sorted(name for name in names if not os.environ.get(name))

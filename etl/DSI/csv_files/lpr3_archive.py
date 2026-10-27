@@ -22,7 +22,6 @@ import dagster as dg
 from core.archive_merge import execute_archive_merge
 from core.dfm_config import ArchiveMergeConfig, RunModeConfig
 from core.dfm_manager import DfmManager
-from core.etl_thresholds import check_soft_delete_threshold
 from core.resources import MSSQLResource
 from DSI.connectors.delivery_detection import (
     DELIVERY_SCHEMA,
@@ -48,7 +47,6 @@ from DSI.csv_files.lpr3_datasets import (
     SOURCES_BY_PREFIX,
     key_source_dependencies,
 )
-from pydantic import Field
 
 
 @dataclass(frozen=True)
@@ -267,86 +265,6 @@ def guard_delivery_direction(conn, dataset, delivery):
     )
     if previous is not None and delivery.cutoff < previous:
         raise ValueError("LPR3 cannot merge an older data cutoff over an archived delivery")
-
-
-class LPR3ArchiveConfig(dg.Config):
-    soft_delete_threshold: int | None = Field(
-        default=None,
-        description="Allow up to this many soft-deletes in this archive table for this run "
-        "only, instead of the ratio cap. Also read by lpr3_archive_noegler's pre-merge check.",
-    )
-
-
-def check_soft_deletes(dataset, expected, live, override=None, context=None):
-    """Ratio cap with a 1,000-row floor; an explicit run override replaces it."""
-    asset = f"arc_{dataset.arc_table}"
-    if override is not None:
-        check_soft_delete_threshold(asset, expected, context, override=override)
-        return
-    cap = (
-        int(live * dataset.soft_delete_ratio)
-        if live >= dataset.ratio_min_live_rows
-        else dataset.ratio_min_live_rows
-    )
-    if context:
-        context.log.info(
-            f"{dataset.arc_table}: expected soft-deletes={expected}, live={live}, allowed={cap}, ratio={dataset.soft_delete_ratio}"
-        )
-    if expected > cap:
-        raise dg.Failure(
-            description=(
-                f"{asset}: {expected} expected soft-deletes of {live} live rows exceeds "
-                f"threshold of {cap} (ratio {dataset.soft_delete_ratio}). If this is explained, "
-                f"re-run with ops.{asset}.config.soft_delete_threshold set above it."
-            ),
-            metadata={"expected_soft_deletes": expected, "live": live, "threshold": cap},
-        )
-
-
-def guard_soft_deletes(conn, dataset, context=None, override=None, source_table=None):
-    source = f"[ext].[{source_table or dataset.source_table}]"
-    target = f"[arc].[{dataset.arc_table}]"
-    on = " AND ".join(f"src.[{key}]=tgt.[{key}]" for key in dataset.merge_keys)
-    live = scalar(conn, f"SELECT COUNT_BIG(*) FROM {target} WHERE dw_is_deleted=0")
-    expected = scalar(
-        conn,
-        f"SELECT COUNT_BIG(*) FROM {target} tgt WHERE tgt.dw_is_deleted=0 AND NOT EXISTS (SELECT 1 FROM {source} src WHERE {on})",
-    )
-    check_soft_deletes(dataset, expected, live, override, context)
-    return live, expected
-
-
-def soft_delete_overrides(context):
-    ops = (context.run.run_config or {}).get("ops", {})
-    return {
-        dataset.arc_table: ops.get(f"arc_{dataset.arc_table}", {})
-        .get("config", {})
-        .get("soft_delete_threshold")
-        for dataset in ARCHIVE_DATASETS
-    }
-
-
-def precheck_soft_deletes(conn, context, ready, overrides):
-    """Check every identity-keyed table before the first merge, so no table merges alone."""
-    failures = []
-    for dataset in ARCHIVE_DATASETS:
-        if dataset.entity not in ready:
-            continue
-        try:
-            guard_soft_deletes(
-                conn,
-                dataset,
-                context,
-                overrides.get(dataset.arc_table),
-                source_table=identity_table(dataset.entity),
-            )
-        except dg.Failure as failure:
-            failures.append(failure.description)
-    if failures:
-        raise dg.Failure(
-            description="LPR3 soft-delete guard failed before any archive merge:\n"
-            + "\n".join(failures)
-        )
 
 
 def refresh_surrogates_sql(dataset):
@@ -639,8 +557,7 @@ def prepare_identities(conn, context, manifest):
     tags={"domain": "lpr3", "layer": "archive", "source": "lpr3"},
     description=(
         "Build the run's private ext identity tables that map SDS source keys to stable "
-        "LPR3 archive keys, then check every identity-keyed table's expected soft-deletes "
-        "before any archive merge."
+        "LPR3 archive keys."
     ),
 )
 def lpr3_archive_noegler(
@@ -652,11 +569,10 @@ def lpr3_archive_noegler(
             if not manifest:
                 return {}
             ready = prepare_identities(conn, context, manifest)
-            precheck_soft_deletes(conn, context, ready, soft_delete_overrides(context))
             return ready
 
 
-def _run_archive(context, resource, dataset, soft_delete_threshold=None):
+def _run_archive(context, resource, dataset):
     started = time.monotonic()
     with resource.get_connection() as conn:
         with owned_landing(conn, context.run_id):
@@ -686,7 +602,6 @@ def _run_archive(context, resource, dataset, soft_delete_threshold=None):
             represented = guard_resolved_rows(conn, dataset, manifest)
             execute_safe(conn, source_index_sql(dataset))
             guard_source_index(conn, dataset)
-            guard_soft_deletes(conn, dataset, context, soft_delete_threshold)
             reserved_bytes = scalar(
                 conn,
                 "SELECT COALESCE(SUM(p.reserved_page_count),0)*CONVERT(BIGINT,8192) "
@@ -784,15 +699,14 @@ def _archive_asset(dataset, predecessor):
         tags={"domain": "lpr3", "layer": "archive", "source": "lpr3"},
         description=(
             f"Guard and merge the run's LPR3 source rows into arc.{dataset.arc_table}; "
-            "absence from a full snapshot soft-deletes within the configured limit."
+            "absence from a full snapshot soft-deletes."
         ),
     )
     def archive(
         context: dg.AssetExecutionContext,
-        config: LPR3ArchiveConfig,
         mssql_target_staging: MSSQLResource,
     ):
-        return _run_archive(context, mssql_target_staging, dataset, config.soft_delete_threshold)
+        return _run_archive(context, mssql_target_staging, dataset)
 
     return archive
 

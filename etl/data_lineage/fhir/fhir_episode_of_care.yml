@@ -23,8 +23,8 @@ dso_lineage:
     status:                      { DataType: NVARCHAR(50), FhirPath: "status", Source: [ifdb.IFDB.EPISODE_OF_CARE.STATUS] }
     type_code:                   { DataType: NVARCHAR(255), FhirPath: "type.coding.code" }
     type_display:                { DataType: NVARCHAR(500), FhirPath: "type.coding.display" }
-    period_start:                { DataType: NVARCHAR(50), FhirPath: "period.start", Source: [ifdb.IFDB.EPISODE_OF_CARE.PERIOD_START] }
-    period_end:                  { DataType: NVARCHAR(50), FhirPath: "period.end", Source: [ifdb.IFDB.EPISODE_OF_CARE.PERIOD_END] }
+    period_start:                { DataType: DATETIME2(0), FhirPath: "period.start", Source: [ifdb.IFDB.EPISODE_OF_CARE.PERIOD_START], Description: "Forløbets start i dansk lokaltid." }
+    period_end:                  { DataType: DATETIME2(0), FhirPath: "period.end", Source: [ifdb.IFDB.EPISODE_OF_CARE.PERIOD_END], Description: "Forløbets slut i dansk lokaltid. NULL for et åbent forløb." }
     previous_episode_of_care_id: { DataType: NVARCHAR(255), FhirPath: "extension.where(url='...previousEpisodeOfCare').valueReference.id", FK-Target: fhir.EpisodeOfCare, FK-Key: episode_of_care_id, FK-Required: false, Description: "FHIR-tildelt EpisodeOfCare-reference (Aidbox UUID) — resolver-tildelt ved posting ud fra IFDB.EPISODE_OF_CARE.PREVIOUS_EOC_ID; ikke direkte projiceret fra kilden." }
     previous_eoc_ref_type_code:  { DataType: NVARCHAR(255), FhirPath: "extension.where(url='urn:source:ifdb:previous_eoc_ref_type_code').valueString", Source: [ifdb.IFDB.EPISODE_OF_CARE.PREVIOUS_EOC_REF_TYPE_CODE] }
     healthissue_id:              { DataType: NVARCHAR(255), FhirPath: "extension.where(url='urn:source:ifdb:healthissue_id').valueString", Source: [ifdb.IFDB.EPISODE_OF_CARE.HEALTHISSUE_ID], FK-None: true, Description: "IFDB kilde-id (healthissue) — ikke en fladtabel-reference." }
@@ -34,3 +34,6 @@ dso_lineage:
     dw_is_deleted:                  { DataType: INT, FhirPath: "extension.where(url='urn:fhir:isDeleted').valueInteger" }
     last_updated:                { DataType: DATETIME2, FhirPath: "r.ts" }
     created_at:                  { DataType: DATETIME2, FhirPath: "r.cts" }
+    dw_ek_Borger:                { Type: FK, DataType: INT, Expr: "dim.Borger.dw_ek_Borger hvor fhir_Patient_id = patient_id", Description: "Borgeren forløbet handler om. -1 når patienten ikke findes i dim.Borger. Findes borgeren kun som slettet, peger nøglen stadig på den." }
+    dw_sk_Borger:                { Type: FK, DataType: INT, Expr: "dim.Borger.dw_sk_Borger for den levende version, hvor dw_valid_from <= period_start < dw_valid_to", Description: "Den version af borgeren (adresse m.m.), der gjaldt ved forløbets start. -1 når borgeren eller en gældende version ikke findes, eller når period_start mangler." }
+    dw_ek_Organisation:          { Type: FK, DataType: INT, Expr: "dim.Organisation.dw_ek_Organisation hvor fhir_Organization_id = managing_organization_id", Description: "Organisationen, der er ansvarlig for forløbet. -1 når forløbet ikke har en ansvarlig organisation, eller organisationen ikke findes i dim.Organisation." }

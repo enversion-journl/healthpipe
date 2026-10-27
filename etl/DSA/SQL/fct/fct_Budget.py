@@ -111,9 +111,7 @@ def fct_Budget(
                     AND src.clean_code_Kontoplan <> ''
 
                 LEFT JOIN [map].[Okosted] oko_map
-                    ON oko_map.clean_code_Okosted = src.omkostningsstednummer
-                   AND src.omkostningsstednummer IS NOT NULL
-                   AND src.omkostningsstednummer <> '';
+                    ON oko_map.clean_code_Okosted = src.okosted_kode;
             """
                 )
 

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import re
 from datetime import date
-from typing import Any
+from typing import Any, cast
 
 from core.dfm_config import RunModeConfig
 from DSA.FHIR.utils.dfm_query import build_fhir_archive_query
@@ -90,7 +90,7 @@ def cpr_gender(cpr: str | None) -> str | None:
     """
     if cpr_birth_date(cpr) is None:
         return None
-    return "male" if int(cpr[-1]) % 2 == 1 else "female"
+    return "male" if int(cast(str, cpr)[-1]) % 2 == 1 else "female"
 
 
 def plausible_birth_date(cpr: str | None, period: date | None) -> date | None:

@@ -79,7 +79,7 @@ IF NOT EXISTS (
 )
 BEGIN
     CREATE TABLE [conceptmap].[OkostedToSOR] (
-        [source_code]                NVARCHAR(100) NOT NULL,
+        [source_code]                NVARCHAR(120) NOT NULL,
         [source_display]             NVARCHAR(500) NULL,
         [relationship]              NVARCHAR(50)  NOT NULL,
         [target_code]                NVARCHAR(100) NOT NULL,

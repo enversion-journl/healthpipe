@@ -45,7 +45,7 @@ etl/
 │   │   └── archive/           # arc.* archive configs (same sources)
 │   ├── oracle/                # Oracle source configs + DFM extract/archive (ifdb.py, ifdb_extract.py, ifdb_archive.py)
 │   ├── extract/               # Column contracts asserted by the Oracle schema-verification tests (IFDB/)
-│   ├── csv_files/             # CSV-based sources (os2mo.py, shaksor_map.py)
+│   ├── csv_files/             # CSV-based sources (conceptmap_csv.py, shaksor_map.py)
 │   └── organisation/          # Organisation codesystems and concept maps
 ├── DSA/                        # Data Staging Area (staging + transforms)
 │   ├── FHIR/                  # FHIR transformations
@@ -56,7 +56,7 @@ etl/
 │   │   ├── SqlOnFhir/         # SQL on FHIR (ViewDefinitions, extraction → MSSQL fhir.*)
 │   │   └── utils/             # Shared FHIR utilities (+ ifdb/, sql_on_fhir/)
 │   ├── CodeSystem/            # FHIR CodeSystem hierarchy builders + assets (codesystem.* schema)
-│   ├── ConceptMap/            # FHIR ConceptMap mapping assets with fuzzy matching (conceptmap.* schema)
+│   ├── ConceptMap/            # FHIR ConceptMap mapping assets fra kuraterede CSV'er/crosswalks (conceptmap.* schema)
 │   └── SQL/                   # SQL staging + transforms (artifact-type-based, not domain-based)
 │       ├── staging/           # All pre_stg_* and stg_* files across all domains
 │       ├── map/               # All map-update files (map_*.py)

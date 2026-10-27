@@ -625,7 +625,7 @@ def run_memory_vs_speed_benchmark():
 
     try:
         # Initialize resources
-        fhir_db = FHIRDatabaseResource()
+        fhir_db = FHIRDatabaseResource().process_config_and_initialize()
 
         # Run a quick demo test
         test_instance = TestIDResolutionStrategies()

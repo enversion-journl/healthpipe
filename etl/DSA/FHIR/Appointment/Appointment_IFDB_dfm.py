@@ -459,8 +459,8 @@ def _post_appointments_to_fhir(
     appointments: list[Appointment],
     fhir_database: FHIRDatabaseResource,
     extracted_count: int,
+    mssql: MSSQLResource,
     ifdb_oracle: IFDBOracleResource | None = None,
-    mssql: MSSQLResource | None = None,
     resolve_missing_dependencies: bool = True,
 ) -> dg.MaterializeResult:
     """Post Appointment resources to FHIR database with reference resolution."""

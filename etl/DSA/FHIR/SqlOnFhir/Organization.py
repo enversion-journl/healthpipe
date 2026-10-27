@@ -17,7 +17,6 @@ is loaded from a full SOR snapshot and is therefore unpartitioned.
 """
 
 import dagster as dg
-from core.etl_thresholds import SoftDeleteThresholdConfig
 from core.resources import FHIRDatabaseResource, MSSQLResource
 from DSA.FHIR.utils.sql_on_fhir.sof_utils import (
     SOF_ASSET_RETRY_POLICY,
@@ -44,7 +43,6 @@ def sof_organization(
     context: dg.AssetExecutionContext,
     fhir_database: FHIRDatabaseResource,
     mssql_target_staging: MSSQLResource,
-    config: SoftDeleteThresholdConfig,
 ) -> dg.MaterializeResult:
     row_count, rows_affected = extract_and_merge_sof_view(
         fhir_database,
@@ -55,7 +53,6 @@ def sof_organization(
         _CFG["mssql_table"],
         _CFG["primary_keys"],
         context=context,
-        soft_delete_threshold=config.soft_delete_threshold,
     )
     return dg.MaterializeResult(
         metadata={

@@ -12,6 +12,7 @@ after the read would let any resource written during the read fall between the
 two windows and vanish from the flat table for good.
 """
 
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
@@ -77,6 +78,14 @@ def _build(monkeypatch, *, config_key: str = "patient_view", extract=None, bound
         return 7, 3
 
     monkeypatch.setattr(mod, "extract_and_merge_sof_view", extract or _default_extract)
+    stub.locks = []
+
+    @contextmanager
+    def _lock(_database, name, **_kwargs):
+        stub.locks.append(name)
+        yield
+
+    monkeypatch.setattr(mod, "application_lock", _lock)
     asset = mod.create_sof_dfm_asset(
         asset_name="sof_test_dfm",
         config_key=config_key,
@@ -233,3 +242,14 @@ def test_period_mode_is_never_sliced(monkeypatch) -> None:
     )
 
     assert _windows(calls) == [("2026-02-01", "2026-02-02")]
+
+
+@pytest.mark.unit
+def test_sof_holds_the_lock_of_its_table_while_it_loads(monkeypatch) -> None:
+    """Without the lock a SoF load can overlap the dw-key step on the same table."""
+    from DSA.FHIR.SqlOnFhir.DWKeys_dfm import DW_KEYS_CONFIG
+    from DSA.FHIR.utils.sql_on_fhir.sof_utils import fhir_table_lock_name
+
+    asset, stub, _calls = _build(monkeypatch, config_key="episode_of_care_view")
+    _compute_fn(asset)(_fake_context(), None, None, RunModeConfig())
+    assert stub.locks == [fhir_table_lock_name(DW_KEYS_CONFIG["episode_of_care"].table)]

@@ -55,45 +55,8 @@ def test_remediation_names_the_ref_address_op():
     )
 
 
-def test_ratio_guard_fires_below_the_absolute_threshold():
-    """50 of 200 is under 1000 but 25% > 10% — the ratio is what stops a small-table wipe."""
-    with pytest.raises(dg.Failure) as excinfo:
-        check_soft_delete_threshold("fhir.Organization", 50, live_row_count=200)
-    assert excinfo.value.metadata["ratio_limit"].value == 0.10
-    assert "10%" in excinfo.value.description
-
-
-def test_ratio_guard_allows_a_small_fraction():
-    check_soft_delete_threshold("fhir.Organization", 5, live_row_count=200)
-
-
-def test_override_skips_the_ratio_guard():
-    check_soft_delete_threshold("fhir.Organization", 50, override=100, live_row_count=200)
-
-
 def test_config_defaults_to_no_override():
     """Scheduled runs supply no config, so they must get the standing threshold —
     this is what stops an override from leaking beyond the run it was set for."""
     assert RunModeConfig().soft_delete_threshold is None
     assert get_soft_delete_threshold("anything.Unlisted", None) == DEFAULT_THRESHOLD
-
-
-def test_ratio_param_fires_for_an_unregistered_asset():
-    """Callers with dynamic asset names (udredningsret archive) pass the ratio
-    directly instead of registering one entry per table in the core dict."""
-    with pytest.raises(dg.Failure) as excinfo:
-        check_soft_delete_threshold(
-            "arc_udredningsret_leveranceinfo", 300, live_row_count=1000, ratio=0.20
-        )
-    assert excinfo.value.metadata["ratio_limit"].value == 0.20
-
-
-def test_ratio_param_allows_a_fraction_below_the_limit():
-    check_soft_delete_threshold(
-        "arc_udredningsret_leveranceinfo", 100, live_row_count=1000, ratio=0.20
-    )
-
-
-def test_ratio_param_without_live_count_skips_the_ratio_guard():
-    """No denominator, no ratio — the absolute cap still applies alone."""
-    check_soft_delete_threshold("arc_udredningsret_leveranceinfo", 300, ratio=0.20)

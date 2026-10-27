@@ -68,6 +68,9 @@ SCHEMA_TO_TARGET_TYPE: dict[str, str] = {
     "ref": "reference",
     "dfm": "dfm",
     "sec": "security",
+    # Outbound deliveries, log-only. Self-mapped so usp_dfm_reset needs no CASE branch.
+    "export": "export",
+    "os2mo": "os2mo",
 }
 
 CHECKPOINT_OWNER_SCHEMAS: frozenset[str] = frozenset(
@@ -354,7 +357,12 @@ class DfmManager:
                 raise
             del pending[table]
 
-    def safe_reader_checkpoint(self, started_at: str | None) -> str | None:
+    def safe_reader_checkpoint(
+        self,
+        started_at: str | None,
+        *,
+        writer: tuple[str, str] | None = None,
+    ) -> str | None:
         """The latest checkpoint a reader of an archive can safely move to.
 
         That is the reader's own start, held back further to the start of any
@@ -368,14 +376,23 @@ class DfmManager:
         ``sweep_stale_runs`` has not closed yet.
 
         ``started_at`` None falls back to now, the behaviour before this method.
+
+        ``writer`` (schema, table) narrows the in-flight runs to that one table's,
+        for a reader of something other than the archive, e.g. ``("dim", "Borger")``.
         """
+        writer_filter = ""
+        params: list[str | None] = [started_at, SCHEMA_TO_TARGET_TYPE["arc"]]
+        if writer is not None:
+            writer_filter = "AND [schema_name] = ? AND [table_name] = ?"
+            params = [started_at, _target_type_for_schema(writer[0]), *writer]
         sql = f"""
             SELECT CONVERT(NVARCHAR(50), (
                 SELECT MIN(t) FROM (VALUES
                     (COALESCE(TRY_CONVERT(datetime2, ?), SYSDATETIME())),
                     ((SELECT MIN([run_started_at]) FROM {self.LOG_TABLE}
                       WHERE [status] = 'running'
-                        AND [target_type] = 'archive'
+                        AND [target_type] = ?
+                        {writer_filter}
                         AND [run_started_at] > DATEADD(hour, -24, SYSDATETIME())))
                 ) AS v(t)
             ), 121);
@@ -383,7 +400,7 @@ class DfmManager:
         with self._get_conn() as conn:
             cursor = conn.cursor()
             try:
-                cursor.execute(sql, (started_at,))
+                cursor.execute(sql, tuple(params))
                 row = cursor.fetchone()
                 return row[0] if row else None
             finally:

@@ -152,10 +152,11 @@ FROM [fct].[Budget];
 GO
 
 -- vw_fct.AftaleVarePris
--- Prisversioner (+ syntetiske daekningsraekker for prisloese aftalelinjer,
--- spec 2026-08-31-prisloese-linjer-og-aftalelager) pr. aftalelinje x lvnr:
--- én raekke pr. prisversion-ELLER-syntetisk-linje pr. lvnr — alternative
--- leverandoervarenumre (lvnr) fanner ud som egne raekker.
+-- Prisversioner (+ syntetiske daekningsraekker for prisloese aftalelinjer) pr.
+-- aftalelinje: én raekke pr. prisversion-ELLER-syntetisk-linje (grain
+-- bk_prrowid). De fire forpakningsvariant-slots ligger som kolonner:
+-- dw_ek_Leverandoervare_1-4 parvis med pris1-4/pakkestoerrelse1-4
+-- (se etl/docs/contracts/beslutningslog_vareaftaler.md).
 -- dw_is_current = 1 giver nyeste ikrafttraadte pris ELLER en prisloes linje
 -- (som altid er dw_is_current = 1, jf. har_prisversion = 0) — view-paritet
 -- med ILS-referencen (som ikke kender prisloese linjer) kraever derfor

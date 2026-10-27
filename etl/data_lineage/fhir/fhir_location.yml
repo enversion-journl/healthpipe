@@ -27,3 +27,4 @@ dso_lineage:
     dw_is_deleted:                { DataType: INT, Description: "Slettet-flag (0 = live, 1 = slettet). Warehouse-styret: projiceres ikke fra FHIR. Saettes til 1 af dqa_fhir_server_cleanup for raekker hvis Location er hard-slettet paa FHIR-serveren, og nulstilles til 0 ved MERGE-match (resurrect_soft_deleted), saa en genopstaaet Location ikke bliver haengende som slettet. NOT NULL DEFAULT 0." }
     last_updated:              { DataType: DATETIME2, FhirPath: "r.ts" }
     created_at:                { DataType: DATETIME2, FhirPath: "r.cts" }
+    dw_ek_Organisation:        { Type: FK, DataType: INT, Expr: "dim.Organisation.dw_ek_Organisation hvor fhir_Organization_id = managing_organization_id", Description: "Organisationen, der administrerer lokationen. -1 når lokationen ikke har en administrerende organisation, eller organisationen ikke findes i dim.Organisation." }

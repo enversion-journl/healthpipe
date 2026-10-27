@@ -7,15 +7,18 @@
 """
 DSA ConceptMap Assets
 
-Dagster assets that build concept mappings from codesystem.* tables
-(using fuzzy matching and manual overrides) and MERGE into
-persistent database tables in the conceptmap schema.
+Dagster assets that MERGE concept mappings into persistent database tables in
+the conceptmap schema. The ERP maps (ean/lager/rekvirent/okosted -> SOR) come
+exclusively from curated CSV files in DSI/csv_files/data/; SHAK and SHAK-a-like
+come from their authoritative source crosswalks.
 """
 
-from .ean_to_sor.ean_to_sor import cm_ean_to_sor
-from .lager_to_sor.lager_to_sor import cm_lager_to_sor
-from .okosted_to_sor.okosted_to_sor import cm_okosted_to_sor
-from .rekvirent_to_sor.rekvirent_to_sor import cm_rekvirent_to_sor
+from .csv_to_sor import (
+    cm_ean_to_sor,
+    cm_lager_to_sor,
+    cm_okosted_to_sor,
+    cm_rekvirent_to_sor,
+)
 from .shak_to_sor.shak_to_sor import cm_shak_to_sor
 from .shakalike_to_sor.shakalike_to_sor import cm_shakalike_to_sor
 

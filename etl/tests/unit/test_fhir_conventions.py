@@ -41,6 +41,7 @@ SANCTIONED_GROUP_KEY_PATTERNS: dict[str, str] = {
     "fhir_sof_dfm": r"sof_[a-z0-9_]+_dfm",
     "fhir_organization_sor": r"fhir_organization_sor|sof_organization",
     "fhir_quality_dfm": r"fhir_quality_check_[a-z0-9_]+",
+    "fhir_dw_keys": r"fhir_dw_keys_[a-z0-9_]+",
     "haiba_borger": r"fhir_[a-z0-9_]+_haiba",
     "drg_borger": r"fhir_[a-z0-9_]+_drg",
     "cpr": r"fhir_server_[a-z0-9_]+_cpr_dfm",

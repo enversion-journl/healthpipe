@@ -160,8 +160,8 @@ def run_parallel_map(
                 pool.shutdown(wait=False, cancel_futures=True)
                 raise
         else:
-            with ThreadPoolExecutor(max_workers=worker_count) as pool:
-                results = _collect_or_consume(pool.map(worker_fn, tasks))
+            with ThreadPoolExecutor(max_workers=worker_count) as thread_pool:
+                results = _collect_or_consume(thread_pool.map(worker_fn, tasks))
 
         return results, ParallelExecutionSummary(
             mode="parallel",
@@ -235,7 +235,7 @@ def run_parallel_calls(
     results: dict[str, Any] = {}
     with ThreadPoolExecutor(
         max_workers=worker_count,
-        thread_name_prefix=thread_name_prefix,
+        thread_name_prefix=thread_name_prefix or "",
     ) as pool:
         futures = {
             pool.submit(call.fn, *call.args, **dict(call.kwargs)): call.name for call in call_list

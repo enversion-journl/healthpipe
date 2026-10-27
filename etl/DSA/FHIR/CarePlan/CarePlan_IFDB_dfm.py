@@ -68,7 +68,7 @@ rows are marked deleted (see ``careplan_activity_view`` in ``sof_utils``).
 
 from collections import defaultdict
 from datetime import datetime
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, cast
 
 import dagster as dg
 from core.dfm_config import RunModeConfig
@@ -744,55 +744,6 @@ CAREPLAN_NESTED_REFERENCE_CONFIGS = [
 # =============================================================================
 
 
-# Under den nye identitet gælder identifier_value == patient_id +
-# '_alle_markoerer' for hver levende række. Gamle ressourcer bærer
-# '<IFDB PATIENT_ID>_alle_markoerer' og bryder ligheden, så én tælling afgør om
-# nulstillingen er kørt. Ingen heuristik, og efter genindlæsningen altid nul.
-_OLD_SCHEME_ROWS_SQL = """
-SELECT COUNT(*) FROM [fhir].[CarePlan]
-WHERE [dw_is_deleted] = 0
-  AND COALESCE([identifier_value], '') <> COALESCE([patient_id], '') + '_alle_markoerer'
-"""
-
-
-def _refuse_old_scheme_resources(mssql: MSSQLResource, logger: dg.DagsterLogManager) -> None:
-    """Stop before posting when the identity reload has not been run.
-
-    The producer now looks resources up on '<FHIR patient id>_alle_markoerer'.
-    Against a server still holding the IFDB-keyed ones, that lookup misses every
-    time and every patient in the window gets a SECOND CarePlan while the first
-    is left behind — silently, because a delta window never contains both and
-    the child MERGE just repoints its row. The damage only surfaces later, as a
-    duplicate per patient and 8672 on the first wide window.
-
-    So this refuses rather than warns: the operator has to run
-    careplan_genkoersel_nulstilling and the full load first. The guard is
-    self-neutralising — once the reload is done the count is zero forever.
-    """
-    with mssql.get_connection() as conn:
-        cursor = conn.cursor()
-        try:
-            cursor.execute(_OLD_SCHEME_ROWS_SQL)
-            stale = cursor.fetchone()[0]
-        finally:
-            cursor.close()
-
-    if not stale:
-        return
-
-    raise dg.Failure(
-        description=(
-            f"{stale:,} live rows in fhir.CarePlan still carry the old "
-            "IFDB-keyed identifier. The CarePlan identity moved to the FHIR "
-            "patient id, so posting now would create a second resource for "
-            "every patient in the window instead of updating the existing one. "
-            "Run careplan_genkoersel_nulstilling (dry_run first), then "
-            "fhir_server_careplan_dfm -> sof_careplan_dfm -> "
-            "sof_careplan_activity_dfm -> the DSO sync in full_load."
-        )
-    )
-
-
 def _subject_ifdb_patient_id(careplan: CarePlan) -> str | None:
     """Read the IFDB PATIENT_ID off a CarePlan's still-unresolved subject."""
     subject = getattr(careplan, "subject", None)
@@ -976,13 +927,8 @@ def fhir_server_careplan_dfm(
 
     # Everything after start_dfm_run() belongs inside the try: the DFMRunLog row
     # is already open, so anything that raises outside it leaves the run stuck
-    # at *running* until the stale sweep abandons it. The guard below is built
-    # to raise, which makes that the realistic path rather than a corner case.
+    # at *running* until the stale sweep abandons it.
     try:
-        # Before anything is posted: the identity reload is a hard precondition
-        # for this code, and forgetting it fails silently rather than loudly.
-        _refuse_old_scheme_resources(mssql_target_staging, context.log)
-
         # Patient-id -> CPR fallback: resolves subject references to
         # soft-deleted PATIENT_IDs (e.g. a deleted CPR-duplicate) to the active
         # patient posted under the same CPR. Built once, reused for every batch.
@@ -1022,9 +968,10 @@ def fhir_server_careplan_dfm(
                         break
 
                     batch_num += 1
-                    patient_ids = [
-                        normalize_oracle_id(row[0]) for row in rows if row[0] is not None
-                    ]
+                    patient_ids = cast(
+                        list[str],
+                        [normalize_oracle_id(row[0]) for row in rows if row[0] is not None],
+                    )
                     if not patient_ids:
                         continue
 

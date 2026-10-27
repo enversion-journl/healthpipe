@@ -136,7 +136,7 @@ class OracleExtractor(SqlExtractor):
                 "Extracting window from Yesterday 05:00 to Today 06:00."
             )
 
-        first_partition = bool(partition_key) and is_first_partition(partition_key)
+        first_partition = bool(partition_key and is_first_partition(partition_key))
         if first_partition:
             self.context.log.info(
                 f"First partition detected ({partition_key}): using upper-bound-only filtering "

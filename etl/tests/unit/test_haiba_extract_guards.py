@@ -4,12 +4,11 @@
 # This file is part of Healthpipe. See the LICENSE file in the project
 # root for the full AGPL-3.0 license text.
 
-"""Guards on the HAIBA extract: invariant 1, row drift and arc-width rejection.
+"""Guards on the HAIBA extract: invariant 1 and arc-width rejection.
 
 The failures these pin down are the quiet destructive ones: a HAI type whose
 deliveries are all header-only slipping through and soft-deleting its archive
-history behind a green run; a cut-short transfer doing the same for the tail
-of a file; an over-wide value (an 11-digit "CPR") aborting the whole archive
+history behind a green run; an over-wide value (an 11-digit "CPR") aborting the whole archive
 MERGE with error 8152 that names neither column nor row; and the width map
 drifting from the arc DDL. GDPR: the width guard must never surface values —
 only (column, HAI type) counts.
@@ -26,13 +25,11 @@ from DSI.csv_files.haiba import (
     AGG_ORTOPAEDI,
     CASES_INFEKTION,
     CASES_SSI,
-    DRIFT_MIN_ROW_FRACTION,
     HaibaExtractConfig,
     HaibaFile,
     _enforce_ext_is_loadable,
     _extract_schema,
     _rows_within_arc_widths,
-    enforce_row_drift,
     select_newest,
     unusable_types_for_schema,
 )
@@ -157,62 +154,6 @@ def test_extract_fails_on_blocked_type_and_allows_the_override(tmp_path, monkeyp
     assert result.metadata["row_count"].value == 1
 
 
-# --- row drift ---------------------------------------------------------------------
-
-
-def test_drift_below_fraction_raises_with_the_type_named():
-    with pytest.raises(ValueError, match="UTI=4 rows vs 100"):
-        enforce_row_drift({"UTI": 4, "BACT": 90}, {"UTI": 100, "BACT": 100}, 0.5)
-
-
-def test_january_roll_passes_the_default_fraction():
-    """The window roll retires ~1/5 of the table — a legitimate shrink the
-    default fraction must tolerate."""
-    enforce_row_drift({"UTI": 79}, {"UTI": 100}, DRIFT_MIN_ROW_FRACTION)
-
-
-def test_retired_and_first_run_types_are_not_drift_checked():
-    enforce_row_drift({}, {"UTI": 100}, 0.5)  # retired: not delivered at all
-    enforce_row_drift({"UTI": 5}, {}, 0.5)  # first run: no archive yet
-
-
-def test_fraction_override_accepts_a_known_shrink():
-    enforce_row_drift({"UTI": 4}, {"UTI": 100}, 0.0)
-
-
-def test_drift_is_keyed_by_the_column_value_not_the_filename(tmp_path, monkeypatch):
-    """The agg CDI types are 'CDI_COHA' in the FILENAME but 'COHA' in the HAI
-    COLUMN. Counting rows by the filename left the two largest agg types
-    unguarded, because arc is grouped by the column. The drift must fire against
-    the arc 'COHA' history — and, on failure, the ext snapshot must be dropped
-    so a manual archive-only re-run cannot merge the short delivery."""
-    agg_dir = tmp_path / "HAIBAagg"
-    agg_dir.mkdir()
-    _write(
-        agg_dir / "HAIBA_CDI_COHA_agg_RegS_2026-08-15.csv",
-        _AGG_HEADER,
-        ["COHA;2024-05-01;Kontaktansvar;;1083;;;;;;;1;2.5"],  # HAI column = COHA
-    )
-    monkeypatch.setenv("HAIBA_BASE_DIR", str(tmp_path))
-
-    import DSI.csv_files.haiba as module
-
-    monkeypatch.setattr(
-        module, "_write_to_ext_table", lambda conn, schema, rows, ctx: sum(1 for _ in rows)
-    )
-    monkeypatch.setattr(module, "_arc_active_counts", lambda conn, schema: {"COHA": 100})
-    monkeypatch.setattr(module, "_read_checkpoints", lambda *a, **k: {})
-    dropped: list[str] = []
-    monkeypatch.setattr(
-        module, "_drop_ext_table", lambda conn, schema: dropped.append(schema.ext_table)
-    )
-    ctx = MagicMock()
-
-    with pytest.raises(ValueError, match="COHA=1 rows vs 100"):
-        _extract_schema(ctx, MagicMock(), AGG_INFEKTION, HaibaExtractConfig())
-    assert dropped == ["haiba_agg_infektion"]
-
-
 def test_width_rejection_on_a_key_column_fails_the_load():
     """A too-wide value in a MERGE-key column drops a whole case, not an
     over-long free-text field, so the archive would soft-delete it."""
@@ -223,7 +164,6 @@ def test_width_rejection_on_a_key_column_fails_the_load():
             {"SSI_HIP": 5},
             {("cprnr", "SSI_HIP"): 1},
             [],
-            0.5,
             MagicMock(),
         )
 
@@ -237,7 +177,6 @@ def test_width_rejection_on_a_free_text_column_does_not_fail():
         {"SSI_HIP": 5},
         {("HAI_producent", "SSI_HIP"): 1},
         [],
-        0.5,
         MagicMock(),
     )
 
@@ -252,17 +191,15 @@ def test_a_file_emptied_by_width_rejection_fails_the_load():
             {"BACT": 100},
             {("region", "BACT"): 3},
             ["BACT (f.csv)"],
-            0.5,
             MagicMock(),
         )
 
 
 def test_vocabulary_drift_warns_but_does_not_fail():
     """A delivered type absent from a non-empty archive is a new type or a
-    filename/column mismatch: visible as a warning, not fatal — the drift guard
-    is simply blind to it."""
+    filename/column mismatch: visible as a warning, not fatal."""
     ctx = MagicMock()
-    _enforce_ext_is_loadable(AGG_INFEKTION, {"COHA": 100}, {"BACT": 100}, {}, [], 0.5, ctx)
+    _enforce_ext_is_loadable(AGG_INFEKTION, {"COHA": 100}, {"BACT": 100}, {}, [], ctx)
     assert ctx.log.warning.called
 
 

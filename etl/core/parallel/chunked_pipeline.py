@@ -133,7 +133,7 @@ def _read_int_metadata(
     value = materialize_result.metadata.get(key)
     if value is None:
         return default
-    raw = getattr(value, "value", value)
+    raw: Any = getattr(value, "value", value)
     if isinstance(raw, bool):
         return default
     if isinstance(raw, int):

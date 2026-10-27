@@ -408,7 +408,7 @@ def parse_aktivitetsresultat_xml(
                     e_kly_par = par_kly_id if kly_depth > 1 else None
 
                     if pers_rolle is not None and _name == "Personale":
-                        el_ldt = pers_rolle
+                        el_ldt: str | None = pers_rolle
                     else:
                         el_ldt = _ldt
                     pers_rolle = None

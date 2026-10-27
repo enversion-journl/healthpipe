@@ -21,8 +21,9 @@
       "column": [
         {"name": "ifdb_eventmarker_id", "path": "extension.where(url='http://example.org/fhir/StructureDefinition/activity-source-identifier').valueIdentifier.value"},
         {"name": "episode_of_care_id", "path": "extension.where(url='http://example.org/fhir/StructureDefinition/activity-episode-of-care').valueReference.id"},
-        {"name": "markoerkode", "path": "outcomeCodeableConcept[0].coding[0].code"},
-        {"name": "markoer_display", "path": "outcomeCodeableConcept[0].coding[0].display"},
+        {"name": "outcome_codeable_concept_code", "path": "outcomeCodeableConcept[0].coding[0].code"},
+        {"name": "outcome_codeable_concept_system", "path": "outcomeCodeableConcept[0].coding[0].system"},
+        {"name": "outcome_codeable_concept_display", "path": "outcomeCodeableConcept[0].coding[0].display"},
         {"name": "organization_id", "path": "detail.performer.getReferenceKey(Organization)"},
         {"name": "practitioner_id", "path": "detail.performer.where(identifier.system = 'urn:source:ifdb:staff').identifier.value.first()"},
         {"name": "activity_timestamp", "path": "detail.scheduledPeriod.start"}

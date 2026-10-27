@@ -9,14 +9,16 @@ Pre-staging: entity-delta hub for the Vare/ILSVare/Bridge flows.
 
 Extracts CHANGED ENTITIES (not pairs, not attributes) from the archive since
 the relevant consumer checkpoints:
-  - Vare entities (kreditor + leverandoervarenummer): from the five ILS bridge
-    tables and MySupply, filtered by checkpoint_Vare =
-    MIN(CP dim.Leverandoervare, CP bridge.LeverandoervareILSVare). laftdstam
-    and laftd contribute ALL of their lvnr-slots (##1 the primary plus the
-    alternates ##2-4/##2-3, spec 2026-08-27-alternate-lvnr-rows), not just
-    lvnr##1. dim.Leverandoervare carries no copy of
-    ILS item-master attributes (names live on dim.ILSVare, reached via the
-    bridge), so ils_vare changes only flow through the ILSVare axis.
+  - Vare entities (kreditor + leverandoervarenummer): from the four ILS bridge
+    tables (laftdstam — all lvnr-slots ##1-4 — lgrvare, indkfak, pmdm) and
+    MySupply, filtered by checkpoint_Vare =
+    MIN(CP dim.Leverandoervare, CP bridge.LeverandoervareILSVare).
+    dim.Leverandoervare carries no copy of ILS item-master attributes (names
+    live on dim.ILSVare, reached via the bridge), so ils_vare changes only
+    flow through the ILSVare axis. laftd's own lvnr columns are legacy and
+    excluded as a Vare source (see
+    etl/docs/contracts/beslutningslog_vareaftaler.md); laftd contributes only
+    on the ILSVare axis (vnr).
   - ILSVare entities (vnr): from ils_vare (incl. its lookup tables — vareart,
     varegrp, varetype, moms, zz_oper, unspsc — so a lookup-row change restages
     every ils_vare row referencing it), lgrbeh/afdlgrbeh, and the five ILS
@@ -45,7 +47,6 @@ from dagster import (
     asset,
 )
 from utils.sql.leverandoervare_ilsvare_sql import (
-    LAFTD_ALT_LVNR_SLOTS,
     LAFTDSTAM_ALT_LVNR_SLOTS,
     sql_lev_current_cte,
 )
@@ -57,28 +58,24 @@ BEGINNING_OF_TIME = "0001-01-01"
 
 
 def _alt_lvnr_hub_branches() -> str:
-    """UNION ALL-branches for de alternative lvnr-slots (spec 2026-08-27).
+    """UNION ALL-branches for laftdstams alternative lvnr-slots.
 
-    Samme form som laftdstam/laftd-branches for lvnr##1: normaliseret via
-    LVNR_CC, tom/NULL filtreret. Et alternativ identisk med lvnr##1 kollapser
-    til samme CleanCode og dedupliceres af hub'ens GROUP BY.
+    Samme form som laftdstam-branchen for lvnr##1: normaliseret via LVNR_CC,
+    tom/NULL filtreret. Et alternativ identisk med lvnr##1 kollapser til samme
+    CleanCode og dedupliceres af hub'ens GROUP BY.
     """
     branches = []
-    for table, alias, slots in (
-        ("ils_laftdstam", "alt_s", LAFTDSTAM_ALT_LVNR_SLOTS),
-        ("ils_laftd", "alt_d", LAFTD_ALT_LVNR_SLOTS),
-    ):
-        for slot in slots:
-            col = f"{alias}.[{slot}]"
-            branches.append(
-                f"""
+    for slot in LAFTDSTAM_ALT_LVNR_SLOTS:
+        col = f"alt_s.[{slot}]"
+        branches.append(
+            f"""
                         UNION ALL
                         SELECT lev.clean_code_Kreditor, {_LVNR_CC.format(col=col)},
-                               {alias}.dw_timestamp_update, lev.lev_dw_timestamp_update
-                        FROM [arc].[{table}] {alias}
-                        INNER JOIN lev_current lev ON lev.lnr = {alias}.lnr
+                               alt_s.dw_timestamp_update, lev.lev_dw_timestamp_update
+                        FROM [arc].[ils_laftdstam] alt_s
+                        INNER JOIN lev_current lev ON lev.lnr = alt_s.lnr
                         WHERE {col} IS NOT NULL AND LTRIM(RTRIM({col})) <> ''"""
-            )
+        )
     return "".join(branches)
 
 
@@ -154,12 +151,6 @@ def _build_hub_sql(checkpoint_Vare: str, checkpoint_ILSVare: str) -> str:
                           AND LEN(LTRIM(RTRIM(ik.levvarenr))) >= 3
                           AND ik.levvarenr LIKE '%[a-zA-Z0-9]%'
                           AND ik.vnr IS NOT NULL
-                        UNION ALL
-                        SELECT lev.clean_code_Kreditor, {_LVNR_CC.format(col="ld.[lvnr##1]")},
-                               ld.dw_timestamp_update, lev.lev_dw_timestamp_update
-                        FROM [arc].[ils_laftd] ld
-                        INNER JOIN lev_current lev ON lev.lnr = ld.lnr
-                        WHERE ld.[lvnr##1] IS NOT NULL AND LTRIM(RTRIM(ld.[lvnr##1])) <> ''
                         UNION ALL
                         SELECT lev.clean_code_Kreditor, {_LVNR_CC.format(col="p.lvnr")},
                                p.dw_timestamp_update, lev.lev_dw_timestamp_update

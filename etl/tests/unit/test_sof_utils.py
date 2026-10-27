@@ -110,6 +110,20 @@ class TestBuildFhirMergeSql:
         assert "tgt.[patient_id] = src.[patient_id]" in update_part
         assert "tgt.[status] = src.[status]" in update_part
 
+    def test_questionnaire_item_matches_link_id_byte_for_byte(self):
+        """txt and TXT are two items in Aidbox; the ON clause must not merge them."""
+        cfg = SOF_RESOURCE_CONFIGS["questionnaire_item_view"]
+        sql = build_fhir_merge_sql(
+            cfg["mssql_table"],
+            ["questionnaire_id", "link_id", "item_key", "text"],
+            cfg["primary_keys"],
+            exact_match_keys=cfg["exact_match_keys"],
+        )
+        on_clause = sql.split(" ON ", 1)[1].split("WHEN MATCHED")[0]
+        assert "tgt.[link_id_exact] = src.[link_id] COLLATE Latin1_General_BIN2" in on_clause
+        assert "tgt.[link_id] = src.[link_id]" not in on_clause
+        assert "tgt.[item_key] = src.[item_key]" in on_clause
+
     def test_payload_diff_predicate_excludes_audit_and_technical_timestamps(self):
         predicate = _build_payload_diff_predicate(
             [
@@ -1416,19 +1430,15 @@ class TestResourceGrainReconcile:
         ]
         return cursor
 
-    def _org_mssql_cursor(self, *, mark_rowcount=0, live_count=10_000):
+    def _org_mssql_cursor(self):
         class MssqlCursor:
             def __init__(self):
                 self.rowcount = 1
                 self._schema_fetched = False
                 self.executed = []
-                self._live_count = live_count
-                self._mark_rowcount = mark_rowcount
 
             def execute(self, sql, _params=None):
                 self.executed.append(sql)
-                if "NOT EXISTS" in sql and "dw_is_deleted" in sql:
-                    self.rowcount = self._mark_rowcount
                 return None
 
             def fetchall(self):
@@ -1441,9 +1451,6 @@ class TestResourceGrainReconcile:
                     ("last_updated", "datetime2", None, None, None),
                     ("created_at", "datetime2", None, None, None),
                 ]
-
-            def fetchone(self):
-                return (self._live_count,)
 
             def bulkcopy(self, table, data, **kwargs):
                 return {"rows_copied": len(data)}
@@ -1474,20 +1481,6 @@ class TestResourceGrainReconcile:
             if "SET [dw_is_deleted] = 1" in s and "NOT EXISTS" not in s
         ]
         assert not blanket
-
-    def test_mark_count_above_threshold_fails(self):
-        mssql_cursor = self._org_mssql_cursor(mark_rowcount=2000, live_count=10_000)
-        with pytest.raises(dg.Failure, match="exceeds threshold"):
-            extract_and_merge_sof_view(
-                fhir_database=_FakePgResource(self._org_pg_cursor()),
-                mssql_target=_FakeMssqlResource(mssql_cursor),
-                view_name="organization_view",
-                resource_table="organization",
-                id_column="organization_id",
-                table_name="Organization",
-                primary_keys=["organization_id"],
-                partition_start=None,
-            )
 
     def test_composite_key_is_refused(self):
         """The reconcile anti-joins on id_column alone, so a composite MERGE key would

@@ -190,7 +190,7 @@ def fct_AfdelingLagerbeholdning(
             finally:
                 cursor.close()
 
-        result = dg.MaterializeResult(
+        result: dg.MaterializeResult = dg.MaterializeResult(
             metadata={
                 "table": "fct.AfdelingLagerbeholdning",
                 "row_count": resolved_count,

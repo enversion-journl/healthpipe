@@ -28,15 +28,19 @@ base job plus a sensor-triggered follow-up.
 import time
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from typing import cast
 
 import dagster as dg
 from core.dfm_config import RunModeConfig
 from core.dfm_manager import DfmManager
+from core.mssql_application_lock import application_lock
 from core.resources import FHIRDatabaseResource, MSSQLResource
 from DSA.FHIR.utils.sql_on_fhir.sof_utils import (
+    FHIR_TABLE_LOCK_TIMEOUT_MS,
     SOF_RESOURCE_CONFIGS,
     count_sof_resources_from,
     extract_and_merge_sof_view,
+    fhir_table_lock_name,
     next_sof_slice_bound,
     sof_slice_settings,
 )
@@ -70,19 +74,7 @@ def create_sof_dfm_asset(
     """
     cfg = SOF_RESOURCE_CONFIGS[config_key]
 
-    @dg.asset(
-        name=asset_name,
-        group_name=group_name,
-        compute_kind="postgres",
-        deps=list(deps),
-        tags={"domain": "fhir", "layer": "dsa", "source": "sof"},
-        description=description
-        or (
-            f"Extract {cfg['mssql_table']} flat view from Aidbox sof schema "
-            f"(DFM checkpoint) and MERGE into fhir.{cfg['mssql_table']}"
-        ),
-    )
-    def _asset(
+    def _load(
         context: dg.AssetExecutionContext,
         fhir_database: FHIRDatabaseResource,
         mssql_target_staging: MSSQLResource,
@@ -144,7 +136,7 @@ def create_sof_dfm_asset(
             max_resources, budget_seconds = sof_slice_settings(context)
             open_window = config.mode not in ("full_load", "period") and partition_start
             out_of_time = False
-            if open_window and max_resources:
+            if partition_start and open_window and max_resources:
                 started = time.monotonic()
                 longest = 0.0
                 while True:
@@ -166,7 +158,7 @@ def create_sof_dfm_asset(
 
             if out_of_time:
                 backlog_resources = count_sof_resources_from(
-                    fhir_database, cfg["resource_table"], partition_start
+                    fhir_database, cfg["resource_table"], cast(str, partition_start)
                 )
                 context.log.warning(
                     f"{asset_name}: time budget used after {slices} slice(s); "
@@ -207,6 +199,32 @@ def create_sof_dfm_asset(
                 "target_table": f"fhir.{cfg['mssql_table']}",
             }
         )
+
+    @dg.asset(
+        name=asset_name,
+        group_name=group_name,
+        compute_kind="postgres",
+        deps=list(deps),
+        tags={"domain": "fhir", "layer": "dsa", "source": "sof"},
+        description=description
+        or (
+            f"Extract {cfg['mssql_table']} flat view from Aidbox sof schema "
+            f"(DFM checkpoint) and MERGE into fhir.{cfg['mssql_table']}"
+        ),
+    )
+    def _asset(
+        context: dg.AssetExecutionContext,
+        fhir_database: FHIRDatabaseResource,
+        mssql_target_staging: MSSQLResource,
+        config: RunModeConfig,
+    ) -> dg.MaterializeResult:
+        # The fhir_dw_keys asset for the same table takes this lock too.
+        with application_lock(
+            mssql_target_staging,
+            fhir_table_lock_name(cfg["mssql_table"]),
+            timeout_ms=FHIR_TABLE_LOCK_TIMEOUT_MS,
+        ):
+            return _load(context, fhir_database, mssql_target_staging, config)
 
     return _asset
 

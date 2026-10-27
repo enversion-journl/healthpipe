@@ -42,7 +42,7 @@ These dimensions are "shared" because they're referenced by multiple data domain
 **Current Implementation**:
 - T2 scope is address fields only; all other attributes are Type 1 (overwritten)
 - MERGE-based incremental loads with patient-scoped delta for address changes
-- Soft-delete with threshold guards for safety
+- Soft-delete with a threshold guard on the borger tables (`core/etl_thresholds.py`)
 
 **Temporal Join Pattern** (for facts):
 ```sql

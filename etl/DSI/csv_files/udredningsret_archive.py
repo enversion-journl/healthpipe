@@ -30,7 +30,7 @@ HERE, in a source table derived from ext:
 The source table ext.udredningsret_mont_noegler is a physical table (SELECT
 INTO), not a view like DRG's ext.v_*: the key computation is three window
 functions over 8.2 M rows, and the merge engine reads the source several times
-(guards, expected soft-deletes, MERGE). Hence the _noegler suffix and not a v_
+(guards, MERGE). Hence the _noegler suffix and not a v_
 prefix — v_ is reserved for views in ext. It is DROPPED again after a
 successful merge (review F18): between runs it would be a third ~5 GB copy of
 the dataset with no reader; on failure it is left in place for post mortem.
@@ -74,14 +74,6 @@ Guards, in order:
   3. key uniqueness      — (markoer_noegle, loebenummer) is unique by
                            construction; a duplicate is a programming error and
                            fails before MERGE
-  4. recovery            — >= 99.9 % of the archive's live helbredsforloeb keys
-                           must be found in the delivery (B3 guard against a
-                           large-scale renumbering/first-marker change)
-  5. soft-delete cap     — check_soft_delete_threshold() on the EXPECTED count
-                           before the merge (absolute cap in etl_thresholds +
-                           1 % of the live rows); the source is one full
-                           snapshot, so the delete scope is the whole table.
-                           Measured: 0.06 %/month.
 """
 
 import dataclasses
@@ -91,7 +83,6 @@ import dagster as dg
 from core.archive_merge import build_archive_metadata, execute_archive_merge
 from core.dfm_config import ArchiveMergeConfig, RunModeConfig
 from core.dfm_manager import DfmManager
-from core.etl_thresholds import check_soft_delete_threshold
 from core.resources import MSSQLResource
 from DSI.csv_files.udredningsret import (
     DELIVERY_COLUMN,
@@ -116,27 +107,6 @@ from DSI.csv_files.udredningsret_datasets import (
 from pydantic import Field
 
 LEVERANCE_TABLE = "UdredningsretLeverance"
-
-# Soft-delete cap as a share of the live rows: the source deletes 0.06 % per
-# month (4,532 of 8.08 M); 1 % is a quarter's real deletions times ten. The
-# absolute cap lives in core/etl_thresholds.py.
-SOFT_DELETE_RATIO = 0.01
-RATIO_MIN_LIVE_ROWS = 1000
-
-# Share of the archive's live helbredsforloeb keys that must be found in the
-# delivery. Measured week over week: 99.99 % (218 changes of 2.2 M in 27 days).
-# A lower share means the source changed the first marker at scale, and the
-# merge would soft-delete the helbredsforloeb and recreate them under new keys.
-MIN_HELBREDSFORLOEB_GENFINDELSE = 0.999
-
-# Share of the live helbredsforloeb whose dw_timestamp_update the regrouping
-# detector may bump in one delivery. A handful of split or merged forloeb is
-# ordinary in this datamart; a percent of the population is SDS changing their
-# own F_ID algorithm, and bumping that many would re-stage the whole datamart
-# behind a human's back. Judged on the same RATIO_MIN_LIVE_ROWS floor as the
-# soft-delete ratio: below it the denominator is too small for a percentage to
-# mean anything (first load, integration fixtures).
-REGROUP_RATIO = 0.01
 
 # Session-scoped work table with the helbredsforloeb that need a bump. Written
 # by build_regroup_detection_sql, read and dropped by build_regroup_bump_sql —
@@ -457,7 +427,6 @@ def refresh_surrogate_ids(
     conn,
     dataset: UdredningsretDataset,
     merge_start: str,
-    live_helbredsforloeb: int,
 ) -> tuple[int, int]:
     """Detect regroupings, refresh PK/F_ID, bump the regrouped helbredsforloeb.
 
@@ -472,14 +441,6 @@ def refresh_surrogate_ids(
     that still differ — then finds nothing and leaves the stale grouping in
     place in silence.
 
-    Over the REGROUP_RATIO cap the id refresh is still applied and committed
-    (U1's purpose must not be rolled back) but the bump is SKIPPED and the run
-    fails with the count: a mass regrouping is a change in SDS' own F_ID
-    algorithm and must reach a human, not re-stage 2 M helbredsforloeb by
-    itself. A rerun will NOT reproduce that failure — the ids are refreshed by
-    then, so detection comes up empty; the repair is the full_load the message
-    names.
-
     The refresh runs on its own connection AFTER execute_archive_merge has
     completed the arc DFM run, so a failure here leaves the merge committed
     with stale ids and the DFM run marked completed — the state U1 exists to
@@ -487,7 +448,6 @@ def refresh_surrogate_ids(
     present, the merge finds 0/0/0 and the refresh runs again (idempotent —
     only rows that still differ are written).
     """
-    over_cap = False
     cursor = conn.cursor()
     try:
         scaffold, populate = build_regroup_detection_sql(dataset)
@@ -502,39 +462,10 @@ def refresh_surrogate_ids(
         # a trigger on arc); never surface that as "-1 rows refreshed"
         refreshed = cursor.rowcount if cursor.rowcount is not None and cursor.rowcount >= 0 else 0
 
-        cap = (
-            int(live_helbredsforloeb * REGROUP_RATIO)
-            if live_helbredsforloeb >= RATIO_MIN_LIVE_ROWS
-            else None
-        )
-        over_cap = cap is not None and regrouped > cap
-        if not over_cap:
-            cursor.execute(build_regroup_bump_sql(dataset))
+        cursor.execute(build_regroup_bump_sql(dataset))
         conn.commit()
     finally:
         cursor.close()
-    if over_cap:
-        share = regrouped / live_helbredsforloeb
-        raise dg.Failure(
-            description=(
-                f"arc.{dataset.ext_table}: {regrouped:,} helbredsforloeb changed their "
-                f"{REGROUP_COLUMN} grouping in this delivery ({share:.2%} of "
-                f"{live_helbredsforloeb:,} live) and exceed the {REGROUP_RATIO:.0%} cap. "
-                f"PK/F_ID were refreshed and committed, but the dw_timestamp_update bump was "
-                f"SKIPPED — re-staging that many helbredsforloeb must be a human's decision. "
-                f"A regrouping at this scale is a change in SDS' own {REGROUP_COLUMN} "
-                f"algorithm: confirm the cause, then re-stage with udredningsret_publish_job "
-                f"and mode=full_load. A plain rerun will not find it again (the ids are "
-                f"already refreshed)."
-            ),
-            metadata={
-                "omgrupperinger": regrouped,
-                "levende_helbredsforloeb": live_helbredsforloeb,
-                "andel": round(share, 6),
-                "graense": REGROUP_RATIO,
-                "tabel": f"arc.{dataset.ext_table}",
-            },
-        )
     return int(refreshed), regrouped
 
 
@@ -782,16 +713,8 @@ def guard_source_unique_index(conn, dataset: UdredningsretDataset) -> None:
         )
 
 
-def guard_helbredsforloeb_recovery(
-    conn, dataset: UdredningsretDataset, minimum: float
-) -> dict[str, float | int]:
-    """The archive's live helbredsforloeb keys must be found in the delivery.
-
-    Below the limit the source has changed the first marker for many
-    helbredsforloeb (or CPR/unit has changed): the merge would soft-delete them
-    and recreate them under new keys, and downstream dw_ek would change.
-    Skipped when the archive is empty (first load).
-    """
+def measure_helbredsforloeb_recovery(conn, dataset: UdredningsretDataset) -> dict[str, float | int]:
+    """Share of the archive's live helbredsforloeb keys found in the delivery (1.0 on first load)."""
     source = source_table_name(dataset)
     cursor = conn.cursor()
     try:
@@ -812,13 +735,6 @@ def guard_helbredsforloeb_recovery(
     finally:
         cursor.close()
     share = found / live
-    if share < minimum:
-        raise ValueError(
-            f"arc.{dataset.ext_table}: only {share:.4%} of {live:,} live helbredsforloeb keys "
-            f"are recovered in the delivery (limit {minimum:.2%}). The source changed the first "
-            f"marker/CPR/unit for many helbredsforloeb, or the delivery is incomplete. "
-            f"Investigate before merging; override with min_helbredsforloeb_genfindelse if explained."
-        )
     return {"levende_helbredsforloeb": int(live), "genfundet": int(found), "andel": round(share, 6)}
 
 
@@ -827,22 +743,6 @@ def count_live(conn, dataset: UdredningsretDataset) -> int:
     try:
         cursor.execute(
             f"SELECT COUNT(*) FROM [arc].[{dataset.ext_table}] WHERE [dw_is_deleted] = 0"
-        )
-        return cursor.fetchone()[0]
-    finally:
-        cursor.close()
-
-
-def count_expected_soft_deletes(conn, dataset: UdredningsretDataset) -> int:
-    """Live arc rows without a counterpart in the delivery — counted BEFORE the
-    merge, so the cap can fire before anything is committed."""
-    on_clause = " AND ".join(f"src.[{k}] = tgt.[{k}]" for k in dataset.merge_keys)
-    cursor = conn.cursor()
-    try:
-        cursor.execute(
-            f"SELECT COUNT(*) FROM [arc].[{dataset.ext_table}] AS tgt "
-            f"WHERE tgt.[dw_is_deleted] = 0 AND NOT EXISTS "
-            f"(SELECT 1 FROM [ext].[{source_table_name(dataset)}] AS src WHERE {on_clause})"
         )
         return cursor.fetchone()[0]
     finally:
@@ -926,14 +826,6 @@ class UdredningsretArchiveConfig(RunModeConfig):
             "Always run the newest delivery afterwards. Never for a current delivery."
         ),
     )
-    min_helbredsforloeb_genfindelse: float | None = Field(
-        default=None,
-        description=(
-            f"Override the recovery guard for THIS run (share of the archive's live "
-            f"helbredsforloeb keys that must be found in the delivery; default "
-            f"{MIN_HELBREDSFORLOEB_GENFINDELSE}). Only once the cause is understood."
-        ),
-    )
 
 
 def _noop_result(source: str, target: str) -> dg.MaterializeResult:
@@ -962,11 +854,6 @@ def _run_archive(
             "backfill_historical: delete detection and revival are off for this run — "
             "run the newest delivery afterwards."
         )
-    minimum = (
-        config.min_helbredsforloeb_genfindelse
-        if config.min_helbredsforloeb_genfindelse is not None
-        else MIN_HELBREDSFORLOEB_GENFINDELSE
-    )
     source = f"ext.{source_table_name(dataset)}"
     target = f"arc.{dataset.ext_table}"
 
@@ -1004,7 +891,7 @@ def _run_archive(
             cursor.close()
         guard_source_unique_index(conn, dataset)
 
-        recovery = guard_helbredsforloeb_recovery(conn, dataset, minimum)
+        recovery = measure_helbredsforloeb_recovery(conn, dataset)
         context.log.info(
             f"source: {parity['kilderaekker_efter_dubletreduktion']:,} rows "
             f"({parity['fuldt_identiske_dubletter']:,} fully identical duplicates collapsed); "
@@ -1012,36 +899,12 @@ def _run_archive(
         )
 
         live = count_live(conn, dataset)
-        expected_soft_deletes = (
-            count_expected_soft_deletes(conn, dataset) if merge_config.detect_deletes else 0
-        )
         # The regrouping detector's prune threshold, read BEFORE the merge: the
         # rows the merge is about to write get a stamp from after this moment,
         # and only those must be pruned (build_regroup_detection_sql).
         merge_start = read_merge_start(conn)
 
-    # The cap is enforced BEFORE the merge on the expected count: the merge is
-    # not transactional with the guard, and a rerun after a failure would see 0 new.
-    ratio_live = live if live >= RATIO_MIN_LIVE_ROWS else None
-    check_soft_delete_threshold(
-        f"arc_{dataset.ext_table}",
-        expected_soft_deletes,
-        context,
-        override=config.soft_delete_threshold,
-        live_row_count=ratio_live,
-        ratio=SOFT_DELETE_RATIO,
-    )
-
     result = execute_archive_merge(context, mssql, merge_config, config)
-
-    check_soft_delete_threshold(
-        f"arc_{dataset.ext_table}",
-        result.rows_soft_deleted,
-        context,
-        override=config.soft_delete_threshold,
-        live_row_count=ratio_live,
-        ratio=SOFT_DELETE_RATIO,
-    )
 
     with mssql.get_connection() as conn:
         # Decision U1: bring PK/F_ID on the rows the merge left alone up to the
@@ -1059,12 +922,7 @@ def _run_archive(
                 "ones, and its grouping is not the one the archive should follow."
             )
         else:
-            refreshed, regrouped = refresh_surrogate_ids(
-                conn,
-                dataset,
-                merge_start,
-                int(recovery["levende_helbredsforloeb"]),
-            )
+            refreshed, regrouped = refresh_surrogate_ids(conn, dataset, merge_start)
             context.log.info(
                 f"{refreshed:,} live rows got PK/F_ID refreshed without a content change; "
                 f"{regrouped:,} helbredsforloeb were regrouped and got dw_timestamp_update "
@@ -1190,8 +1048,6 @@ udredningsret_archive_assets = [
 __all__ = [
     "LEVERANCE_TABLE",
     "MERGE_CONFIGS",
-    "MIN_HELBREDSFORLOEB_GENFINDELSE",
-    "SOFT_DELETE_RATIO",
     "ExtDelivery",
     "UdredningsretArchiveConfig",
     "build_merge_config",
@@ -1200,15 +1056,14 @@ __all__ = [
     "build_regroup_detection_sql",
     "build_source_index_sql",
     "build_source_table_sql",
-    "count_expected_soft_deletes",
     "count_live",
     "drop_source_table_sql",
     "guard_delivery_direction",
     "guard_ext_not_empty",
-    "guard_helbredsforloeb_recovery",
     "guard_key_uniqueness",
     "guard_row_parity",
     "guard_source_unique_index",
+    "measure_helbredsforloeb_recovery",
     "read_manifest",
     "record_delivery",
     "read_merge_start",

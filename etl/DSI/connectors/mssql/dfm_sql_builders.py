@@ -15,6 +15,8 @@ called directly by hand-written MSSQL DFM extract assets.
 
 from __future__ import annotations
 
+from typing import cast
+
 from core.dfm_config import RunModeConfig
 from DSI.connectors.extract_config import DfmExtractConfig
 from utils.sql_safety import safe_bracket_quote, safe_table_ref, validate_checkpoint_value
@@ -42,7 +44,7 @@ def build_mssql_where(
         no filtering should be applied (full-load, or first delta run).
     """
     if run_config.delta_column:
-        col = safe_bracket_quote(run_config.delta_column)
+        col: str | None = safe_bracket_quote(run_config.delta_column)
     else:
         col = extract_config.effective_delta_col
 
@@ -66,7 +68,7 @@ def build_mssql_where(
             return f"{col} > CAST('{safe_cp}' AS DATETIME2)"
 
     if run_config.mode == "period":
-        safe_from = run_config.date_from.replace("'", "''")
+        safe_from = cast(str, run_config.date_from).replace("'", "''")
         if run_config.date_to:
             safe_to = run_config.date_to.replace("'", "''")
             return (
@@ -84,7 +86,8 @@ def build_mssql_where(
             # correlating to the outer table (always-true → full extract).
             return f"{id_col} IN " f"(SELECT [flt].{id_col} FROM {safe_tbl} AS [flt])"
         escaped = ", ".join(
-            f"'{v.replace(chr(39), chr(39) * 2)}'" for v in run_config.id_filter_values
+            f"'{v.replace(chr(39), chr(39) * 2)}'"
+            for v in cast(list[str], run_config.id_filter_values)
         )
         return f"{id_col} IN ({escaped})"
 

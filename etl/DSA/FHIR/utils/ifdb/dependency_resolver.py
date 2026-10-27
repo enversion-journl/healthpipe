@@ -169,10 +169,10 @@ def _fetch_bom_ifdb_patientinfo_by_cpr(
             ifdb_oracle=ifdb_oracle,
             context=context,
         )
-        if dfm is not None:
+        if dfm is not None and run_ctx is not None:
             dfm.complete_dfm_run(run_ctx.log_id, rows_affected=len(oracle_rows))
     except Exception as exc:
-        if dfm is not None:
+        if dfm is not None and run_ctx is not None:
             dfm.fail_dfm_run(run_ctx.log_id, error_message=str(exc))
         raise
     return archive_rows + oracle_rows

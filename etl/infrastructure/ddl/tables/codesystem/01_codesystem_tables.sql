@@ -310,7 +310,7 @@ IF NOT EXISTS (
 )
 BEGIN
     CREATE TABLE [codesystem].[OkostedConcept] (
-        [code]                NVARCHAR(100)  NOT NULL,
+        [code]                NVARCHAR(120)  NOT NULL,
         [display]             NVARCHAR(500)  NULL,
         [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_OkostedConcept_dw_timestamp_insert] DEFAULT SYSDATETIME(),
         [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_OkostedConcept_dw_timestamp_update] DEFAULT SYSDATETIME(),
@@ -325,7 +325,7 @@ IF NOT EXISTS (
 )
 BEGIN
     CREATE TABLE [codesystem].[OkostedProperties] (
-        [code]                NVARCHAR(100)  NOT NULL,
+        [code]                NVARCHAR(120)  NOT NULL,
         [property_code]        NVARCHAR(100)  NOT NULL,
         [value]               NVARCHAR(500)  NULL,
         [type]                NVARCHAR(50)   NULL,
@@ -345,8 +345,8 @@ IF NOT EXISTS (
 )
 BEGIN
     CREATE TABLE [codesystem].[OkostedHierarchy] (
-        [parent_code]          NVARCHAR(100)  NOT NULL,
-        [child_code]           NVARCHAR(100)  NOT NULL,
+        [parent_code]          NVARCHAR(120)  NOT NULL,
+        [child_code]           NVARCHAR(120)  NOT NULL,
         [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_OkostedHierarchy_dw_timestamp_insert] DEFAULT SYSDATETIME(),
         [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_OkostedHierarchy_dw_timestamp_update] DEFAULT SYSDATETIME(),
         CONSTRAINT [PK_codesystem_OkostedHierarchy] PRIMARY KEY CLUSTERED ([parent_code], [child_code])

@@ -36,11 +36,11 @@ organisation_cs_job = dg.define_asset_job(
         # cs_okosted UPSERTs (no delete) into the persistent codesystem.Okosted*
         # tables that stg/dim_Okosted read, so a from-scratch rebuild is safe to run
         # directly after the sydax_archive group — no prerequisite full-load.
-        # OS2MO CSV extracts (manual ConceptMap overrides)
-        "ext_os2mo_ean_to_sor",
-        "ext_os2mo_lager_to_sor",
-        "ext_os2mo_rekvirent_to_sor",
-        "ext_os2mo_okosted_to_sor",
+        # Kuraterede conceptmap-CSV'er (eneste mapping-kilde for ERP->SOR)
+        "ext_csv_ean_to_sor",
+        "ext_csv_lager_to_sor",
+        "ext_csv_rekvirent_to_sor",
+        "ext_csv_okosted_to_sor",
         "extract_shak_register",
         # --- Codesystems (staging) — the entities resolved to SOR ---
         "cs_ean",
@@ -133,7 +133,7 @@ organisation_cs_job = dg.define_asset_job(
         "Daily Organisation + ERP->SOR terminology ETL. "
         "Builds the ean/Lager/Rekvirent/Okosted/SHAK/SHAK-a-like codesystems and "
         "their *-to-SOR conceptmaps from fresh source extracts "
-        "(NemHandel / ILS / SYDAX / OS2MO / EPJI) "
+        "(NemHandel / ILS / SYDAX / kuraterede CSV'er / EPJI) "
         "and syncs codesystem.* + conceptmap.* to DSO. "
         "Downloads SOR once (extract -> arc.sor_register archive -> cs_sor), "
         "posts FHIR Organizations from codesystem.SOR* (DFM delta), extracts "

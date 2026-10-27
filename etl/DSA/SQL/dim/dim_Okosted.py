@@ -75,6 +75,7 @@ def dim_Okosted(
                     "dw_ek_parent": dw_ek_parent,
                     "parent_code": entry.get("parent_code"),
                     "active": entry["aktiv"],
+                    "nummer": entry.get("nummer"),
                 }
             )
 
@@ -89,6 +90,7 @@ def dim_Okosted(
                 row["dw_ek_parent"],
                 row["parent_code"],
                 row["active"],
+                row["nummer"],
             )
             for row in dim_rows
         ]
@@ -106,12 +108,13 @@ def dim_Okosted(
                     """
                     CREATE TABLE #staging_dim_okosted (
                         dw_ek_Okosted INT NOT NULL,
-                        code_okosted VARCHAR(50) COLLATE DATABASE_DEFAULT NOT NULL,
+                        code_okosted VARCHAR(120) COLLATE DATABASE_DEFAULT NOT NULL,
                         name NVARCHAR(500) COLLATE DATABASE_DEFAULT,
                         [level] INT,
                         dw_ek_Okosted_parent INT,
-                        parent_code VARCHAR(50) COLLATE DATABASE_DEFAULT,
-                        active BIT NOT NULL
+                        parent_code VARCHAR(120) COLLATE DATABASE_DEFAULT,
+                        active BIT NOT NULL,
+                        nummer VARCHAR(100) COLLATE DATABASE_DEFAULT
                     )
                 """
                 )
@@ -119,11 +122,11 @@ def dim_Okosted(
                 batch_size = 1000
                 total_inserted = 0
 
-                placeholders = ", ".join([placeholder] * 7)
+                placeholders = ", ".join([placeholder] * 8)
                 insert_sql = (
                     f"INSERT INTO #staging_dim_okosted ("
                     f"dw_ek_Okosted, code_okosted, name, [level], "
-                    f"dw_ek_Okosted_parent, parent_code, active"
+                    f"dw_ek_Okosted_parent, parent_code, active, nummer"
                     f") VALUES ({placeholders})"
                 )
 
@@ -147,15 +150,16 @@ def dim_Okosted(
                             dw_ek_Okosted_parent = source.dw_ek_Okosted_parent,
                             parent_code = source.parent_code,
                             active = source.active,
+                            nummer = source.nummer,
                             dw_timestamp_update = CAST(SYSDATETIME() AS datetime2(0))
                     WHEN NOT MATCHED THEN
                         INSERT (dw_ek_Okosted, code_okosted, name, [level],
-                                dw_ek_Okosted_parent, parent_code, active,
+                                dw_ek_Okosted_parent, parent_code, active, nummer,
                                 dw_timestamp_insert)
                         VALUES (source.dw_ek_Okosted, source.code_okosted,
                                 source.name, source.[level],
                                 source.dw_ek_Okosted_parent, source.parent_code,
-                                source.active,
+                                source.active, source.nummer,
                                 CAST(SYSDATETIME() AS datetime2(0)))
                     OUTPUT $action;
                 """

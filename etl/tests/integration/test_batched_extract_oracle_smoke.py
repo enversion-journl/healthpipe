@@ -33,7 +33,7 @@ def _oracle_resource() -> IFDBOracleResource:
         username=os.getenv("IFDB_PROD_ORACLE_USERNAME", "myuser"),
         password=os.getenv("IFDB_PROD_ORACLE_PASSWORD", "tempPassword1!"),
         service_name=os.getenv("IFDB_PROD_ORACLE_DATABASE", "ORACLE_DB"),
-    )
+    ).process_config_and_initialize()
 
 
 def _context() -> dg.AssetExecutionContext:

@@ -27,8 +27,8 @@ the delivery-detection pattern):
 3. DELIVERY DETECTION: a run without a new file reads nothing (empty manifest,
    ext untouched, archive and gate no-op). After a checkpoint reset the same
    file re-merges as 0/0/0.
-4. RECOVERY GUARD: when the first marker changes for too many helbredsforloeb
-   the run fails unless the limit is overridden deliberately.
+4. RECOVERY: when the first marker changes for helbredsforloeb, the old rows
+   are soft-deleted, the new rows are inserted and the recovery share is recorded.
 5. DIRECTION GUARD + PIN: a pinned (older) delivery bypasses the checkpoint,
    must not be merged on top of a newer archive, and never advances the
    checkpoint.
@@ -462,13 +462,13 @@ def run_extract(resource, base_dir, monkeypatch, on_or_before: str | None = None
     return udredningsret._run_extract(context, resource, config)
 
 
-def run_archive(resource, **config):
+def run_archive(resource):
     context = dg.build_asset_context()
     return udredningsret_archive._run_archive(
         context,
         resource,
         UDREDNINGSRET_MONT,
-        udredningsret_archive.UdredningsretArchiveConfig(**config),
+        udredningsret_archive.UdredningsretArchiveConfig(),
     )
 
 
@@ -781,17 +781,12 @@ def test_3b_genkoersel_efter_checkpoint_reset_er_idempotent(udred_db, delivery_d
     assert checkpoint(udred_db) == B_ID
 
 
-def test_4_genfindelsesguard(udred_db, delivery_dir, monkeypatch):
-    """HF2 gets a new, earlier first marker -> 2 of 3 keys recovered -> the guard fails."""
+def test_4_foerste_markoer_skifter(udred_db, delivery_dir, monkeypatch):
+    """HF2 gets a new, earlier first marker -> 2 of 3 keys recovered, the old row is soft-deleted."""
     build_delivery(delivery_dir, C_FILE, "20260911", "2026-09-11", rows_c())
     run_extract(udred_db, delivery_dir, monkeypatch)
-    with pytest.raises(ValueError, match="recovered in the delivery"):
-        run_archive(udred_db)
-    # on failure the key table is KEPT for post mortem, and the checkpoint is not advanced
-    assert scalar(udred_db, KEY_TABLE_EXISTS) == 1
-    assert checkpoint(udred_db) == B_ID
-    # deliberate override: HF2's old row is soft-deleted and recreated under a new key
-    result = run_archive(udred_db, min_helbredsforloeb_genfindelse=0.5)
+    result = run_archive(udred_db)
+    assert result.metadata["helbredsforloeb_genfindelse"]["genfundet"] == 2
     assert result.metadata["rows_soft_deleted"] == 1
     assert result.metadata["rows_inserted"] == 2
     assert (

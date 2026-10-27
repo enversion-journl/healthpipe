@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from typing import cast
 
 import dagster as dg
 from core.fhir.deletion import mark_resources_deleted
@@ -188,7 +189,7 @@ def build_person(
 
     if person.rows:
         if epj is None:
-            built = contributions_from_ifdb([person.primary_row], context)
+            built = contributions_from_ifdb([person.rows[0]], context)
             epj = built[0] if built else None
         if epj is not None:
             extra = person.epj_ids[1:]
@@ -401,7 +402,7 @@ def ensure_patients(
         for person in resolution.persons:
             if person.resource_is_complete:
                 result.existing += 1
-                result.record(person, person.fhir_id)
+                result.record(person, cast(str, person.fhir_id))
                 continue
             patient = build_person(
                 person,

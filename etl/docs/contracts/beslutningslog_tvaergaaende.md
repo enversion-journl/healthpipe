@@ -190,9 +190,7 @@ er sammenligning med tom ukendt, og rækken forsvinder). *Aftager:* på de ældr
 nullbare flag skal man håndtere tom eksplicit.
 
 **Et tomt extract kombineret med oprydning er en hård fejl** — en fejlet
-forbindelse må ikke kunne tømme tabellen. Massesletninger over en tærskel kræver
-en eksplicit, kørsels-specifik godkendelse, fordi en hævet stående tærskel ville
-blinde vagten for altid.
+forbindelse må ikke kunne tømme tabellen.
 
 **Ingen sortering i extractet.** Målt: sortering ville tvinge hele resultatet
 materialiseret før første række — femten minutter mod under et sekund. *Aftager:*
@@ -203,6 +201,33 @@ kodernes rækkefølge, kontekstblokken og hierarkiniveauerne — de findes kun i
 ressourcens JSON. Kolonner bygges, når en opgørelse er navngivet; hvad der
 allerede er kolonner, står i lineage. *Aftager:* **sig til, hvilke opgørelser
 der skal kunne køre uden at læse JSON.**
+
+**dw-nøgler på de flade tabeller.** `dw_ek_Borger`, `dw_sk_Borger` og `dw_ek_Organisation`
+lægges direkte på de flade tabeller (i dag `fhir.EpisodeOfCare` og `fhir.Location`) og slås op
+i `dim.Borger` og `dim.Organisation` på FHIR-id. Begrundelse og mekanik står i
+`etl/docs/architecture/fhir_dw_keys_trin2.md`.
+
+- **`dw_ek_Borger` findes også for en borger, der kun findes som slettet.** Entitetsnøglen er
+  borgerens identitet, ikke en gyldig version. *Aftager:* en nøgle her siger ikke, at borgeren
+  er aktiv.
+- **`dw_sk_Borger` er den levende version, der gælder på rækkens tidspunkt** (for
+  EpisodeOfCare `period_start`), med samme regel som `dbo.GetBorgerSK_TVF`. Soft-deletede
+  versioner tæller ikke.
+- **-1 betyder "ingen nøgle"** — referencen mangler, findes ikke i dimensionen, eller (kun
+  `dw_sk_Borger`) rækken har intet tidspunkt eller ingen levende version på tidspunktet. -2
+  bruges ikke. *Aftager:* et join til dimensionen rammer UNKNOWN-rækken; filtrér på -1 for at
+  finde rækker uden nøgle.
+- **Sletteflaget på fhir-rækken indgår ikke.** Slettemarkerede rækker får nøgler efter samme
+  regel som levende rækker.
+- **Rækker med -1 genforsøges ikke**, men genberegnes, når fhir-rækken, borgeren eller
+  organisationen ændres. Hver kørsel logger antallet af -1.
+- **Kun rækker, hvor en nøgle ændres, skrives og får nyt `dw_timestamp_update`.** *Aftager:*
+  en ændret nøgle kommer med i DSO-deltaet som enhver anden ændring.
+
+**`EpisodeOfCare.period_start`/`period_end` er `DATETIME2(0)` med klokkeslættet, som IFDB
+leverer det.** IFDB leverer dansk lokaltid, men FHIR-værdien bærer `+00:00` uden at være
+omregnet. Offset fjernes ved indlæsningen uden omregning, og sekunddele afkortes.
+*Aftager:* værdien er dansk lokaltid uden offset; den er ikke UTC.
 
 ## Delta og ændringsopdagelse
 

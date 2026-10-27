@@ -89,7 +89,7 @@ def _env_float(name: str, default: float) -> float:
         raise ValueError(f"{name}={raw!r} is not a number (expected GB/percent/weeks)") from exc
 
 
-def headroom_thresholds() -> dict[str, float | None]:
+def headroom_thresholds() -> dict[str, Any]:
     """Warn/fail cutoffs. Override with DB_SPACE_* env vars per environment."""
     return {
         "warn_free_gb": _env_float("DB_SPACE_WARN_FREE_GB", DEFAULT_WARN_FREE_GB),
@@ -332,7 +332,7 @@ def compute_forecast(
 
 def evaluate_headroom(
     report: SpaceReport,
-    thresholds: dict[str, float | None] | None = None,
+    thresholds: dict[str, Any] | None = None,
 ) -> HeadroomVerdict:
     """Classify occupancy. Fail outranks warn; reasons are stable for tests."""
     t = thresholds or headroom_thresholds()

@@ -51,8 +51,8 @@ def map_Okosted(
             cursor.execute(
                 """
                 CREATE TABLE #staging_okosted_map (
-                    clean_code_Okosted VARCHAR(100) COLLATE DATABASE_DEFAULT NOT NULL,
-                    bk_code VARCHAR(50) COLLATE DATABASE_DEFAULT NOT NULL
+                    clean_code_Okosted VARCHAR(120) COLLATE DATABASE_DEFAULT NOT NULL,
+                    bk_code VARCHAR(120) COLLATE DATABASE_DEFAULT NOT NULL
                 )
             """
             )

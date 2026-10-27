@@ -471,19 +471,21 @@ END
 GO
 
 -- fct.AftaleVarePris
--- Source: ILS dbo.laftd (backbone, spec 2026-08-31-prisloese-linjer-og-aftalelager)
+-- Source: ILS dbo.laftd (backbone)
 --   LEFT JOIN dbo.laftdpris + dbo.lafth + dbo.laftdstam.
 -- Grain: one row per price version (OR synthetic line-coverage row for price-less
---   lines) per agreement line per lvnr (bk_prrowid x clean_code_AftaleVarePris).
+--   lines) per agreement line (bk_prrowid alone).
+--   The four packaging-variant slots sit side by side as columns:
+--   pris/pakkestoerrelse 1-4 paired positionally with dw_ek_Leverandoervare_1-4.
 -- bk_prrowid carries a source prefix so the two row types never collide:
 --   'LAFTDPRIS_<prrowid>' (real price version, dbo.laftdpris.prrowid) /
 --   'LAFTD_<prrowid>' (synthetic row, dbo.laftd.prrowid) — both varchar(36).
 -- har_prisversion: 1 = real price version, 0 = synthetic line-coverage row
 --   (agreement line has items/alternates but zero laftdpris rows).
--- dw_valid_from = source start_/startklk (real) / linje_start (synthetic);
+-- dw_valid_from = source start_/startklk (real) / laftd.start_ (synthetic);
 --   dw_valid_to = LEAD-chained per line (source slut only as last-version
 --   fallback) / '9999-12-31' (synthetic, always dw_is_current = 1).
--- clean_code_AftaleVarePris format: AFTALE_{lnr}_{aftale}_VARE_{vnr}[_LEVVARE_{lvnr}] — basisform uden lvnr paa no-lvnr-raekken.
+-- clean_code_AftaleVarePris format: AFTALE_{lnr}_{aftale}_VARE_{vnr} (ingen lvnr-suffiks).
 
 IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[fct].[AftaleVarePris]') AND type = 'U')
 BEGIN
@@ -491,7 +493,10 @@ BEGIN
         [dw_sk_AftaleVarePris] BIGINT IDENTITY(1,1) NOT NULL,
         [dw_ek_AftaleVarePris] INT NOT NULL CONSTRAINT [DF_AftaleVarePris_dw_ek_AftaleVarePris] DEFAULT -1,
         [dw_ek_Aftale] INT NOT NULL CONSTRAINT [DF_AftaleVarePris_dw_ek_Aftale] DEFAULT -1,
-        [dw_ek_Leverandoervare] INT NOT NULL CONSTRAINT [DF_AftaleVarePris_dw_ek_Leverandoervare] DEFAULT -1,
+        [dw_ek_Leverandoervare_1] INT NOT NULL CONSTRAINT [DF_AftaleVarePris_dw_ek_Leverandoervare_1] DEFAULT -1,
+        [dw_ek_Leverandoervare_2] INT NOT NULL CONSTRAINT [DF_AftaleVarePris_dw_ek_Leverandoervare_2] DEFAULT -1,
+        [dw_ek_Leverandoervare_3] INT NOT NULL CONSTRAINT [DF_AftaleVarePris_dw_ek_Leverandoervare_3] DEFAULT -1,
+        [dw_ek_Leverandoervare_4] INT NOT NULL CONSTRAINT [DF_AftaleVarePris_dw_ek_Leverandoervare_4] DEFAULT -1,
         [dw_ek_ILSVare] INT NOT NULL CONSTRAINT [DF_AftaleVarePris_dw_ek_ILSVare] DEFAULT -1,
         [dw_ek_Kreditor] INT NOT NULL CONSTRAINT [DF_AftaleVarePris_dw_ek_Kreditor] DEFAULT -1,
         [clean_code_AftaleVarePris] NVARCHAR(500) NULL,
@@ -508,11 +513,7 @@ BEGIN
         [pakkestoerrelse3] DECIMAL(18,4) NULL,
         [pakkestoerrelse4] DECIMAL(18,4) NULL,
         [momskode] NVARCHAR(50) NULL,
-        [kilder] NVARCHAR(100) NULL,
         [har_prisversion] BIT NOT NULL CONSTRAINT [DF_AftaleVarePris_har_prisversion] DEFAULT 1,
-        [maerke] NVARCHAR(255) NULL,
-        [linje_start] DATETIME2 NULL,
-        [linje_slut] DATETIME2 NULL,
         [dw_valid_from] DATETIME2(0) NOT NULL,
         [dw_valid_to] DATETIME2(0) NOT NULL CONSTRAINT [DF_AftaleVarePris_dw_valid_to] DEFAULT '9999-12-31',
         [dw_is_current] BIT NOT NULL CONSTRAINT [DF_AftaleVarePris_dw_is_current] DEFAULT 0,
@@ -523,8 +524,8 @@ BEGIN
         CONSTRAINT [PK_Fct_AftaleVarePris] PRIMARY KEY CLUSTERED ([dw_sk_AftaleVarePris] ASC)
     ) ON [PRIMARY];
 
-    CREATE UNIQUE NONCLUSTERED INDEX [IX_Fct_AftaleVarePris_grain] ON [fct].[AftaleVarePris]
-    ([bk_prrowid] ASC, [clean_code_AftaleVarePris] ASC) ON [PRIMARY];
+    CREATE UNIQUE NONCLUSTERED INDEX [IX_Fct_AftaleVarePris_bk_prrowid] ON [fct].[AftaleVarePris]
+    ([bk_prrowid] ASC) ON [PRIMARY];
 
     CREATE NONCLUSTERED INDEX [IX_Fct_AftaleVarePris_AftaleVarePris] ON [fct].[AftaleVarePris]
     ([dw_ek_AftaleVarePris] ASC) ON [PRIMARY];
@@ -532,8 +533,17 @@ BEGIN
     CREATE NONCLUSTERED INDEX [IX_Fct_AftaleVarePris_Aftale] ON [fct].[AftaleVarePris]
     ([dw_ek_Aftale] ASC) ON [PRIMARY];
 
-    CREATE NONCLUSTERED INDEX [IX_Fct_AftaleVarePris_Leverandoervare] ON [fct].[AftaleVarePris]
-    ([dw_ek_Leverandoervare] ASC) ON [PRIMARY];
+    CREATE NONCLUSTERED INDEX [IX_Fct_AftaleVarePris_Leverandoervare_1] ON [fct].[AftaleVarePris]
+    ([dw_ek_Leverandoervare_1] ASC) ON [PRIMARY];
+
+    CREATE NONCLUSTERED INDEX [IX_Fct_AftaleVarePris_Leverandoervare_2] ON [fct].[AftaleVarePris]
+    ([dw_ek_Leverandoervare_2] ASC) ON [PRIMARY];
+
+    CREATE NONCLUSTERED INDEX [IX_Fct_AftaleVarePris_Leverandoervare_3] ON [fct].[AftaleVarePris]
+    ([dw_ek_Leverandoervare_3] ASC) ON [PRIMARY];
+
+    CREATE NONCLUSTERED INDEX [IX_Fct_AftaleVarePris_Leverandoervare_4] ON [fct].[AftaleVarePris]
+    ([dw_ek_Leverandoervare_4] ASC) ON [PRIMARY];
 
     CREATE NONCLUSTERED INDEX [IX_Fct_AftaleVarePris_IlsVare] ON [fct].[AftaleVarePris]
     ([dw_ek_ILSVare] ASC) ON [PRIMARY];
@@ -541,10 +551,9 @@ BEGIN
     CREATE NONCLUSTERED INDEX [IX_Fct_AftaleVarePris_dw_is_current] ON [fct].[AftaleVarePris]
     ([dw_ek_AftaleVarePris] ASC) WHERE [dw_is_current] = 1 ON [PRIMARY];
 
-    -- Understoetter pre-delete-sweepen (spec 2026-08-31): sweepen skopes paa
-    -- linjenoeglen (bk_leverandoernummer, bk_aftale_nummer, bk_ils_varenummer),
-    -- ikke bk_prrowid — uden dette indeks scanner sweepen hele tabellen hver
-    -- koersel. (Review-ruling: spec's "No index changes" veg for dette.)
+    -- Understoetter pre-delete-sweepen: sweepen skopes paa linjenoeglen
+    -- (bk_leverandoernummer, bk_aftale_nummer, bk_ils_varenummer), ikke
+    -- bk_prrowid — uden dette indeks scanner sweepen hele tabellen hver koersel.
     CREATE NONCLUSTERED INDEX [IX_Fct_AftaleVarePris_linjenoegle] ON [fct].[AftaleVarePris]
     ([bk_leverandoernummer] ASC, [bk_aftale_nummer] ASC, [bk_ils_varenummer] ASC) ON [PRIMARY];
 END

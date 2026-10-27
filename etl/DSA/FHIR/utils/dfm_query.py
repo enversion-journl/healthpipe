@@ -13,7 +13,7 @@ to avoid duplicating WHERE-clause logic.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from core.dfm_config import RunModeConfig
 from utils.sql_safety import safe_bracket_quote, safe_table_ref, validate_checkpoint_value
@@ -71,13 +71,13 @@ def build_fhir_archive_query(
     if run_config.mode == "full_load":
         where = ""
     elif run_config.mode == "period":
-        safe_from = run_config.date_from.replace("'", "''")
+        safe_from = cast(str, run_config.date_from).replace("'", "''")
         where = f" AND {col} >= '{safe_from}'"
         if run_config.date_to:
             safe_to = run_config.date_to.replace("'", "''")
             where += f" AND {col} < DATEADD(day, 1, CAST('{safe_to}' AS DATE))"
     elif run_config.mode == "ids":
-        safe_id_col = safe_bracket_quote(run_config.id_filter_column)
+        safe_id_col = safe_bracket_quote(cast(str, run_config.id_filter_column))
         if run_config.id_filter_table:
             safe_tbl = safe_table_ref(run_config.id_filter_table)
             # Alias + qualify the subquery column: if id_filter_column doesn't exist
@@ -88,7 +88,7 @@ def build_fhir_archive_query(
             )
         else:
             escaped = ", ".join(
-                f"'{v.replace(chr(39), chr(39) * 2)}'" for v in run_config.id_filter_values
+                f"'{v.replace(chr(39), chr(39) * 2)}'" for v in run_config.id_filter_values or []
             )
             where = f" AND {safe_id_col} IN ({escaped})"
     elif run_config.mode == "delta" and checkpoint:

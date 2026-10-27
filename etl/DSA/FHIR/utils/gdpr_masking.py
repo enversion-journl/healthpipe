@@ -97,7 +97,7 @@ def _mask_dict_recursive(data: Any) -> Any:
         Masked copy of the data
     """
     if isinstance(data, dict):
-        masked = {}
+        masked: Any = {}
         for key, value in data.items():
             # Mask specific sensitive fields
             if key.lower() in ["name", "given", "family"]:

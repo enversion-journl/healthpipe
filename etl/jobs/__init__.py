@@ -106,6 +106,11 @@ from jobs.organization_jobs import (
     organisation_cs_job,
 )
 
+# OS2mo (Magenta) integration — codesystems out, enriched units back in
+from jobs.os2mo_jobs import (
+    os2mo_codesystem_export_job,
+)
+
 # Security (DPA / RBAC) daily job
 from jobs.security_jobs import security_daily_job
 
@@ -121,6 +126,8 @@ all_jobs = [
     sfi_datapoint_reconciliation_job,
     # DWH Organisation Jobs
     organisation_cs_job,
+    # OS2mo (Magenta) organisation integration
+    os2mo_codesystem_export_job,
     # FHIR CodeSystem Job (clinical SKS/SOR terminology -> DSO + FHIR)
     fhir_codesystem_job,
     *DRG_INGEST_JOBS,
@@ -191,6 +198,7 @@ __all__ = [
     "erp_infrastructure_job",
     # Organisation jobs
     "organisation_cs_job",
+    "os2mo_codesystem_export_job",
     # FHIR CodeSystem job
     "fhir_codesystem_job",
     "DRG_INGEST_JOBS",

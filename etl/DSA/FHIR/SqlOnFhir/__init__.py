@@ -32,6 +32,7 @@ from .DocumentReference_dfm import sof_documentreference_dfm
 from .DocumentReference_Recipient_dfm import sof_documentreference_recipient_dfm
 from .Encounter_dfm import sof_encounter_dfm
 from .Encounter_Location_dfm import sof_encounter_location_dfm
+from .DWKeys_dfm import fhir_dw_keys_episode_of_care, fhir_dw_keys_location
 from .EpisodeOfCare_dfm import sof_episode_of_care_dfm
 from .Location_dfm import sof_location_dfm
 from .Observation_dfm import sof_observation_dfm, sof_observation_speciale_dfm
@@ -86,6 +87,8 @@ all_assets = [
     sof_documentreference_dfm,
     sof_documentreference_recipient_dfm,
     sof_location_dfm,
+    fhir_dw_keys_episode_of_care,
+    fhir_dw_keys_location,
     sof_questionnaire_dfm,
     sof_questionnaire_item_dfm,
     sof_questionnaire_response_dfm,
@@ -122,6 +125,8 @@ __all__ = [
     "sof_documentreference_dfm",
     "sof_documentreference_recipient_dfm",
     "sof_location_dfm",
+    "fhir_dw_keys_episode_of_care",
+    "fhir_dw_keys_location",
     "sof_questionnaire_dfm",
     "sof_questionnaire_item_dfm",
     "sof_questionnaire_response_dfm",

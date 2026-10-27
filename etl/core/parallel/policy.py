@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import dagster as dg
 
@@ -24,7 +24,7 @@ def env_int(name: str, default: int, *, minimum: int = 0) -> int:
         value = dg.EnvVar.int(name).get_value(default)
     except (TypeError, ValueError):
         value = default
-    return max(minimum, value)
+    return max(minimum, cast(int, value))
 
 
 def env_bool(name: str, default: bool = False) -> bool:

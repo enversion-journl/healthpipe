@@ -385,8 +385,8 @@ Udredningsforloeb, Helbredsforloeb, Forloebsmarkoer, Borger, Dato_Markoer, Water
   `map.Helbredsforloeb`) sættes `dw_is_deleted = 1` på levende fact-rækker, hvis `dw_ek_Udredningsforloeb` ikke findes i den stagede
   batch. Genopliver, når clean_code'en dukker op igen.
 - Et helbredsforløb, hvis første markør ændres (0,01 %/md), får ny `helbredsforloeb_noegle` i arkivet: dets gamle markører
-  soft-slettes, de nye indsættes ⇒ nye `dw_ek` og retirering af de gamle. Genfindelsesguarden (≥ 99,9 %) i arkivet er værnet mod
-  det i stor skala.
+  soft-slettes, de nye indsættes ⇒ nye `dw_ek` og retirering af de gamle. Arkivet måler genfindelsen (`helbredsforloeb_genfindelse`),
+  men har ingen grænse, der stopper kørslen.
 
 ## 7. Årsagskoder (MRK_ST_N) — tekster og oprindelse
 
@@ -704,10 +704,7 @@ derfor "helbredsforløb, der mangler et bump", ikke "helbredsforløb, der er omg
 læst **før** mergen (`read_merge_start`), ikke leverancedatoen: intet forbyder to leverancer pakket samme dato (retningsguarden
 afviser kun en strengt ældre, og DFM-identiteten er pakketidspunktet på sekundet), og et dato-prune ville så også fjerne rækker,
 som en *tidligere* kørsel ændrede — og dermed evidensen for en omgruppering, der aldrig ville blive bumpet. Mergen og bumpet
-stempler begge `CAST(SYSDATETIME() AS datetime2(0))`, så hver række, kørslen selv skrev, ligger på eller efter grænsen. Over `REGROUP_RATIO` (1 % af levende
-helbredsforløb) commit'es id-opdateringen alligevel, mens bumpet **springes over**, og kørslen fejler med antallet; loftet
-måles kun, når populationen er mindst `RATIO_MIN_LIVE_ROWS` levende helbredsforløb — under den grænse er en procentdel
-meningsløs (samme gulv som soft-delete-raten), og bumpet kører altid. Springes over
+stempler begge `CAST(SYSDATETIME() AS datetime2(0))`, så hver række, kørslen selv skrev, ligger på eller efter grænsen. Bumpet har ingen grænse for antallet. Springes over
 ved `backfill_historical` som resten af U1. Antallet rapporteres som `omgrupperinger` i assetets metadata.
 Alternativ: (a) tage `F_ID` med i change-detect igen (beslutning 2026-09-08 imod: ~1,5 M tidsstempel-opdateringer om ugen
 og re-staging af hele arkivet hver uge); (b) en tredje gren i delta-scopet (`_scope_sql`), der sammenligner gruppeantal ved hver
@@ -721,9 +718,7 @@ overser netop medlemskabsbyttet, som ethvert tælle-baseret tjek misser; (c) vil
 Detektionen er et `HAVING` med to `DISTINCT` og et `MAX(CASE ...)` over ca. én række pr. gruppe (kilden er allerede `DISTINCT` på `(hf, gammel, ny)`) —
 ikke `COUNT(DISTINCT)` over 8,2 M rækker — og bumpet seeker det eksisterende nonclustered index `(helbredsforloeb_noegle, dw_is_deleted)`.
 Aftager: et omgrupperet helbredsforløb re-stages ved næste publish-kørsel i stedet for at stå med gammel grain, indtil nogen kørte
-`full_load`. Loftet betyder til gengæld, at en kilde-side ændring af SDS' egen `F_ID`-algoritme bevidst standser kørslen og kræver
-et menneske: en genkørsel finder den **ikke** igen (id'erne er opdateret), så afhjælpningen er `udredningsret_publish_job` med
-`mode=full_load`. Detektoren er årsagsspecifik; den cause-agnostiske bagstopper er DQA-subject 10 (§9, US-6).
+`full_load`. Detektoren er årsagsspecifik; den cause-agnostiske bagstopper er DQA-subject 10 (§9, US-6).
 Status: Fastlagt 2026-09-13 (review-fund, verificeret ende til ende).
 
 **U19. Dette repo bygger ingen views over udredningsretten; præsentationslaget ejes af security-repoet.**
@@ -795,8 +790,6 @@ Migrationen `20260917_udredningsret_f_id_width.sql` udvider eksisterende dimensi
 Det sammensatte opslag på helbredsforløb og F_ID er nonclustered, så også 500 tegn holder sig
 inden for SQL Servers indeksgrænse på 1.700 byte.
 
-REGROUP-over-cap-fejlen opstår i `udredningsret_ingest_job`, hvis arkiv-opdatering kræver manuel
-kontrol og efterfølgende `full_load`. Publish-sensoren genkører kun `udredningsret_publish_job`;
-den genkører ikke arkivets REGROUP-kontrol. Borger-plateau er ikke et sikkert stopkriterium for
+Borger-plateau er ikke et sikkert stopkriterium for
 fejlede publish-kørsler: DSA kan allerede have committet borgernøgler, mens DSO-sync stadig mangler.
 Fejlede publish-kørsler forbliver derfor genprøvelige ved næste natlige succes.

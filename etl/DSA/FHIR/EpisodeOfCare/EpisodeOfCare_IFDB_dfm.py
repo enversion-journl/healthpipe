@@ -34,7 +34,7 @@ No Dagster partitions — checkpoint tracking replaces partition boundaries.
 
 import time
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 import dagster as dg
 from core.dfm_config import RunModeConfig
@@ -308,7 +308,7 @@ def _transform_episodes_to_fhir(
             # code-system provenance and display (HEALTHISSUE_TEXT) is kept.
             # Missing lookup → extension omitted (warned in map builder).
             if healthissue_code_map:
-                hi_lookup = healthissue_code_map.get(normalize_oracle_id(healthissue_id))
+                hi_lookup = healthissue_code_map.get(cast(str, normalize_oracle_id(healthissue_id)))
                 if hi_lookup and hi_lookup[0]:
                     hi_code, hi_text = hi_lookup
                     extensions.append(

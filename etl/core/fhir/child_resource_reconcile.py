@@ -31,31 +31,6 @@ StatusKind = Literal["status", "verificationStatus"]
 
 
 @dataclass(frozen=True)
-class RetireCeiling:
-    """Værn mod masse-pensionering: over loftet springes retire over med ERROR.
-
-    Loftet er ``max(floor, fraction * levende)`` pr. familie pr. kald. Tallene
-    er bevidst u-kalibrerede sikkerhedsgrænser, ikke statistik: gulvet ligger
-    langt over enhver plausibel rutinedags oprydning (så små chunks aldrig
-    rammer det), andelen fanger systematisk tømning på store kørsler — det
-    mønster en fremtidig skip-betingelse eller regelfejl ville efterlade.
-
-    En legitim massehændelse skal ses af et menneske og køres igen med hævet
-    loft (run-tags, se posting_config). ``fraction=1.0`` slår loftet fra:
-    retire kan aldrig overstige antallet af levende børn.
-    """
-
-    floor: int = 1000
-    fraction: float = 0.5
-
-    def limit(self, live_count: int) -> int:
-        return max(self.floor, int(self.fraction * live_count))
-
-
-DEFAULT_RETIRE_CEILING = RetireCeiling()
-
-
-@dataclass(frozen=True)
 class ChildFamily:
     """One XML-child identifier family (same resource type + infix)."""
 
@@ -169,37 +144,14 @@ def reconcile_children(
     parent_oids: Sequence[str],
     expected_identifiers: set[str],
     logger: Any | None = None,
-    retire_ceiling: RetireCeiling | None = DEFAULT_RETIRE_CEILING,
 ) -> int:
-    """Retire live children for ``parent_oids`` that are missing from ``expected_identifiers``.
-
-    ``retire_ceiling`` er værnet mod masse-pensionering; ``None`` slår det fra.
-    """
+    """Retire live children for ``parent_oids`` that are missing from ``expected_identifiers``."""
     oids = [oid for oid in parent_oids if oid]
     if not oids:
         return 0
 
     live = _fetch_live_children(fhir_database, family, oids)
     to_retire = fhir_ids_to_retire(live, expected_identifiers)
-    if retire_ceiling is not None:
-        live_count = len({fhir_id for fhir_id, _ in live})
-        limit = retire_ceiling.limit(live_count)
-        if len(to_retire) > limit:
-            if logger is not None:
-                logger.error(
-                    "XML child reconcile %s: retire ceiling exceeded — %d to retire of"
-                    " %d live for %d parents (limit=%d, floor=%d, fraction=%.2f)."
-                    " Skipping retire; a deliberate mass cleanup must re-run with a"
-                    " raised ceiling.",
-                    family.resource_type,
-                    len(to_retire),
-                    live_count,
-                    len(oids),
-                    limit,
-                    retire_ceiling.floor,
-                    retire_ceiling.fraction,
-                )
-            return 0
     if logger is not None and len(to_retire) >= _WARN_RETIRE_THRESHOLD:
         logger.warning(
             "XML child reconcile %s: retiring %d resources for %d parents",

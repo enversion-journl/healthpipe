@@ -19,126 +19,140 @@ RUNBOOK — full current-version snapshot each run:
   OmkostningsstedHierarkiId ORDER BY EndDateTime DESC, StartDateTime DESC,
   dw_timestamp_update DESC (rn=1), giving a complete current-version snapshot
   on every run. The result is UPSERTed (merge_codesystem_tables,
-  delete_stale=False) into the persistent codesystem.Okosted* tables which
-  feed stg/map/dim_Okosted.
+  code_max_length=120, delete_stale=False) into the persistent codesystem.Okosted*
+  tables which feed stg/map/dim_Okosted.
 
   No dependency on any full-load extract job — the arc table always holds the
   full history; a from-scratch rebuild of codesystem.Okosted* can run cs_okosted
   directly after the sydax_archive group without any prerequisite full-load.
+
+  Node identity: A node is the pair (nummer, niveau) — the same nummer value
+  recurring at different levels becomes distinct nodes. Each node's code is
+  "<nummer>_NIVEAU_<niveau>"; hierarchy edges always go exactly one level up.
+  Deleted rows (slettet=1) are built and included. Each node carries properties:
+  enhedstype, nummer, and status (aktiv/slettet) from its own rows, plus
+  startsdate, enddate, kildesystem, and OmkostningsstedHierarkiId when present.
 """
 
 from datetime import datetime
 
 import dagster as dg
 from core.resources import MSSQLResource
-from DSA.CodeSystem.utils import merge_codesystem_tables
+from DSA.CodeSystem.utils import merge_codesystem_tables, touch_concepts
+
+LEVEL_SUFFIX = "_NIVEAU_"
+MAX_CODE_LENGTH = 120
+MAX_LEVELS = 20
+
+
+def _node_code(nummer: str, niveau: int) -> str:
+    return f"{nummer}{LEVEL_SUFFIX}{niveau}"
+
+
+def _newest_row(rows: list[dict]) -> dict:
+    """The row with the newest startsdate/startdatetime, first row as fallback."""
+    newest_row = None
+    newest_startdate = None
+    for row in rows:
+        startsdate = row.get("startsdate") or row.get("startdatetime")
+        if startsdate is not None:
+            date_obj = _parse_date(startsdate)
+            if date_obj is not None and (newest_startdate is None or date_obj > newest_startdate):
+                newest_startdate = date_obj
+                newest_row = row
+    if newest_row is None:
+        return rows[0]
+    return newest_row
+
+
+def _enhedstype(row: dict, niveau: int) -> str:
+    if row.get(f"jeid{niveau}") is not None:
+        return "juridisk enhed"
+    if row.get(f"veid{niveau}") is not None:
+        return "virksomhedsenhed"
+    if row.get(f"afid{niveau}") is not None:
+        return "afdeling"
+    if row.get(f"osid{niveau}") is not None:
+        return "omkostningssted"
+    return "Ukendt"
 
 
 def build_okosted_hierarchy(
     okosted_rows: list,
     okosted_columns: list[str] | None = None,
-) -> tuple[list[dict], list[dict], list[dict]]:
+) -> tuple[list[dict], list[dict], list[dict], dict[str, int]]:
     """
     Build hierarchy structure for okosted codesystem from ext.* table rows.
 
-    Codes are based on ALL nummer1-20 values:
-    - Each unique nummer value at each level becomes a code
-    - display is the corresponding tekst value
-    - OmkostningsstedHierarkiId is stored in properties to track back to original row
-    - Hierarchy is built by matching nummer values at parent levels
+    A node's identity is the pair (nummer, niveau): the same nummer value
+    recurring at different levels (a deleted placeholder row reusing a
+    number, a self-referencing root row, …) becomes distinct nodes rather
+    than being merged into one code. Each node's code is
+    "<nummer>_NIVEAU_<niveau>".
 
     All dict key lookups are lowercased via _normalize_keys to handle
     case differences between DB drivers / source schemas.
 
     Returns:
-        (concepts, properties, hierarchy) triple
+        (concepts, properties, hierarchy, counters) quadruple. counters
+        tracks parent_conflicts, path_gaps and unknown_enhedstype — data
+        quality signals from the source, not failures.
     """
     okosted_data = (
         _rows_to_dicts(okosted_rows, okosted_columns)
         if okosted_columns
         else _ensure_dicts(okosted_rows)
     )
-
     okosted_data = [_normalize_keys(row) for row in okosted_data]
 
-    concepts: list[dict] = []
-    properties: list[dict] = []
-    hierarchy: list[dict] = []
+    counters = {"parent_conflicts": 0, "path_gaps": 0, "unknown_enhedstype": 0}
 
-    code_lookup: dict[str, dict] = {}
+    # 1) Collect cells: node (nummer, niveau) -> list of rows it appears in.
+    node_rows: dict[tuple[str, int], list[dict]] = {}
     row_max_levels: dict[int, int] = {}
-
     for row in okosted_data:
         max_level = 0
-        for level in range(1, 21):
-            nummer = row.get(f"nummer{level}")
-            if nummer is not None and str(nummer).strip():
-                max_level = level
-
-        row_max_levels[id(row)] = max_level
-
-        for level in range(1, 21):
-            nummer = row.get(f"nummer{level}")
+        for niveau in range(1, MAX_LEVELS + 1):
+            nummer = row.get(f"nummer{niveau}")
             if nummer is None or not str(nummer).strip():
                 continue
+            nummer = str(nummer).strip()
+            if LEVEL_SUFFIX in nummer:
+                raise ValueError(
+                    f"Source nummer {nummer!r} contains the reserved level "
+                    f"suffix {LEVEL_SUFFIX!r} — codes would be ambiguous."
+                )
+            node_rows.setdefault((nummer, niveau), []).append(row)
+            max_level = niveau
+        row_max_levels[id(row)] = max_level
 
-            nummer_value = str(nummer).strip()
-            tekst = row.get(f"tekst{level}")
-            tekst_value = (
-                str(tekst).strip() if tekst is not None and str(tekst).strip() else nummer_value
-            )
+    concepts, properties, hierarchy = [], [], []
+    for (nummer, niveau), rows in node_rows.items():
+        code = _node_code(nummer, niveau)
+        if len(code) > MAX_CODE_LENGTH:
+            raise ValueError(f"Code {code!r} exceeds {MAX_CODE_LENGTH} chars.")
 
-            code = nummer_value
+        newest = _newest_row(rows)
 
-            if code not in code_lookup:
-                code_lookup[code] = {
-                    "level": level,
-                    "display": tekst_value,
-                    "row_levels": [],
-                }
-
-            code_lookup[code]["row_levels"].append((row, level))
-
-    for code, code_info in code_lookup.items():
-        row_levels = code_info["row_levels"]
-
-        newest_row = None
-        newest_startdate = None
-
-        for row, _code_level in row_levels:
-            startsdate = row.get("startsdate") or row.get("startdatetime")
-            if startsdate is not None:
-                date_obj = _parse_date(startsdate)
-                if date_obj is not None:
-                    if newest_startdate is None or date_obj > newest_startdate:
-                        newest_startdate = date_obj
-                        newest_row = row
-
-        if newest_row is None and row_levels:
-            newest_row = row_levels[0][0]
-
-        display = code_info["display"]
-        if newest_row:
-            for check_level in range(1, 21):
-                nummer = newest_row.get(f"nummer{check_level}")
-                if nummer is not None and str(nummer).strip() == code:
-                    tekst = newest_row.get(f"tekst{check_level}")
-                    if tekst is not None and str(tekst).strip():
-                        display = str(tekst).strip()
-                    break
-
+        display = str(newest.get(f"tekst{niveau}") or "").strip() or nummer
         concepts.append({"CODE": code, "DISPLAY": display})
 
+        properties.append({"CODE": code, "KEY": "nummer", "VALUE": nummer, "TYPE": "String"})
+
+        enhedstype = _enhedstype(newest, niveau)
+        if enhedstype == "Ukendt":
+            counters["unknown_enhedstype"] += 1
+        properties.append(
+            {"CODE": code, "KEY": "enhedstype", "VALUE": enhedstype, "TYPE": "String"}
+        )
+
+        # The node's OWN rows: those where this (nummer, niveau) is the
+        # deepest filled cell. A grouping level (RSD, PSD, …) has none — it
+        # only appears as an ancestor in other nodes' rows.
+        own_rows = [r for r in rows if row_max_levels[id(r)] == niveau]
+
         seen_hierarki_ids: set[int] = set()
-        for row, code_level in row_levels:
-            nummer_at_level = row.get(f"nummer{code_level}")
-            if nummer_at_level is None or str(nummer_at_level).strip() != code:
-                continue
-
-            row_max_level = row_max_levels.get(id(row), 0)
-            if code_level != row_max_level:
-                continue
-
+        for row in own_rows:
             hierarki_id = row.get("omkostningsstedhierarkiid")
             if hierarki_id is not None:
                 hierarki_id_int = int(hierarki_id)
@@ -153,67 +167,87 @@ def build_okosted_hierarchy(
                     )
                     seen_hierarki_ids.add(hierarki_id_int)
 
-        min_level = min(code_level for (_, code_level) in row_levels)
-        properties.append(
-            {
-                "CODE": code,
-                "KEY": "nummer_kolonne",
-                "VALUE": f"nummer{min_level}",
-                "TYPE": "String",
+        # Status comes from the node's own row only: an ancestor's status in
+        # SydAX is not recorded, and a descendant's row says nothing about it.
+        status_row = _status_row(own_rows)
+        if status_row is not None:
+            for key in ("aktiv", "slettet"):
+                value = status_row.get(key)
+                if value is not None:
+                    properties.append(
+                        {"CODE": code, "KEY": key, "VALUE": str(value), "TYPE": "Boolean"}
+                    )
+
+        startsdate = newest.get("startsdate") or newest.get("startdatetime")
+        if startsdate is not None:
+            startsdate_str = (
+                startsdate.strftime("%Y-%m-%d")
+                if hasattr(startsdate, "strftime")
+                else str(startsdate)
+            )
+            properties.append(
+                {"CODE": code, "KEY": "startsdate", "VALUE": startsdate_str, "TYPE": "Date"}
+            )
+
+        enddate = newest.get("enddate") or newest.get("enddatetime")
+        if enddate is not None:
+            enddate_str = (
+                enddate.strftime("%Y-%m-%d") if hasattr(enddate, "strftime") else str(enddate)
+            )
+            properties.append(
+                {"CODE": code, "KEY": "enddate", "VALUE": enddate_str, "TYPE": "Date"}
+            )
+
+        kildesystem = newest.get("kildesystem")
+        if kildesystem is not None and str(kildesystem).strip():
+            properties.append(
+                {
+                    "CODE": code,
+                    "KEY": "kildesystem",
+                    "VALUE": str(kildesystem).strip(),
+                    "TYPE": "String",
+                }
+            )
+
+        if niveau > 1:
+            parents = {
+                str(r.get(f"nummer{niveau - 1}") or "").strip()
+                for r in rows
+                if str(r.get(f"nummer{niveau - 1}") or "").strip()
             }
-        )
+            if len(parents) > 1:
+                counters["parent_conflicts"] += 1
+            parent = str(newest.get(f"nummer{niveau - 1}") or "").strip()
+            if parent:
+                hierarchy.append({"CODE": code, "PARENT_CODE": _node_code(parent, niveau - 1)})
+            else:
+                counters["path_gaps"] += 1
 
-        if newest_row:
-            aktiv = newest_row.get("aktiv")
-            if aktiv is not None:
-                properties.append(
-                    {"CODE": code, "KEY": "aktiv", "VALUE": str(aktiv), "TYPE": "Boolean"}
-                )
+    return concepts, properties, hierarchy, counters
 
-            startsdate = newest_row.get("startsdate") or newest_row.get("startdatetime")
-            if startsdate is not None:
-                startsdate_str = (
-                    startsdate.strftime("%Y-%m-%d")
-                    if hasattr(startsdate, "strftime")
-                    else str(startsdate)
-                )
-                properties.append(
-                    {"CODE": code, "KEY": "startsdate", "VALUE": startsdate_str, "TYPE": "Date"}
-                )
 
-            enddate = newest_row.get("enddate") or newest_row.get("enddatetime")
-            if enddate is not None:
-                enddate_str = (
-                    enddate.strftime("%Y-%m-%d") if hasattr(enddate, "strftime") else str(enddate)
-                )
-                properties.append(
-                    {"CODE": code, "KEY": "enddate", "VALUE": enddate_str, "TYPE": "Date"}
-                )
+def _is_set(value) -> bool:
+    return str(value).strip().lower() in ("1", "true")
 
-            kildesystem = newest_row.get("kildesystem")
-            if kildesystem is not None and str(kildesystem).strip():
-                properties.append(
-                    {
-                        "CODE": code,
-                        "KEY": "kildesystem",
-                        "VALUE": str(kildesystem).strip(),
-                        "TYPE": "String",
-                    }
-                )
 
-        parent_found = False
-        for row, code_level in row_levels:
-            if parent_found:
-                break
-            if code_level > 1:
-                parent_nummer = row.get(f"nummer{code_level - 1}")
-                if parent_nummer is not None and str(parent_nummer).strip():
-                    parent_code = str(parent_nummer).strip()
-                    if parent_code in code_lookup:
-                        hierarchy.append({"CODE": code, "PARENT_CODE": parent_code})
-                        parent_found = True
+def _status_row(own_rows: list[dict]) -> dict | None:
+    """The own row whose Aktiv/Slettet stand for the code, or None.
 
-    return concepts, properties, hierarchy
+    When a code has several own rows that disagree, a row that is not deleted
+    wins, then an active one, then the highest OmkostningsstedHierarkiId — so
+    a code still in use somewhere is delivered as in use, and the pick does
+    not depend on the order the rows were read in.
+    """
+    if not own_rows:
+        return None
+    return min(
+        own_rows,
+        key=lambda row: (
+            _is_set(row.get("slettet")),
+            not _is_set(row.get("aktiv")),
+            -int(row.get("omkostningsstedhierarkiid") or 0),
+        ),
+    )
 
 
 def _parse_date(value):
@@ -288,14 +322,48 @@ def cs_okosted(
                 f"columns: {okosted_cols[:10]}{'...' if len(okosted_cols) > 10 else ''}"
             )
 
-            concepts, properties, hierarchy = build_okosted_hierarchy(okosted_rows, okosted_cols)
+            concepts, properties, hierarchy, counters = build_okosted_hierarchy(
+                okosted_rows, okosted_cols
+            )
 
             context.log.info(
                 f"Built {len(concepts)} concepts, {len(properties)} properties, "
                 f"{len(hierarchy)} hierarchy entries"
             )
 
-            result = merge_codesystem_tables(cursor, "okosted", concepts, properties, hierarchy)
+            if counters.get("parent_conflicts", 0) > 0:
+                context.log.warning(
+                    f"parent_conflicts: {counters['parent_conflicts']} — "
+                    f"nodes with multiple parent references resolved to newest row"
+                )
+            if counters.get("path_gaps", 0) > 0:
+                context.log.warning(
+                    f"path_gaps: {counters['path_gaps']} — "
+                    f"nodes with missing intermediate levels (made roots)"
+                )
+            if counters.get("unknown_enhedstype", 0) > 0:
+                context.log.warning(
+                    f"unknown_enhedstype: {counters['unknown_enhedstype']} — "
+                    f"nodes with no typed ID column (marked as Ukendt)"
+                )
+
+            result = merge_codesystem_tables(
+                cursor,
+                "okosted",
+                concepts,
+                properties,
+                hierarchy,
+                code_max_length=MAX_CODE_LENGTH,
+                # The build is a full snapshot, so what it no longer emits is gone.
+                delete_stale_properties=True,
+                delete_stale_hierarchy=True,
+                update_only_on_change=True,
+                collect_deleted_codes=True,
+            )
+            deleted_codes = result.pop("deleted_codes", [])
+            if deleted_codes:
+                touch_concepts(cursor, "okosted", deleted_codes)
+                result["concepts_touched_for_deletes"] = len(deleted_codes)
             conn.commit()
         finally:
             cursor.close()
@@ -303,8 +371,12 @@ def cs_okosted(
     context.log.info(
         f"codesystem.okosted: "
         f"concepts({result['concepts_inserted']}i/{result['concepts_updated']}u), "
-        f"properties({result['properties_inserted']}i/{result['properties_updated']}u), "
-        f"hierarchy({result['hierarchy_inserted']}i/{result['hierarchy_updated']}u)"
+        f"properties({result['properties_inserted']}i/{result['properties_updated']}u"
+        f"/{result.get('properties_deleted', 0)}d), "
+        f"hierarchy({result['hierarchy_inserted']}i/{result['hierarchy_updated']}u"
+        f"/{result.get('hierarchy_deleted', 0)}d)"
     )
+
+    result.update(counters)
 
     return dg.MaterializeResult(metadata=result)

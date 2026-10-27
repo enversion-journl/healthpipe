@@ -17,6 +17,10 @@ from DSA.SQL.staging.stg_dim_Leverandoervare import _build_stg_sql
 DSA_SQL = Path(__file__).resolve().parents[2] / "DSA" / "SQL"
 
 
+def _read_dim_source() -> str:
+    return (DSA_SQL / "staging" / "stg_dim_Leverandoervare.py").read_text(encoding="utf-8")
+
+
 def test_null_checkpoint_reads_whole_hub():
     sql = _build_stg_sql(None)
     assert "dw_timestamp_update > '" not in sql
@@ -86,10 +90,15 @@ def test_no_vnr_denormalization_in_map_and_fct():
     assert "vnr_normalized" not in RESOLVE_SQL
 
 
-def test_dim_ils_pairs_include_alternate_lvnr_slots():
-    """Spec 2026-08-27: dw_source_ils-flagget skal ogsaa vaere sandt for
-    entiteter der KUN findes som alternative lvnr-slots."""
-    src = (DSA_SQL / "staging" / "stg_dim_Leverandoervare.py").read_text(encoding="utf-8")
+def test_dim_ils_pairs_use_only_laftdstam_lvnr_slots():
+    """laftds lvnr-kolonner er legacy — kun laftdstam-slots (##1 +
+    alternativerne) maa give ILS-eksistens."""
+    src = _read_dim_source()
     assert "LAFTDSTAM_ALT_LVNR_SLOTS" in src
-    assert "LAFTD_ALT_LVNR_SLOTS" in src
-    assert "_alt_lvnr_dim_branches" in src
+    assert "LAFTD_ALT_LVNR_SLOTS" not in src
+
+    from DSA.SQL.staging.stg_dim_Leverandoervare import _build_stg_sql
+
+    sql = _build_stg_sql(None)
+    assert "s.[lvnr##1]" in sql
+    assert "[arc].[ils_laftd]" not in sql

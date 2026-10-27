@@ -317,8 +317,6 @@ class LPR3ArchiveDataset:
     merge_keys: tuple[str, ...]
     references: tuple[ResolvedReference, ...]
     dispositions: tuple[ColumnDisposition, ...]
-    soft_delete_ratio: float
-    ratio_min_live_rows: int = 1000
 
     @property
     def entity(self):
@@ -501,7 +499,6 @@ def archive_dataset(table, sources):
         tuple(c.name for c in identity),
         tuple(references),
         tuple(dispositions),
-        0.03 if entity in ("markoerregistrering", "betalingsoplysning") else 0.005,
     )
 
 

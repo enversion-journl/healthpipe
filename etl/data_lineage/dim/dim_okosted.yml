@@ -9,18 +9,19 @@ dso_lineage:
   TableName: dim.Okosted
   Domain: [Shared]
   Description: "Omkostningssted (cost centre) hierarki fra SydAX — selvrefererende forælder-barn"
-  Grain: "Én række pr. omkostningssted"
+  Grain: "Én række pr. (nummer, niveau)-knude"
 
   SourceSystems:
     - sydax: [SydAX_OmkostningsstedHierarki]
 
   Columns:
     dw_ek_Okosted:         { Type: PK, DataType: INT }
-    code_okosted:            { DataType: VARCHAR(50), Source: [sydax.SydAX_OmkostningsstedHierarki.Omkostningsstednummer] }
+    code_okosted:            { DataType: VARCHAR(120), Source: [sydax.SydAX_OmkostningsstedHierarki.nummer1..nummer20], Description: "Sammensat knudekode <nummer>_NIVEAU_<niveau>; det rå nummer alene står i kolonnen nummer" }
+    nummer:                 { DataType: VARCHAR(100), Source: [sydax.SydAX_OmkostningsstedHierarki.nummer1..nummer20], Description: "Rå SydAX-nummer for omkostningsstedet på dette niveau (uden NIVEAU-suffiks)" }
     name:                   { DataType: NVARCHAR(500), Source: [sydax.SydAX_OmkostningsstedHierarki.Omkostningsstedtekst] }
     level:                  { DataType: INT, Description: "Hierarkidybde (root=1, op til 20 niveauer jf. nummer1..nummer20 i kildehierarkiet)" }
     dw_ek_Okosted_parent:  { Type: FK, DataType: INT, FK-Target: dim.Okosted, Source: [sydax.SydAX_OmkostningsstedHierarki.ParentCode] }
-    parent_code:             { DataType: VARCHAR(50), Description: "Forældrekode i Okosted-hierarki" }
+    parent_code:             { DataType: VARCHAR(120), Description: "Forældrekode i Okosted-hierarki" }
     active:                 { DataType: BIT, Source: [sydax.SydAX_OmkostningsstedHierarki.Aktiv] }
     dw_timestamp_insert:    { Type: Audit, DataType: DATETIME2(0), Expr: "SYSDATETIME() ved første INSERT" }
     dw_timestamp_update:    { Type: Audit, DataType: DATETIME2(0), Expr: "SYSDATETIME() ved UPDATE (NULL indtil første opdatering)" }

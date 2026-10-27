@@ -708,8 +708,10 @@ def _write_txt(
     path.parent.mkdir(parents=True, exist_ok=True)
 
     by_sor: dict[str, list[tuple[str, str]]] = {}
-    for m in org_mappings:
-        by_sor.setdefault(m.code_sor, []).append((m.bruger, m.member_source))
+    for org_mapping in org_mappings:
+        by_sor.setdefault(org_mapping.code_sor, []).append(
+            (org_mapping.bruger, org_mapping.member_source)
+        )
 
     with open(path, "w", encoding="utf-8") as f:
         f.write(f"HealthPipe AD-gruppeeksport — {date.today().isoformat()}\n")
@@ -757,11 +759,11 @@ def _write_txt(
 
         role_labels = {"U": "Ubegrænset", "K": "Kolonnebegrænset", "P": "Populationsansvar"}
         for domain, role, pop in sorted(by_domain_role):
-            users = sorted(by_domain_role[(domain, role, pop)], key=str.casefold)
+            role_users = sorted(by_domain_role[(domain, role, pop)], key=str.casefold)
             label = " ".join(filter(None, (role_labels.get(role, role), pop)))
             f.write(f"\n{domain} — {label} ({role})\n")
-            f.write(f"  Medlemmer ({len(users)}):\n")
-            for u in users:
+            f.write(f"  Medlemmer ({len(role_users)}):\n")
+            for u in role_users:
                 f.write(f"    - {u}\n")
 
         # Vis roller uden medlemmer

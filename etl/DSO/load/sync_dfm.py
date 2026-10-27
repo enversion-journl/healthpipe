@@ -20,6 +20,8 @@ SFI datapoint refresh still uses SyncStateManager — see refresh_sfi_datapoint.
 
 from __future__ import annotations
 
+from contextlib import AbstractContextManager
+
 import dagster as dg
 from core.dfm_config import RunModeConfig
 from core.dfm_manager import DfmManager
@@ -161,7 +163,7 @@ class DsoSyncDfmSession:
         self.dfm = DfmManager(mssql_staging, context)
         self.context = context
         self.mssql_staging = mssql_staging
-        self._conn_ctx = None
+        self._conn_ctx: AbstractContextManager[DfmManager] | None = None
 
     def __enter__(self) -> DsoSyncDfmSession:
         self._conn_ctx = self.dfm.connection()
