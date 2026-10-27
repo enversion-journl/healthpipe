@@ -492,7 +492,7 @@ def real_mysupply_mssql_resource():
     _skip_if_not_real_or_unsafe()
 
     with env_var_override(_MYSUPPLY_ENV_VARS):
-        return MySupplyMSSQLResource()
+        return MySupplyMSSQLResource().process_config_and_initialize()
 
 
 @pytest.fixture
@@ -505,7 +505,7 @@ def real_sydax_mssql_resource():
     _skip_if_not_real_or_unsafe()
 
     with env_var_override(_SYDAX_ENV_VARS):
-        return SydaxMSSQLResource()
+        return SydaxMSSQLResource().process_config_and_initialize()
 
 
 @pytest.fixture
@@ -518,7 +518,7 @@ def real_ils_mssql_resource():
     _skip_if_not_real_or_unsafe()
 
     with env_var_override(_ILS_ENV_VARS):
-        return ILSMSSQLResource()
+        return ILSMSSQLResource().process_config_and_initialize()
 
 
 # =============================================================================
@@ -572,7 +572,7 @@ def real_ifdb_oracle_resource(request, mock_oracle_resource):
     if should_use_real_resources() and is_safe_environment():
         with env_var_override(_IFDB_ORACLE_ENV_VARS):
             try:
-                return IFDBOracleResource()
+                return IFDBOracleResource().process_config_and_initialize()
             except Exception:
                 if requires_real:
                     pytest.skip("Real IFDB Oracle resource unavailable - connection failed")

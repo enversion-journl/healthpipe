@@ -77,18 +77,16 @@ the direction guard ("never merge an older delivery on top of a newer one").
 ### Guards the ingestion MUST have
 
 Full-snapshot + delete-detection is a loaded gun: anything missing from ext is
-soft-deleted from the archive. Four guards are non-negotiable for this source
+soft-deleted from the archive. Three guards are non-negotiable for this source
 shape (reference implementation: `DSI/csv_files/haiba.py`, module docstring):
 
 1. **A type/category with deliveries but no usable file fails the run** — a
    header-only or corrupt file must not erase that category's history. A
    category with NO files at all is a genuine retirement and must still flow.
-2. **Row drift**: a file that shrank far below its archived history is an
-   interrupted transfer, not a small delivery — fail before merging.
-3. **Width/format rejection with counts**: a single over-wide value must not
+2. **Width/format rejection with counts**: a single over-wide value must not
    abort the whole archive MERGE; reject and count per column, never log the
    value (it can be a person identifier).
-4. **Unknown columns fail loudly** — the producer changes schemas without
+3. **Unknown columns fail loudly** — the producer changes schemas without
    notice; silently dropped columns become silently wrong KPIs.
 
 ### stg / dim / fct — usually skipped: the dm path

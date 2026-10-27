@@ -7,27 +7,21 @@
 """
 Staging Asset: AftaleVarePris fact staging (Layer 1) — delta-drevet.
 
-Backbone (spec 2026-08-31-prisloese-linjer-og-aftalelager): arc.ils_laftd
-(vinder-dedup'et pr. (lnr, aftale, vnr)) LEFT JOIN arc.ils_laftdpris paa
-linjenoeglerne — prisloese aftalelinjer (UdbAft med items, laftdstam-
-alternativer, men INGEN laftdpris-raekker) faar dermed ogsaa en raekke,
-med NULL priser og har_prisversion = 0 ("syntetisk" linje-daekningsraekke).
-Linjer MED prisversioner faar én raekke pr. prisversion som foer
-(har_prisversion = 1). bk_prrowid baerer kildepraefiks saa de to typer aldrig
-kolliderer paa tvaers af tabeller: 'LAFTDPRIS_<prrowid>' (rigtig prisversion)
-/ 'LAFTD_<prrowid>' (syntetisk raekke). arc.ils_laftdpris.prrowid og
-arc.ils_laftd.prrowid er begge varchar(36) (Oracle-rowid som tekst) —
-praefikset er derfor plain strengkonkatenering, ingen CONVERT noedvendig.
+Backbone: arc.ils_laftd (vinder-dedup'et pr. (lnr, aftale, vnr)) LEFT JOIN
+arc.ils_laftdpris paa linjenoeglerne — prisloese aftalelinjer faar en raekke
+med NULL priser og har_prisversion = 0; linjer med prisversioner faar én
+raekke pr. prisversion. Grain er bk_prrowid alene:
+'LAFTDPRIS_<prrowid>' (rigtig prisversion) / 'LAFTD_<prrowid>' (syntetisk).
 
-Alle prisversioner fra ILS laftdpris, fan'et ud pr. distinkt lvnr-CleanCode
-(spec 2026-08-27-alternate-lvnr-rows): grain er (bk_prrowid, clean_code_AftaleVarePris)
-— prisversion x lvnr (eller syntetisk-linje x lvnr for prisloese linjer).
-Linjens lvnr-slots (laftdstam ##1-4 + laftd ##2-3) unpivotes via OUTER APPLY
-paa prisversions-raekken, saa hver distinkt lvnr faar sin egen raekke med
-provenans i kilder; linjer uden lvnr bevares som ÉN raekke med NULL clean_lvnr
-(basisformat-CleanCode). INGEN pris-dedup: kildens historik bevares.
-dw_valid_from kommer fra kildens start_/startklk (prisversion) hhv.
-COALESCE(linje_start, '1900-01-01') (syntetisk raekke); dw_valid_to er
+Slots er positionsvise forpakningsvarianter: laftdstam.lvnr##N hoerer sammen
+med laftdpris.pris##N/pakstr##N. De fire slots ligger som kolonner
+(clean_code_Leverandoervare_1-4 til map-opslag + pris/pakkestoerrelse 1-4) —
+ingen unpivot. laftds egne lvnr-/pris-kolonner er legacy og indgaar ikke
+(jf. etl/docs/contracts/beslutningslog_vareaftaler.md).
+
+INGEN pris-dedup: kildens historik bevares. dw_valid_from kommer fra kildens
+start_/startklk (prisversion) hhv.
+COALESCE(laftd.start_, '1900-01-01') (syntetisk raekke); dw_valid_to er
 LEAD-kaedet til naeste prisversions dw_valid_from (kildens slut kun som
 fallback paa sidste version) hhv. '9999-12-31' (syntetisk raekke) — ILS
 lukker ikke slut naar en nyere version afloeser. dw_is_current er altid 1
@@ -37,8 +31,8 @@ Delta-kontrakt: delta-enheden er AFTALELINJEN (lnr, aftale, vnr). Checkpointet
 laeses fra ejeren ("fct", "AftaleVarePris") via DfmManager. #delta_lines er
 unionen af 7 signaler:
   1) laftdpris-aendringer (prisversioner)
-  2) laftd-aendringer (backbone: maerke, lvnr##2/3, linje_start/slut + sent ankommet forael)
-  3) laftdstam-aendringer (lvnr##1-4, clean_code_Leverandoervare)
+  2) laftd-aendringer (sent ankommet laftd + linje-start: syntetiske raekkers dw_valid_from)
+  3) laftdstam-aendringer (lvnr##1-4, slot-CleanCodes)
   4) lev-aendringer via lnr (CVR -> clean_code_Kreditor)
   5) vare-aendringer via vnr (momskode)
   6) lafth-aendringer (sent ankommet hoved aabner INNER JOIN-ekskluderede prisraekker)
@@ -66,10 +60,7 @@ from dagster import (
     RetryPolicy,
     asset,
 )
-from utils.sql.leverandoervare_ilsvare_sql import (
-    LAFTD_ALT_LVNR_SLOTS,
-    LAFTDSTAM_ALT_LVNR_SLOTS,
-)
+from utils.sql.leverandoervare_ilsvare_sql import LVNR_CC as _LVNR_CC
 
 # Delta-linje-detektion: DISTINCT (lnr, aftale, vnr) over de 7 signaler.
 # Checkpointet bindes som parameter (?) — aldrig interpoleret.
@@ -92,13 +83,13 @@ FROM (
     WHERE p.[dw_timestamp_update] > @cp
 
     UNION ALL
-    -- 2) Linje-drift: maerke, lvnr##2/3, linje_start/slut + sent ankommet laftd
+    -- 2) Linje-drift: sent ankommet laftd + linje-start (syntetiske raekkers dw_valid_from)
     SELECT d.lnr, d.aftale, d.vnr
     FROM [arc].[ils_laftd] d
     WHERE d.[dw_timestamp_update] > @cp
 
     UNION ALL
-    -- 3) Stam-drift: lvnr##1-4, clean_code_Leverandoervare
+    -- 3) Stam-drift: lvnr##1-4 (slot-CleanCodes)
     SELECT s.lnr, s.aftale, s.vnr
     FROM [arc].[ils_laftdstam] s
     WHERE s.[dw_timestamp_update] > @cp
@@ -137,46 +128,32 @@ CREATE CLUSTERED INDEX IX_delta_lines ON #delta_lines(lnr, aftale, vnr);
 """
 
 
-def _lvnr_slot_values() -> str:
-    """VALUES-raekker til lvnr-unpivot'en: (kilde-label, prioritet, raa kolonne).
-
-    laftdstam_1 er den primaere (samme vinder-raekke som i dag); alternativerne
-    foelger i slot-orden, laftd-slots til sidst. Prioriteten styrer kun
-    STRING_AGG-ordenen i kilder.
-
-    HOLDES I SYNC: pv.stam_lvnr{i}/pv.laftd_lvnr{i}-aliaserne genereret her
-    refererer til den haandkodede pv-kolonneliste (stam_lvnr1-4, laftd_lvnr2-3)
-    i pv-SELECT'en nedenfor — den er haandkodet 4+2, IKKE afledt af
-    LAFTDSTAM_ALT_LVNR_SLOTS/LAFTD_ALT_LVNR_SLOTS. Udvides slot-listerne, skal
-    pv-kolonnerne (og aliaserne) opdateres tilsvarende.
-    """
-    rows = ["('laftdstam_1', 1, pv.stam_lvnr1)"]
-    for i, _slot in enumerate(LAFTDSTAM_ALT_LVNR_SLOTS, start=2):
-        rows.append(f"('laftdstam_{i}', {i}, pv.stam_lvnr{i})")
-    offset = 1 + len(LAFTDSTAM_ALT_LVNR_SLOTS)
-    for i, _slot in enumerate(LAFTD_ALT_LVNR_SLOTS, start=2):
-        rows.append(f"('laftd_{i}', {offset + i - 1}, pv.laftd_lvnr{i})")
-    return ",\n                ".join(rows)
+def _slot_cleancode_columns() -> str:
+    """Slot N's CleanCode: kreditor-CC + '_' + LVNR_CC over laftdstams lvnr##N —
+    samme noegleudtryk som map.Leverandoervare, single-sourcet via LVNR_CC."""
+    arms = []
+    for n in range(1, 5):
+        arms.append(
+            f"""
+            CASE
+                WHEN pv.clean_code_Kreditor IS NOT NULL
+                     AND pv.stam_lvnr{n} IS NOT NULL AND LTRIM(RTRIM(pv.stam_lvnr{n})) <> ''
+                THEN pv.clean_code_Kreditor + '_' + {_LVNR_CC.format(col=f"pv.stam_lvnr{n}")}
+            END AS clean_code_Leverandoervare_{n},"""
+        )
+    return "".join(arms)
 
 
 def _build_staging_sql(delta_join: str) -> str:
-    """Hoved-SELECT i to lag (spec 2026-08-31-prisloese-linjer-og-aftalelager,
-    bygger paa 2026-08-27-alternate-lvnr-rows):
+    """Hoved-SELECT — slots ligger som kolonner, ingen unpivot.
 
-    pv  — linje/prisversions-aksen: backbone er arc.ils_laftd (vinder-dedup'et
-          pr. (lnr, aftale, vnr)) LEFT JOIN arc.ils_laftdpris paa linjenoeglerne
-          — prisloese linjer faar dermed ogsaa en raekke (har_prisversion = 0).
-          ALLE window-funktioner (dw_is_current, LEAD-kaedet dw_valid_to) ligger
-          her, guardet eksplicit paa p.prrowid IS NULL/IS NOT NULL. Vinduerne
-          SKAL ligge her: efter fan-out'en ville LEAD pege paa samme versions
-          soester-lvnr-raekke og dw_is_current kun ramme EN lvnr-raekke pr. linje.
-    lv  — lvnr-aksen: OUTER APPLY unpivoter linjens slots (stam ##1-4 +
-          laftd ##2-3), normaliserer, dedupper pr. distinkt lvnr og aggregerer
-          kilder. OUTER APPLY bevarer no-lvnr-linjer som EN raekke med
-          NULL clean_lvnr (basisformat-CleanCode, dw_ek_Leverandoervare -1).
+    pv — linje/prisversions-aksen: backbone er arc.ils_laftd (vinder-dedup'et
+         pr. (lnr, aftale, vnr)) LEFT JOIN arc.ils_laftdpris paa linjenoeglerne
+         — prisloese linjer faar dermed ogsaa en raekke (har_prisversion = 0).
+         ALLE window-funktioner (dw_is_current, LEAD-kaedet dw_valid_to) ligger
+         her, guardet eksplicit paa p.prrowid IS NULL/IS NOT NULL.
 
-    Grain: (bk_prrowid, clean_code_AftaleVarePris) — (prisversion ELLER
-    syntetisk linje-daekningsraekke) x lvnr. bk_prrowid baerer kildepraefiks:
+    Grain: bk_prrowid alene. bk_prrowid baerer kildepraefiks:
     'LAFTDPRIS_<prrowid>' (rigtig prisversion) / 'LAFTD_<prrowid>' (syntetisk).
     delta_join gates backbone (laftd-siden, alias d) i delta-mode.
     """
@@ -189,37 +166,20 @@ def _build_staging_sql(delta_join: str) -> str:
             pv.bk_aftale_nummer,
             pv.bk_ils_varenummer,
 
-            -- CleanCodes til map-opslag. Entiteten er (aftalelinje x lvnr):
-            -- _LEVVARE_-suffikset holder dw_ek_AftaleVarePris 1:1 med
-            -- (aftalelinje x lvnr)-entiteten (ingen versionskomponent i cc);
-            -- no-lvnr-raekken beholder basisformatet.
+            -- CleanCodes til map-opslag. Entiteten er aftalelinjen.
             pv.clean_code_Aftale,
-            pv.clean_code_AftaleVarePris_base
-                + CASE WHEN lv.clean_lvnr IS NOT NULL
-                       THEN '_LEVVARE_' + lv.clean_lvnr
-                       ELSE '' END AS clean_code_AftaleVarePris,
+            pv.clean_code_AftaleVarePris,
             pv.clean_code_Kreditor,
-            CASE
-                WHEN pv.clean_code_Kreditor IS NOT NULL AND lv.clean_lvnr IS NOT NULL
-                THEN pv.clean_code_Kreditor + '_LEVVARE_' + lv.clean_lvnr
-                ELSE NULL
-            END AS clean_code_Leverandoervare,
+
+            -- Slot-CleanCodes: slot N's lvnr er laftdstams lvnr##N —
+            -- positionsvist sammenhoerende med pris{{N}}/pakkestoerrelse{{N}}.
+            {_slot_cleancode_columns()}
             pv.IlsVare_CleanCode,
 
-            -- Slot-provenans for raekkens lvnr (NULL paa no-lvnr-raekken).
-            -- laftdstam_1 markerer den primaere — er_primaer-flag er bevidst
-            -- fravalgt som redundant med kilder (jf. spec).
-            lv.kilder,
-
-            -- Priser (alle 4 trin)
+            -- Priser (alle 4 slots)
             pv.pris1, pv.pris2, pv.pris3, pv.pris4,
             pv.pakkestoerrelse1, pv.pakkestoerrelse2, pv.pakkestoerrelse3, pv.pakkestoerrelse4,
             pv.momskode,
-
-            -- Linjeattributter
-            pv.maerke,
-            pv.linje_start,
-            pv.linje_slut,
 
             -- Gyldighed (beregnet paa prisversions-aksen i pv)
             pv.dw_valid_from,
@@ -243,7 +203,7 @@ def _build_staging_sql(delta_join: str) -> str:
                 + UPPER(LTRIM(RTRIM(REPLACE(CAST(d.aftale AS NVARCHAR(100)), ' ', '')))) AS clean_code_Aftale,
             'AFTALE_' + UPPER(LTRIM(RTRIM(CAST(d.lnr AS NVARCHAR(100))))) + '_'
                 + UPPER(LTRIM(RTRIM(REPLACE(CAST(d.aftale AS NVARCHAR(100)), ' ', ''))))
-                + '_VARE_' + UPPER(LTRIM(RTRIM(REPLACE(CAST(d.vnr AS NVARCHAR(100)), ' ', '')))) AS clean_code_AftaleVarePris_base,
+                + '_VARE_' + UPPER(LTRIM(RTRIM(REPLACE(CAST(d.vnr AS NVARCHAR(100)), ' ', '')))) AS clean_code_AftaleVarePris,
             CASE
                 WHEN lev.se_nr IS NOT NULL AND LTRIM(RTRIM(CAST(lev.se_nr AS NVARCHAR(100)))) <> ''
                 THEN 'CVR_' + CASE WHEN REPLACE(LTRIM(RTRIM(CAST(lev.se_nr AS NVARCHAR(100)))), ' ', '') LIKE 'DK[0-9]%' THEN SUBSTRING(REPLACE(LTRIM(RTRIM(CAST(lev.se_nr AS NVARCHAR(100)))), ' ', ''), 3, LEN(REPLACE(LTRIM(RTRIM(CAST(lev.se_nr AS NVARCHAR(100)))), ' ', ''))) ELSE REPLACE(LTRIM(RTRIM(CAST(lev.se_nr AS NVARCHAR(100)))), ' ', '') END
@@ -262,21 +222,15 @@ def _build_staging_sql(delta_join: str) -> str:
             p.[pakstr##4] AS pakkestoerrelse4,
             vare.momskd AS momskode,
 
-            -- Raa lvnr-slots til fan-out'en (vinder-raekkerne; unpivotes i lv)
+            -- Raa laftdstam-slots til slot-CleanCodes i det ydre SELECT
             stam.[lvnr##1] AS stam_lvnr1,
             stam.[lvnr##2] AS stam_lvnr2,
             stam.[lvnr##3] AS stam_lvnr3,
             stam.[lvnr##4] AS stam_lvnr4,
-            d.[lvnr##2] AS laftd_lvnr2,
-            d.[lvnr##3] AS laftd_lvnr3,
-
-            d.maerke AS maerke,
-            d.[start_] AS linje_start,
-            d.slut AS linje_slut,
 
             -- dw_valid_from: kildeleveret start (startklk er sekvens-tiebreaker
             -- samme dag) naar linjen har en prisversion; ellers linjens egen
-            -- start (spec 2026-08-31) — syntetisk raekke har intet startklk.
+            -- start — syntetisk raekke har intet startklk.
             CASE
                 WHEN p.prrowid IS NOT NULL THEN
                     DATEADD(SECOND, COALESCE(p.startklk, 0),
@@ -331,14 +285,12 @@ def _build_staging_sql(delta_join: str) -> str:
                 ELSE 0
             END AS dw_is_current
 
-        -- NULL-noegle-vagt (review-fund efter backbone-flip): lnr/aftale/vnr er
-        -- NULL-able i arc.ils_laftd. Den gamle backbone (p INNER JOIN d) udelukkede
-        -- strukturelt NULL-noegle-linjer, fordi de aldrig kunne matche en
-        -- laftdpris-raekke. Nu hvor d er venstre side, skal filteret genindfoeres
-        -- eksplicit — ellers giver en NULL-vnr-linje en syntetisk raekke med NULL
-        -- clean_code_AftaleVarePris, som map-opslaget dropper og applierens
-        -- fail-fast derefter fejler paa. Placeres FOER ROW_NUMBER: en NULL-noegle-
-        -- raekke kan aldrig vaere en legitim vinder af noget.
+        -- NULL-noegle-vagt: lnr/aftale/vnr er NULL-able i arc.ils_laftd, og med d
+        -- som venstre side skal filteret vaere eksplicit — ellers giver en
+        -- NULL-vnr-linje en syntetisk raekke med NULL clean_code_AftaleVarePris,
+        -- som map-opslaget dropper og applierens fail-fast derefter fejler paa.
+        -- Placeres FOER ROW_NUMBER: en NULL-noegle-raekke kan aldrig vaere en
+        -- legitim vinder af noget.
         FROM (
             SELECT *
             FROM (
@@ -355,10 +307,9 @@ def _build_staging_sql(delta_join: str) -> str:
         ) d
         {delta_join}
 
-        -- Backbone flippet (spec 2026-08-31): laftd er nu venstre side, saa
-        -- prisloese linjer (ingen laftdpris-raekker) faar ogsaa en raekke.
-        -- p.* er NULL paa disse raekker — alle p.*-udtryk ovenfor er derfor
-        -- eksplicit CASE-guardet paa p.prrowid.
+        -- laftd er venstre side, saa prisloese linjer (ingen laftdpris-raekker)
+        -- ogsaa faar en raekke. p.* er NULL paa disse raekker — alle p.*-udtryk
+        -- ovenfor er derfor eksplicit CASE-guardet paa p.prrowid.
         LEFT JOIN [arc].[ils_laftdpris] p
             ON p.lnr = d.lnr AND p.aftale = d.aftale AND p.vnr = d.vnr
 
@@ -431,21 +382,7 @@ def _build_staging_sql(delta_join: str) -> str:
             ) ranked
             WHERE rn = 1
         ) vare ON vare.vnr = d.vnr
-        ) pv
-
-        -- lvnr-fan-out: unpivot linjens slots, normaliser (LVNR_CC-reglen),
-        -- dedup pr. distinkt lvnr og aggreger kilder. OUTER APPLY bevarer
-        -- no-lvnr-linjer som EN raekke med NULL clean_lvnr.
-        OUTER APPLY (
-            SELECT norm.clean_lvnr,
-                   STRING_AGG(slots.kilde, ',') WITHIN GROUP (ORDER BY slots.prioritet) AS kilder
-            FROM (VALUES
-                {_lvnr_slot_values()}
-            ) slots(kilde, prioritet, lvnr_raw)
-            CROSS APPLY (SELECT UPPER(LTRIM(RTRIM(REPLACE(slots.lvnr_raw, ' ', '')))) AS clean_lvnr) norm
-            WHERE slots.lvnr_raw IS NOT NULL AND LTRIM(RTRIM(slots.lvnr_raw)) <> ''
-            GROUP BY norm.clean_lvnr
-        ) lv;
+        ) pv;
     """
 
 
@@ -470,8 +407,8 @@ def _build_staging_sql(delta_join: str) -> str:
     },
     description=(
         "Prisversioner (+ prisloese linjers syntetiske daekningsraekker) pr. aftalelinje "
-        "fra ILS laftd LEFT JOIN laftdpris — delta-drevet paa aftalelinje-granularitet "
-        "via fct.AftaleVarePris-checkpointet, ingen pris-dedup"
+        "fra ILS laftd LEFT JOIN laftdpris — slots som kolonner, delta-drevet paa "
+        "aftalelinje-granularitet via fct.AftaleVarePris-checkpointet, ingen pris-dedup"
     ),
 )
 def stg_fct_AftaleVarePris_ils(
@@ -496,7 +433,7 @@ def stg_fct_AftaleVarePris_ils(
 
     row_count = 0
     delta_line_count = None
-    stats = (0, 0, 0, 0, 0)
+    stats = (0, 0, 0, 0)
 
     try:
         with mssql_target_staging.get_connection() as conn:
@@ -539,28 +476,23 @@ def stg_fct_AftaleVarePris_ils(
 
                 context.log.info(
                     f"Created stg.fct_AftaleVarePris_ils with {row_count} rows "
-                    "(prisversion x lvnr-fan-out)"
+                    "(én raekke pr. prisversion/syntetisk linje)"
                 )
 
                 cursor.execute(
                     """
-                    CREATE CLUSTERED INDEX IX_fct_aftalevarepris_ils_prrowid
+                    CREATE UNIQUE CLUSTERED INDEX IX_fct_aftalevarepris_ils_prrowid
                     ON [stg].[fct_AftaleVarePris_ils](bk_prrowid);
-                """
-                )
-                # Grain-vagt: unikt pr. (prisversion x lvnr). NONCLUSTERED fordi
-                # NVARCHAR(500)-noeglen overskrider clustered-graensen paa 900 bytes.
-                cursor.execute(
-                    """
-                    CREATE UNIQUE NONCLUSTERED INDEX IX_fct_aftalevarepris_ils_grain
-                    ON [stg].[fct_AftaleVarePris_ils](bk_prrowid, clean_code_AftaleVarePris);
                 """
                 )
                 cursor.execute(
                     """
                     CREATE NONCLUSTERED INDEX IX_fct_aftalevarepris_ils_CleanCodes
                     ON [stg].[fct_AftaleVarePris_ils](clean_code_AftaleVarePris)
-                    INCLUDE (clean_code_Aftale, clean_code_Kreditor, clean_code_Leverandoervare, IlsVare_CleanCode);
+                    INCLUDE (clean_code_Aftale, clean_code_Kreditor,
+                             clean_code_Leverandoervare_1, clean_code_Leverandoervare_2,
+                             clean_code_Leverandoervare_3, clean_code_Leverandoervare_4,
+                             IlsVare_CleanCode);
                 """
                 )
 
@@ -571,17 +503,15 @@ def stg_fct_AftaleVarePris_ils(
                     SELECT
                         COUNT(*) AS total,
                         SUM(CAST(dw_is_current AS INT)) AS current_rows,
-                        COUNT(DISTINCT clean_code_AftaleVarePris) AS distinct_fanout_entiteter,
-                        COUNT(clean_code_Leverandoervare) AS has_vare_cleancode,
+                        COUNT(clean_code_Leverandoervare_1) AS has_slot1_cleancode,
                         SUM(CASE WHEN har_prisversion = 0 THEN 1 ELSE 0 END) AS synthetic_rows
                     FROM [stg].[fct_AftaleVarePris_ils]
                 """
                 )
                 stats = cursor.fetchone()
                 context.log.info(
-                    f"Prisversion x lvnr-raekker: {stats[0]} total, {stats[1]} dw_is_current, "
-                    f"{stats[2]} distinkte (aftalelinje x lvnr)-entiteter, "
-                    f"{stats[3]} med vare-CleanCode, {stats[4]} syntetiske (prisloese) raekker"
+                    f"Prisversions-raekker: {stats[0]} total, {stats[1]} dw_is_current, "
+                    f"{stats[2]} med slot1-CleanCode, {stats[3]} syntetiske (prisloese) raekker"
                 )
             finally:
                 cursor.close()
@@ -596,13 +526,13 @@ def stg_fct_AftaleVarePris_ils(
             "table": "stg.fct_AftaleVarePris_ils",
             "row_count": row_count,
             "source_tables": "arc.ils_laftd + arc.ils_laftdpris + arc.ils_lafth + arc.ils_laftdstam + arc.ils_lev + arc.ils_vare",
-            "grain": "bk_prrowid x clean_code_AftaleVarePris (prisversion-eller-syntetisk-linje x lvnr)",
+            "grain": "bk_prrowid (prisversion-eller-syntetisk-linje)",
             "backbone": "arc.ils_laftd LEFT JOIN arc.ils_laftdpris",
             "checkpoint_filter": checkpoint if checkpoint else "none (full load)",
             "delta_lines": delta_line_count if delta_line_count is not None else "n/a (full load)",
             "current_rows": stats[1],
-            "distinct_fanout_entiteter": stats[2],
-            "synthetic_rows": stats[4],
+            "has_slot1_cleancode": stats[2],
+            "synthetic_rows": stats[3],
             "layer": "stg_fct (Layer 1)",
             "mode": config.mode,
         }

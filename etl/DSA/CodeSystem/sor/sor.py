@@ -27,7 +27,7 @@ from datetime import datetime
 
 import dagster as dg
 from core.resources import MSSQLResource
-from DSA.CodeSystem.utils import merge_codesystem_tables
+from DSA.CodeSystem.utils import merge_codesystem_tables, touch_concepts
 
 __all__ = [
     "build_sor_codesystem",
@@ -340,23 +340,6 @@ _CURRENT_VERSION_QUERY = """
     WHERE _rn = 1
 """
 
-_TOUCH_CHUNK_SIZE = 1000
-
-
-def _touch_concepts(cursor, codes: list[str]) -> None:
-    """Bump SORConcept.dw_timestamp_update for codes whose properties or
-    hierarchy edges were DELETED — deletions leave no timestamp on surviving
-    rows, so without this the downstream delta consumer would never see them."""
-    for i in range(0, len(codes), _TOUCH_CHUNK_SIZE):
-        chunk = codes[i : i + _TOUCH_CHUNK_SIZE]
-        placeholders = ", ".join(["?"] * len(chunk))
-        cursor.execute(
-            f"UPDATE [codesystem].[SORConcept] "
-            f"SET [dw_timestamp_update] = CAST(SYSDATETIME() AS datetime2(0)) "
-            f"WHERE [code] IN ({placeholders})",
-            chunk,
-        )
-
 
 @dg.asset(
     name="cs_sor",
@@ -413,7 +396,7 @@ def cs_sor(
             )
             deleted_codes = result.pop("deleted_codes", [])
             if deleted_codes:
-                _touch_concepts(cursor, deleted_codes)
+                touch_concepts(cursor, "sor", deleted_codes)
                 result["concepts_touched_for_deletes"] = len(deleted_codes)
             conn.commit()
         finally:

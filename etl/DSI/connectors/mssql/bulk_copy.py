@@ -89,7 +89,7 @@ def truncate_for_bcp(
     for row_idx in range(len(data)):
         row = data[row_idx]
         mutated = False
-        row_list: list[Any] | None = None
+        row_list: list[Any] = []
         for col_idx, limit in enumerate(limits):
             if limit is None or col_idx >= len(row):
                 continue

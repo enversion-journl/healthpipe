@@ -35,11 +35,9 @@ from DSI.csv_files.lpr3_archive import (
     build_merge_config,
     execute_safe,
     guard_resolved_rows,
-    guard_soft_deletes,
     guard_source_counts,
     guard_source_index,
     missing_sources,
-    precheck_soft_deletes,
     read_manifest,
     record_delivery,
     refresh_surrogates_sql,
@@ -129,7 +127,6 @@ def test_binary_id_survives_source_rekey_and_preserves_typed_relationships(
         assert guard_resolved_rows(conn, dataset, manifest) == 1
         execute_statements(conn, source_index_sql(dataset))
         guard_source_index(conn, dataset)
-        assert guard_soft_deletes(conn, dataset) == (0, 0)
     config = build_merge_config(dataset)
     run = RunModeConfig(advance_checkpoint=False)
     first = execute_archive_merge(dg.build_asset_context(), archive_db, config, run)
@@ -377,62 +374,6 @@ def test_duplicate_pair_key_and_stale_manifest_fail_before_archive(archive_db, t
         with pytest.raises(ValueError, match="parity"):
             guard_source_counts(conn, dataset, manifest)
         assert scalar(conn, "SELECT COUNT_BIG(*) FROM arc.lpr3_kontaktlokation") == 0
-
-
-@pytest.mark.parametrize("entity,allowed", [("kontakt", 5), ("markoerregistrering", 30)])
-def test_soft_delete_ratio_checks_expected_rows_before_any_write(archive_db, entity, allowed):
-    dataset = ARCHIVES_BY_TABLE[f"lpr3_{entity}"]
-    key = dataset.merge_keys[0]
-    with archive_db.get_connection() as conn:
-        execute_statements(
-            conn,
-            f"""WITH n AS (SELECT TOP (1000) ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS n FROM sys.all_objects)
-INSERT INTO arc.[{dataset.arc_table}] ([{key}],kadence,leverance_tidsstempel,leverance_dato)
-SELECT CONVERT(UNIQUEIDENTIFIER,CONVERT(BINARY(16),n)),N'M','2026-09-15','2026-09-10' FROM n;
-SELECT TOP ({999-allowed}) [{key}] INTO ext.[{dataset.source_table}] FROM arc.[{dataset.arc_table}];""",
-        )
-        with pytest.raises(dg.Failure, match="exceeds threshold"):
-            guard_soft_deletes(conn, dataset)
-        assert (
-            scalar(
-                conn, f"SELECT COUNT_BIG(*) FROM arc.[{dataset.arc_table}] WHERE dw_is_deleted=1"
-            )
-            == 0
-        )
-        execute_statements(
-            conn,
-            f"INSERT INTO ext.[{dataset.source_table}] SELECT TOP (1) [{key}] FROM arc.[{dataset.arc_table}] a WHERE NOT EXISTS (SELECT 1 FROM ext.[{dataset.source_table}] s WHERE s.[{key}]=a.[{key}])",
-        )
-        assert guard_soft_deletes(conn, dataset) == (1000, allowed)
-        execute_statements(conn, f"TRUNCATE TABLE ext.[{dataset.source_table}]")
-        with pytest.raises(dg.Failure, match="exceeds threshold"):
-            guard_soft_deletes(conn, dataset, override=999)
-        assert guard_soft_deletes(conn, dataset, override=1000) == (1000, 1000)
-
-
-def test_soft_delete_precheck_fails_before_any_merge_unless_overridden(archive_db):
-    dataset = ARCHIVES_BY_TABLE["lpr3_kontakt"]
-    identities = f"ext.[{identity_table(dataset.entity)}]"
-    context = SimpleNamespace(log=SimpleNamespace(info=lambda message: None))
-    with archive_db.get_connection() as conn:
-        execute_statements(
-            conn,
-            f"""WITH n AS (SELECT TOP (1000) ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS n FROM sys.all_objects)
-INSERT INTO arc.[{dataset.arc_table}] (kontakt_uuid,kadence,leverance_tidsstempel,leverance_dato)
-SELECT CONVERT(UNIQUEIDENTIFIER,CONVERT(BINARY(16),n)),N'U','2026-09-22','2026-09-20' FROM n;
-DROP TABLE IF EXISTS {identities};
-SELECT TOP (994) CONVERT(BIGINT,1) source_sk,kontakt_uuid INTO {identities} FROM arc.[{dataset.arc_table}];""",
-        )
-        with pytest.raises(dg.Failure, match="before any archive merge") as failure:
-            precheck_soft_deletes(conn, context, {"kontakt": 994}, {})
-        assert f"arc_{dataset.arc_table}: 6 expected soft-deletes" in failure.value.description
-        precheck_soft_deletes(conn, context, {"kontakt": 994}, {dataset.arc_table: 6})
-        assert (
-            scalar(
-                conn, f"SELECT COUNT_BIG(*) FROM arc.[{dataset.arc_table}] WHERE dw_is_deleted=1"
-            )
-            == 0
-        )
 
 
 def test_empty_nullable_reference_never_resolves_to_source_key_zero(archive_db, tmp_path):

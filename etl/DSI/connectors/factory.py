@@ -61,6 +61,10 @@ def build_oracle_extract_query(extract_config: DfmExtractConfig, where_clause: s
     if extract_config.select_from_expr:
         query = extract_config.select_from_expr
     else:
+        if extract_config.columns is None:
+            raise ValueError(
+                f"{extract_config.source_table}: set columns or select_from_expr for an Oracle extract"
+            )
         col_list = ", ".join(extract_config.columns)
         query = (
             f"SELECT {col_list} FROM {extract_config.source_schema}.{extract_config.source_table}"
@@ -661,7 +665,7 @@ def _build_dfm_asset_fn(
             _where_builder,
         )
 
-    _asset_fn.__signature__ = inspect.Signature(
+    _asset_fn.__signature__ = inspect.Signature(  # type: ignore[attr-defined]
         parameters=[
             inspect.Parameter(
                 "context",

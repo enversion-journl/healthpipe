@@ -23,7 +23,7 @@ Reference Resolution:
     - Encounter (encounter) - optional
 """
 
-from typing import Any
+from typing import Any, cast
 
 import dagster as dg
 from core.dfm_config import RunModeConfig
@@ -128,7 +128,7 @@ def _fetch_pas_diagnose_encounter_refs(
         did = normalize_oracle_id(row["DIAGNOSE_ID"])
         if did is None or did in result:
             continue
-        result[did] = normalize_oracle_id(row["ENCOUNTER_ID"])
+        result[did] = cast(str, normalize_oracle_id(row["ENCOUNTER_ID"]))
     context.log.info(f"[ENCOUNTER_REF] Fetched {len(result)} encounter refs for PAS_DIAGNOSE")
     return result
 
@@ -174,7 +174,7 @@ def _fetch_pas_diagnose_henvisning_refs(
         ),
     )
     result = {
-        did: [normalize_oracle_id(r["HENVISNING_ID"]) for r in rows]
+        did: [cast(str, normalize_oracle_id(r["HENVISNING_ID"])) for r in rows]
         for did, rows in grouped.items()
     }
     context.log.info(f"[HENVISNING_REF] Fetched refs for {len(result)} PAS diagnoses")
@@ -492,11 +492,14 @@ def fhir_server_condition_pas_diagnose_dfm(
                         f"(total so far: {total_fetched})"
                     )
 
-                    diagnose_ids = [
-                        normalize_oracle_id(row["OBJEKT_ID"])
-                        for row in batch
-                        if row.get("OBJEKT_ID")
-                    ]
+                    diagnose_ids = cast(
+                        list[str],
+                        [
+                            normalize_oracle_id(row["OBJEKT_ID"])
+                            for row in batch
+                            if row.get("OBJEKT_ID")
+                        ],
+                    )
                     encounter_refs = _fetch_pas_diagnose_encounter_refs(
                         diagnose_ids, mssql_target_staging, context
                     )

@@ -57,17 +57,12 @@ def test_null_checkpoint_reads_everything():
     assert "dw_timestamp_update > '" not in _build_scope_sql(None)
 
 
-def test_bridge_pairs_include_alternate_lvnr_slots():
-    """Spec 2026-08-27: alternative lvnr-slots skal indgaa som par-raekker med
-    egne bridge_source-labels, saa bridge_kilder kan skelne primaer fra
-    alternativ."""
-    from DSA.SQL.staging.stg_bridge_Leverandoervare_ILSVare import _build_pairs_sql
-
+def test_bridge_pairs_use_only_laftdstam_lvnr_slots():
+    """Kun laftdstam leverer lvnr-par; prioriteterne er kontiguerte
+    (laftdstam 1, lgrvare 2, indkfak 3, pmdm 4, laftdstam_alt 5)."""
     sql = _build_pairs_sql(None)
-    for slot in ("lvnr##2", "lvnr##3", "lvnr##4"):
-        assert f"alt_s.[{slot}]" in sql
-    for slot in ("lvnr##2", "lvnr##3"):
-        assert f"alt_d.[{slot}]" in sql
-    assert "alt_d.[lvnr##4]" not in sql
-    assert "'laftdstam_alt', 6" in sql
-    assert "'laftd_alt', 7" in sql
+    assert "'pmdm', 4" in sql
+    assert "'laftdstam_alt', 5" in sql
+    assert "'laftd', 4" not in sql
+    assert "laftd_alt" not in sql
+    assert "ld.[lvnr##1]" not in sql

@@ -177,9 +177,8 @@ fejlede DN'er til `healthpipe_fejlede_opslag.jsonl`, så CLI-indlæsningen følg
 samme regel som Dagster. CLI-indlæsningen må kun bruge filer fra en ny eksport,
 fordi ældre filer skriver gamle værdier ind i historikken. Derefter indsættes en ny åben række for hver nøgle
 uden en åben række. Lukning og indsættelse bruger samme tidsstempel, så
-perioderne ligger kant i kant. Størrelses-guarden sammenligner antallet af
-nøgler i udtrækket med antallet af åbne rækker, og et tomt udtræk ændrer
-ingenting. Historikken ligger kun på staging. Den synkroniseres ikke til DSO,
+perioderne ligger kant i kant. Et tomt udtræk ændrer ingenting. Historikken
+ligger kun på staging. Den synkroniseres ikke til DSO,
 fordi intet i DSO læser den.
 
 Opslag på et tidspunkt `@t`:
@@ -393,12 +392,31 @@ dso_infra_security     ┴→ extract_security → populate_security → dso_syn
   begge tabeller fra staging til DSO.
 
 **Størrelses-guard:** `AD_LOAD_MIN_COUNT_RATIO` (default `0.8`) — udtrækket
-skal udgøre mindst denne andel af måltabellens nuværende rækker. Guarden
+skal udgøre mindst denne andel af de nuværende rækker i `sec.RolleDomaene` og
+`sec.RBOrganisation`. Historiktabellerne har ingen størrelses-guard. Guarden
 evalueres FØR indholdet udskiftes, så et tomt eller ufuldstændigt udtræk aldrig tømmer en
 fyldt tabel. Brud giver exit 3 (CLI) hhv. et fejlet Dagster-run.
+For `sec.RBOrganisation` gælder yderligere to grænser, som fanger et udtræk med
+samme antal rækker, men andre RB-tildelinger: `AD_LOAD_MAX_REMOVED_GRANTS_RATIO`
+(default `0.2`) er den største andel af de nuværende RB-tildelinger (bruger,
+organisation), der må forsvinde efter hierarki-udpakning, og
+`AD_LOAD_MAX_LOST_USERS_RATIO` (default `0.1`) er den største andel af de
+nuværende brugere, der må miste alle RB-tildelinger; én bruger må altid
+forsvinde. Den undtagelse gælder ikke grænsen for RB-tildelinger: en enkelt
+bruger med en bred tildeling kan alene bryde den. En
+omstrukturering i `codesystem.SORHierarchy` kan også bryde grænsen for
+RB-tildelinger. Brud giver også exit 3, og loadet logges i
+`sec.RBOrganisationLoadLog` uden swap. Et brud stopper også de to
+historiktabeller og DSO-synkroniseringen af `sec.RolleDomaene` og
+`sec.RBOrganisation`. En varig ændring blokerer hver nat, indtil nogen griber
+ind; efter et midlertidigt ufuldstændigt udtræk går næste nats load igennem.
+Fejlbeskeden nævner hver overskredet grænse og dens miljøvariabel. Er
+udskiftningen forventet (fx en SOR-omstrukturering), så sæt hver nævnt
+`*_MAX_*_RATIO` til `1` og `AD_LOAD_MIN_COUNT_RATIO` lavt, hvis den er nævnt,
+for én kørsel. Alle tre værdier skal ligge over 0 og højst være 1.
 Bemærk: rulles hierarki-udpakningen tilbage, vil den første ikke-udpakkede
-load ligne massiv shrinkage og fejle med exit 3 — sæt da bevidst
-`AD_LOAD_MIN_COUNT_RATIO` lavt for én kørsel.
+load ligne massiv shrinkage og fejle med exit 3 — sæt da bevidst de grænser,
+fejlbeskeden nævner, for én kørsel.
 
 **Verifikation af hierarki-udpakning (dev/QA):** Så længe AD-grupperne har få
 medlemmer, kan udpakningen verificeres end-to-end med hardcodede
@@ -412,6 +430,8 @@ Værktøjet indlæser seneste reelle AD-udtræk + dummy-tildelinger gennem den
 rigtige loader, krydstjekker mod en uafhængig rekursiv CTE over
 `codesystem.SORHierarchy` (udpakning, overlap-dedup, flag=false), og
 genindlæser til sidst AD-sandheden. Afbryder hvis miljøet ligner prod.
+Med `--keep` bliver dummy-brugerne i tabellen, og næste load kan derfor blokere
+på en af grænserne; kør værktøjet igen uden `--keep`.
 
 **Manuel kørsel (fallback):**
 

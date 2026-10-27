@@ -23,12 +23,12 @@ dso_lineage:
 
   SourceSystems:
     - mysupply: [dbo.statistic_invoice_line, dbo.metadata]
-    - ils: [dbo.laftdstam, dbo.lgrvare, dbo.indkfak, dbo.laftd, dbo.pmdm, dbo.lev]
+    - ils: [dbo.laftdstam, dbo.lgrvare, dbo.indkfak, dbo.pmdm, dbo.lev]
 
   Columns:
     dw_ek_Leverandoervare:           { Type: PK, DataType: INT }
     cvr:                  { DataType: NVARCHAR(255), Source: [mysupply.dbo.metadata.LeverandorCVR, ils.dbo.lev.se_nr], Expr: "Kreditor-forretningsnoegle i cleancode-format (CVR_<nummer>) — matcher map.Leverandoervare.bk_kreditor" }
-    varenummer_kreditor:  { DataType: NVARCHAR(255), Source: [mysupply.dbo.statistic_invoice_line.Item_FakturaUdstederVareNr, ils.dbo.laftdstam.lvnr##1, ils.dbo.laftdstam.lvnr##2-4, ils.dbo.lgrvare.lvnr, ils.dbo.indkfak.levvarenr, ils.dbo.laftd.lvnr##1, ils.dbo.laftd.lvnr##2-3, ils.dbo.pmdm.lvnr], Expr: "Leverandoerens varenummer i cleancode-format (LEVVARE_<nummer>) — matcher map.Leverandoervare.bk_leverandoer_varenummer" }
+    varenummer_kreditor:  { DataType: NVARCHAR(255), Source: [mysupply.dbo.statistic_invoice_line.Item_FakturaUdstederVareNr, ils.dbo.laftdstam.lvnr##1, ils.dbo.laftdstam.lvnr##2-4, ils.dbo.lgrvare.lvnr, ils.dbo.indkfak.levvarenr, ils.dbo.pmdm.lvnr], Expr: "Leverandoerens varenummer i cleancode-format (LEVVARE_<nummer>) — matcher map.Leverandoervare.bk_leverandoer_varenummer" }
     varenavn:             { DataType: NVARCHAR(MAX), Expr: "COALESCE(NULLIF(varenavn_mysupply,''), 'UNKNOWN') — ILS-navne bor paa dim.ILSVare.navn (vnr-grain) og naas via bridge.LeverandoervareILSVare" }
     varenavn_mysupply:    { DataType: NVARCHAR(MAX), Source: [mysupply.dbo.statistic_invoice_line.Item_FakturaUdstederVareNavn] }
     dw_source_mysupply:   { DataType: BIT, Expr: "1 hvis entiteten findes i MySupply (afledt af fuldt kildebillede via EXISTS)" }

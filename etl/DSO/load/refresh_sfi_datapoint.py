@@ -25,7 +25,7 @@ Runs after FHIR flat-table sync and codesystem.sfi_* sync so consumer views
 import os
 import re
 import time
-from typing import Any
+from typing import Any, Literal
 
 import dagster as dg
 from core.resources import MSSQLResource
@@ -1592,7 +1592,7 @@ class _BackfillIndexScope:
         )
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> bool:
+    def __exit__(self, exc_type, exc, tb) -> Literal[False]:
         if not self.disabled:
             return False
         if exc_type is not None:

@@ -794,8 +794,8 @@ def _make_arc_asset(cfg: ArchiveMergeConfig):
             )
         )
 
-    _asset.__name__ = name
-    _asset.__qualname__ = name
+    _asset.__name__ = name  # type: ignore[attr-defined]
+    _asset.__qualname__ = name  # type: ignore[attr-defined]
     return _asset
 
 

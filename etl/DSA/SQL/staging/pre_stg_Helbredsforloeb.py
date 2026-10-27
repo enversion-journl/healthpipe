@@ -90,7 +90,11 @@ def pre_stg_Helbredsforloeb(
     # missed and its whole-table control total fails on every run until someone
     # runs full_load by hand. One full load after a partial failure is the
     # cheaper failure mode.
-    checkpoint = None if any(cp is None for cp in downstream) else min(downstream)
+    checkpoint = (
+        None
+        if any(cp is None for cp in downstream)
+        else min(cp for cp in downstream if cp is not None)
+    )
     if config.mode == "full_load":
         checkpoint = None
 

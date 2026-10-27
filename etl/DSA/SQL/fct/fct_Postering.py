@@ -16,7 +16,7 @@ precomputed date keys, typed measures, and the grain contract
 
 This asset is responsible only for map lookups + MERGE + diagnostics.
 Includes dw_ek_Postering lookup via map.Postering (clean_code_Postering),
-dw_ek_Okosted lookup via map.Okosted (clean_code_Okosted = omkostningsstednummer),
+dw_ek_Okosted lookup via map.Okosted (clean_code_Okosted = okosted_kode),
 and dw_ek_Finanskladdelinje lookup via shared ref_ledgertrans_id.
 """
 
@@ -126,9 +126,7 @@ def fct_Postering(
                     ON konto_map.bk_finanskonto_id = src.bk_finanskonto_id
 
                 LEFT JOIN [map].[Okosted] oko_map
-                    ON oko_map.clean_code_Okosted = src.omkostningsstednummer
-                   AND src.omkostningsstednummer IS NOT NULL
-                   AND src.omkostningsstednummer <> ''
+                    ON oko_map.clean_code_Okosted = src.okosted_kode
 
                 LEFT JOIN [map].[Postering] post_map
                     ON post_map.clean_code_Postering = src.clean_code_Postering

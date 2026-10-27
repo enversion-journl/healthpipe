@@ -14,12 +14,14 @@ Grain contract: one row per bk_ref_ledgerbudget_id (deterministic dedup applied 
 All type conversions (date keys, measures) are performed in this layer
 so the downstream fact asset only needs map lookups + MERGE.
 
-Includes omkostningsstednummer and clean_code_Kontoplan for map lookups in FctUpd
+Includes okosted_kode and clean_code_Kontoplan for map lookups in FctUpd
 (neither is persisted to fct.Budget -- only their resolved DW_EKs are).
+omkostningsstednummer is also carried along, raw, for debugging.
 """
 
 from core.resources import MSSQLResource
 from dagster import AssetExecutionContext, AssetKey, MaterializeResult, asset
+from DSA.CodeSystem.okosted.okosted import LEVEL_SUFFIX, MAX_CODE_LENGTH
 from DSA.SQL.common.dato_dimension import dato_key, dato_tid
 
 
@@ -68,6 +70,7 @@ def stg_fct_Budget_sydax(
                         b.clean_code_Kontoplan,
                         b.bk_finanskonto_id,
                         b.omkostningsstednummer,
+                        b.omkostningssted_niveau,
                         b.Budgetdato,
                         b.BudgetAdoptedDate,
                         b.Oprettelsestidspunkt,
@@ -90,6 +93,10 @@ def stg_fct_Budget_sydax(
                     g.clean_code_Kontoplan,
                     g.bk_finanskonto_id,
                     g.omkostningsstednummer,
+                    CAST(CASE
+                        WHEN g.omkostningsstednummer IS NOT NULL
+                        THEN CONCAT(LTRIM(RTRIM(g.omkostningsstednummer)), '{LEVEL_SUFFIX}', g.omkostningssted_niveau)
+                    END AS NVARCHAR({MAX_CODE_LENGTH})) AS okosted_kode,
 
                     {dato_key('g.Budgetdato')} AS dw_ek_Dato_budget,
                     {dato_tid('g.Budgetdato')} AS dato_tid_budget,

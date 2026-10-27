@@ -144,11 +144,8 @@ delete i arkivet. Derfor disse guards:
    fejle.** En tom eller ødelagt fil må ikke slette den kategoris historik. En
    kategori helt uden filer er derimod en ægte udfasning og skal kunne flyde igennem.
 
-7. **Rækkedrift:** en fil, der er skrumpet langt under sin arkiverede historik, er
-   en afbrudt overførsel — ikke en lille leverance. Fejl før MERGE'en.
-
-   Sender leverandøren selv rækketal med (DRG får en eksportlog per leverance), så
-   afstem mod dem efter arkiveringen. Et afvig er en leverancedefekt og skal fejle.
+7. **Afstem mod leverandørens rækketal.** Sender leverandøren selv rækketal med
+   (DRG får en eksportlog per leverance), så afstem mod dem efter arkiveringen. Et afvig er en leverancedefekt og skal fejle.
 
 8. **Validér nøglekolonners bredde, før de rammer arkivet.** En for lang værdi i en
    nøglekolonne afbryder ellers hele MERGE'en med en trunkeringsfejl. Afvis og tæl

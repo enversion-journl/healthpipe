@@ -126,7 +126,7 @@ class FHIRHelper:
 
     def list_project_profiles(self) -> dict[str, str]:
         """List all FHIR profiles used in this project"""
-        profiles = {}
+        profiles: dict[str, str] = {}
         model_dir = Path("model/fhir")
 
         if not model_dir.exists():
@@ -149,7 +149,7 @@ class FHIRHelper:
 
     def list_project_resources(self) -> dict[str, dict[str, Any]]:
         """List all FHIR resources defined in this project"""
-        resources = {}
+        resources: dict[str, dict[str, Any]] = {}
         model_dir = Path("model/fhir")
 
         if not model_dir.exists():

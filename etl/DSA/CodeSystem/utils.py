@@ -43,6 +43,25 @@ def codesystem_table_name(codesystem_name: str, kind: str) -> str:
     return f"{prefix}{_KIND_PASCAL[kind]}"
 
 
+_TOUCH_CHUNK_SIZE = 1000
+
+
+def touch_concepts(cursor, codesystem_name: str, codes: list[str]) -> None:
+    """Bump the concept's dw_timestamp_update for codes whose properties or
+    hierarchy edges were DELETED — deletions leave no timestamp on surviving
+    rows, so without this a delta consumer would never see them."""
+    table = codesystem_table_name(codesystem_name, "concept")
+    for i in range(0, len(codes), _TOUCH_CHUNK_SIZE):
+        chunk = codes[i : i + _TOUCH_CHUNK_SIZE]
+        placeholders = ", ".join(["?"] * len(chunk))
+        cursor.execute(
+            f"UPDATE [codesystem].[{table}] "
+            f"SET [dw_timestamp_update] = CAST(SYSDATETIME() AS datetime2(0)) "
+            f"WHERE [code] IN ({placeholders})",
+            chunk,
+        )
+
+
 def _insert_chunked(cursor, insert_sql: str, rows: Iterable[tuple]) -> None:
     """executemany in fixed-size chunks without materializing the full row list."""
     buffer: list[tuple] = []
@@ -103,11 +122,33 @@ def _run_merge_with_action_counts(
     return inserted, updated, deleted, deleted_codes
 
 
+# Binary collation for the change guard. The database collation is
+# case-insensitive, and `=` ignores trailing spaces under ANY collation, so a
+# plain comparison would call "kardiologi" and "Kardiologi " unchanged — the
+# guard would then skip the UPDATE and the corrected value would never land.
+_EXACT = "COLLATE Latin1_General_BIN2"
+
+
+def _null_safe_diff(column: str) -> str:
+    """SQL that is true when target and source differ in ``column`` — exactly.
+
+    NULL-safe both ways, case- and accent-sensitive (binary collation), and
+    sensitive to trailing spaces via DATALENGTH.
+    """
+    target = f"target.[{column}]"
+    source = f"source.[{column}]"
+    return (
+        f"ISNULL(NULLIF({target} {_EXACT}, {source} {_EXACT}), "
+        f"NULLIF({source} {_EXACT}, {target} {_EXACT})) IS NOT NULL "
+        f"OR DATALENGTH({target}) <> DATALENGTH({source})"
+    )
+
+
 def merge_codesystem_tables(
     cursor,
     codesystem_name: str,
     concepts: list[dict],
-    properties: list[dict],
+    properties: Iterable[dict],
     hierarchy: list[dict],
     *,
     code_max_length: int = 100,
@@ -201,10 +242,7 @@ def merge_codesystem_tables(
 
     concept_change_guard = ""
     if update_only_on_change:
-        concept_change_guard = (
-            " AND ISNULL(NULLIF(target.[display], source.[display]), "
-            "NULLIF(source.[display], target.[display])) IS NOT NULL"
-        )
+        concept_change_guard = f" AND ({_null_safe_diff('display')})"
     concept_merge = f"""
         MERGE INTO [codesystem].[{codesystem_table_name(codesystem_name, "concept")}] AS target
         USING #tmp_concept AS source
@@ -260,12 +298,6 @@ def merge_codesystem_tables(
         "VALUES (?, ?, ?, ?)",
         property_rows,
     )
-
-    def _null_safe_diff(column: str) -> str:
-        return (
-            f"ISNULL(NULLIF(target.[{column}], source.[{column}]), "
-            f"NULLIF(source.[{column}], target.[{column}])) IS NOT NULL"
-        )
 
     if multi_value_properties:
         properties_on = """

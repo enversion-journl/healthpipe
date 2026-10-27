@@ -83,8 +83,12 @@ IF NOT EXISTS (
     WHERE object_id = OBJECT_ID(N'[conceptmap].[OkostedToSOR]') AND type = 'U'
 )
 BEGIN
+    -- DW_EK_* are resolved AFTER the MERGE (update_conceptmap_dw_ek joins map.Okosted
+    -- and ref.Organisation), so they must be nullable at insert time — matching the
+    -- other conceptmap.*ToSOR staging tables. The dedup view vw_okosted_to_sor filters
+    -- out unresolved (NULL/-1) rows before the DSO sync.
     CREATE TABLE [conceptmap].[OkostedToSOR] (
-        [source_code]                 NVARCHAR(100)  NOT NULL,
+        [source_code]                 NVARCHAR(120)  NOT NULL,
         [source_display]              NVARCHAR(500)  NULL,
         [relationship]               NVARCHAR(50)   NOT NULL,
         [target_code]                 NVARCHAR(100)  NOT NULL,

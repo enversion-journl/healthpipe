@@ -26,6 +26,7 @@ ref.Faktura_To_Postering bridge).
 
 from core.resources import MSSQLResource
 from dagster import AssetExecutionContext, AssetKey, MaterializeResult, asset
+from DSA.CodeSystem.okosted.okosted import LEVEL_SUFFIX, MAX_CODE_LENGTH
 from DSA.SQL.common.dato_dimension import dato_key, dato_tid
 
 
@@ -78,6 +79,7 @@ def stg_fct_Postering_sydax(
                         p.clean_code_Faktura,
                         p.bk_finanskonto_id,
                         p.omkostningsstednummer,
+                        p.omkostningssted_niveau,
                         p.GodkendtDato,
                         p.LukketDato,
                         p.Trans_Oprettelsestidspunkt,
@@ -113,6 +115,10 @@ def stg_fct_Postering_sydax(
                     g.clean_code_Kreditor AS bk_kreditor,
                     g.bk_finanskonto_id,
                     g.omkostningsstednummer,
+                    CAST(CASE
+                        WHEN g.omkostningsstednummer IS NOT NULL
+                        THEN CONCAT(LTRIM(RTRIM(g.omkostningsstednummer)), '{LEVEL_SUFFIX}', g.omkostningssted_niveau)
+                    END AS NVARCHAR({MAX_CODE_LENGTH})) AS okosted_kode,
 
                     {dato_key('g.GodkendtDato')} AS dw_ek_Dato_godkendelse,
                     {dato_tid('g.GodkendtDato')} AS dato_tid_godkendelse,

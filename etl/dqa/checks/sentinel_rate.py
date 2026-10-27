@@ -65,7 +65,7 @@ def sentinel_rate(context, subject, spec, resources) -> CheckOutcome:
             return float(cap) if cap is not None else None
         return float(max_rate)
 
-    exceeded = {c: r for c, r in rates.items() if _cap(c) is not None and r > _cap(c)}
+    exceeded = {c: r for c, r in rates.items() if (cap := _cap(c)) is not None and r > cap}
     worst = sorted(rates.items(), key=lambda kv: kv[1], reverse=True)
     examples = [
         {"column": c, "rate": round(r, 4), "sentinel_rows": counts[c]} for c, r in worst if r > 0

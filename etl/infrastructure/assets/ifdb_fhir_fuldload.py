@@ -83,12 +83,13 @@ HISTORIK_START = date(2021, 10, 1)
 _VERIFIKATION_ASSET = "sfi_genkoersel_verifikation"
 _WINDOW_RECONCILIATION = "ifdb_backfill_window_reconciliation"
 
-# Anden halvdel af kæden: SOF med sin infrastruktur, DSO-synken, kvalitetstjekkene,
-# codesystem-synken og borger-kæden — og dermed også store-refreshen, der venter på
-# DSO. Udpeget ved gruppe og asset, ALDRIG ved jobnavn: et job kan blive slået
+# Anden halvdel af kæden: SOF med sin infrastruktur, dw-nøglerne, DSO-synken,
+# kvalitetstjekkene, codesystem-synken og borger-kæden — og dermed også store-refreshen,
+# der venter på DSO. Udpeget ved gruppe og asset, ALDRIG ved jobnavn: et job kan blive slået
 # sammen eller omdøbt uden at give merge-konflikt, og så fejler hvert vindue.
 _SOF_DSO_GRUPPER = (
     "fhir_sof_dfm",
+    "fhir_dw_keys",
     "fhir_dso_sync_dfm",
     "fhir_quality_dfm",
     "codesystem_dso_sync",

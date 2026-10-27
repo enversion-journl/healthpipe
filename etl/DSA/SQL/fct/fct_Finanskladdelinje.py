@@ -105,9 +105,7 @@ def fct_Finanskladdelinje(
                    AND src.clean_code_Kontoplan <> ''
 
                 LEFT JOIN [map].[Okosted] omap
-                    ON omap.clean_code_Okosted = src.omkostningsstednummer
-                   AND src.omkostningsstednummer IS NOT NULL
-                   AND src.omkostningsstednummer <> '';
+                    ON omap.clean_code_Okosted = src.okosted_kode;
                 """
                 )
 

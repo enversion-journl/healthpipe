@@ -68,7 +68,6 @@ from DSA.FHIR.utils.ifdb.patient_cpr_fallback import build_patient_cpr_fallback
 from DSA.FHIR.utils.ifdb.posting_config import (
     TAG_CHUNK_SIZE,
     TAG_MAX_WORKERS,
-    retire_ceiling_from_context,
 )
 from DSA.FHIR.utils.ifdb.ris_ydelse_xml import (
     extract_ris_services_from_xml,
@@ -687,10 +686,6 @@ def fhir_server_procedure_ris_ydelse_dfm(
     # Oversprungne STATE-værdier samlet for hele kørslen, så de kan rapporteres.
     skipped_total: dict[str, int] = {}
 
-    # Værn mod masse-pensionering i reconcile; hæves pr. kørsel via run-tags
-    # ved en varslet masseoprydning.
-    retire_ceiling = retire_ceiling_from_context(context)
-
     try:
         # include_deleted=True so deleted RIS-ydelser are tomb-stoned (isDeleted
         # extension updated) rather than left active.
@@ -747,7 +742,6 @@ def fhir_server_procedure_ris_ydelse_dfm(
                         rows=batch,
                         procedures=procedures,
                         logger=context.log,
-                        retire_ceiling=retire_ceiling,
                     )
             finally:
                 cursor.close()

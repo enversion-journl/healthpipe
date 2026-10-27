@@ -9,11 +9,10 @@
 The key SQL's content, the merge config's change-detect rules, the PK/F_ID
 refresh SQL (decision U1), the regrouping detector that guards U1's blind spot
 (decision U15: build_regroup_detection_sql / build_regroup_bump_sql and their
-order, single commit and volume cap), the manifest contract, guard behaviour
+order and single commit), the manifest contract, guard behaviour
 against a fake connection (incl. the SQL the guards actually issue),
-_run_archive's wiring (no-op on empty manifest, soft-delete cap BEFORE the
-merge, PK/F_ID refresh after the merge and before the key table is dropped,
-skipped on backfill) and the checkpoint gate. The extract layer is tested in
+_run_archive's wiring (no-op on empty manifest, PK/F_ID refresh after the merge
+and before the key table is dropped, skipped on backfill) and the checkpoint gate. The extract layer is tested in
 test_udredningsret_extract.py.
 """
 
@@ -306,7 +305,7 @@ def test_refresh_surrogate_ids_udfoerer_committer_og_returnerer_rowcount():
     already equals the delivery's, and the key table it compares against is dropped a
     moment later."""
     conn = FakeConn({REFRESH_IDS: [(7,)], COUNT_TMP: [(2,)]})
-    assert udredningsret_archive.refresh_surrogate_ids(conn, D, MERGE_START, 5000) == (7, 2)
+    assert udredningsret_archive.refresh_surrogate_ids(conn, D, MERGE_START) == (7, 2)
     assert len(conn.cursors) == 1
     i_scaffold = next(i for i, s in enumerate(conn.executed) if s.startswith("DROP TABLE IF"))
     i_detect = next(i for i, s in enumerate(conn.executed) if s.startswith("WITH par AS"))
@@ -328,43 +327,8 @@ def test_refresh_surrogate_ids_rapporterer_aldrig_negativt_rowcount():
     """Driveren giver -1 naar serveren ikke sender et antal (NOCOUNT/trigger): metadata
     og log skal vise 0, ikke '-1 live rows got PK/F_ID refreshed'."""
     conn = FakeConn({REFRESH_IDS: [(-1,)]})
-    assert udredningsret_archive.refresh_surrogate_ids(conn, D, MERGE_START, 5000) == (0, 0)
+    assert udredningsret_archive.refresh_surrogate_ids(conn, D, MERGE_START) == (0, 0)
     assert conn.commits == 1
-
-
-def test_refresh_surrogate_ids_over_loftet_committer_iderne_men_springer_bumpet_over():
-    """A mass regrouping is SDS changing their own F_ID algorithm: it must reach a human,
-    not re-stage the whole datamart behind one's back. The id refresh is still applied and
-    committed (U1's purpose must not be rolled back), the bump is skipped, and the failure
-    carries the count and the repair."""
-    conn = FakeConn({REFRESH_IDS: [(7,)], COUNT_TMP: [(51,)]})  # cap = 1 % of 5,000 = 50
-    with pytest.raises(dg.Failure) as excinfo:
-        udredningsret_archive.refresh_surrogate_ids(conn, D, MERGE_START, 5000)
-    assert "51" in excinfo.value.description
-    assert excinfo.value.metadata["omgrupperinger"].value == 51
-    assert excinfo.value.metadata["levende_helbredsforloeb"].value == 5000
-    # the repair is named: a plain rerun finds nothing (the ids are already refreshed)
-    assert "full_load" in excinfo.value.description
-    # the ids ARE written and committed, the bump is NOT
-    assert any(s.startswith(REFRESH_IDS) for s in conn.executed)
-    assert not any(s.startswith(BUMP) for s in conn.executed)
-    assert conn.commits == 1 and conn.executed_at_commit == [len(conn.executed)]
-
-
-def test_refresh_surrogate_ids_loft_er_inklusivt_og_gaelder_foerst_over_gulvet():
-    """Exactly 1 % passes (the comparison is > cap), and below RATIO_MIN_LIVE_ROWS live
-    helbredsforloeb there is no cap at all — the same floor the soft-delete ratio uses,
-    because a percentage of a first load or an integration fixture means nothing."""
-    at_cap = FakeConn({REFRESH_IDS: [(7,)], COUNT_TMP: [(50,)]})
-    assert udredningsret_archive.refresh_surrogate_ids(at_cap, D, MERGE_START, 5000) == (7, 50)
-    assert any(s.startswith(BUMP) for s in at_cap.executed)
-    floor = udredningsret_archive.RATIO_MIN_LIVE_ROWS - 1
-    tiny = FakeConn({REFRESH_IDS: [(7,)], COUNT_TMP: [(floor,)]})
-    assert udredningsret_archive.refresh_surrogate_ids(tiny, D, MERGE_START, floor) == (
-        7,
-        floor,
-    )
-    assert any(s.startswith(BUMP) for s in tiny.executed)
 
 
 # ---------------------------------------------------------------------------
@@ -489,42 +453,26 @@ def test_source_unique_index_guard():
         udredningsret_archive.guard_source_unique_index(FakeConn({"sys.indexes": [(0,)]}), D)
 
 
-def test_helbredsforloeb_recovery_guard():
+def test_helbredsforloeb_recovery_maaler_andelen_af_levende_noegler_i_leverancen():
     live = "COUNT(DISTINCT [helbredsforloeb_noegle])"
     found = f"AND EXISTS (SELECT 1 FROM {KILDE}"
-    responses = {live: [(1000,)], found: [(999,)]}
-    conn = FakeConn(responses)
-    assert udredningsret_archive.guard_helbredsforloeb_recovery(conn, D, 0.999)["andel"] == 0.999
+    conn = FakeConn({live: [(1000,)], found: [(990,)]})
+    assert udredningsret_archive.measure_helbredsforloeb_recovery(conn, D) == {
+        "levende_helbredsforloeb": 1000,
+        "genfundet": 990,
+        "andel": 0.99,
+    }
     # both counts are restricted to live arc rows
     assert all("[dw_is_deleted] = 0" in sql for sql in conn.executed)
-    responses[found] = [(990,)]
-    with pytest.raises(ValueError, match="recovered in the delivery"):
-        udredningsret_archive.guard_helbredsforloeb_recovery(FakeConn(responses), D, 0.999)
-    # override for this run
-    assert (
-        udredningsret_archive.guard_helbredsforloeb_recovery(FakeConn(responses), D, 0.98)[
-            "genfundet"
-        ]
-        == 990
-    )
-    # empty archive (first load) is skipped
+    # empty archive (first load)
     empty = FakeConn({live: [(0,)]})
-    assert udredningsret_archive.guard_helbredsforloeb_recovery(empty, D, 0.999)["andel"] == 1.0
+    assert udredningsret_archive.measure_helbredsforloeb_recovery(empty, D)["andel"] == 1.0
 
 
 def test_count_live_taeller_kun_levende_raekker():
     conn = FakeConn({f"FROM {ARC} WHERE [dw_is_deleted] = 0": [(42,)]})
     assert udredningsret_archive.count_live(conn, D) == 42
     assert conn.executed == [f"SELECT COUNT(*) FROM {ARC} WHERE [dw_is_deleted] = 0"]
-
-
-def test_expected_soft_deletes_sql_bruger_merge_noeglerne():
-    conn = FakeConn({"NOT EXISTS": [(7,)]})
-    assert udredningsret_archive.count_expected_soft_deletes(conn, D) == 7
-    sql = conn.executed[0]
-    assert "src.[markoer_noegle] = tgt.[markoer_noegle]" in sql
-    assert "src.[loebenummer] = tgt.[loebenummer]" in sql
-    assert "tgt.[dw_is_deleted] = 0" in sql
 
 
 def test_record_delivery_upserter_paa_kildetabel_og_tidsstempel():
@@ -550,7 +498,7 @@ def test_record_delivery_upserter_paa_kildetabel_og_tidsstempel():
 
 
 # ---------------------------------------------------------------------------
-# _run_archive: no-op, cap BEFORE the merge, PK/F_ID refresh and key table drop AFTER
+# _run_archive: no-op, PK/F_ID refresh and key table drop AFTER
 # ---------------------------------------------------------------------------
 
 REFRESH = "UPDATE tgt SET tgt.[PK] = src.[PK], tgt.[F_ID] = src.[F_ID]"
@@ -559,7 +507,6 @@ REFRESH = "UPDATE tgt SET tgt.[PK] = src.[PK], tgt.[F_ID] = src.[F_ID]"
 def _wired_run(
     monkeypatch,
     live: int,
-    expected_deletes: int,
     manifest_rows=(MANIFEST_ROW,),
     refreshed: int = 3,
     regrouped: int = 0,
@@ -575,7 +522,6 @@ def _wired_run(
         "COUNT(DISTINCT [helbredsforloeb_noegle])": [(live,)],
         f"AND EXISTS (SELECT 1 FROM {KILDE}": [(live,)],
         f"FROM {ARC} WHERE [dw_is_deleted] = 0": [(live,)],
-        "NOT EXISTS": [(expected_deletes,)],
         COUNT_TMP: [(regrouped,)],
         CLOCK: [(MERGE_START,)],
         REFRESH: [(refreshed,)],
@@ -589,7 +535,7 @@ def _wired_run(
     def fake_merge(context, mssql, merge_config, run_config):
         calls.append("merge")
         seen_at["merge"] = len(resource.conn.executed)
-        return SimpleNamespace(rows_inserted=0, rows_updated=0, rows_soft_deleted=expected_deletes)
+        return SimpleNamespace(rows_inserted=0, rows_updated=0, rows_soft_deleted=0)
 
     def fake_record(*a, **k):
         calls.append("record")
@@ -605,7 +551,7 @@ def _wired_run(
 
 
 def test_tomt_manifest_er_noop_foer_noegletabel_guards_og_merge(monkeypatch):
-    resource, calls, run = _wired_run(monkeypatch, live=5000, expected_deletes=0, manifest_rows=())
+    resource, calls, run = _wired_run(monkeypatch, live=5000, manifest_rows=())
     result = run()
     assert calls == []
     assert result.metadata["besluttet"].startswith("no-op")
@@ -614,21 +560,8 @@ def test_tomt_manifest_er_noop_foer_noegletabel_guards_og_merge(monkeypatch):
     assert all("manifest" in sql or "sys.objects" in sql for sql in resource.conn.executed)
 
 
-def test_soft_delete_loft_fyrer_foer_mergen(monkeypatch):
-    """12 % expected soft-deletes of 5,000 live > the 1 % ratio: nothing is merged."""
-    resource, calls, run = _wired_run(monkeypatch, live=5000, expected_deletes=600)
-    with pytest.raises(dg.Failure) as excinfo:
-        run()
-    assert "marked-vs-live" in excinfo.value.description
-    assert calls == []  # neither merge nor delivery registration was reached
-    executed = resource.conn.executed
-    # the key table was built and indexed before the cap was judged — and is KEPT for post mortem
-    i_index = next(i for i, s in enumerate(executed) if s.startswith("CREATE UNIQUE CLUSTERED"))
-    assert not any(sql == f"DROP TABLE IF EXISTS {KILDE};" for sql in executed[i_index:])
-
-
-def test_soft_delete_under_loftet_merger_registrerer_og_dropper_noegletabellen(monkeypatch):
-    resource, calls, run = _wired_run(monkeypatch, live=5000, expected_deletes=30)
+def test_merger_registrerer_og_dropper_noegletabellen(monkeypatch):
+    resource, calls, run = _wired_run(monkeypatch, live=5000)
     result = run()
     assert calls == ["merge", "record"]
     assert result.metadata["levende_raekker_foer"] == 5000
@@ -660,9 +593,7 @@ def test_asset_metadata_baerer_omgrupperinger_og_detektionen_koerer_foer_id_opda
     exist — after the merge, before the id refresh, and before the key table it reads
     is dropped — and the count reaches the asset's metadata next to
     surrogat_id_opdateret, so a regrouping is visible in the Dagster run."""
-    resource, calls, run = _wired_run(
-        monkeypatch, live=5000, expected_deletes=0, refreshed=3, regrouped=2
-    )
+    resource, calls, run = _wired_run(monkeypatch, live=5000, refreshed=3, regrouped=2)
     result = run()
     assert calls == ["merge", "record"]
     assert result.metadata["omgrupperinger"] == 2
@@ -693,9 +624,7 @@ def test_backfill_springer_surrogat_id_opdatering_og_omgrupperingsdetektion_over
     """An older delivery must not push its older PK/F_ID over the archive's newer ones —
     and its grouping is not the one the archive should follow either, so the detector must
     not run and must not bump anything."""
-    resource, calls, run = _wired_run(
-        monkeypatch, live=5000, expected_deletes=0, regrouped=9, backfill_historical=True
-    )
+    resource, calls, run = _wired_run(monkeypatch, live=5000, regrouped=9, backfill_historical=True)
     result = run()
     assert calls == ["merge", "record"]
     assert not any(s.startswith("UPDATE") for s in resource.conn.executed)

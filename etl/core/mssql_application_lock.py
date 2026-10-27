@@ -32,7 +32,7 @@ def application_lock(database, name: str, *, mode: str = "Exclusive", timeout_ms
             )
             row = cursor.fetchone()
             if row is None or row[0] < 0:
-                raise RuntimeError("Source publication lock unavailable")
+                raise RuntimeError(f"Application lock {name!r} unavailable after {timeout_ms} ms")
             acquired = True
             conn.commit()
             yield

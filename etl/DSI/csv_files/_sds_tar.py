@@ -49,7 +49,7 @@ import io
 import os
 import re
 import tarfile
-from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
+from collections.abc import Callable, Collection, Generator, Mapping, Sequence
 from datetime import datetime
 from typing import IO, Protocol, TypeVar
 
@@ -85,7 +85,8 @@ class LogContext(Protocol):
     test double. Deliberately narrow: shared code never logs a warning or an
     error, because not every caller's context double has those methods."""
 
-    log: _Log
+    @property
+    def log(self) -> _Log: ...
 
 
 class CsvReader(Protocol):
@@ -123,7 +124,7 @@ def source_dir(
     caller supplies both hint sentences, because they name that source's share
     and its mounting convention.
     """
-    root = (override or os.getenv(env_var, "")).strip()
+    root = (override or os.getenv(env_var) or "").strip()
     if not root:
         raise ValueError(f"{env_var} is unset or empty. {hint_unset}")
     if not os.path.isdir(root):
@@ -189,7 +190,7 @@ def open_member_csv(handle, encoding: str, delimiter: str = DELIMITER) -> CsvRea
     return csv.reader(text, delimiter=delimiter)
 
 
-def iter_members(tar_path: str) -> Iterator[tuple[str, IO[bytes]]]:
+def iter_members(tar_path: str) -> Generator[tuple[str, IO[bytes]], None, None]:
     """Every regular file in the archive as ``(basename, handle)``, in tar order.
 
     FORWARD-ONLY STREAM. The tar is opened in ``r|bz2`` mode, which decompresses

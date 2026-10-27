@@ -272,6 +272,27 @@ class TestBuildMergeStatement:
         # Verify excluded column not in INSERT
         assert "dw_ek_Leverandoervare" not in sql
 
+    def test_merge_matches_questionnaire_item_link_id_byte_for_byte(self):
+        """txt and TXT reach DSO as two rows; the ON clause must not merge them."""
+        config = ALL_SYNC_CONFIGS["fhir_questionnaire_item"]
+        columns = [
+            "questionnaire_id",
+            "link_id",
+            "item_key",
+            "text",
+            "dw_timestamp_insert",
+            "dw_timestamp_update",
+            "link_id_exact",
+        ]
+
+        sql = build_merge_statement(
+            config, columns, string_pk_cols={"questionnaire_id", "link_id", "item_key"}
+        )
+
+        assert "tgt.[link_id_exact] = src.[link_id] COLLATE Latin1_General_BIN2" in sql
+        assert "tgt.[link_id] = src.[link_id]" not in sql
+        assert "src.[link_id_exact]" not in sql
+
     def test_merge_with_excluded_columns(self):
         """Test MERGE excludes specified columns."""
         config = SyncTableConfig(

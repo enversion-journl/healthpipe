@@ -18,7 +18,7 @@ Reference Resolution:
     - Patient (subject) - required
 """
 
-from typing import Any
+from typing import Any, cast
 
 import dagster as dg
 from core.dfm_config import RunModeConfig
@@ -343,11 +343,14 @@ def fhir_server_condition_diagnose_dfm(
                         f"(total so far: {total_fetched})"
                     )
 
-                    diagnose_ids = [
-                        normalize_oracle_id(row["OBJEKT_ID"])
-                        for row in batch
-                        if row.get("OBJEKT_ID")
-                    ]
+                    diagnose_ids = cast(
+                        list[str],
+                        [
+                            normalize_oracle_id(row["OBJEKT_ID"])
+                            for row in batch
+                            if row.get("OBJEKT_ID")
+                        ],
+                    )
                     tillaegskoder = _fetch_diagnose_tillaegskoder(
                         diagnose_ids, mssql_target_staging, context
                     )

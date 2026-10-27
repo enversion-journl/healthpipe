@@ -13,26 +13,21 @@ Bugs these tests catch:
 - retiring on malformed XML (would wipe children when parse failed)
 - skipping empty XML (would leave orphans when the CLOB was cleared)
 - retiring when the parse worker crashed or a row failed to build
-- mass-retiring past the ceiling (a future skip condition emptying expected sets)
 """
 
 from __future__ import annotations
 
 import logging
-from types import SimpleNamespace
 
 import pytest
 from core.fhir import child_resource_reconcile as crr
 from core.fhir.child_resource_reconcile import (
-    DEFAULT_RETIRE_CEILING,
     ChildFamily,
-    RetireCeiling,
     expected_child_identifiers,
     fhir_ids_to_retire,
     identifier_values_for_system,
     reconcile_children,
 )
-from DSA.FHIR.utils.ifdb.posting_config import retire_ceiling_from_context
 from DSA.FHIR.utils.ifdb.ris_ydelse_xml import ris_xml_is_malformed
 from DSA.FHIR.utils.ifdb.xml_child_reconcile import (
     FAMILY_DELOP,
@@ -161,81 +156,6 @@ def test_length_mismatch_skips_the_chunk_reconcile():
         condition_dicts=[],
     )
     assert retired == {}
-
-
-# ---------------------------------------------------------------------------
-# Loft på retire — værnet mod masse-pensionering
-# ---------------------------------------------------------------------------
-
-
-def _live_boern(n: int) -> list[tuple[str, str]]:
-    return [(f"fhir-{i}", f"1-delop-{i}") for i in range(n)]
-
-
-def _reconcile_med_live(monkeypatch, n_live: int, **kwargs) -> tuple[int, list]:
-    """Kør reconcile_children mod n_live attrap-børn; returnér (retired, mark-kald)."""
-    marked: list = []
-    monkeypatch.setattr(crr, "_fetch_live_children", lambda *a, **k: _live_boern(n_live))
-    monkeypatch.setattr(
-        crr, "_mark_entered_in_error", lambda db, fam, ids: marked.append(ids) or len(ids)
-    )
-    retired = reconcile_children(
-        fhir_database=object(),
-        family=FAMILY_DELOP,
-        parent_oids=["1"],
-        expected_identifiers=set(),
-        **kwargs,
-    )
-    return retired, marked
-
-
-def test_retire_ceiling_er_gulv_plus_andel():
-    # Gulvet beskytter små chunks mod falske alarmer; andelen fanger
-    # systematisk tømning på store kørsler. Bevidst u-kalibrerede værn.
-    ceiling = RetireCeiling()
-    assert ceiling.limit(10) == 1000
-    assert ceiling.limit(10_000) == 5_000
-
-
-def test_retire_over_loftet_springes_over(monkeypatch):
-    # 2.500 at pensionere mod loftet max(1000, 50 % af 2.500) = 1.250:
-    # intet må røres — en bevidst masseoprydning kræver hævet loft.
-    retired, marked = _reconcile_med_live(monkeypatch, 2500)
-    assert retired == 0
-    assert marked == []
-
-
-def test_retire_under_loftet_udfoeres(monkeypatch):
-    retired, marked = _reconcile_med_live(monkeypatch, 100)
-    assert retired == 100
-    assert len(marked) == 1
-
-
-def test_fraction_1_slaar_loftet_fra(monkeypatch):
-    # retire kan aldrig overstige de levende, så fraction=1.0 er off-kontakten.
-    retired, _ = _reconcile_med_live(monkeypatch, 5000, retire_ceiling=RetireCeiling(fraction=1.0))
-    assert retired == 5000
-
-
-def test_retire_ceiling_none_slaar_loftet_fra(monkeypatch):
-    retired, _ = _reconcile_med_live(monkeypatch, 5000, retire_ceiling=None)
-    assert retired == 5000
-
-
-def test_retire_ceiling_laeses_fra_run_tags():
-    ctx = SimpleNamespace(
-        run=SimpleNamespace(
-            tags={
-                "fhir/retire_ceiling_floor": "50000",
-                "fhir/retire_ceiling_fraction": "1.0",
-            }
-        )
-    )
-    assert retire_ceiling_from_context(ctx) == RetireCeiling(floor=50_000, fraction=1.0)
-
-
-def test_retire_ceiling_default_uden_tags():
-    assert retire_ceiling_from_context(SimpleNamespace(run=None)) == DEFAULT_RETIRE_CEILING
 
 
 def test_ris_xml_malformed_vs_empty():

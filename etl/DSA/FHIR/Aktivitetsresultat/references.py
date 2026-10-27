@@ -8,7 +8,7 @@
 
 import time
 import uuid
-from typing import Any
+from typing import Any, cast
 
 import dagster as dg
 from core.resources import (
@@ -127,7 +127,7 @@ class ResolvedRefLookup:
         self._minted_questionnaire_response_ids: dict[str, str] = {}
         # Opslag flettet ind for den aktuelle chunk (eksisterende ressourcer) —
         # frigives sammen med de mintede id'er, se release_chunk_scoped_ids.
-        self._chunk_merged_keys: list[tuple[IdentifierLookup, tuple[str, str]]] = []
+        self._chunk_merged_keys: list[tuple[dict[tuple[str, str], str], tuple[str, str]]] = []
         self.lookup_profile: dict[str, Any] = {}
         # Tracks cache misses so SoF NULL-joins can be diagnosed without log-spam.
         self.miss_counts: dict[str, int] = {"Patient": 0, "Encounter": 0, "EpisodeOfCare": 0}
@@ -148,7 +148,7 @@ class ResolvedRefLookup:
     def patient_ref(self, patient_id: Any) -> dict | None:
         if patient_id is None:
             return None
-        pid = _normalize_oracle_id(patient_id)
+        pid = cast(str, _normalize_oracle_id(patient_id))
         fhir_id = self._patient.get((SYSTEM_IFDB_PATIENT_ID, pid))
         if fhir_id:
             return {"id": fhir_id, "resourceType": "Patient"}
@@ -158,7 +158,7 @@ class ResolvedRefLookup:
     def encounter_ref(self, encounter_id: Any) -> dict | None:
         if encounter_id is None:
             return None
-        eid = _normalize_oracle_id(encounter_id)
+        eid = cast(str, _normalize_oracle_id(encounter_id))
         fhir_id = self._encounter.get((SYSTEM_IFDB_OBJECT_ID, eid))
         if fhir_id:
             return {"id": fhir_id, "resourceType": "Encounter"}
@@ -168,7 +168,7 @@ class ResolvedRefLookup:
     def episode_ref(self, episode_id: Any) -> dict | None:
         if episode_id is None:
             return None
-        eid = _normalize_oracle_id(episode_id)
+        eid = cast(str, _normalize_oracle_id(episode_id))
         fhir_id = self._episode.get((SYSTEM_IFDB_EPISODE_OF_CARE_ID, eid))
         if fhir_id:
             return {"id": fhir_id, "resourceType": "EpisodeOfCare"}
@@ -639,9 +639,9 @@ def _resolve_full_cache_self_ids(
     )
     elapsed = time.perf_counter() - start
     resolved: dict[str, str] = {
-        value: lookup[(identifier_system, value)]
+        value: fhir_id
         for value in requested_values
-        if (identifier_system, value) in lookup
+        if (fhir_id := lookup.get((identifier_system, value))) is not None
     }
     logger.info(
         "[SelfIdLookup] %s/%s strategy=full-cache warmup loaded %d/entries in %.2fs",
@@ -787,7 +787,7 @@ def _pre_resolve_references(
         condition_resolved,
     )
 
-    questionnaire_cache = {}
+    questionnaire_cache: IdentifierLookup = {}
     if include_questionnaire_lookups:
         questionnaire_resolved, profile = _resolve_self_ids(
             fhir_database=fhir_database,

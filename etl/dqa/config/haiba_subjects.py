@@ -54,8 +54,8 @@ delivery-level checks that no dm check can express:
 - **encoding sanity**: no U+FFFD replacement characters in any text column
   after load (a wrong-encoding read corrupts silently instead of raising).
 
-The extract/archive guards live in the ETL itself, not here: header-only and
-row-drift protection plus arc-width rejection in DSI/csv_files/haiba.py
+The extract/archive guards live in the ETL itself, not here: header-only
+protection plus arc-width rejection in DSI/csv_files/haiba.py
 (invariant 1), and unknown-column rejection in iter_rows.
 
 GDPR: nothing here may put clean_code or cprnr values in examples/extra —

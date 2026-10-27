@@ -43,21 +43,9 @@ from fhir.resources.R4B.coding import Coding
 from fhir.resources.R4B.identifier import Identifier
 from fhir.resources.R4B.organization import Organization
 from utils.fhir.identifier_systems import SYSTEM_SOR, SYSTEM_SOR_ENTITY_TYPE
+from utils.sor_codes import parse_sor_date
 
 CHUNK_SIZE = 5000
-
-
-def parse_sor_date(date_str: str | None) -> datetime | None:
-    """Parse a SOR date string (YYYY-MM-DD[ HH:MM:SS]) to datetime."""
-    if not date_str or not str(date_str).strip():
-        return None
-    value = str(date_str).strip()
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
-        try:
-            return datetime.strptime(value, fmt)
-        except ValueError:
-            continue
-    return None
 
 
 def determine_status(closing_date: str | None, now: datetime | None = None) -> str:

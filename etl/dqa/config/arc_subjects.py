@@ -29,6 +29,8 @@ source -> its own ``dqa_arc_<source>_weekly_job``).
 
 from __future__ import annotations
 
+from typing import Any
+
 from dqa.model import Cadence, CheckSpecification, DqaSubject, ReplaySpec, Severity, Track
 from DSI.oracle.ifdb_archive import (
     ABSENCE_ARCHIVE_CONFIG,
@@ -105,7 +107,7 @@ _DELETED = "dw_is_deleted"  # archive's "removed from source" marker
 _SOURCE = "ifdb"  # IFDB Oracle; other arc.* sources (kmd/ils/...) get their own
 
 # name -> anchor dqa_<name>_weekly (source in the name so it namespaces by source).
-_ARC = [
+_ARC: list[tuple[Any, ...]] = [
     (
         "arc_ifdb_encounter",
         "arc.ifdb_encounter",
@@ -344,7 +346,7 @@ def _arc(
     normalize_columns: list[str] | None = None,
 ) -> DqaSubject:
     key_columns = list(cfg.merge_keys)
-    params = {
+    params: dict[str, Any] = {
         "source_table": source_table,
         "key_columns": key_columns,
         "deleted_column": _DELETED,

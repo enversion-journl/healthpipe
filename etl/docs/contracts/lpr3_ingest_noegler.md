@@ -31,8 +31,8 @@ Et fuldt kodesæt bruger fortsat den afledte kodebaserede nøgle, når den er en
 Konflikter i kodebaserede nøgler skal måles, ikke skjules med vilkårlig deduplikering.
 
 Begrænsning: en teknisk kildeidentitet kan skifte ved SDS-genindlæsning. Fallback giver
-ikke et løfte om stabilitet under en sådan omnummerering. Genindlæsningsalarm,
-kontroltotaler og soft-delete-vagt består og må ikke sættes ud af kraft for at få et
+ikke et løfte om stabilitet under en sådan omnummerering. Genindlæsningsalarm
+og kontroltotaler består og må ikke sættes ud af kraft for at få et
 load igennem. Antal uopløste grupper og ændringer i afledningsmetode skal fremgå af
 driftsmålingerne.
 
@@ -75,7 +75,7 @@ med samme kode/type/parent-sæt. Selv alle kliniske forretningsfelter efterlader
 af D6's versions- og payloadkontrol. En kollision alene tillader ikke deduplikering;
 D6 beskriver den snævre undtagelse for dokumenteret identiske versioner.
 Metodeskift, når en kollision opstår eller forsvinder, kan ændre nøglen; en
-ændret nøgle er en soft-delete plus en ny række og er omfattet af slettevagten.
+ændret nøgle er en soft-delete plus en ny række.
 
 ## D4 — nationale bridges med uløste referencer
 
@@ -104,7 +104,7 @@ og metoden `natural`, også ved ren omnummerering af deres DW_EK.
 
 D3–D5 garanterer ikke identitetsstabilitet ved SDS-genindlæsning eller ved ændret
 referenceopløsning/kollisionsstatus mellem leverancer. Hver metode tælles separat,
-kontroltotaler og entydighed kontrolleres fortsat, og slettegrænserne er uændrede.
+kontroltotaler og entydighed kontrolleres fortsat.
 
 ## D6 — identiske dimensionsversioner med bevarede kildehenvisninger
 
@@ -170,8 +170,8 @@ forretningsentitet. D5's adskilte tekniske identiteter bevares.
   (17 ekstra rækker). Alle leverede forretningsfelter, herunder indberettere og
   tekster, plus ValidFrom adskiller samtlige henholdsvis 18.482 og 888 rækker.
   Deres hash omfatter derfor alle felter uden `DW_`-præfiks; ValidFrom er fortsat
-  særskilt merge-komponent. Tekstændringer kan ændre nøglen og behandles med de
-  eksisterende slettevagter. Der bruges ingen teknisk kildeidentitet i disse nøgler.
+  særskilt merge-komponent. Tekstændringer kan ændre nøglen; en ændret nøgle er
+  en soft-delete plus en ny række (se D3). Der bruges ingen teknisk kildeidentitet i disse nøgler.
   I M har de 18.515 ForloebEgenskaber- og 888 Markoer-rækker
   ingen kollisioner. Ingen af de henholdsvis 18.482 og 888 fælles EK/versioner
   har ændret forretningsnøgle fra U til M. Målingen gælder dette leveranceinterval.
@@ -184,7 +184,7 @@ forretningsentitet. D5's adskilte tekniske identiteter bevares.
   ingen manglende nøgler og ingen kollisioner i nogen af leverancerne. Direkte UUID dækker
   99,986615 % af M; de resterende 1.198 bruger sæt-hash. Fem af 8.934.680 fælles entiteter
   skifter kandidat (tre også afledningsmetode). Disse er reelle ændringer i afledningen,
-  ikke et løfte om evig identitet; de tælles og er underlagt den almindelige slettevagt.
+  ikke et løfte om evig identitet; de tælles.
 - Sygehusophold: første kontakt dækker 99,942556 %. Første kontakt suppleret med en
   entydig, ikke-delt kontakt eller komplet kontakt-UUID-sæt er valideret på hele U/M:
   nul manglende eller kolliderende nøgler. Direkte UUID dækker 99,983867 % i M; 3.575
@@ -201,13 +201,12 @@ forretningsentitet. D5's adskilte tekniske identiteter bevares.
   entydig i alle 7.598 versioner. Resultatnøglen (indberetnings-UUID, Resultat_Nr) er
   entydig og fuldt dækkende for 14.429.227 rækker.
 
-## Markørgrænsen ved månedsovergange
+## Markørtab ved månedsovergange
 
 M 2026-08-12 til M 2026-09-15: 785.234 af 21.303.274 tidligere markør-UUID'er
 forsvinder (3,685978 %), og 1.043.546 kommer til. Kun otte bevarede UUID'er har nyt
 DW_EK; de forsvundne UUID'er kan derfor ikke forklares som ren omnummerering.
 Begge leverancer har entydige og udfyldte markør-UUID'er.
 
-Grænsen på 3 % beholdes, så en overgang mellem to månedsleverancer uden de mellemliggende
-ugeleverancer afvises før merge. En ændring af grænsen kræver en særskilt beslutning;
-genopretningen er beskrevet i [kildebeskrivelsen](../source_systems/lpr3/lpr3_kilde.md#drift-og-genopretning).
+En overgang mellem to månedsleverancer uden de mellemliggende ugeleverancer soft-sletter
+derfor mange markører.

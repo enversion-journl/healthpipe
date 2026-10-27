@@ -37,6 +37,7 @@ before this sensor can report again.
 
 import json
 import os
+from collections.abc import Mapping
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -75,7 +76,7 @@ def resolve_deployment_env() -> str | None:
     return None
 
 
-def is_automation_run(run_tags: dict[str, str] | None) -> bool:
+def is_automation_run(run_tags: Mapping[str, str] | None) -> bool:
     """Whether the run was started by a schedule or sensor (directly or via re-execution)."""
     tags = run_tags or {}
     return any(tag in tags for tag in _AUTOMATION_TAGS)

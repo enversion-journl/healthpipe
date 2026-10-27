@@ -40,7 +40,7 @@ class FHIRValidator:
 
     def validate_profile_compliance(self, spec_path: str) -> dict[str, Any]:
         """Validate that project specs comply with FHIR profiles"""
-        results = {
+        results: dict[str, Any] = {
             "valid": True,
             "errors": [],
             "warnings": [],
@@ -102,7 +102,7 @@ class FHIRValidator:
         self, resource_name: str, resource_def: dict[str, Any]
     ) -> dict[str, Any]:
         """Validate a single resource definition"""
-        results = {"valid": True, "errors": [], "warnings": []}
+        results: dict[str, Any] = {"valid": True, "errors": [], "warnings": []}
 
         # Check required fields
         required_fields = ["resource"]
@@ -185,7 +185,7 @@ class FHIRValidator:
         self, adapter_name: str, adapter_def: dict[str, Any]
     ) -> dict[str, Any]:
         """Validate an adapter definition"""
-        results = {"valid": True, "errors": [], "warnings": []}
+        results: dict[str, Any] = {"valid": True, "errors": [], "warnings": []}
 
         # Check required fields
         if "resource" not in adapter_def:
@@ -208,7 +208,7 @@ class FHIRValidator:
         canonical_resources: dict[str, Any],
     ) -> dict[str, Any]:
         """Validate a projection definition"""
-        results = {"valid": True, "errors": [], "warnings": []}
+        results: dict[str, Any] = {"valid": True, "errors": [], "warnings": []}
 
         # Check required 'from' field
         if "from" not in proj_def:
@@ -288,7 +288,7 @@ class FHIRValidator:
     def validate_all_specs(self) -> dict[str, dict[str, Any]]:
         """Validate all FHIR specification files in the project"""
         model_dir = Path("model/fhir")
-        results = {}
+        results: dict[str, dict[str, Any]] = {}
 
         if not model_dir.exists():
             print("No model/fhir directory found")

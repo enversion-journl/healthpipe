@@ -77,6 +77,17 @@ BEGIN
 END
 GO
 
+-- dw-key lookup from the flat fhir.* tables
+-- (kept in sync with migrations/20261012_fhir_dw_keys_kolonner_og_indeks.sql)
+IF OBJECT_ID(N'[dim].[Organisation]', 'U') IS NOT NULL
+   AND NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID(N'[dim].[Organisation]') AND name = N'IX_dim_Organisation_FhirOrganizationId')
+BEGIN
+    CREATE INDEX IX_dim_Organisation_FhirOrganizationId
+        ON [dim].[Organisation] ([fhir_Organization_id])
+        INCLUDE ([dw_is_deleted]);
+END
+GO
+
 -- Sentinel row for "Unknown" organisation (DW_EK = -1)
 IF NOT EXISTS (SELECT 1 FROM [dim].[Organisation] WHERE dw_ek_Organisation = -1)
 BEGIN

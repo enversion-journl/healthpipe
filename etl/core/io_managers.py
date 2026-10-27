@@ -230,7 +230,7 @@ class BatchAwareFilesystemIOManager(
     def create_io_manager(
         self, context: dg.InitResourceContext
     ) -> BatchAwarePickledObjectFilesystemIOManager:
-        base_dir = self.base_dir or context.instance.storage_directory()
+        base_dir = self.base_dir or context.instance.storage_directory()  # type: ignore[union-attr]
         return BatchAwarePickledObjectFilesystemIOManager(
             base_dir=base_dir,
             stream_batched_inputs=self.stream_batched_inputs,

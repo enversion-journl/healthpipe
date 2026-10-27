@@ -16,6 +16,7 @@ import hashlib
 import os
 import re
 from collections.abc import Callable
+from typing import Any
 
 import requests
 
@@ -70,10 +71,10 @@ class ReportsBranchClient:
         repository: str | None = None,
         pat: str | None = None,
     ):
-        self.org_url = (org_url or os.getenv("ADO_ORG_URL", "")).rstrip("/")
+        self.org_url = (org_url or os.getenv("ADO_ORG_URL") or "").rstrip("/")
         self.project = project or os.getenv("ADO_PROJECT", "")
         self.repository = repository or os.getenv("ADO_REPOSITORY", "") or self.project
-        self._pat = pat or os.getenv("ADO_PAT", "") or os.getenv("ADO_WORKITEM_PAT", "")
+        self._pat = pat or os.getenv("ADO_PAT") or os.getenv("ADO_WORKITEM_PAT") or ""
 
     @property
     def configured(self) -> bool:
@@ -145,7 +146,7 @@ class ReportsBranchClient:
         self, branch: str, head: str, path: str, content: str, comment: str, new_file: bool
     ) -> str:
         """Push one commit adding/editing the file; returns the new branch head."""
-        payload = {
+        payload: dict[str, Any] = {
             "refUpdates": [{"name": f"refs/heads/{branch}", "oldObjectId": head}],
             "commits": [
                 {

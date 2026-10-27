@@ -119,8 +119,8 @@ def build_rekvirent_hierarchy(
         rtyp = str(rekv_row["rtyp"]).strip() if rekv_row.get("rtyp") else None
         if not rgrp or not rtyp:
             continue
-        rgrp_code = rgrp_codes.get((sgh, rgrp))
-        if not rgrp_code:
+        parent_rgrp_code = rgrp_codes.get((sgh, rgrp))
+        if not parent_rgrp_code:
             continue
         rtyp_key = (sgh, rgrp, rtyp)
         if rtyp_key not in rtyp_codes:
@@ -139,7 +139,7 @@ def build_rekvirent_hierarchy(
             properties.append({"CODE": rtyp_code, "KEY": "sgh", "VALUE": sgh, "TYPE": "String"})
             properties.append({"CODE": rtyp_code, "KEY": "rgrp", "VALUE": rgrp, "TYPE": "String"})
             properties.append({"CODE": rtyp_code, "KEY": "rtyp", "VALUE": rtyp, "TYPE": "String"})
-            hierarchy.append({"CODE": rtyp_code, "PARENT_CODE": rgrp_code})
+            hierarchy.append({"CODE": rtyp_code, "PARENT_CODE": parent_rgrp_code})
 
     for rekv_row in rekv_data:
         sgh = str(rekv_row["sgh"]).strip()

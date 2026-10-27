@@ -50,9 +50,8 @@ Repository Tour.
 ### 4. Push, and check that the code location loaded
 
 The pipeline's `static-checks` job runs `dagster definitions validate` (along with
-mypy and the lineage check), but that job is **report-only**: it does not fail the
-pipeline. A broken definition therefore shows up as a code location that fails to
-load in the Dagster UI, not as a red pipeline.
+mypy and the lineage check) and fails the pipeline on a broken definition. A code
+location can still fail to load in the Dagster UI for reasons the job does not see.
 
 So when your assets are missing or the code location is in error after a push:
 
@@ -142,11 +141,12 @@ from an `__init__.py` export chain is the usual one.
 
 ### Resource connection errors
 
-A missing environment variable usually surfaces as a resource construction error at
-import time rather than at run time — so it presents as a code location that will
-not load. Resource classes read their settings with `dg.EnvVar`; the required
-variables per source are listed in [`.env.template`](../../../.env.template), and
-the values come from the deployment's environment.
+Resource connection settings are `dg.EnvVar` fields. Dagster reads them when a run that
+uses the resource starts, and a missing variable fails that run. When the code location
+loads, `definitions.py` logs one warning that names every unset or empty variable of the
+registered resources; the location still loads. The required variables per source are
+listed in [`.env.template`](../../../.env.template), and the values come from the
+deployment's environment.
 
 ### Import errors
 

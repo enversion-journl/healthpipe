@@ -47,6 +47,7 @@ from infrastructure.assets import (  # Linked Server assets; FHIR IFDB (database
     dso_verify_linked_server,
     dso_watermark_indexes,
     erp_index_maintenance,
+    fhir_dw_keys_index_maintenance,
     all_db_space_assets,
     fhir_ifdb_database_indexes,
     fhir_sof_infrastructure,
@@ -66,6 +67,8 @@ from infrastructure.assets import (  # Linked Server assets; FHIR IFDB (database
     staging_infra_fhir,
     staging_infra_functions,
     staging_infra_epji_archive,
+    staging_infra_os2mo_archive,
+    staging_infra_export,
     staging_infra_ifdb_archive,
     staging_infra_dqa,
     staging_infra_kmd_uddata,
@@ -116,6 +119,8 @@ all_staging_assets = [
     staging_infra_db_space,
     staging_infra_ifdb_archive,
     staging_infra_epji_archive,
+    staging_infra_os2mo_archive,
+    staging_infra_export,
     staging_infra_dqa,
     staging_watermark_indexes,
     # FHIR SOF (Aidbox ViewDefinitions)
@@ -128,8 +133,9 @@ all_staging_assets = [
     fhir_codesystem_sor_complete,
     fhir_codesystem_shak_complete,
     fhir_conceptmap_shak_to_sor,
-    # ERP maintenance
+    # Index maintenance
     erp_index_maintenance,
+    fhir_dw_keys_index_maintenance,
     # Migrations (centralized)
     staging_migrations,
 ]
@@ -198,11 +204,14 @@ __all__ = [
     "fhir_codesystem_shak_complete",
     "fhir_conceptmap_shak_to_sor",
     "erp_index_maintenance",
+    "fhir_dw_keys_index_maintenance",
     "staging_infra_linked_server_user",
     "staging_infra_dfm",
     "migrate_dso_sync_watermarks_to_dfm",
     "staging_infra_ifdb_archive",
     "staging_infra_epji_archive",
+    "staging_infra_os2mo_archive",
+    "staging_infra_export",
     "staging_infra_db_space",
     "staging_infra_dqa",
     # DSO assets

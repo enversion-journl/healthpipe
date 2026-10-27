@@ -60,13 +60,13 @@ def _anchor_keys(
     ]
 
 
-def build_dqa_jobs(subjects: list[DqaSubject]) -> list[dg.JobDefinition]:
+def build_dqa_jobs(subjects: list[DqaSubject]) -> list[dg.UnresolvedAssetJobDefinition]:
     """One job per (track, source, cadence) that has >=1 enabled check.
 
     ``source`` splits a multi-source track's jobs (e.g. ARCHIVE -> dqa_arc_ifdb_*);
     subjects with ``source=None`` (fhir/dwh) keep the plain dqa_<track>_<cadence>_job.
     """
-    jobs: list[dg.JobDefinition] = []
+    jobs: list[dg.UnresolvedAssetJobDefinition] = []
     tracks = sorted({s.track for s in subjects}, key=lambda t: t.value)
     for track in tracks:
         # Distinct sources within the track, None-first for stable ordering.

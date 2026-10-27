@@ -11,16 +11,15 @@ WHERE-clause needs one IS NOT NULL per column — the previous SQL generation
 built a bare comma-joined column list for BOTH ("COUNT(DISTINCT [a], [b])"
 and "WHERE [a], [b] IS NOT NULL"), which is invalid T-SQL and would fail at
 execute-time for any multi-column staging_grain_columns spec (e.g.
-AftaleVarePris's ["bk_prrowid", "clean_code_AftaleVarePris"]). The fix
-CONCAT's multi-column grains for the DISTINCT count and AND's together one
+bridge.AftaleLager's ["clean_code_Aftale", "sgh_raw"]). The fix CONCAT's
+multi-column grains for the DISTINCT count and AND's together one
 IS NOT NULL per column.
 
 Also verifies the fact-side count excludes soft-deleted rows
 (dw_is_deleted = 0) when — and only when — the fact table actually has that
-column: post-re-key (e.g. AftaleVarePris's bk_prrowid kildepraefiks-aendring,
-spec 2026-08-31), dw_is_deleted=1 residue under the OLD key format would
-otherwise guarantee a mismatch against staging, which only carries the NEW
-format.
+column: a fact table keeps soft-deleted rows under key formats staging no
+longer produces (e.g. AftaleVarePris's bk_prrowid source prefix), and without
+the filter they would guarantee a mismatch against staging.
 """
 
 from __future__ import annotations
@@ -49,9 +48,13 @@ def _aftalevarepris_spec():
     return next(s for s in FCT_SPECS if s.entity == "AftaleVarePris")
 
 
+def _aftalelager_spec():
+    return next(s for s in FCT_SPECS if s.entity == "AftaleLager")
+
+
 def test_multi_column_grain_uses_concat_for_distinct_count():
-    spec = _aftalevarepris_spec()
-    assert spec.staging_grain_columns == ["bk_prrowid", "clean_code_AftaleVarePris"]
+    spec = _aftalelager_spec()
+    assert spec.staging_grain_columns == ["clean_code_Aftale", "sgh_raw"]
 
     cursor = _FakeCursor(
         [
@@ -65,14 +68,14 @@ def test_multi_column_grain_uses_concat_for_distinct_count():
     _run_fct_stg_coverage(cursor, spec, max_samples=5)
 
     distinct_sql = next(sql for sql in cursor.executes if "COUNT(DISTINCT" in sql)
-    assert "COUNT(DISTINCT [bk_prrowid], [clean_code_AftaleVarePris])" not in distinct_sql
+    assert "COUNT(DISTINCT [clean_code_Aftale], [sgh_raw])" not in distinct_sql
     assert (
-        "COUNT(DISTINCT CONCAT([bk_prrowid], '|', [clean_code_AftaleVarePris]))" in distinct_sql
+        "COUNT(DISTINCT CONCAT([clean_code_Aftale], '|', [sgh_raw]))" in distinct_sql
     ), "multi-column grain must be CONCAT'ed into a single DISTINCT expression"
 
 
 def test_multi_column_grain_where_clause_ands_is_not_null_per_column():
-    spec = _aftalevarepris_spec()
+    spec = _aftalelager_spec()
     cursor = _FakeCursor(
         [
             (1,),
@@ -86,9 +89,9 @@ def test_multi_column_grain_where_clause_ands_is_not_null_per_column():
 
     distinct_sql = next(sql for sql in cursor.executes if "COUNT(DISTINCT" in sql)
     assert (
-        "[bk_prrowid], [clean_code_AftaleVarePris] IS NOT NULL" not in distinct_sql
+        "[clean_code_Aftale], [sgh_raw] IS NOT NULL" not in distinct_sql
     ), "a bare comma-joined column list before IS NOT NULL is invalid T-SQL"
-    assert "[bk_prrowid] IS NOT NULL AND [clean_code_AftaleVarePris] IS NOT NULL" in distinct_sql
+    assert "[clean_code_Aftale] IS NOT NULL AND [sgh_raw] IS NOT NULL" in distinct_sql
 
 
 def test_fct_side_excludes_soft_deleted_rows_when_column_exists():

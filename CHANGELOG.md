@@ -7,6 +7,59 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.0.6] - 2026-10-27
+
+### Added
+
+- OS2mo integration. Each day, the platform uploads the SOR and Okosted code systems to
+  OS2mo as full-load CSV files. It reads the OS2mo organisation units back into the
+  archive table `arc.os2mo_org_unit`. `OS2MO_ENABLED` is `false` by default. Set the
+  `OS2MO_*` variables in `.env.template` to use it.
+- `fhir.EpisodeOfCare` has the new columns `dw_ek_Borger`, `dw_sk_Borger` and
+  `dw_ek_Organisation`. `fhir.Location` has the new column `dw_ek_Organisation`. The
+  value is `-1` when the platform cannot find the citizen or the organisation.
+- `fhir.CarePlan_Activity` has the new column `outcome_codeable_concept_system` (the SKS
+  code system).
+
+### Changed
+
+- **Breaking:** `fct.AftaleVarePris` has one row for each price version of an
+  agreement line (`bk_prrowid`). It no longer has one row for each supplier item
+  number. `dw_ek_Leverandoervare_1` to `dw_ek_Leverandoervare_4` replace
+  `dw_ek_Leverandoervare` and match the price slots 1 to 4. The columns `kilder`,
+  `maerke`, `linje_start` and `linje_slut` are removed. A migration empties
+  `fct.AftaleVarePris`, `dim.Leverandoervare` and `bridge.LeverandoervareILSVare`, and
+  the next load fills them again. Change your queries to the new grain and columns.
+- **Breaking:** `dim.Okosted` has one row for each pair of number and level. The key
+  `code_okosted` is now `<nummer>_NIVEAU_<niveau>`, and the new column `nummer` holds
+  the SYDAX number. This removes the cycles in the parent hierarchy. A migration
+  empties the Okosted tables and the SYDAX fact tables. Run a full load to fill them
+  again. Change each query that uses `code_okosted` as the SYDAX number.
+- **Breaking:** `fhir.CarePlan_Activity` renames `markoerkode` to
+  `outcome_codeable_concept_code` and `markoer_display` to
+  `outcome_codeable_concept_display`. Change your queries to the new names.
+- **Breaking:** `fhir.EpisodeOfCare.period_start` and `period_end` change from
+  `NVARCHAR(50)` to `DATETIME2(0)` in Danish local time. Change each query that reads
+  the columns as text.
+- **Breaking:** The resources no longer use default values for the database, FHIR and
+  source connections. A missing environment variable gives a warning when the code
+  location loads. Set all the variables in `.env.template`.
+- The ERP to SOR concept maps (EAN, Lager, Okosted and Rekvirent) load only from the
+  curated CSV files in `etl/DSI/csv_files/data/`. The fuzzy matching is removed. The
+  public CSV files have only a header. Add your own mappings to them.
+- `dim.Leverandoervare` and `bridge.LeverandoervareILSVare` no longer use the supplier
+  item numbers of the ILS table `laftd`.
+- `fhir.Questionnaire_item` keeps SFI codes that differ only in upper and lower case
+  as separate rows. The key in staging is the new column `link_id_exact`.
+- The soft-delete and ratio guards apply only to the citizen tables. The LPR3,
+  SDS Udredningsret, HAIBA and FHIR child-resource loads no longer stop on them.
+- The AD security load stops the swap of the organisation roles when the AD extract
+  changes too many rows.
+- The linked-server setup keeps the provider string and adds the user ID.
+- The `code-server-gitpoll` image runs the code server as `dagster api grpc` and lets
+  the active runs complete before it pulls new code.
+- The source passes mypy without errors.
+
 ## [1.0.5] - 2026-10-19
 
 ### Added
@@ -249,7 +302,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - First public release.
 
-[Unreleased]: https://github.com/enversion-journl/healthpipe/compare/v1.0.5...HEAD
+[Unreleased]: https://github.com/enversion-journl/healthpipe/compare/v1.0.6...HEAD
+[1.0.6]: https://github.com/enversion-journl/healthpipe/compare/v1.0.5...v1.0.6
 [1.0.5]: https://github.com/enversion-journl/healthpipe/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/enversion-journl/healthpipe/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/enversion-journl/healthpipe/compare/v1.0.2...v1.0.3

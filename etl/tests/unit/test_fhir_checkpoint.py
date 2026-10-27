@@ -18,6 +18,7 @@ import pathlib
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import pytest
 from core.dfm_manager import DfmManager
 from DSA.FHIR.utils.fhir_checkpoint import advance_fhir_checkpoint
 
@@ -80,12 +81,27 @@ class TestSafeReaderCheckpoint:
         """A MERGE stamps its rows at statement start but they appear at commit."""
         manager, seen = self._manager_capturing_sql()
         assert manager.safe_reader_checkpoint("2026-09-29 06:00:00") == "2026-09-29 05:00:00.000"
-        sql, params = seen[0]
-        assert params == ("2026-09-29 06:00:00",)
-        assert "[status] = 'running'" in sql and "[target_type] = 'archive'" in sql
+        sql, _ = seen[0]
+        assert "[status] = 'running'" in sql
         assert "MIN([run_started_at])" in sql
         # A 'running' row older than a day is a crashed run, not a MERGE.
         assert "DATEADD(hour, -24, SYSDATETIME())" in sql
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        ("writer", "expected"),
+        [
+            (None, ("2026-09-29 06:00:00", "archive")),
+            (("dim", "Borger"), ("2026-09-29 06:00:00", "dimension", "dim", "Borger")),
+        ],
+    )
+    def test_is_held_back_only_by_the_named_writer(self, writer, expected) -> None:
+        """A reader of dim.Borger waits for a dim_Borger run, not for an archive MERGE."""
+        manager, seen = self._manager_capturing_sql()
+        manager.safe_reader_checkpoint("2026-09-29 06:00:00", writer=writer)
+        sql, params = seen[0]
+        assert params == expected
+        assert sql.count("?") == len(params)
 
 
 class TestNoBuilderMovesItsCheckpointToTheFinishTime:

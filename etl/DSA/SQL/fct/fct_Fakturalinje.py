@@ -443,7 +443,7 @@ def fct_Fakturalinje(
             finally:
                 cursor.close()
 
-        result = MaterializeResult(
+        result: MaterializeResult = MaterializeResult(
             metadata={
                 "rows_affected": rows_affected,
                 "table": "fct.Fakturalinje",

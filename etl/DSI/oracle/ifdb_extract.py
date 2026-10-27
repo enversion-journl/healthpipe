@@ -26,6 +26,7 @@ import re
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import cast
 
 import dagster as dg
 from core.dfm_config import FlowStartConfig, IFDBCycleWaitConfig, RunModeConfig
@@ -1762,7 +1763,7 @@ def build_oracle_where(
             started, ensuring consistent delta windows across tables.
     """
     if run_config.delta_column:
-        col = _validate_identifier(run_config.delta_column)
+        col: str | None = _validate_identifier(run_config.delta_column)
     else:
         col = extract_config.effective_delta_col
 
@@ -1793,7 +1794,7 @@ def build_oracle_where(
         return " AND ".join(clauses) if clauses else None
 
     if run_config.mode == "period":
-        safe_from = run_config.date_from.replace("'", "''")
+        safe_from = cast(str, run_config.date_from).replace("'", "''")
         if run_config.date_to:
             safe_to = run_config.date_to.replace("'", "''")
             return (
@@ -1811,7 +1812,8 @@ def build_oracle_where(
             # correlating to the outer table (always-true → full extract).
             return f"{id_col} IN (SELECT flt.{id_col} FROM {safe_tbl} flt)"
         escaped = ", ".join(
-            f"'{v.replace(chr(39), chr(39) * 2)}'" for v in run_config.id_filter_values
+            f"'{v.replace(chr(39), chr(39) * 2)}'"
+            for v in cast(list[str], run_config.id_filter_values)
         )
         return f"{id_col} IN ({escaped})"
 
@@ -2005,6 +2007,8 @@ def dfm_ifdb_flow_start(
         **({} if config.flow_start_override else resource_source(ifdb_oracle, "IFDB.JOB_LOG")),
     )
 
+    epj_ceiling: str | None
+    transfer_ceiling: str | None
     try:
         if config.flow_start_override:
             epj_ceiling = transfer_ceiling = config.flow_start_override

@@ -53,6 +53,7 @@ import sys
 import tarfile
 import tempfile
 from collections import Counter
+from typing import cast
 
 ENCODING = "cp1252"
 DELIMITER = ";"
@@ -310,14 +311,15 @@ class FdCollector:
 
 def profile_somatik(directory: str, dump_dir: str, work: str, skip_procedure: bool) -> dict:
     res: dict = {"leverancetype": "DRG"}
-    kontakt_path = find_one(directory, "T2*_DRGKONTAKT_*.csv")
-    forloeb_path = find_one(directory, "T2*_DRGSGHFORLOB_*.csv")
-    diagnose_path = find_one(directory, "T2*_DIAGNOSER_1083_*.csv")
-    procedure_path = find_one(directory, "T2*_PROCEDURE_1083_*.csv")
+    kontakt_path = cast(str, find_one(directory, "T2*_DRGKONTAKT_*.csv"))
+    forloeb_path = cast(str, find_one(directory, "T2*_DRGSGHFORLOB_*.csv"))
+    diagnose_path = cast(str, find_one(directory, "T2*_DIAGNOSER_1083_*.csv"))
+    procedure_path = cast(str, find_one(directory, "T2*_PROCEDURE_1083_*.csv"))
     info_path = find_one(directory, "T2*_LEVERANCEINFO_*.csv")
     missing_files = [
         navn
         for navn, sti in [
+            ("DRGKONTAKT", kontakt_path),
             ("DRGSGHFORLOB", forloeb_path),
             ("DIAGNOSER", diagnose_path),
             ("PROCEDURE", procedure_path),
@@ -564,8 +566,8 @@ def profile_psyk(directory: str, dump_dir: str, work: str) -> dict:
     kontakt_path = find_one(directory, "T2*_Psyk_kontakt_*.csv")
     forloeb_path = find_one(directory, "T2*_Psyk_forloeb_*.csv")
     diagnose_path = find_one(directory, "T2*_Psyk_Diagnose_1083_*.csv")
-    if forloeb_path is None or diagnose_path is None:
-        sys.exit(f"Psyk_forloeb- eller Psyk_Diagnose-fil mangler i {directory}")
+    if kontakt_path is None or forloeb_path is None or diagnose_path is None:
+        sys.exit(f"Psyk_kontakt-, Psyk_forloeb- eller Psyk_Diagnose-fil mangler i {directory}")
 
     log("== PSYK KONTAKT ==")
     kvs = BucketWriter(work, "pk_kv")
@@ -812,7 +814,7 @@ def cmd_compare(args: argparse.Namespace) -> None:
             f"  forloeb kun i A hvis ind-kontakt STADIG findes i B (re-keyet forloeb): {rekeyed:,} af {f['kun_a']:,}"
         )
         result = {"label": label, "kontakt": k, "forloeb": f, "forloeb_rekeyet": rekeyed}
-        for section in (result["kontakt"], result["forloeb"]):
+        for section in (k, f):
             section.pop("_only_a_dir", None)
         if args.out:
             with open(args.out, "w", encoding="utf-8") as fh:

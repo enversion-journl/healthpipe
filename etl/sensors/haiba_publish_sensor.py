@@ -240,8 +240,8 @@ def evaluate(context, *, publish_job_name: str, mssql: MSSQLResource):
 
 
 def build_haiba_publish_sensor(
-    borger_chain_job: UnresolvedAssetJobDefinition,
-    publish_job: UnresolvedAssetJobDefinition,
+    borger_chain_job: dg.JobDefinition | UnresolvedAssetJobDefinition,
+    publish_job: dg.JobDefinition | UnresolvedAssetJobDefinition,
 ) -> dg.SensorDefinition:
     """Build the sensor with concrete job references.
 

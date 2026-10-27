@@ -15,9 +15,7 @@ from __future__ import annotations
 from typing import Any
 
 from core.fhir.child_resource_reconcile import (
-    DEFAULT_RETIRE_CEILING,
     ChildFamily,
-    RetireCeiling,
     expected_child_identifiers,
     reconcile_children,
 )
@@ -108,7 +106,6 @@ def reconcile_aktivitetsresultat_xml_children(
     condition_dicts: list[Any],
     build_errors: int = 0,
     logger: Any | None = None,
-    retire_ceiling: RetireCeiling | None = DEFAULT_RETIRE_CEILING,
 ) -> dict[str, int]:
     """Retire SFI Observation / delop Procedure / XML-Condition orphans for the chunk."""
     if build_errors:
@@ -145,7 +142,6 @@ def reconcile_aktivitetsresultat_xml_children(
             parent_oids=parent_oids,
             expected_identifiers=expected_child_identifiers(posted[key], family),
             logger=logger,
-            retire_ceiling=retire_ceiling,
         )
     return retired
 
@@ -156,7 +152,6 @@ def reconcile_ris_xml_children(
     rows: list[dict[str, Any]],
     procedures: list[Any],
     logger: Any | None = None,
-    retire_ceiling: RetireCeiling | None = DEFAULT_RETIRE_CEILING,
 ) -> int:
     """Retire RIS Procedure services that disappeared from the current XML/STATE."""
     return reconcile_children(
@@ -165,7 +160,6 @@ def reconcile_ris_xml_children(
         parent_oids=ris_parent_oids_for_reconcile(rows),
         expected_identifiers=expected_child_identifiers(procedures, FAMILY_RIS_PROCEDURE),
         logger=logger,
-        retire_ceiling=retire_ceiling,
     )
 
 

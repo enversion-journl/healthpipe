@@ -638,7 +638,7 @@ def _run_extract(
     with mssql.get_connection() as conn:
         _execute_statements(conn, manifest_create_sql())
 
-    common = {
+    common: dict[str, str | int] = {
         "checkpoint_enhed": DELIVERY_UNIT,
         "checkpoint_foer": checkpoint or "ingen (foerste indlaesning)",
         "arkiver_paa_sharet": len(archives),
@@ -706,7 +706,7 @@ def _run_extract(
             "besluttet": (
                 "indlaest" if on_or_before is None else "indlaest (pin — checkpoint rykkes ikke)"
             ),
-            "leverance": result,
+            "leverance": dict(result),
             "raekker_pr_ext_tabel": rows,
             "sprunget_over_mellemliggende": skipped or ["ingen"],
             "fallbacks": notes or ["ingen"],

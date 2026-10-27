@@ -715,7 +715,7 @@ WHERE NOT EXISTS (SELECT 1 FROM [map].[Entity] m WHERE m.clean_code_Entity = f.c
 
 ### Rebuild indexes after batch MERGE operations
 
-Repeated MERGE runs fragment indexes on dim/fct tables. The dedicated `erp_index_maintenance` asset runs `ALTER INDEX ALL ON [table] REBUILD` after facts complete, keeping index performance consistent.
+Repeated MERGE runs fragment indexes on dim/fct tables. The `erp_index_maintenance` asset rebuilds each index with at least 1,000 pages and more than 30% fragmentation (`ALTER INDEX [index] ON [table] REBUILD WITH (FILLFACTOR = 90)`). No job selects the asset, so it runs only when materialised by hand.
 
 ## SQL Migration Patterns
 

@@ -327,7 +327,7 @@ def dim_Fakturalinje(
             finally:
                 cursor.close()
 
-        result = MaterializeResult(
+        result: MaterializeResult = MaterializeResult(
             metadata={
                 "rows_affected": rows_affected,
                 "total_dim_rows": total_dim_rows,

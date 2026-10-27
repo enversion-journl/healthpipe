@@ -152,7 +152,7 @@ def main():
     # MySupply
     if "mysupply" in sections:
         try:
-            mysupply = MySupplyMSSQLResource()
+            mysupply = MySupplyMSSQLResource().process_config_and_initialize()
             execute_sql_statements(mysupply, sections["mysupply"], "MySupply")
             success_count += 1
         except Exception as e:
@@ -161,7 +161,7 @@ def main():
     # Sydax
     if "sydax" in sections:
         try:
-            sydax = SydaxMSSQLResource()
+            sydax = SydaxMSSQLResource().process_config_and_initialize()
             execute_sql_statements(sydax, sections["sydax"], "Sydax")
             success_count += 1
         except Exception as e:
@@ -170,7 +170,7 @@ def main():
     # ILS
     if "ils" in sections:
         try:
-            ils = ILSMSSQLResource()
+            ils = ILSMSSQLResource().process_config_and_initialize()
             execute_sql_statements(ils, sections["ils"], "ILS")
             success_count += 1
         except Exception as e:

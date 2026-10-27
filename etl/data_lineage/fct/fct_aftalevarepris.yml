@@ -8,21 +8,24 @@ dso_lineage:
   Type: fact
   TableName: fct.AftaleVarePris
   Domain: [ERP]
-  Description: "Prisversioner (+ syntetiske daekningsraekker for prisloese aftalelinjer, spec 2026-08-31-prisloese-linjer-og-aftalelager) pr. aftalelinje fra ILS — kildeleveret historik. Bridge for mange-mange relationen dim.Leverandoervare <-> dim.Aftale. Alternative leverandoervarenumre (laftdstam lvnr2-4, laftd lvnr2-3) fanner ud som raekker; kilder baerer slot-provenansen. Backbone er ils.dbo.laftd LEFT JOIN ils.dbo.laftdpris paa linjenoeglerne, saa aftalelinjer uden prisversioner ogsaa faar en raekke (har_prisversion = 0)."
-  Grain: "Én række pr. prisversion-ELLER-syntetisk-linje pr. aftalelinje pr. leverandoervarenummer (bk_prrowid x clean_code_AftaleVarePris)"
+  Description: "Prisversioner (+ syntetiske daekningsraekker for prisloese aftalelinjer) pr. aftalelinje fra ILS — kildeleveret historik. Bridge for mange-mange relationen dim.Leverandoervare <-> dim.Aftale. De fire forpakningsvariant-slots ligger som kolonner — laftdstam.lvnrN hoerer positionsvist sammen med laftdpris.prisN/pakstrN; laftds egne lvnr-/pris-kolonner er legacy og indgaar ikke (se docs/contracts/beslutningslog_vareaftaler.md). Backbone er ils.dbo.laftd LEFT JOIN ils.dbo.laftdpris paa linjenoeglerne, saa aftalelinjer uden prisversioner ogsaa faar en raekke (har_prisversion = 0)."
+  Grain: "Én række pr. prisversion-ELLER-syntetisk-linje pr. aftalelinje (bk_prrowid)"
 
   SourceSystems:
     - ils: [dbo.laftdpris, dbo.laftd, dbo.lafth, dbo.laftdstam, dbo.lev, dbo.vare]
 
   Columns:
     dw_sk_AftaleVarePris: { Type: PK, DataType: BIGINT, Expr: "IDENTITY — én pr. prisversionsraekke" }
-    dw_ek_AftaleVarePris: { DataType: INT, FK-None: true, Expr: "Entitetsnoegle fra map.AftaleVarePris — stabil pr. (aftale x vare x lvnr) paa tvaers af prisversioner" }
+    dw_ek_AftaleVarePris: { DataType: INT, FK-None: true, Expr: "Entitetsnoegle fra map.AftaleVarePris — stabil pr. aftalelinje (aftale x vare) paa tvaers af prisversioner" }
     dw_ek_Aftale:         { Type: FK, DataType: INT, FK-Target: dim.Aftale, Source: [ils.dbo.laftd.lnr, ils.dbo.laftd.aftale] }
-    dw_ek_Leverandoervare:           { Type: FK, DataType: INT, FK-Target: dim.Leverandoervare, Source: [ils.dbo.lev.se_nr, ils.dbo.laftdstam.lvnr1, ils.dbo.laftdstam.lvnr2, ils.dbo.laftdstam.lvnr3, ils.dbo.laftdstam.lvnr4, ils.dbo.laftd.lvnr2, ils.dbo.laftd.lvnr3], Description: "Raekkespecifik lvnr-entitet; -1 naar lvnr/CVR mangler i kilden" }
+    dw_ek_Leverandoervare_1: { Type: FK, DataType: INT, FK-Target: dim.Leverandoervare, Source: [ils.dbo.lev.se_nr, ils.dbo.laftdstam.lvnr##1], Description: "Slot 1's lvnr-entitet (positionsvist sammenhoerende med pris1/pakkestoerrelse1); -1 naar lvnr/CVR mangler i kilden" }
+    dw_ek_Leverandoervare_2: { Type: FK, DataType: INT, FK-Target: dim.Leverandoervare, Source: [ils.dbo.lev.se_nr, ils.dbo.laftdstam.lvnr##2], Description: "Slot 2's lvnr-entitet; -1 naar slottet er tomt" }
+    dw_ek_Leverandoervare_3: { Type: FK, DataType: INT, FK-Target: dim.Leverandoervare, Source: [ils.dbo.lev.se_nr, ils.dbo.laftdstam.lvnr##3], Description: "Slot 3's lvnr-entitet; -1 naar slottet er tomt" }
+    dw_ek_Leverandoervare_4: { Type: FK, DataType: INT, FK-Target: dim.Leverandoervare, Source: [ils.dbo.lev.se_nr, ils.dbo.laftdstam.lvnr##4], Description: "Slot 4's lvnr-entitet; -1 naar slottet er tomt" }
     dw_ek_ILSVare:        { Type: FK, DataType: INT, FK-Target: dim.ILSVare, Source: [ils.dbo.laftd.vnr] }
     dw_ek_Kreditor:       { Type: FK, DataType: INT, FK-Target: dim.Kreditor, Source: [ils.dbo.lev.se_nr] }
-    clean_code_AftaleVarePris: { DataType: NVARCHAR(500), Expr: "AFTALE_{lnr}_{aftalenr}_VARE_{vnr}[_LEVVARE_{lvnr}] — basisform uden lvnr paa no-lvnr-raekken" }
-    bk_prrowid:           { DataType: NVARCHAR(100), Source: [ils.dbo.laftdpris.prrowid, ils.dbo.laftd.prrowid], Description: "Kildepraefikseret raekke-id; unik SAMMEN MED clean_code_AftaleVarePris. 'LAFTDPRIS_<prrowid>' for rigtige prisversioner, 'LAFTD_<prrowid>' for syntetiske daekningsraekker (prisloese linjer)" }
+    clean_code_AftaleVarePris: { DataType: NVARCHAR(500), Expr: "AFTALE_{lnr}_{aftalenr}_VARE_{vnr}" }
+    bk_prrowid:           { DataType: NVARCHAR(100), Source: [ils.dbo.laftdpris.prrowid, ils.dbo.laftd.prrowid], Description: "Kildepraefikseret raekke-id. 'LAFTDPRIS_<prrowid>' for rigtige prisversioner, 'LAFTD_<prrowid>' for syntetiske daekningsraekker (prisloese linjer)" }
     bk_leverandoernummer: { DataType: NVARCHAR(100), Source: [ils.dbo.laftd.lnr] }
     bk_aftale_nummer:      { DataType: NVARCHAR(100), Source: [ils.dbo.laftd.aftale] }
     bk_ils_varenummer:     { DataType: NVARCHAR(100), Source: [ils.dbo.laftd.vnr] }
@@ -35,11 +38,7 @@ dso_lineage:
     pakkestoerrelse3:     { DataType: DECIMAL(18,4), Source: [ils.dbo.laftdpris.pakstr3] }
     pakkestoerrelse4:     { DataType: DECIMAL(18,4), Source: [ils.dbo.laftdpris.pakstr4] }
     momskode:             { DataType: NVARCHAR(50), Source: [ils.dbo.vare.momskd] }
-    kilder:               { DataType: NVARCHAR(100), Source: [ils.dbo.laftdstam.lvnr1, ils.dbo.laftdstam.lvnr2, ils.dbo.laftdstam.lvnr3, ils.dbo.laftdstam.lvnr4, ils.dbo.laftd.lvnr2, ils.dbo.laftd.lvnr3], Expr: "STRING_AGG af bidragende slots (laftdstam_1..4, laftd_2..3) for raekkens lvnr; NULL paa no-lvnr-raekken" }
     har_prisversion:      { DataType: BIT, Expr: "1 = rigtig prisversion (laftdpris-raekke findes), 0 = syntetisk daekningsraekke for en prisloes aftalelinje (kun laftd, ingen laftdpris)" }
-    maerke:               { DataType: NVARCHAR(255), Source: [ils.dbo.laftd.maerke] }
-    linje_start:           { DataType: DATETIME2, Source: [ils.dbo.laftd.start_] }
-    linje_slut:            { DataType: DATETIME2, Source: [ils.dbo.laftd.slut] }
     dw_valid_from:         { DataType: DATETIME2(0), Source: [ils.dbo.laftdpris.start_, ils.dbo.laftdpris.startklk, ils.dbo.laftd.start_], Expr: "DATEADD(SECOND, startklk, start_) — kildeleveret gyldighed; syntetisk raekke: COALESCE(laftd.start_, '1900-01-01')" }
     dw_valid_to:           { DataType: DATETIME2(0), Source: [ils.dbo.laftdpris.start_, ils.dbo.laftdpris.startklk, ils.dbo.laftdpris.slut], Expr: "LEAD(dw_valid_from) pr. aftalelinje — kaedet, lukket-aabent; kildens slut kun som fallback paa sidste version; syntetisk raekke: aabent ('9999-12-31')" }
     dw_is_current:            { DataType: BIT, Expr: "1 for nyeste ikrafttraadte prisversion pr. aftalelinje (start_ <= i dag; ROW_NUMBER ordnet paa det kaedede dw_valid_from-udtryk DATEADD(SECOND, startklk, start_) DESC, prrowid DESC — samme ordning som LEAD-kaeden, saa de to aldrig kan modsige hinanden); syntetisk raekke er altid 1" }

@@ -17,8 +17,9 @@ Several FHIR spellings map to one instant; normalisation happens once at load.
     '2020-03-01T07:00:00Z'      -> 2020-03-01 08:00:00  (same instant, CET)
     '2020-03-01T08:00:00.987'   -> 2020-03-01 08:00:00  (truncated)
 
-Offset-aware values convert to Europe/Copenhagen before the offset is dropped.
-Sub-seconds are truncated, not rounded (T-SQL ``CAST`` to datetime2(0) rounds).
+Offset-aware values convert to Europe/Copenhagen before the offset is dropped, unless
+``keep_wall_clock`` asks for the clock time as written (a source that labels local time
+with a wrong offset). Sub-seconds are truncated, not rounded (T-SQL ``CAST`` to datetime2(0) rounds).
 """
 
 from __future__ import annotations
@@ -46,8 +47,11 @@ _YEAR_MONTH = re.compile(r"^(\d{4})-(\d{2})$")
 _LONG_FRACTION = re.compile(r"(\.\d{6})\d+")
 
 
-def parse_fhir_datetime(value: Any) -> datetime | None:
+def parse_fhir_datetime(value: Any, *, keep_wall_clock: bool = False) -> datetime | None:
     """Parse a raw FHIR dateTime into a naive Europe/Copenhagen ``datetime``.
+
+    ``keep_wall_clock`` drops an offset without converting, for a source whose offset is
+    a label on Danish local time rather than a real offset.
 
     Returns ``None`` when the value is absent OR unparseable — the caller decides
     whether that is benign (missing period.start) or a data-quality signal worth
@@ -82,17 +86,19 @@ def parse_fhir_datetime(value: Any) -> datetime | None:
             return None
 
     if parsed.tzinfo is not None:
-        parsed = parsed.astimezone(DW_TIMEZONE).replace(tzinfo=None)
+        if not keep_wall_clock:
+            parsed = parsed.astimezone(DW_TIMEZONE)
+        parsed = parsed.replace(tzinfo=None)
 
     return parsed.replace(microsecond=0)
 
 
-def normalize_fhir_datetime(value: Any) -> datetime:
+def normalize_fhir_datetime(value: Any, *, keep_wall_clock: bool = False) -> datetime:
     """Return the canonical DATETIME2(0) key value for a raw FHIR dateTime.
 
     Absent and unparseable values both collapse to :data:`PERIOD_START_SENTINEL`.
     """
-    parsed = parse_fhir_datetime(value)
+    parsed = parse_fhir_datetime(value, keep_wall_clock=keep_wall_clock)
     return PERIOD_START_SENTINEL if parsed is None else parsed
 
 

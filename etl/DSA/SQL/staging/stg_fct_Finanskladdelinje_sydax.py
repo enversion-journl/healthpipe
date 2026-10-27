@@ -16,6 +16,7 @@ Business key: bk_ref_ledgertrans_id
 
 from core.resources import MSSQLResource
 from dagster import AssetExecutionContext, AssetKey, MaterializeResult, asset
+from DSA.CodeSystem.okosted.okosted import LEVEL_SUFFIX, MAX_CODE_LENGTH
 from DSA.SQL.common.dato_dimension import dato_key, dato_tid
 
 
@@ -66,6 +67,7 @@ def stg_fct_Finanskladdelinje_sydax(
                         p.clean_code_Finanskladde,
                         p.clean_code_Kontoplan,
                         p.omkostningsstednummer,
+                        p.omkostningssted_niveau,
                         p.debet,
                         p.kredit,
                         p.Dato,
@@ -86,6 +88,10 @@ def stg_fct_Finanskladdelinje_sydax(
                     g.clean_code_Finanskladde,
                     g.clean_code_Kontoplan,
                     g.omkostningsstednummer,
+                    CAST(CASE
+                        WHEN g.omkostningsstednummer IS NOT NULL
+                        THEN CONCAT(LTRIM(RTRIM(g.omkostningsstednummer)), '{LEVEL_SUFFIX}', g.omkostningssted_niveau)
+                    END AS NVARCHAR({MAX_CODE_LENGTH})) AS okosted_kode,
 
                     TRY_CONVERT(DECIMAL(30,12), g.debet) AS debet,
                     TRY_CONVERT(DECIMAL(30,12), g.kredit) AS kredit,

@@ -79,7 +79,7 @@ class SharedIdentifierCache:
 
                         try:
                             db_dir = os.path.dirname(self._db_path)
-                            file_exists = os.path.exists(self._db_path)
+                            file_exists: bool | str = os.path.exists(self._db_path)
                             dir_listing = (
                                 sorted(os.listdir(db_dir))
                                 if os.path.isdir(db_dir)

@@ -17,6 +17,7 @@ Output fields:
 - parent_code: Parent OKOSTED code from hierarchy
 - level: Hierarchy level (computed from hierarchy traversal depth, root=1)
 - aktiv: Active status from codesystem properties
+- nummer: Raw SydAX nummer from codesystem properties (None if missing)
 """
 
 import dagster as dg
@@ -47,9 +48,49 @@ def _compute_levels(hierarchy_lookup: dict[str, str]) -> dict[str, int]:
     return levels
 
 
+_TRUE_VALUES = frozenset({"1", "true", "yes", "ja"})
+
+
 def _parse_aktiv(value: str | None) -> bool:
     """Parse the 'aktiv' property value to a bool. Missing/empty defaults to True (active)."""
-    return value.lower() == "true" if value else True
+    if not value:
+        return True
+    return value.strip().lower() in _TRUE_VALUES
+
+
+def build_stg_entries(
+    concepts: list[tuple[str, str | None]],
+    hierarchy_lookup: dict[str, str],
+    properties_lookup: dict[str, dict[str, str]],
+) -> list[dict]:
+    """Build stg_Okosted entries from concepts, hierarchy and properties lookups.
+
+    Pure mapping, no DB access -- kept separate from the asset so it can be
+    unit tested directly.
+    """
+    levels = _compute_levels(hierarchy_lookup)
+
+    entries = []
+    for code, display in concepts:
+        display_val = display if display else None
+
+        properties = properties_lookup.get(code, {})
+        aktiv = _parse_aktiv(properties.get("aktiv"))
+
+        parent_code = hierarchy_lookup.get(code)
+
+        entries.append(
+            {
+                "code": code,
+                "display": display_val,
+                "parent_code": parent_code,
+                "level": levels.get(code, 1),
+                "aktiv": aktiv,
+                "nummer": properties.get("nummer"),
+            }
+        )
+
+    return entries
 
 
 def _build_properties_lookup(cursor) -> dict[str, dict[str, str]]:
@@ -89,30 +130,20 @@ def stg_Okosted(
         finally:
             cursor.close()
 
-    levels = _compute_levels(hierarchy_lookup)
-
-    entries = []
-    for code, display in concepts:
-        display_val = display if display else None
-
-        aktiv = _parse_aktiv(properties_lookup.get(code, {}).get("aktiv"))
-
-        parent_code = hierarchy_lookup.get(code)
-
-        entries.append(
-            {
-                "code": code,
-                "display": display_val,
-                "parent_code": parent_code,
-                "level": levels.get(code, 1),
-                "aktiv": aktiv,
-            }
-        )
+    entries = build_stg_entries(concepts, hierarchy_lookup, properties_lookup)
 
     aktiv_count = sum(1 for e in entries if e["aktiv"])
+    nummer_miss_count = sum(1 for e in entries if e["nummer"] is None)
     context.log.info(
         f"Built {len(entries)} Okosted staging entries "
         f"({aktiv_count} active, {len(entries) - aktiv_count} inactive)"
     )
+    if nummer_miss_count:
+        context.log.warning(
+            f"{nummer_miss_count} Okosted entries are missing the 'nummer' property. "
+            "Gone codes (concepts whose properties were deleted) legitimately miss it; "
+            "any other miss points at a source data gap."
+        )
+    context.add_output_metadata({"nummer_miss_count": nummer_miss_count})
 
     return entries

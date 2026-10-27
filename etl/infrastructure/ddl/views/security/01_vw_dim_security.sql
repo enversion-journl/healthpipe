@@ -78,6 +78,7 @@ AS
 SELECT
     [dw_ek_Okosted],
     [code_okosted],
+    [nummer],
     [name],
     [level],
     [dw_ek_Okosted_parent],

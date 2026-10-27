@@ -31,6 +31,7 @@ import os
 # Load environment variables with override=True to ensure latest values are used
 # This is important when running dagster dev as environment may be cached
 from pathlib import Path
+from typing import Any, cast
 
 import dagster as dg
 from dotenv import load_dotenv
@@ -83,7 +84,9 @@ from core.resources import (
     SimaMSSQLResource,
     SydaxMSSQLResource,
     fhir_defs,
+    missing_resource_env_vars,
     mssql_defs,
+    os2mo_defs,
 )
 
 # Data Quality checks (grain consistency, deleted-resource reconciliation)
@@ -175,6 +178,8 @@ from DSI.oracle import all_epji_archive_assets, all_ifdb_archive_assets
 
 # DSI Organisation extraction assets (API-based organisation inputs)
 from DSI.organisation import all_extract_assets as organisation_extract_assets
+from DSI.os2mo import os2mo_extract_assets
+from DSO.export import os2mo_export_assets
 
 # DSO Load - Sync assets (sync staging data to DSO database via linked server)
 from DSO.load import (
@@ -182,12 +187,6 @@ from DSO.load import (
     all_fhir_dso_sync_assets,
     all_sfi_datapoint_refresh_assets,
     dso_sync_fhir_organization,
-)
-
-# Operatørudløst nulstilling af CarePlan-sporet før genkørsel
-from infrastructure.assets.careplan_genkoersel_nulstilling import (
-    careplan_genkoersel_nulstilling,
-    careplan_genkoersel_nulstilling_job,
 )
 from infrastructure.assets.db_space import all_db_space_checks
 from infrastructure.assets.ifdb_backfill_window_reconciliation import (
@@ -240,6 +239,7 @@ from sensors import (
     build_drg_queue_failure_sensor,
     build_drg_queue_sensor,
     build_haiba_publish_sensor,
+    build_os2mo_delivery_sensor,
     build_udredningsret_publish_sensor,
 )
 
@@ -320,6 +320,9 @@ all_assets = [
     *dfm_assets,
     # DSI CSV extraction assets (manual ConceptMap mappings)
     *csv_extract_assets,
+    # OS2mo (Magenta) integration — codesystems out, organisation back in
+    *os2mo_export_assets,
+    *os2mo_extract_assets,
     # DSI Organisation extraction assets (e.g. NemHandel API)
     *organisation_extract_assets,
     # DPA security AD pipeline (extract from AD -> populate staging)
@@ -382,8 +385,6 @@ all_assets = [
     dqa_fhir_server_cleanup,
     # DQA remediation: operator-triggered soft-delete of fully-deleted patients (arc -> fhir)
     dqa_patient_delete_propagation,
-    # Operatørudløst nulstilling af CarePlan-sporet før genkørsel under den nye identitet
-    careplan_genkoersel_nulstilling,
     # Operatørudløst nulstilling af SFI/procedure/diagnose-sporet før genkørsel
     sfi_genkoersel_nulstilling,
     # MIDLERTIDIG: verifikation af genkørslens indlæste data
@@ -402,9 +403,11 @@ all_assets = [
 # Get MSSQL resources from mssql_defs (staging and DSO resources)
 # - mssql_source_staging, mssql_target_staging: DSI/DSA layer (stg, map, dim, fct)
 # - mssql_source_dso, mssql_target_dso: DSO layer (views, reporting)
-mssql_resources = mssql_defs().resources
+mssql_resources = cast(dict[str, Any], mssql_defs().resources)
 # Get FHIR resources from fhir_defs (fhir_server)
-fhir_resources = fhir_defs().resources
+fhir_resources = cast(dict[str, Any], fhir_defs().resources)
+# Get the OS2mo (Magenta) GraphQL resource from os2mo_defs (os2mo)
+os2mo_resources = cast(dict[str, Any], os2mo_defs().resources)
 
 
 resources = {
@@ -420,6 +423,7 @@ resources = {
     "ifdb_oracle": IFDBOracleResource(),
     "epji_oracle": EPJIOracleResource(),
     **fhir_resources,
+    **os2mo_resources,
     "io_manager": dg.FilesystemIOManager(
         base_dir=os.path.join(os.environ.get("DAGSTER_HOME", "."), "storage")
     ),
@@ -431,6 +435,11 @@ resources = {
         stream_batched_inputs=True,
     ),
 }
+
+if missing_env_vars := missing_resource_env_vars(resources):
+    dg.get_dagster_logger().warning(
+        f"Environment variable(s) not set: {', '.join(missing_env_vars)}"
+    )
 
 # Apply branch postfixes for multi-deployment support
 # When DAGSTER_BRANCH_POSTFIX starts with "feature", all assets/jobs/schedules get postfixed
@@ -462,7 +471,6 @@ postfixed_jobs = postfix_jobs(
         dqa_arc_ifdb_vanished_cleanup_job,
         dqa_fhir_server_cleanup_job,
         dqa_patient_delete_propagation_job,
-        careplan_genkoersel_nulstilling_job,
         sfi_genkoersel_nulstilling_job,
         sfi_genkoersel_verifikation_job,
         ifdb_fhir_fuldload_job,
@@ -519,6 +527,13 @@ _haiba_publish_job = _postfixed_job_by_name[_pfx("haiba_publish_job")]
 haiba_publish_sensor = build_haiba_publish_sensor(
     borger_chain_job=_ifdb_dfm_daily_job,
     publish_job=_haiba_publish_job,
+)
+
+# OS2mo delivery sensor: deliver the codesystems once organisation_cs_job has
+# rebuilt them, rather than at a clock time that only usually comes after.
+os2mo_delivery_sensor = build_os2mo_delivery_sensor(
+    codesystem_job=_postfixed_job_by_name[_pfx("organisation_cs_job")],
+    delivery_job=_postfixed_job_by_name[_pfx("os2mo_codesystem_export_job")],
 )
 
 # DRG publish sensor: same reason as HAIBA — the unknown-CPR stubs the DRG
@@ -614,6 +629,7 @@ drg_queue_sensor = build_drg_queue_sensor(
 postfixed_sensors = [
     *all_sensors,
     haiba_publish_sensor,
+    os2mo_delivery_sensor,
     cpr_backlog_sensor,
     drg_publish_sensor,
     drg_queue_sensor,

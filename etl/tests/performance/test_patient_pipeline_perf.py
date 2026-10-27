@@ -94,7 +94,7 @@ def perf_oracle_resource():
     from core.resources import IFDBOracleResource
 
     try:
-        resource = IFDBOracleResource()
+        resource = IFDBOracleResource().process_config_and_initialize()
         # Test connection
         with resource.get_connection() as conn:
             cursor = conn.cursor()

@@ -33,10 +33,12 @@ This MUTATES the arc archive (re-extracts + merges rows); operator-triggered,
 never scheduled. ``dry_run`` first.
 """
 
+from typing import cast
+
 import dagster as dg
 from dqa.checks.helpers import get_conn, split_table, sql_literal
 from dqa.config import ARC_SUBJECTS
-from dqa.model import DqaSubject
+from dqa.model import DqaSubject, ReplaySpec
 
 # The replay machinery (job resolution, config binding, in-process launch) is the
 # same as the FHIR replay's -- reuse it rather than fork it.
@@ -160,7 +162,7 @@ def _recheck_and_resolve(
 ) -> tuple[int, int, int]:
     """Flip keys that now exist in arc to resolved; bump/park the rest."""
     schema, table = split_table(subject.table)
-    key = subject.replay.filter_column
+    key = cast(ReplaySpec, subject.replay).filter_column
     lit_entity = sql_literal(entity)
     in_arc = f"EXISTS (SELECT 1 FROM [{schema}].[{table}] a WHERE a.[{key}] = q.business_key)"
     base = (
@@ -212,7 +214,7 @@ def dqa_arc_ifdb_replay(
         )
     subject = _subject_for_entity(entity)
     ext_asset, arc_asset = _ARC_DFM_ASSETS[entity]
-    filter_column = subject.replay.filter_column
+    filter_column = cast(ReplaySpec, subject.replay).filter_column
     resources = context.resources
 
     with get_conn(resources, subject.resource_key) as conn:

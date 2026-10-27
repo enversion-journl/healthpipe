@@ -66,6 +66,20 @@ def test_summer_offset_uses_dst_not_a_fixed_offset():
     assert normalize_fhir_datetime("2020-07-01T06:00:00Z") == datetime(2020, 7, 1, 8, 0, 0)
 
 
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("2020-07-01T23:30:00+00:00", datetime(2020, 7, 1, 23, 30, 0)),
+        ("2020-03-01T07:00:00Z", datetime(2020, 3, 1, 7, 0, 0)),
+        ("2020-03-01T07:00:00.987+01:00", datetime(2020, 3, 1, 7, 0, 0)),
+        ("2020-07-01T23:30:00", datetime(2020, 7, 1, 23, 30, 0)),
+    ],
+)
+def test_keep_wall_clock_drops_the_offset_without_converting(raw, expected):
+    """A source that labels local time +00:00 must not be moved an hour or two, past midnight."""
+    assert normalize_fhir_datetime(raw, keep_wall_clock=True) == expected
+
+
 def test_naive_values_are_taken_as_local_and_not_shifted():
     """A value without an offset is already Danish local time — shifting it
     would move midnight-anchored move-in dates onto the previous day."""

@@ -81,20 +81,32 @@ Input-filer:
 Størrelses-guard
 -----------------------------
 Et fejlbehæftet eller ufuldstændigt AD-udtræk må ikke stille og roligt tømme
-sikkerhedsdata. Antallet af nye rækker valideres mod det eksisterende antal,
-FØR indholdet udskiftes:
+sikkerhedsdata. For ``sec.RolleDomaene`` og ``sec.RBOrganisation`` valideres
+antallet af nye rækker mod det eksisterende antal, FØR indholdet udskiftes:
 
 - ``AD_LOAD_MIN_COUNT_RATIO`` (default: ``0.8``) — udtrækket skal mindst
-  udgøre denne andel af det nuværende antal rækker. Skal være et positivt
-  tal; ugyldig værdi giver exit 2. Guard'en springes over når tabellen er
+  udgøre denne andel af det nuværende antal rækker. Skal være et tal over 0
+  og højst 1; ugyldig værdi giver exit 2. Guard'en springes over når tabellen er
   tom (bootstrap/første load).
+- ``AD_LOAD_MAX_REMOVED_GRANTS_RATIO`` (default: ``0.2``) — kun
+  ``sec.RBOrganisation``: højst denne andel af de nuværende RB-tildelinger
+  (bruger, organisation) må forsvinde efter hierarki-udpakning.
+- ``AD_LOAD_MAX_LOST_USERS_RATIO`` (default: ``0.1``) — kun
+  ``sec.RBOrganisation``: højst denne andel af de nuværende brugere må miste
+  alle RB-tildelinger; én bruger må altid forsvinde. Den undtagelse gælder ikke
+  grænsen for RB-tildelinger.
+
+De to sidste fanger et udtræk med samme antal rækker, men andre
+RB-tildelinger, også når årsagen er en ændring i ``codesystem.SORHierarchy``.
+Samme regler for ugyldige værdier og tom tabel gælder. Fejlbeskeden nævner
+hver overskredet grænse og dens miljøvariabel.
 
 For ``sec.RBOrganisation`` valideres det FAKTISK indsatte antal i
 ``sec.RBOrganisation_New`` (efter hierarki-udpakning, dim.Organisation-join og
 dedup), så et kollapset dim-join også fanges. Blokerer guarden, forbliver den
 levende tabel urørt (swap springes over, exit 3).
 
-The guard does NOT cover the hierarchy: at bootstrap the table is empty so the
+The size guard does NOT cover the hierarchy: at bootstrap the table is empty so the
 guard is skipped, and a stale hierarchy hardly moves the row count enough to
 trip the ratio. An empty hierarchy therefore fails separately (exit 4);
 freshness is enforced by ``deps`` on ``cs_sor``.
@@ -104,8 +116,9 @@ Exit codes
 - **0** — indlæsning gennemført
 - **1** — databasefejl
 - **2** — manglende eller ugyldig konfiguration, eller manglende input-filer
-- **3** — udtrækket er væsentligt mindre end sidste load; den ramte tabel er
-  ikke ændret (en tidligere tabel i kørslen kan dog allerede være genindlæst)
+- **3** — udtrækket er væsentligt mindre end sidste load, eller for mange
+  tildelinger eller brugere forsvinder; den ramte tabel er ikke ændret (en
+  tidligere tabel i kørslen kan dog allerede være genindlæst)
 - **4** — ``codesystem.SORHierarchy`` is empty; run ``cs_sor`` first
 """
 
@@ -161,7 +174,7 @@ def _connect(host: str, port: int, database: str, user: str, password: str):
 
     return pymssql.connect(
         server=host,
-        port=port,
+        port=port,  # type: ignore[arg-type]
         database=database,
         user=user,
         password=password,
@@ -171,7 +184,7 @@ def _connect(host: str, port: int, database: str, user: str, password: str):
 
 
 class ExtractTooSmallError(RuntimeError):
-    """AD-udtrækket er væsentligt mindre end det eksisterende indhold."""
+    """AD-udtrækket er for lille eller for forskelligt fra det eksisterende indhold."""
 
 
 class EmptySorHierarchyError(RuntimeError):
@@ -183,8 +196,7 @@ def _validate_extract_size(
 ) -> None:
     """Guard mod at et for lille/ufuldstændigt udtræk tømmer måltabellen.
 
-    Springes over når tabellen er tom (bootstrap). Skal kaldes FØR indholdet
-    udskiftes (TRUNCATE hhv. swap).
+    Springes over når tabellen er tom (bootstrap). Skal kaldes FØR TRUNCATE.
     """
     if existing_count <= 0:
         return
@@ -192,33 +204,75 @@ def _validate_extract_size(
         raise ExtractTooSmallError(
             f"{table}: udtræk er væsentligt mindre end sidste load "
             f"({incoming_count} nye vs {existing_count} eksisterende, "
-            f"kræver mindst {min_ratio:.0%}). Tabellen er IKKE ændret."
+            f"kræver mindst {min_ratio:.0%}, AD_LOAD_MIN_COUNT_RATIO). Tabellen er IKKE ændret."
+        )
+
+
+def _validate_rb_organisation_load(
+    metrics: dict,
+    min_ratio: float,
+    max_removed_grants_ratio: float,
+    max_lost_users_ratio: float,
+) -> None:
+    """Størrelses- og udskiftningsguard for sec.RBOrganisation; springes over ved bootstrap."""
+    rows_old, users_old = metrics["rows_old"], metrics["users_old"]
+    if rows_old <= 0:
+        return
+    breaches = []
+    if metrics["rows_new"] < rows_old * min_ratio:
+        breaches.append(
+            f"{metrics['rows_new']} nye vs {rows_old} eksisterende rækker "
+            f"(kræver mindst {min_ratio:.0%}, AD_LOAD_MIN_COUNT_RATIO)"
+        )
+    if metrics["removed_grants"] > rows_old * max_removed_grants_ratio:
+        breaches.append(
+            f"{metrics['removed_grants']} af {rows_old} RB-tildelinger forsvinder efter udpakning "
+            f"(højst {max_removed_grants_ratio:.0%}, AD_LOAD_MAX_REMOVED_GRANTS_RATIO)"
+        )
+    if metrics["lost_users"] > max(1, users_old * max_lost_users_ratio):
+        breaches.append(
+            f"{metrics['lost_users']} af {users_old} brugere mister alle RB-tildelinger "
+            f"(højst {max_lost_users_ratio:.0%}, AD_LOAD_MAX_LOST_USERS_RATIO)"
+        )
+    if breaches:
+        raise ExtractTooSmallError(
+            f"sec.RBOrganisation: {'; '.join(breaches)}. Tabellen er IKKE ændret."
         )
 
 
 _DEFAULT_MIN_COUNT_RATIO = 0.8
+_DEFAULT_MAX_REMOVED_GRANTS_RATIO = 0.2
+_DEFAULT_MAX_LOST_USERS_RATIO = 0.1
 
 
-def _min_count_ratio() -> float:
-    """Læs AD_LOAD_MIN_COUNT_RATIO (default 0.8) — brugt af både main() og populate_security-asset.
-
-    Fejler LUKKET: en ugyldig værdi (ikke-numerisk eller <= 0) giver ValueError
-    i stedet for stille at deaktivere størrelses-guarden.
-    """
-    raw = (os.environ.get("AD_LOAD_MIN_COUNT_RATIO") or "").strip()
+def _ratio_from_env(name: str, default: float) -> float:
+    """Læs en andel i (0, 1] fra ``name``; en ugyldig værdi giver ValueError (fejler LUKKET)."""
+    raw = (os.environ.get(name) or "").strip()
     if not raw:
-        return _DEFAULT_MIN_COUNT_RATIO
+        return default
+    message = f"{name} er ugyldig: {raw!r} (skal være et tal over 0 og højst 1, fx {default})"
     try:
         ratio = float(raw)
     except ValueError:
-        raise ValueError(
-            f"AD_LOAD_MIN_COUNT_RATIO er ugyldig: {raw!r} (skal være et positivt tal, fx 0.8)"
-        ) from None
-    if ratio <= 0:
-        raise ValueError(
-            f"AD_LOAD_MIN_COUNT_RATIO er ugyldig: {raw!r} (skal være et positivt tal, fx 0.8)"
-        )
+        raise ValueError(message) from None
+    if not 0 < ratio <= 1:
+        raise ValueError(message)
     return ratio
+
+
+def _min_count_ratio() -> float:
+    """Læs AD_LOAD_MIN_COUNT_RATIO (default 0.8)."""
+    return _ratio_from_env("AD_LOAD_MIN_COUNT_RATIO", _DEFAULT_MIN_COUNT_RATIO)
+
+
+def _max_removed_grants_ratio() -> float:
+    """Læs AD_LOAD_MAX_REMOVED_GRANTS_RATIO (default 0.2)."""
+    return _ratio_from_env("AD_LOAD_MAX_REMOVED_GRANTS_RATIO", _DEFAULT_MAX_REMOVED_GRANTS_RATIO)
+
+
+def _max_lost_users_ratio() -> float:
+    """Læs AD_LOAD_MAX_LOST_USERS_RATIO (default 0.1)."""
+    return _ratio_from_env("AD_LOAD_MAX_LOST_USERS_RATIO", _DEFAULT_MAX_LOST_USERS_RATIO)
 
 
 # ---------------------------------------------------------------------------
@@ -459,6 +513,22 @@ _COUNT_RB_ORGANISATION_NEW_SQL = (
     "SELECT COUNT(*), COUNT(DISTINCT [bruger]) FROM [sec].[RBOrganisation_New];"
 )
 
+_COUNT_RB_ORGANISATION_CHURN_SQL = """
+    SELECT
+        (SELECT COUNT(*)
+         FROM [sec].[RBOrganisation] AS o
+         WHERE NOT EXISTS (
+             SELECT 1 FROM [sec].[RBOrganisation_New] AS n
+             WHERE n.[bruger] = o.[bruger]
+               AND n.[DW_EK_RBOrganisation] = o.[DW_EK_RBOrganisation]
+         )),
+        (SELECT COUNT(DISTINCT o.[bruger])
+         FROM [sec].[RBOrganisation] AS o
+         WHERE NOT EXISTS (
+             SELECT 1 FROM [sec].[RBOrganisation_New] AS n WHERE n.[bruger] = o.[bruger]
+         ));
+"""
+
 _INSERT_RB_ORGANISATION_LOAD_LOG_SQL = (
     "INSERT INTO [sec].[RBOrganisationLoadLog] "
     "([RaekkerGammel], [RaekkerNy], [BrugereGammel], [BrugereNy], [SwapUdfoert]) "
@@ -471,6 +541,8 @@ def _load_rb_organisation(
     org_rows: list[dict],
     dry_run: bool,
     min_ratio: float,
+    max_removed_grants_ratio: float,
+    max_lost_users_ratio: float,
 ) -> dict:
     """Swap-load af sec.RBOrganisation. Returnerer load-metrikker.
 
@@ -492,6 +564,8 @@ def _load_rb_organisation(
         "rows_new": 0,
         "users_old": 0,
         "users_new": 0,
+        "removed_grants": 0,
+        "lost_users": 0,
         "swapped": False,
     }
 
@@ -540,6 +614,8 @@ def _load_rb_organisation(
     metrics["rows_old"], metrics["users_old"] = cur.fetchone()
     cur.execute(_COUNT_RB_ORGANISATION_NEW_SQL)
     metrics["rows_new"], metrics["users_new"] = cur.fetchone()
+    cur.execute(_COUNT_RB_ORGANISATION_CHURN_SQL)
+    metrics["removed_grants"], metrics["lost_users"] = cur.fetchone()
 
     def _log(swapped: bool) -> None:
         cur.execute(
@@ -554,8 +630,8 @@ def _load_rb_organisation(
         )
 
     try:
-        _validate_extract_size(
-            "sec.RBOrganisation", metrics["rows_old"], metrics["rows_new"], min_ratio
+        _validate_rb_organisation_load(
+            metrics, min_ratio, max_removed_grants_ratio, max_lost_users_ratio
         )
     except ExtractTooSmallError:
         # Log også blokerede loads (grundlag for acceptgate-regler), commit
@@ -691,7 +767,6 @@ def _load_historik(
     *,
     run_id: str,
     dry_run: bool,
-    min_ratio: float,
     close_rows: bool = True,
 ) -> dict:
     """Historise ``rows`` in sec.<tabel>. Returns open_before/closed/inserted row counts.
@@ -733,7 +808,6 @@ def _load_historik(
 
     cur.execute(sql["count"])
     metrics["open_before"] = cur.fetchone()[0]
-    _validate_extract_size(label, metrics["open_before"], len(rows), min_ratio)
 
     # One timestamp for both statements, so a closed row and its successor meet
     # without a gap.
@@ -792,6 +866,8 @@ def main() -> int:
 
     try:
         min_ratio = _min_count_ratio()
+        max_removed_grants_ratio = _max_removed_grants_ratio()
+        max_lost_users_ratio = _max_lost_users_ratio()
     except ValueError as e:
         print(f"FEJL: {e}")
         return 2
@@ -837,7 +913,7 @@ def main() -> int:
     rolle_domaene_rows = _build_rolle_domaene_rows(
         rolle_rows, warn=lambda m: print(f"ADVARSEL: {m}")
     )
-    historik = [
+    historik: list[tuple[_HistorikTabel, list[tuple]]] = [
         (_ROLLE_DOMAENE_HISTORIK, rolle_domaene_rows),
         (_SOR_TILDELING_HISTORIK, _build_sor_tildeling_rows(org_rows)),
     ]
@@ -846,9 +922,16 @@ def main() -> int:
         # Guard'en kræver en åben forbindelse (COUNT(*) mod måltabellen) og
         # køres derfor IKKE i dry-run (min_ratio er valideret, men ubrugt her).
         _load_rolle_domaene(None, rolle_domaene_rows, dry_run=True, min_ratio=min_ratio)
-        _load_rb_organisation(None, org_rows, dry_run=True, min_ratio=min_ratio)
+        _load_rb_organisation(
+            None,
+            org_rows,
+            dry_run=True,
+            min_ratio=min_ratio,
+            max_removed_grants_ratio=max_removed_grants_ratio,
+            max_lost_users_ratio=max_lost_users_ratio,
+        )
         for tabel, rows in historik:
-            _load_historik(None, tabel, rows, run_id="", dry_run=True, min_ratio=min_ratio)
+            _load_historik(None, tabel, rows, run_id="", dry_run=True)
         print("-" * 60)
         print("DRY-RUN færdig — ingen ændringer foretaget.")
         return 0
@@ -861,7 +944,14 @@ def main() -> int:
 
     try:
         rd_ins = _load_rolle_domaene(conn, rolle_domaene_rows, dry_run=False, min_ratio=min_ratio)
-        rb_metrics = _load_rb_organisation(conn, org_rows, dry_run=False, min_ratio=min_ratio)
+        rb_metrics = _load_rb_organisation(
+            conn,
+            org_rows,
+            dry_run=False,
+            min_ratio=min_ratio,
+            max_removed_grants_ratio=max_removed_grants_ratio,
+            max_lost_users_ratio=max_lost_users_ratio,
+        )
         run_id = f"cli-{uuid.uuid4()}"
         historik_metrics = {
             tabel.name: _load_historik(
@@ -870,7 +960,6 @@ def main() -> int:
                 rows,
                 run_id=run_id,
                 dry_run=False,
-                min_ratio=min_ratio,
                 close_rows=not fejlede_opslag,
             )
             for tabel, rows in historik

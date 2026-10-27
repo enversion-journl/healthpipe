@@ -10,6 +10,8 @@ Staging Asset: Fakturalinje from MySupply (Fact Layer)
 Base pre-staging for MySupply - joins invoice lines, headers and metadata.
 """
 
+from typing import cast
+
 from core.dfm_config import RunModeConfig
 from core.dfm_manager import DfmManager
 from core.resources import MSSQLResource
@@ -31,7 +33,7 @@ def resolve_min_checkpoint(owner_cps: list[str | None]) -> str | None:
     """
     if not owner_cps or any(cp is None for cp in owner_cps):
         return None
-    return min(owner_cps)
+    return min(cast(list[str], owner_cps))
 
 
 @asset(

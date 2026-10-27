@@ -332,7 +332,6 @@ def pk_reconciliation(
             "source_table": "dbo.statistic_invoice_line",
             "source_pk": "Id",
             "chunk_size": 1_000_000,
-            "safety_threshold": 0.10,  # Abort if > 10% would be soft-deleted
         },
         # ... additional tables
     ]
@@ -357,15 +356,6 @@ def pk_reconciliation(
         context.log.warning(
             f"{config['dsa_table']}: ~{orphan_estimate} potential orphans detected"
         )
-
-        # Safety threshold check
-        if orphan_estimate / dsa_active_count > config["safety_threshold"]:
-            context.log.error(
-                f"Safety threshold exceeded for {config['dsa_table']}: "
-                f"{orphan_estimate}/{dsa_active_count} = "
-                f"{orphan_estimate/dsa_active_count:.1%}. Skipping."
-            )
-            continue
 
         # Phase 2: Chunked PK comparison
         orphaned_pks = chunked_pk_except(
@@ -487,7 +477,6 @@ WHERE dw_is_deleted = 0;
 1. Update dimension and map MERGE statements to include:
    - `WHEN NOT MATCHED BY SOURCE AND tgt.dw_is_deleted = 0 THEN UPDATE SET dw_is_deleted = 1, dw_timestamp_update = ...`
    - `dw_is_deleted = 0` in the `WHEN MATCHED` clause (reset on reappearance)
-   - Safety threshold check before MERGE (see Appendix A)
 2. Start with a pilot table (e.g., `dim.Kreditor`)
 4. Validate: verify soft-deleted rows appear with correct `dw_timestamp_update` and propagate to DSO
 
@@ -497,7 +486,7 @@ WHERE dw_is_deleted = 0;
 
 ### Phase 4: Tier 3 -- PK Reconciliation Job
 1. Implement the `pk_reconciliation` Dagster asset in `DSA/SQL/maintenance/`
-2. Configure reconciliation for each applicable fact table (source system, PK mapping, threshold)
+2. Configure reconciliation for each applicable fact table (source system, PK mapping)
 3. Create a scheduled Dagster job (e.g., weekly for fct.Fakturalinje)
 4. Validate: inject a test deletion in source, verify detection and soft-delete in DSA
 
@@ -517,8 +506,8 @@ WHERE dw_is_deleted = 0;
 | Risk | Probability | Impact | Mitigation |
 |------|-------------|--------|------------|
 | `NOT MATCHED BY SOURCE` on partial source incorrectly marks rows as deleted | Medium | High | Only use on tables where MERGE source represents full current state (see staging completeness analysis in section 3). Add `dw_is_deleted = 0` filter to prevent re-marking. |
-| Large number of rows soft-deleted on first run | Medium | Low | Expected behavior on first run. Safety threshold (Appendix A) prevents runaway deletions. |
-| Source system temporarily missing data (e.g., during maintenance) | Low | High | Safety threshold aborts if > X% would be soft-deleted. PK reconciliation (Tier 3) also has threshold. |
+| Large number of rows soft-deleted on first run | Medium | Low | Expected behavior on first run. |
+| Source system temporarily missing data (e.g., during maintenance) | Low | High | In the scheduled loads, a count or ratio guard exists only on the borger tables (soft-delete cap, `core/etl_thresholds.py`), in the AD security load (extract size, `infrastructure/security/`) and in the SilkeborgData E26PERS volume gate (`DSI/csv_files/silkeborgdata_e26_pers.py`). |
 | PK reconciliation count comparison gives false negative | Low | Low | Possible if equal number of inserts and deletes cancel out. Tier 2 (partition-scoped) catches most cases. Full PK EXCEPT can be run periodically as a deeper check. |
 | Source system PK does not map directly to DSA PK | Low | Medium | PK reconciliation config must map source PK to DSA PK correctly. Requires understanding the map table join path for each fact table. |
 | `dw_is_deleted` column not added to DSO tables | Low | Medium | Schema validation in `sync_utils.py` will catch mismatches between DSA and DSO schemas. |
@@ -533,34 +522,6 @@ WHERE dw_is_deleted = 0;
 | [SQL etl Guide](../implementation/sql_etl_guide.md) | DWH architecture and ETL patterns |
 
 ---
-
-## Appendix A: Safety Threshold Pattern
-
-To prevent accidental mass soft-deletion (e.g., when the source is temporarily empty due to maintenance), implement a safety check before the MERGE:
-
-```sql
--- Count rows that would be soft-deleted
-DECLARE @total_active INT, @would_delete INT;
-
-SELECT @total_active = COUNT(*) FROM [dim].[Kreditor] WHERE dw_is_deleted = 0;
-
-SELECT @would_delete = COUNT(*)
-FROM [dim].[Kreditor] tgt
-WHERE tgt.dw_is_deleted = 0
-  AND NOT EXISTS (
-      SELECT 1 FROM #source src WHERE src.dw_ek_Kreditor = tgt.dw_ek_Kreditor
-  );
-
--- Abort if more than 10% would be soft-deleted (configurable threshold)
-IF @total_active > 0 AND CAST(@would_delete AS FLOAT) / @total_active > 0.10
-BEGIN
-    RAISERROR('Safety threshold exceeded: %d of %d active rows (%d%%) would be soft-deleted. Aborting.', 16, 1,
-              @would_delete, @total_active, @would_delete * 100 / @total_active);
-    RETURN;
-END
-```
-
-This threshold should be configurable per table, as some tables may legitimately have high delete rates.
 
 ## Appendix B: Revision History
 

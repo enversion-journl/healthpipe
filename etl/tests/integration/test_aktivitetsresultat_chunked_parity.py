@@ -49,7 +49,7 @@ def _fetch_real_rows(limit: int) -> list[dict[str, Any]]:
         username=os.getenv("IFDB_PROD_ORACLE_USERNAME", "myuser"),
         password=os.getenv("IFDB_PROD_ORACLE_PASSWORD", "tempPassword1!"),
         service_name=os.getenv("IFDB_PROD_ORACLE_DATABASE", "ORACLE_DB"),
-    )
+    ).process_config_and_initialize()
     with ora.get_connection() as conn:
         cur = conn.cursor()
         # All columns that the transform inspects
@@ -366,4 +366,4 @@ def _oracle_resource():
         username=os.getenv("IFDB_PROD_ORACLE_USERNAME", "myuser"),
         password=os.getenv("IFDB_PROD_ORACLE_PASSWORD", "tempPassword1!"),
         service_name=os.getenv("IFDB_PROD_ORACLE_DATABASE", "ORACLE_DB"),
-    )
+    ).process_config_and_initialize()

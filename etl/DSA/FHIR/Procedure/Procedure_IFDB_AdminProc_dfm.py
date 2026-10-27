@@ -43,7 +43,7 @@ Reference Resolution:
     - EpisodeOfCare (extension.valueReference) - optional
 """
 
-from typing import Any
+from typing import Any, cast
 
 import dagster as dg
 from core.dfm_config import RunModeConfig
@@ -653,11 +653,14 @@ def fhir_server_procedure_admin_proc_dfm(
                         f"(total so far: {total_fetched})"
                     )
 
-                    object_ids = [
-                        _normalize_oracle_id(row["OBJECT_ID"])
-                        for row in batch
-                        if row.get("OBJECT_ID")
-                    ]
+                    object_ids = cast(
+                        list[str],
+                        [
+                            _normalize_oracle_id(row["OBJECT_ID"])
+                            for row in batch
+                            if row.get("OBJECT_ID")
+                        ],
+                    )
                     suppl_codes = _fetch_adm_procedure_suppl_codes(
                         object_ids, mssql_target_staging, context
                     )

@@ -441,7 +441,7 @@ class TestSfiDdlAdditions:
         assert "PRIMARY KEY CLUSTERED ([qr_id], [link_id], [item_key], [answer_index])" in ddl_text
 
     def test_questionnaire_item_pk_includes_item_key(self, ddl_text: str):
-        assert "PRIMARY KEY CLUSTERED ([questionnaire_id], [link_id], [item_key])" in ddl_text
+        assert "PRIMARY KEY CLUSTERED ([questionnaire_id], [link_id_exact], [item_key])" in ddl_text
 
     def test_procedure_view_has_ifdb_aktivitet_id(self, ddl_text: str):
         cols = _columns(_load_view("procedure_view"))

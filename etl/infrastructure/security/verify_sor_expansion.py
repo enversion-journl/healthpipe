@@ -165,6 +165,8 @@ def main() -> int:
         return 2
 
     min_ratio = loader._min_count_ratio()
+    max_removed_grants_ratio = loader._max_removed_grants_ratio()
+    max_lost_users_ratio = loader._max_lost_users_ratio()
     print(f"MSSQL: {host}:{port}/{db}")
     print(f"Reelt udtræk: {len(real_rows)} org-rækker fra {org_jsonl}")
 
@@ -219,7 +221,7 @@ def main() -> int:
             f"overlap-barn: {child}"
         )
 
-        dummy_rows = [
+        dummy_rows: list[dict] = [
             {"bruger": _DUMMY_EXPAND_USER, "code_sor": code},
             {"bruger": _DUMMY_EXPAND_USER, "code_sor": child},
             {
@@ -228,10 +230,14 @@ def main() -> int:
                 "giv_adgang_til_underorganisationer": False,
             },
         ]
-        wrote_dummy = True
-        loader._load_rb_organisation(
-            conn, real_rows + dummy_rows, dry_run=False, min_ratio=min_ratio
-        )
+        wrote_dummy = loader._load_rb_organisation(
+            conn,
+            real_rows + dummy_rows,
+            dry_run=False,
+            min_ratio=min_ratio,
+            max_removed_grants_ratio=max_removed_grants_ratio,
+            max_lost_users_ratio=max_lost_users_ratio,
+        )["swapped"]
 
         print("Checks:")
         actual1 = _actual_pairs(cur, _DUMMY_EXPAND_USER)
@@ -257,7 +263,14 @@ def main() -> int:
     finally:
         if wrote_dummy and not args.keep:
             try:
-                loader._load_rb_organisation(conn, real_rows, dry_run=False, min_ratio=min_ratio)
+                loader._load_rb_organisation(
+                    conn,
+                    real_rows,
+                    dry_run=False,
+                    min_ratio=min_ratio,
+                    max_removed_grants_ratio=1.0,
+                    max_lost_users_ratio=1.0,
+                )
                 cur = conn.cursor()
                 cur.execute(
                     "SELECT COUNT(*) FROM [sec].[RBOrganisation] WHERE bruger LIKE '%zzdummy%'"

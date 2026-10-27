@@ -136,11 +136,7 @@ Merge-nøgle: (`markoer_noegle`, `loebenummer`). PK `PK_arc_udredningsret_mont`.
   eller får en gruppe. Rækker, som kørslens egen merge har ændret, prunes fra sammenligningen på
   serverens ur læst før mergen (`read_merge_start`), ikke på leverancedatoen (to leverancer kan være
   pakket samme dato). De markerede helbredsforløb får bagefter `dw_timestamp_update` bumpet
-  (`build_regroup_bump_sql`) — aldrig `leverance_dato`. Over 1 % af de levende helbredsforløb (`REGROUP_RATIO`, kun målt
-  fra `RATIO_MIN_LIVE_ROWS` levende helbredsforløb og op) commit'es id-opdateringen
-  alligevel, men bumpet springes over, og kørslen fejler med antallet: en omgruppering i den skala er
-  en ændring i SDS' egen F_ID-algoritme og skal forbi et menneske (afhjælpning:
-  `udredningsret_publish_job` med `mode=full_load`; en genkørsel finder den ikke igen). Antallet
+  (`build_regroup_bump_sql`) — aldrig `leverance_dato`. Antallet
   rapporteres som `omgrupperinger` i assetets metadata. **DQA-subject 6/9 dækker det ikke** — subject 6
   tæller kun rækker, der allerede ER re-staget, og subject 9 handler om skiftende første markør.
   Kontroltotalen (U13) er sidste værn, men den er **net-global**: en splitning og en sammenlægning i
@@ -154,9 +150,9 @@ Merge-nøgle: (`markoer_noegle`, `loebenummer`). PK `PK_arc_udredningsret_mont`.
   leverancedetektion), aldrig af `arc.leverance_dato`. Samme fælde som HAIBA's arkiv dokumenterer.
 - Guards i rækkefølge: leveranceretning (`LPROPDATERINGSDATO` mod `meta.UdredningsretLeverance`,
   `backfill_historical` som eksplicit override), rækkeparitet (`SUM(antal_kilderaekker)` = ext),
-  nøgleunikhed, unikt index, genfindelse (≥ 99,9 % af arkivets levende helbredsforløbsnøgler skal
-  findes i leverancen), soft-delete-loft (25.000 absolut i `core/etl_thresholds.py` og 1 % af
-  levende rækker, vurderet på det FORVENTEDE antal før merge og igen efter).
+  nøgleunikhed, unikt index. Arkivet har ingen soft-delete-loft og ingen grænse for genfindelse: kilden er ét
+  fuldt snapshot, så leverancen afgør, hvad der slettes. Genfindelsen (andelen af arkivets levende
+  helbredsforløbsnøgler, der findes i leverancen) måles og registreres, men stopper ikke kørslen.
 - Målt: U 2026-08-31 fra tomt arkiv: 8.146.224 ext = eksportlog, 8.144.530 arc, fast load 33 s,
   nøglebygning ~6 min. U 2026-09-07: 26.884 indsat / 143.308 opdateret / 1.515 soft-slettet,
   genfindelse 99,98 %, ~8 min. Kilden sletter reelt ~4.500 markører/md (0,06 %).

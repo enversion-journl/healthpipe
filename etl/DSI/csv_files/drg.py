@@ -43,7 +43,7 @@ import tarfile
 from collections import Counter
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import TypedDict
+from typing import TypedDict, cast
 
 import dagster as dg
 from core.dfm_manager import DfmManager
@@ -905,7 +905,9 @@ def _run_extract(
     detection_on = detection_enabled(config.kadence, on_or_before)
     already_loaded: list[str] = []
     if detection_on:
-        checkpoints = _read_checkpoints(mssql, context, leverancetype, config.kadence, candidates)
+        checkpoints = _read_checkpoints(
+            mssql, context, leverancetype, cast(str, config.kadence), candidates
+        )
         candidates, already_loaded = select_pending(candidates, checkpoints)
         for note in already_loaded:
             context.log.info(note)
@@ -1045,7 +1047,7 @@ def _run_extract(
         by_prefix = {d.source_prefix: d.ext_table for d in datasets}
         for entry in per_takst:
             for filename, count in entry["raekker"].items():
-                totals[by_prefix[_dataset_prefix(filename)]] += count
+                totals[by_prefix[cast(str, _dataset_prefix(filename))]] += count
         rows.update(totals)
 
     return dg.MaterializeResult(

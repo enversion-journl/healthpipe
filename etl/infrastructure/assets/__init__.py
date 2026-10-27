@@ -60,6 +60,7 @@ from infrastructure.assets.fhir_structure_definitions import (
 )
 from infrastructure.assets.index_maintenance import (
     erp_index_maintenance,
+    fhir_dw_keys_index_maintenance,
 )
 from infrastructure.assets.linked_server import (
     dso_infra_linked_server,
@@ -84,7 +85,9 @@ from infrastructure.assets.staging_infrastructure import (
     staging_infra_fhir,
     staging_infra_functions,
     staging_infra_epji_archive,
+    staging_infra_export,
     staging_infra_ifdb_archive,
+    staging_infra_os2mo_archive,
     staging_infra_kmd_uddata,
     staging_infra_linked_server_user,
     staging_infra_db_space,
@@ -142,6 +145,10 @@ __all__ = [
     "staging_infra_ifdb_archive",
     # EPJI Archive
     "staging_infra_epji_archive",
+    # OS2mo Archive
+    "staging_infra_os2mo_archive",
+    # Outbound deliveries
+    "staging_infra_export",
     "staging_infra_dqa",
     # DSO
     "dso_infra_db_settings",
@@ -175,8 +182,9 @@ __all__ = [
     # Watermark indexes (programmatic from sync config)
     "staging_watermark_indexes",
     "dso_watermark_indexes",
-    # ERP index maintenance
+    # Index maintenance
     "erp_index_maintenance",
+    "fhir_dw_keys_index_maintenance",
     "infra_db_space_staging",
     "infra_db_space_dso",
     "all_db_space_assets",

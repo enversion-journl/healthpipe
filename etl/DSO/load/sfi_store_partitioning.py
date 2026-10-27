@@ -29,7 +29,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Any
+from typing import Any, Literal
 
 PARTITION_COLUMN = "occurred_at_dt"
 PARTITION_FUNCTION = "pf_SFI_datapoint_store_Maaned"
@@ -724,7 +724,7 @@ class SwitchLoadScope:
 
     # -- afslutning ----------------------------------------------------------
 
-    def __exit__(self, exc_type, exc, tb) -> bool:
+    def __exit__(self, exc_type, exc, tb) -> Literal[False]:
         if exc_type is not None:
             try:
                 self._conn.rollback()

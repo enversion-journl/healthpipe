@@ -43,6 +43,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from typing import cast
 from zoneinfo import ZoneInfo
 
 import pymssql
@@ -296,9 +297,9 @@ FCT_SPECS: list[GrainSpec] = [
         "AftaleVarePris",
         "fct",
         "AftaleVarePris",
-        ["bk_prrowid", "clean_code_AftaleVarePris"],
+        ["bk_prrowid"],
         staging_table="stg.fct_AftaleVarePris_ils",
-        staging_grain_columns=["bk_prrowid", "clean_code_AftaleVarePris"],
+        staging_grain_columns=["bk_prrowid"],
     ),
     # bridge.AftaleLager: grain haandhaeves af et unikt indeks (ikke PK'en,
     # som er dw_sk-identity) — valideres derfor her ligesom fakta-grains.
@@ -389,7 +390,7 @@ def _connect_source(db_key: str):
     host_var, port_var, user_var, pwd_var, db_var = env_map[db_key]
     conn = pymssql.connect(
         server=os.getenv(host_var, "localhost"),
-        port=int(os.getenv(port_var, "1433")),
+        port=int(os.getenv(port_var, "1433")),  # type: ignore[arg-type]
         user=os.getenv(user_var, "sa"),
         password=os.getenv(pwd_var, ""),
         database=os.getenv(db_var, ""),
@@ -717,7 +718,7 @@ def _run_fct_stg_coverage(
         )
 
     # COUNT DISTINCT tager kun EET udtryk i T-SQL — for et fler-kolonne grain
-    # (fx AftaleVarePris' bk_prrowid + clean_code_AftaleVarePris) skal
+    # (fx bridge.AftaleLager's clean_code_Aftale + sgh_raw) skal
     # kolonnerne CONCAT'es i stedet for at staa som en kommasepareret liste
     # (som ville vaere ugyldig T-SQL: "COUNT(DISTINCT [a], [b])"). Samme
     # argument for WHERE-NULL-filteret: "WHERE [a], [b] IS NOT NULL" er
@@ -743,10 +744,9 @@ def _run_fct_stg_coverage(
     # Soft-delete-eksklusion: ingen af scriptets andre (enkelt-kolonne)
     # coverage-tjek filtrerer dw_is_deleted i dag, saa denne tilfoejes KUN
     # her, betinget paa at kolonnen rent faktisk findes paa fact-tabellen.
-    # Uden filteret ville post-re-key dw_is_deleted=1-residue (fx
-    # AftaleVarePris's bk_prrowid-kildepraefiks-aendring, spec 2026-08-31, som
-    # efterlader gamle raekker soft-deleted under det gamle noegleformat)
-    # garantere et mismatch mod staging, der kun baerer det NYE format.
+    # Fact-tabellen beholder soft-deletede raekker under noegleformater, staging
+    # ikke laengere producerer (fx AftaleVarePris's bk_prrowid-kildepraefiks);
+    # uden filteret ville de garantere et mismatch mod staging.
     if _column_exists(cursor, spec.schema, spec.table, "dw_is_deleted"):
         fct_exclude_predicates.append("[dw_is_deleted] = 0")
     fct_exclude = f" WHERE {' AND '.join(fct_exclude_predicates)}" if fct_exclude_predicates else ""
@@ -863,7 +863,7 @@ def run_all_checks(
         try:
             print("  [2/4] Map grain checks...")
             for spec in MAP_SPECS:
-                r = _safe_run(cursor, _run_uniqueness_check, spec, max_samples)
+                r = cast(CheckResult, _safe_run(cursor, _run_uniqueness_check, spec, max_samples))
                 results.append(r)
                 _print_check(r)
 
@@ -874,7 +874,7 @@ def run_all_checks(
 
             print("  [3/4] Dimension grain + cross-layer checks...")
             for spec in DIM_SPECS:
-                r = _safe_run(cursor, _run_uniqueness_check, spec, max_samples)
+                r = cast(CheckResult, _safe_run(cursor, _run_uniqueness_check, spec, max_samples))
                 results.append(r)
                 _print_check(r)
 
@@ -885,7 +885,7 @@ def run_all_checks(
 
             print("  [4/4] Fact grain + staging coverage checks...")
             for spec in FCT_SPECS:
-                r = _safe_run(cursor, _run_uniqueness_check, spec, max_samples)
+                r = cast(CheckResult, _safe_run(cursor, _run_uniqueness_check, spec, max_samples))
                 results.append(r)
                 _print_check(r)
 

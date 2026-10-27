@@ -13,6 +13,6 @@ No business logic, no CleanCodes, no JOINs.
 Structure:
 - mssql/: MSSQL sources (ILS, SydAX, MySupply, KMD)
 - oracle/: Oracle sources (IFDB extraction for FHIR ETL, EPJI SHAK-a-like)
-- csv_files/: CSV/HTTP extracts (SOR, SKS, SHAK, DRG, HAIBA, OS2MO)
+- csv_files/: CSV/HTTP extracts (SOR, SKS, SHAK, DRG, HAIBA, conceptmap-CSV'er)
 - organisation/: NemHandel ean extract and static FHIR JSON
 """

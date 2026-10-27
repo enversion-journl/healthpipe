@@ -60,6 +60,7 @@ for history — do not rely on them for current behavior).
 | [dfm_extract_factory_guide.md](implementation/dfm_extract_factory_guide.md) | Building DFM-based extract/archive assets |
 | [dfm_operations_guide.md](implementation/dfm_operations_guide.md) | DFM checkpoint operations, ad-hoc runs, period orchestrator |
 | [dso_sync_guide.md](implementation/dso_sync_guide.md) | Syncing staging tables to the DSO database |
+| [os2mo_integration_guide.md](implementation/os2mo_integration_guide.md) | OS2mo (Magenta): the daily codesystem full loads (SOR, Okosted) out, and OS2mo's organisation back in |
 | [data_lineage_guide.md](implementation/data_lineage_guide.md) | YAML lineage structure under `data_lineage/` |
 | [sikkerhedsmodel.md](implementation/sikkerhedsmodel.md) | Security model |
 | [archive_merge_options.md](implementation/archive_merge_options.md) | Archive-merge strategy options (`ArchiveMergeConfig` flag reference) |

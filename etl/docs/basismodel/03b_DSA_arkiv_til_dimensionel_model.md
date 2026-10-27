@@ -331,7 +331,8 @@ Fuld gennemgang med eksempler:
    passende INCLUDE-kolonner.
 
 Efter batch-MERGE fragmenteres indexes. `erp_index_maintenance`-assettet genopbygger
-dem, når facts er færdige.
+hvert indeks med mindst 1.000 sider og mere end 30 % fragmentering, med fill factor 90.
+Intet job vælger assettet, så det kører kun, når det materialiseres manuelt.
 
 ## Verificér
 

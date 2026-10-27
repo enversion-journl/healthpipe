@@ -12,10 +12,10 @@ Builds two tables from the entity-delta hub (stg.pre_Leverandoervare_ILSVare_del
      pair history for delta-affected entities, WITHOUT pair dedup (a
      rn=1 winner-selection here would recreate the information loss the
      bridge exists to fix). bridge_kilder is a priority-ordered STRING_AGG
-     over DISTINCT (source, priority) pairs. laftdstam/laftd contribute their
-     alternate lvnr-slots (##2-4/##2-3) too, as own-priority
-     'laftdstam_alt'/'laftd_alt' sources after the five primary sources
-     (spec 2026-08-27-alternate-lvnr-rows).
+     over DISTINCT (source, priority) pairs. laftdstam contributes its
+     alternate lvnr-slots (##2-4) too, as an own-priority 'laftdstam_alt'
+     source after the four primary sources; laftd's lvnr columns are legacy
+     and excluded (see etl/docs/contracts/beslutningslog_vareaftaler.md).
   2. stg.bridge_Leverandoervare_ILSVare_delta_entiteter — the scope list: hub entities
      changed since CP_Bridge, read directly from the hub (never from pair-set
      counterparts, which would incorrectly widen the soft-delete scope).
@@ -34,7 +34,6 @@ from dagster import (
     asset,
 )
 from utils.sql.leverandoervare_ilsvare_sql import (
-    LAFTD_ALT_LVNR_SLOTS,
     LAFTDSTAM_ALT_LVNR_SLOTS,
     sql_lev_current_cte,
 )
@@ -49,32 +48,28 @@ def _cp_filter(checkpoint: str | None, expr: str = "dw_timestamp_update") -> str
 
 
 def _alt_lvnr_pair_branches() -> str:
-    """Par-branches for alternative lvnr-slots (spec 2026-08-27).
+    """Par-branches for laftdstams alternative lvnr-slots.
 
-    Egne bridge_source-labels med prioritet EFTER de fem eksisterende kilder,
-    saa STRING_AGG-ordenen i bridge_kilder stadig raekker primaerkilderne
-    foerst. Ingen dedup her — pair-set'et er bevidst uden dedup, og et
-    alternativ identisk med lvnr##1 kollapser i den afsluttende DISTINCT.
+    Eget bridge_source-label med prioritet EFTER de fire primaerkilder, saa
+    STRING_AGG-ordenen i bridge_kilder stadig raekker primaerkilderne foerst.
+    Ingen dedup her — pair-set'et er bevidst uden dedup, og et alternativ
+    identisk med lvnr##1 kollapser i den afsluttende DISTINCT.
     """
     branches = []
-    for table, alias, source_label, priority, slots in (
-        ("ils_laftdstam", "alt_s", "laftdstam_alt", 6, LAFTDSTAM_ALT_LVNR_SLOTS),
-        ("ils_laftd", "alt_d", "laftd_alt", 7, LAFTD_ALT_LVNR_SLOTS),
-    ):
-        for slot in slots:
-            col = f"{alias}.[{slot}]"
-            branches.append(
-                f"""
+    for slot in LAFTDSTAM_ALT_LVNR_SLOTS:
+        col = f"alt_s.[{slot}]"
+        branches.append(
+            f"""
         UNION ALL
         SELECT lev.clean_code_Kreditor, {_LVNR_CC.format(col=col)},
-               {_VNR_CC.format(col=f"{alias}.vnr")},
-               CAST({alias}.vnr AS NVARCHAR(100)),
-               '{source_label}', {priority}
-        FROM [arc].[{table}] {alias}
-        INNER JOIN lev_current lev ON lev.lnr = {alias}.lnr
+               {_VNR_CC.format(col="alt_s.vnr")},
+               CAST(alt_s.vnr AS NVARCHAR(100)),
+               'laftdstam_alt', 5
+        FROM [arc].[ils_laftdstam] alt_s
+        INNER JOIN lev_current lev ON lev.lnr = alt_s.lnr
         WHERE {col} IS NOT NULL AND LTRIM(RTRIM({col})) <> ''
-          AND NULLIF(LTRIM(RTRIM(CAST({alias}.vnr AS NVARCHAR(100)))), '') IS NOT NULL"""
-            )
+          AND NULLIF(LTRIM(RTRIM(CAST(alt_s.vnr AS NVARCHAR(100)))), '') IS NOT NULL"""
+        )
     return "".join(branches)
 
 
@@ -133,19 +128,10 @@ def _build_pairs_sql(cp: str | None) -> str:
           AND ik.levvarenr LIKE '%[a-zA-Z0-9]%'
           AND NULLIF(LTRIM(RTRIM(CAST(ik.vnr AS NVARCHAR(100)))), '') IS NOT NULL
         UNION ALL
-        SELECT lev.clean_code_Kreditor, {_LVNR_CC.format(col="ld.[lvnr##1]")},
-               {_VNR_CC.format(col="ld.vnr")},
-               CAST(ld.vnr AS NVARCHAR(100)),
-               'laftd', 4
-        FROM [arc].[ils_laftd] ld
-        INNER JOIN lev_current lev ON lev.lnr = ld.lnr
-        WHERE ld.[lvnr##1] IS NOT NULL AND LTRIM(RTRIM(ld.[lvnr##1])) <> ''
-          AND NULLIF(LTRIM(RTRIM(CAST(ld.vnr AS NVARCHAR(100)))), '') IS NOT NULL
-        UNION ALL
         SELECT lev.clean_code_Kreditor, {_LVNR_CC.format(col="p.lvnr")},
                {_VNR_CC.format(col="p.vnr")},
                CAST(p.vnr AS NVARCHAR(100)),
-               'pmdm', 5
+               'pmdm', 4
         FROM [arc].[ils_pmdm] p
         INNER JOIN lev_current lev ON lev.lnr = p.lnr
         WHERE p.lvnr IS NOT NULL AND LTRIM(RTRIM(p.lvnr)) <> ''

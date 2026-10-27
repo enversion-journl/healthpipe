@@ -174,8 +174,11 @@ MYSOURCE_PROD_MSSQL_SCHEMA=dbo
 ```
 
 `.env.template` is the list of variables the resource requires; the real values come
-from the deployment's environment. **Never commit real credentials** — the gitleaks
-pre-commit hook scans the staged diff and CI scans the history.
+from the deployment's environment. Add the names to Dev before you push the branch, and to
+QA and PROD before the release: a run that uses the resource fails while a variable is
+missing, and the code location logs a warning that names it. **Never
+commit real credentials** — the gitleaks pre-commit hook scans the staged diff and CI scans
+the history.
 
 ### 2. Document the source schema
 
@@ -199,23 +202,20 @@ that matches your connection library:
 class MySourceMSSQLResource(dg.ConfigurableResource):
     """A Dagster resource for connecting to the MySource Microsoft SQL Server database."""
 
-    host: str = dg.EnvVar("MYSOURCE_PROD_MSSQL_SERVER").get_value()
-    port: int = int(dg.EnvVar("MYSOURCE_PROD_MSSQL_PORT").get_value())
-    database: str = dg.EnvVar("MYSOURCE_PROD_MSSQL_DATABASE").get_value()
-    user: str = dg.EnvVar("MYSOURCE_PROD_MSSQL_USERNAME").get_value()
+    host: str = dg.EnvVar("MYSOURCE_PROD_MSSQL_SERVER")
+    port: int = dg.EnvVar.int("MYSOURCE_PROD_MSSQL_PORT")
+    database: str = dg.EnvVar("MYSOURCE_PROD_MSSQL_DATABASE")
+    user: str = dg.EnvVar("MYSOURCE_PROD_MSSQL_USERNAME")
     password: str = dg.EnvVar("MYSOURCE_PROD_MSSQL_PASSWORD")
 
     @contextmanager
     def get_connection(self):
         """A context manager that yields a pymssql connection and closes it when exiting."""
-        password = self.password
-        if hasattr(password, "get_value"):
-            password = password.get_value()
         conn = pymssql.connect(
             server=self.host,
             port=self.port,
             user=self.user,
-            password=password,
+            password=self.password,
             database=self.database,
         )
         try:
@@ -234,9 +234,9 @@ class MySourceMSSQLResource(dg.ConfigurableResource):
 Keep the `user` and `host` fields: every extract run records them in `meta.DFMRunLog` (see
 [Dataflow logging](#dataflow-logging)).
 
-The password stays a `dg.EnvVar` (resolved at run time, redacted in logs); the other
-fields may resolve at import time. Synapse has a cold-start latency — pair it with
-a retry policy on the assets, as KMD does.
+Make every field a `dg.EnvVar`: a `dg.EnvVar` resolves at run time, the password is
+redacted in logs, and the code location warns at load when the variable is unset. Synapse
+has a cold-start latency — pair it with a retry policy on the assets, as KMD does.
 
 ### 4. Register the resource
 

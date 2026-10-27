@@ -23,7 +23,6 @@ from pathlib import Path
 from typing import Any
 
 import dagster as dg
-from core.etl_thresholds import check_soft_delete_threshold
 from core.resources import (
     FHIRDatabaseResource,
     FHIRServerResource,
@@ -41,6 +40,7 @@ from utils.fhir.identifier_systems import (
     SYSTEM_IFDB_RIS_YDELSE,
 )
 from utils.fhir.protection import ADDRESS_PROTECTED_TEXT
+from utils.sql.collation import EXACT_MATCH_COLLATION
 
 _SERVICE_REQUEST_SOURCE_TABLES = {
     SYSTEM_IFDB_HENVISNING_ID: "HENVISNING",
@@ -387,6 +387,7 @@ def _merge_in_batches(
     dedup_tiebreak_columns: list[str] | None,
     resurrect_soft_deleted: bool,
     computed_columns: dict[str, str] | None,
+    exact_match_keys: dict[str, str] | None = None,
 ) -> tuple[int, int]:
     """MERGE staging-tabellen ind i målet i portioner med commit pr. portion.
 
@@ -420,6 +421,7 @@ def _merge_in_batches(
             resurrect_soft_deleted=resurrect_soft_deleted,
             computed_columns=computed_columns,
             source_filter=f"[{SOF_STAGE_BATCH_COLUMN}] = {batch}",
+            exact_match_keys=exact_match_keys,
         )
         batch_started = time.perf_counter()
         cursor.execute(merge_sql)
@@ -434,6 +436,16 @@ def _merge_in_batches(
                 f"cum_elapsed={time.perf_counter() - started:.2f}s"
             )
     return total_affected, batch_count
+
+
+# Every create_sof_dfm_asset asset and the dw-key step of its table serialise on this
+# lock; a second writer of the same table waits this long and then fails.
+FHIR_TABLE_LOCK_TIMEOUT_MS = 300_000
+
+
+def fhir_table_lock_name(mssql_table: str) -> str:
+    """Application-lock name shared by every writer of ``fhir.<mssql_table>``."""
+    return f"fhir-table-{mssql_table.lower()}"
 
 
 # =============================================================================
@@ -555,6 +567,9 @@ SOF_RESOURCE_CONFIGS: dict[str, dict[str, Any]] = {
         "primary_keys": ["episode_of_care_id"],
         # Absent isDeleted extension must land 0, not NULL -- see patient_view.
         "boolean_false_default_columns": ["dw_is_deleted"],
+        "normalized_datetime_columns": ["period_start", "period_end"],
+        # IFDB sends Danish local time labelled +00:00; keep the clock time as sent.
+        "keep_datetime_wall_clock": True,
     },
     "location_view": {
         "view_name": "location_view",
@@ -865,6 +880,9 @@ SOF_RESOURCE_CONFIGS: dict[str, dict[str, Any]] = {
         "mssql_table": "Questionnaire_item",
         "primary_keys": ["questionnaire_id", "link_id", "item_key"],
         "null_sentinel_columns": ["link_id", "item_key"],
+        # The source spells some SFI codes in two cases and Aidbox keeps both items;
+        # the target matches link_id byte for byte through its computed key column.
+        "exact_match_keys": {"link_id": "link_id_exact"},
         # dw_is_deleted is not projected by this view: dqa_fhir_server_cleanup
         # sets it to 1, and this MERGE is the only thing that writes 0 back.
         # Without it a retired row stays invisible even when the resource
@@ -1063,7 +1081,7 @@ def ensure_view_definition(
 
     # Step 2: Materialize the SQL view in the sof schema
     materialize_url = f"{base_url}/fhir/ViewDefinition/{name}/$materialize"
-    body = {
+    body: dict[str, Any] = {
         "resourceType": "Parameters",
         "parameter": [
             {"name": "type", "valueCode": "view"},
@@ -1471,7 +1489,6 @@ def extract_and_merge_sof_view(
     null_sentinel_columns: list[str] | None = None,
     normalized_datetime_columns: list[str] | None = None,
     fetch_chunk_size: int = SOF_STREAM_FETCH_CHUNK_SIZE,
-    soft_delete_threshold: int | None = None,
     backfill_override: SofBackfillPlan | None = None,
     timings: dict[str, Any] | None = None,
 ) -> tuple[int, int]:
@@ -1599,6 +1616,7 @@ def extract_and_merge_sof_view(
             normalized_names = set(normalized_datetime_columns or [])
             sentinel_names = set(null_sentinel_columns or [])
             false_default_names = set((table_cfg or {}).get("boolean_false_default_columns") or [])
+            keep_wall_clock = bool((table_cfg or {}).get("keep_datetime_wall_clock"))
             # Rewritten in place, so the temp table DDL, INSERT and bulkcopy
             # mappings — all driven off `columns` — need no adjustment.
             normalize_indexes = [idx for idx, col in enumerate(columns) if col in normalized_names]
@@ -1723,9 +1741,13 @@ def extract_and_merge_sof_view(
                                         if len(unparseable_samples) < 5:
                                             unparseable_samples.append(str(raw))
                                     if idx in datetime_sentinel_indexes:
-                                        row_values[idx] = normalize_fhir_datetime(raw)
+                                        row_values[idx] = normalize_fhir_datetime(
+                                            raw, keep_wall_clock=keep_wall_clock
+                                        )
                                     else:
-                                        row_values[idx] = parse_fhir_datetime(raw)
+                                        row_values[idx] = parse_fhir_datetime(
+                                            raw, keep_wall_clock=keep_wall_clock
+                                        )
                                 for idx in false_default_indexes:
                                     if row_values[idx] is None:
                                         row_values[idx] = 0
@@ -1898,11 +1920,6 @@ def extract_and_merge_sof_view(
                                 )
                             if resource_grain_reconcile and full_load:
                                 mssql_cursor.execute(
-                                    f"SELECT COUNT(*) FROM [fhir].[{table_name}] "
-                                    f"WHERE [dw_is_deleted] = 0"
-                                )
-                                live_before = mssql_cursor.fetchone()[0]
-                                mssql_cursor.execute(
                                     build_resource_grain_mark_deleted_sql(
                                         table_name,
                                         id_column,
@@ -1910,13 +1927,6 @@ def extract_and_merge_sof_view(
                                     )
                                 )
                                 marked = mssql_cursor.rowcount
-                                check_soft_delete_threshold(
-                                    f"fhir.{table_name}",
-                                    marked,
-                                    context,
-                                    override=soft_delete_threshold,
-                                    live_row_count=live_before,
-                                )
                                 reconcile_open = True
                                 if context:
                                     context.log.info(
@@ -1930,6 +1940,9 @@ def extract_and_merge_sof_view(
                             )
                             resurrect_soft_deleted = bool(
                                 table_cfg and table_cfg.get("resurrect_soft_deleted")
+                            )
+                            exact_match_keys = (
+                                table_cfg.get("exact_match_keys") if table_cfg else None
                             )
                             if dedup_enabled:
                                 mssql_cursor.execute(
@@ -1994,6 +2007,7 @@ def extract_and_merge_sof_view(
                                 dedup_tiebreak_columns=dedup_tiebreak_columns,
                                 resurrect_soft_deleted=resurrect_soft_deleted,
                                 computed_columns=computed_columns,
+                                exact_match_keys=exact_match_keys,
                             )
                             if context and dedup_enabled:
                                 context.log.info(
@@ -2021,6 +2035,7 @@ def extract_and_merge_sof_view(
                                     dedup_tiebreak_columns=dedup_tiebreak_columns,
                                     resurrect_soft_deleted=resurrect_soft_deleted,
                                     computed_columns=computed_columns,
+                                    exact_match_keys=exact_match_keys,
                                 )
                             else:
                                 mssql_cursor.execute(merge_sql)
@@ -2199,6 +2214,7 @@ def build_fhir_merge_sql(
     resurrect_soft_deleted: bool = False,
     computed_columns: dict[str, str] | None = None,
     source_filter: str | None = None,
+    exact_match_keys: dict[str, str] | None = None,
 ) -> str:
     """
     Generate a T-SQL MERGE statement for upserting into fhir.* tables.
@@ -2229,13 +2245,23 @@ def build_fhir_merge_sql(
             restricts the MERGE to one portion (batched backfill). Applied inside
             the dedup wrapper, so duplicate keys are still deduplicated as long as
             a key's rows share a portion.
+        exact_match_keys: Primary key column -> target computed column holding the
+            same value in ``EXACT_MATCH_COLLATION``. The ON clause compares those
+            keys byte for byte instead of in the case-insensitive database collation.
 
     Returns:
         T-SQL MERGE statement string.
     """
     target = f"[fhir].[{table_name}]"
 
-    on_clause = " AND ".join(f"tgt.[{pk}] = src.[{pk}]" for pk in primary_keys)
+    on_clause = " AND ".join(
+        (
+            f"tgt.[{exact_match_keys[pk]}] = src.[{pk}] COLLATE {EXACT_MATCH_COLLATION}"
+            if exact_match_keys and pk in exact_match_keys
+            else f"tgt.[{pk}] = src.[{pk}]"
+        )
+        for pk in primary_keys
+    )
     payload_diff_predicate = _build_payload_diff_predicate(columns, primary_keys)
 
     update_cols = [c for c in columns if c not in primary_keys]
@@ -2738,7 +2764,12 @@ def merge_into_mssql(
             cursor.execute(f"CREATE CLUSTERED INDEX IX_SofTemp_PK ON #SofTemp ({pk_cols})")
 
             # Step 4: Execute MERGE
-            merge_sql = build_fhir_merge_sql(table_name, columns, primary_keys)
+            merge_sql = build_fhir_merge_sql(
+                table_name,
+                columns,
+                primary_keys,
+                exact_match_keys=table_cfg.get("exact_match_keys") if table_cfg else None,
+            )
             cursor.execute(merge_sql)
             rows_affected = cursor.rowcount
 

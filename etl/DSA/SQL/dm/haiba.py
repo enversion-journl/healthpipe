@@ -55,7 +55,9 @@ the relation keys (encounter_id_*, location_id_*) onto the fact so the join
 out to the contact is direct, the match quality onto the egenskaber table.
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import cast
 
 import dagster as dg
 from core.dfm_manager import DfmManager
@@ -658,7 +660,12 @@ def _build_asset(table: DmTable):
         except Exception as exc:
             dfm.fail_dfm_run(run_ctx.log_id, error_message=str(exc))
             raise
-        dfm.complete_dfm_run(run_ctx.log_id, rows_affected=result.metadata["row_count"].value)
+        dfm.complete_dfm_run(
+            run_ctx.log_id,
+            rows_affected=cast(Mapping[str, dg.IntMetadataValue], result.metadata)[
+                "row_count"
+            ].value,
+        )
         return result
 
     return _asset

@@ -234,6 +234,8 @@ class _FakeLoadCursor:
                 self._result = [self._conn.new_counts]
             else:
                 self._result = [self._conn.live_counts]
+        elif "NOT EXISTS" in s and "[sec].[RBOrganisation_New]" in s:
+            self._result = [(0, 0)]
         elif s.startswith("INSERT INTO [sec].[RBOrganisation_New]"):
             self.rowcount = self._conn.new_counts[0]
 
@@ -267,7 +269,12 @@ def _all_executed(conn):
 def test_load_rb_organisation_stages_expanded_descendants_and_swaps():
     conn = _FakeLoadConn(live_counts=(0, 0), new_counts=(3, 1))
     result = loader._load_rb_organisation(
-        conn, [{"bruger": "abc1", "code_sor": "100"}], dry_run=False, min_ratio=0.8
+        conn,
+        [{"bruger": "abc1", "code_sor": "100"}],
+        dry_run=False,
+        min_ratio=0.8,
+        max_removed_grants_ratio=0.2,
+        max_lost_users_ratio=0.1,
     )
 
     staged_codes = {
@@ -286,6 +293,8 @@ def test_load_rb_organisation_stages_expanded_descendants_and_swaps():
         "rows_new": 3,
         "users_old": 0,
         "users_new": 1,
+        "removed_grants": 0,
+        "lost_users": 0,
         "swapped": True,
     }
     assert conn.committed == 1
@@ -295,7 +304,12 @@ def test_load_rb_organisation_guard_blocks_swap_but_logs():
     conn = _FakeLoadConn(live_counts=(100, 5), new_counts=(3, 1))
     with pytest.raises(ExtractTooSmallError):
         loader._load_rb_organisation(
-            conn, [{"bruger": "abc1", "code_sor": "100"}], dry_run=False, min_ratio=0.8
+            conn,
+            [{"bruger": "abc1", "code_sor": "100"}],
+            dry_run=False,
+            min_ratio=0.8,
+            max_removed_grants_ratio=0.2,
+            max_lost_users_ratio=0.1,
         )
 
     assert not any("SWITCH" in sql for sql, _ in _all_executed(conn))
@@ -400,6 +414,8 @@ def test_load_rb_organisation_propagates_empty_hierarchy_error():
             [{"bruger": "EXAMPLE\\u1", "code_sor": "100"}],
             dry_run=False,
             min_ratio=0.8,
+            max_removed_grants_ratio=0.2,
+            max_lost_users_ratio=0.1,
         )
 
 
@@ -468,24 +484,6 @@ class _FakeHistorikConn(_FakeLoadConn):
 
     def close(self):
         self.closed = True
-
-
-def test_load_historik_guard_blocks_before_closing_rows():
-    conn = _FakeHistorikConn(open_count=100)
-    with pytest.raises(ExtractTooSmallError):
-        loader._load_historik(
-            conn,
-            loader._ROLLE_DOMAENE_HISTORIK,
-            loader._build_rolle_domaene_rows(
-                [{"bruger": f"u{i}", "domain": "DPA_ERP", "rolle": "U"} for i in range(3)],
-            ),
-            run_id="r",
-            dry_run=False,
-            min_ratio=0.8,
-        )
-
-    assert not any(sql.lstrip().startswith("UPDATE") for sql, _ in _all_executed(conn))
-    assert conn.committed == 0
 
 
 def test_populate_security_historises_two_tables_without_closes_on_failed_lookup(

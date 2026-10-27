@@ -1008,6 +1008,58 @@ def staging_infra_udredningsret(
 
 
 @dg.asset(
+    name="staging_infra_export",
+    group_name="staging_infrastructure",
+    compute_kind="mssql",
+    deps=["staging_infra_schemas", "staging_migrations"],
+    tags={"layer": "staging", "type": "infrastructure"},
+    description="Create the outbound delivery tables (export.CodesystemToOs2mo)",
+)
+def staging_infra_export(
+    context: dg.AssetExecutionContext,
+    mssql_target_staging: MSSQLResource,
+) -> dg.MaterializeResult:
+    """Deploy the export schema and its delivery-set tables."""
+
+    results = execute_sql_files_from_directory(mssql_target_staging, "tables/export", context)
+
+    context.log.info("Export delivery tables deployed")
+    return dg.MaterializeResult(
+        metadata={
+            "files_executed": len(results),
+            "tables": "export.CodesystemToOs2mo",
+        }
+    )
+
+
+@dg.asset(
+    name="staging_infra_os2mo_archive",
+    group_name="staging_infrastructure",
+    compute_kind="mssql",
+    deps=["staging_infra_schemas", "staging_migrations"],
+    tags={"layer": "staging", "type": "infrastructure"},
+    description="Create the OS2mo organisation archive table (arc.os2mo_org_unit)",
+)
+def staging_infra_os2mo_archive(
+    context: dg.AssetExecutionContext,
+    mssql_target_staging: MSSQLResource,
+) -> dg.MaterializeResult:
+    """Deploy arc.os2mo_org_unit — the return leg of the Magenta integration."""
+
+    results = execute_sql_files_from_directory(
+        mssql_target_staging, "tables/os2mo_archive", context
+    )
+
+    context.log.info("OS2mo archive table deployed")
+    return dg.MaterializeResult(
+        metadata={
+            "files_executed": len(results),
+            "tables": "arc.os2mo_org_unit",
+        }
+    )
+
+
+@dg.asset(
     name="staging_infra_lpr3",
     group_name="staging_infrastructure",
     deps=["staging_infra_schemas", "staging_migrations"],

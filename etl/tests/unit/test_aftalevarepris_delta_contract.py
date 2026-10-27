@@ -11,6 +11,7 @@ pinner de kontrakt-egenskaber der ville genindfoere full load eller
 fejlagtig soft delete, hvis de forsvandt.
 """
 
+import re
 from pathlib import Path
 
 import pytest
@@ -57,8 +58,8 @@ def test_stg_fct_aftalevarepris_dedups_all_natural_key_joins():
 
 
 def test_fct_aftalevarepris_predelete_sweep_is_line_scoped():
-    """Spec 2026-08-31: sweep FOER MERGE, skopet paa LINJE-noeglerne (aldrig
-    aftale-niveau — soesterlinjer restages ikke og maa ikke fejes)."""
+    """Sweep FOER MERGE, skopet paa LINJE-noeglerne (aldrig aftale-niveau —
+    soesterlinjer restages ikke og maa ikke fejes)."""
     src = (DSA_SQL / "fct" / "fct_AftaleVarePris.py").read_text(encoding="utf-8")
     assert "PRE_DELETE_SQL" in src and "SOFT_DELETE_SQL" not in src
     assert "src.bk_leverandoernummer = tgt.bk_leverandoernummer" in src
@@ -69,64 +70,72 @@ def test_fct_aftalevarepris_predelete_sweep_is_line_scoped():
     assert body.index("PRE_DELETE_SQL") < body.index("MERGE_SQL"), "sweep skal koere FOER merge"
 
 
-def test_fct_aftalevarepris_merges_on_composite_key():
-    """Spec 2026-08-27: grain er (bk_prrowid, clean_code_AftaleVarePris)."""
+def test_fct_aftalevarepris_merges_on_bk_prrowid_alone():
+    """Grain er bk_prrowid — ingen lvnr-komponent i noeglen."""
     src = (DSA_SQL / "fct" / "fct_AftaleVarePris.py").read_text(encoding="utf-8")
     assert "ON tgt.bk_prrowid = src.bk_prrowid" in src
-    assert "AND tgt.clean_code_AftaleVarePris = src.clean_code_AftaleVarePris" in src
+    assert "AND tgt.clean_code_AftaleVarePris = src.clean_code_AftaleVarePris" not in src
 
 
-def test_stg_fct_aftalevarepris_fans_out_lvnr_slots():
-    """Spec 2026-08-27: prisversioner fanner ud pr. distinkt lvnr-CleanCode
-    (laftdstam ##1-4 + laftd ##2-3) via OUTER APPLY, med kilder-provenans."""
+def test_fct_aftalevarepris_resolves_all_four_slot_fks():
+    """Plausibel bug: et slot-opslag genbruger et andet slots CleanCode."""
+    src = (DSA_SQL / "fct" / "fct_AftaleVarePris.py").read_text(encoding="utf-8")
+    for n in range(1, 5):
+        assert f"vare_map{n}.clean_code_Leverandoervare = src.clean_code_Leverandoervare_{n}" in src
+        assert (
+            f"COALESCE(vare_map{n}.dw_ek_Leverandoervare, -1) AS dw_ek_Leverandoervare_{n}" in src
+        )
+
+
+def test_stg_fct_aftalevarepris_slot_cleancodes_are_positional():
+    """Slot N's CleanCode bygges af stam_lvnr{N} og maa ikke krydse slots
+    (plausibel bug: copy-paste kobler slot 2 med stam_lvnr3)."""
     from DSA.SQL.staging.stg_fct_AftaleVarePris_ils import _build_staging_sql
 
     sql = _build_staging_sql("")
-    assert "OUTER APPLY" in sql, "Fan-out'en skal vaere OUTER APPLY (bevarer no-lvnr-raekken)"
-    for kilde in (
-        "'laftdstam_1', 1",
-        "'laftdstam_2', 2",
-        "'laftdstam_3', 3",
-        "'laftdstam_4', 4",
-        "'laftd_2', 5",
-        "'laftd_3', 6",
-    ):
-        assert kilde in sql, f"slot-kilde {kilde} mangler i unpivot'en"
-    assert "STRING_AGG(slots.kilde" in sql, "kilder skal aggregeres pr. distinkt lvnr"
-    assert "GROUP BY norm.clean_lvnr" in sql, "dedup skal ske paa normaliseret lvnr"
+    for n in range(1, 5):
+        alias = f"AS clean_code_Leverandoervare_{n}"
+        assert alias in sql, f"slot {n} mangler"
+        expr = sql[sql.rindex("CASE", 0, sql.index(alias)) : sql.index(alias)]
+        assert f"pv.stam_lvnr{n}" in expr
+        for other in range(1, 5):
+            if other != n:
+                assert f"pv.stam_lvnr{other}" not in expr, f"slot {n} laeser slot {other}"
+        assert (
+            f"LTRIM(RTRIM(pv.stam_lvnr{n})) <> ''" in expr
+        ), "tomme slots maa ikke give haengende CVR_..._LEVVARE_-CleanCode"
+    assert "OUTER APPLY" not in sql, "slots ligger som kolonner, aldrig som raekker"
 
 
-def test_stg_fct_aftalevarepris_extends_entity_cleancode():
-    """Spec 2026-08-27: clean_code_AftaleVarePris udvides med _LEVVARE_{lvnr},
-    saa forskellige lvnr-raekker aldrig deler dw_ek_AftaleVarePris.
-    No-lvnr-raekken beholder basisformatet."""
+def test_stg_fct_aftalevarepris_cleancode_is_base_format_only():
+    """Entiteten er aftalelinjen — basisformat uden lvnr-komponent."""
     from DSA.SQL.staging.stg_fct_AftaleVarePris_ils import _build_staging_sql
 
     sql = _build_staging_sql("")
-    assert "clean_code_AftaleVarePris_base" in sql
-    assert "'_LEVVARE_' + lv.clean_lvnr" in sql
-    assert (
-        "ELSE '' END AS clean_code_AftaleVarePris" in sql
-    ), "no-lvnr-raekken skal beholde basisformatet"
+    alias = "AS clean_code_AftaleVarePris,"
+    start = sql.rindex("'AFTALE_'", 0, sql.index(alias))
+    expr = sql[start : sql.index(alias)]
+    assert "'AFTALE_' +" in expr
+    assert "'_VARE_' +" in expr
+    assert "LEVVARE" not in expr, "clean_code_AftaleVarePris maa ikke baere en lvnr-komponent"
 
 
-def test_stg_fct_aftalevarepris_windows_run_before_fanout():
-    """Kritisk: LEAD/dw_is_current skal beregnes paa prisversions-aksen FOER
-    fan-out'en — ellers peger LEAD paa samme versions soester-lvnr-raekke og
-    dw_is_current rammer kun EN lvnr-raekke pr. linje."""
+def test_stg_fct_aftalevarepris_lvnr_slots_come_from_laftdstam():
+    """Slot-raakolonnerne laeses fra laftdstam; laftds lvnr-kolonner er legacy
+    og indgaar ikke."""
     from DSA.SQL.staging.stg_fct_AftaleVarePris_ils import _build_staging_sql
 
     sql = _build_staging_sql("")
-    apply_start = sql.index("OUTER APPLY")
-    assert sql.index("LEAD(") < apply_start, "LEAD skal ligge i pv (foer OUTER APPLY)"
-    assert sql.index("AS dw_is_current") < apply_start, "dw_is_current skal ligge i pv"
+    for n in range(1, 5):
+        assert f"stam.[lvnr##{n}] AS stam_lvnr{n}" in sql
+    assert not re.search(r"\bd\.\[lvnr##", sql)
 
 
 def test_stg_fct_aftalevarepris_dw_valid_to_is_lead_chained():
-    """Spec 2026-08-27: dw_valid_to = naeste versions dw_valid_from (LEAD vinder
-    ubetinget); kildens slut kun som fallback paa sidste version. LEAD skal
-    vaere COALESCE'ens FOERSTE argument — hvis armene nogensinde byttes om,
-    ville kildens slut vinde ubetinget i stedet for LEAD."""
+    """dw_valid_to = naeste versions dw_valid_from (LEAD vinder ubetinget);
+    kildens slut kun som fallback paa sidste version. LEAD skal vaere
+    COALESCE'ens FOERSTE argument — hvis armene nogensinde byttes om, ville
+    kildens slut vinde ubetinget i stedet for LEAD."""
     from DSA.SQL.staging.stg_fct_AftaleVarePris_ils import _build_staging_sql
 
     sql = _build_staging_sql("")
@@ -143,10 +152,10 @@ def test_stg_fct_aftalevarepris_dw_valid_to_is_lead_chained():
 
 
 def test_stg_fct_aftalevarepris_dw_is_current_shares_lead_chain_ordering():
-    """Final-review-rettelse: dw_is_current-vinduet skal ordne paa PRAECIS samme
-    kaedede udtryk som LEAD-vinduet (blot DESC i stedet for ASC) + prrowid som
-    tiebreaker — ellers kan de to vinduer i teorien uenes om hvilken version
-    der er den sidste for linjen."""
+    """dw_is_current-vinduet skal ordne paa PRAECIS samme kaedede udtryk som
+    LEAD-vinduet (blot DESC i stedet for ASC) + prrowid som tiebreaker —
+    ellers kan de to vinduer i teorien uenes om hvilken version der er den
+    sidste for linjen."""
     from DSA.SQL.staging.stg_fct_AftaleVarePris_ils import _build_staging_sql
 
     sql = _build_staging_sql("")
@@ -161,24 +170,24 @@ def test_stg_fct_aftalevarepris_dw_is_current_shares_lead_chain_ordering():
 
 
 def test_stg_fct_aftalevarepris_has_no_kreditorvarenummer_columns():
-    """Spec 2026-08-27: kreditorvarenummer1/2/3 er fjernet — raa lvnr-strenge
-    bor i dim.Leverandoervare."""
+    """Fakten baerer ingen raa lvnr-strenge — nummeret naas via
+    dim.Leverandoervare."""
     from DSA.SQL.staging.stg_fct_AftaleVarePris_ils import _build_staging_sql
 
     assert "kreditorvarenummer" not in _build_staging_sql("")
 
 
 def test_pre_stg_vareaftaler_does_not_build_aftalevarepris_cleancode():
-    """Spec 2026-08-27: pre_vareaftaler's clean_code_AftaleVarePris havde ingen
-    konsumenter og ville efter formatudvidelsen ligge i gammelt format —
-    en desync-faelde. Den eneste producent er stg_fct_AftaleVarePris_ils."""
+    """pre_stg_Vareaftaler_ils maa ikke bygge clean_code_AftaleVarePris — to
+    producenter af samme noegle er en desync-faelde, og stg_fct_AftaleVarePris_ils
+    ejer formatet."""
     src = (DSA_SQL / "staging" / "pre_stg_Vareaftaler_ils.py").read_text(encoding="utf-8")
     assert "clean_code_AftaleVarePris" not in src
 
 
 def test_stg_fct_aftalevarepris_backbone_is_laftd_left_join_pris():
-    """Spec 2026-08-31: prisloese aftalelinjer skal med — backbone er laftd
-    med LEFT JOIN til laftdpris, ikke omvendt."""
+    """Prisloese aftalelinjer skal med — backbone er laftd med LEFT JOIN til
+    laftdpris, ikke omvendt."""
     from DSA.SQL.staging.stg_fct_AftaleVarePris_ils import _build_staging_sql
 
     sql = _build_staging_sql("")
@@ -207,10 +216,8 @@ def test_stg_fct_aftalevarepris_synthetic_rows_have_defined_validity():
 
 
 def test_stg_fct_aftalevarepris_laftd_backbone_excludes_null_keys():
-    """Review-fund: den gamle backbone (p INNER JOIN d) udelukkede strukturelt
-    NULL-noegle-linjer (en NULL-vnr-linje kan aldrig matche en laftdpris-raekke).
-    Efter flippet til laftd-backbone skal filteret vaere eksplicit, ellers giver
-    en NULL-vnr-laftd-raekke en syntetisk raekke med NULL
+    """Med laftd som backbone skal NULL-noegle-filteret vaere eksplicit, ellers
+    giver en NULL-vnr-laftd-raekke en syntetisk raekke med NULL
     clean_code_AftaleVarePris, som map-opslaget dropper og applierens
     fail-fast derefter fejler paa."""
     from DSA.SQL.staging.stg_fct_AftaleVarePris_ils import _build_staging_sql
@@ -222,7 +229,7 @@ def test_stg_fct_aftalevarepris_laftd_backbone_excludes_null_keys():
 
 
 def test_stg_fct_aftalevarepris_delta_carries_full_line_history():
-    """LOAD-BEARING for pre-delete-sweepen (Task 2): staging skal medtage ALLE
+    """LOAD-BEARING for pre-delete-sweepen: staging skal medtage ALLE
     raekker for en beroert linje — delta-join'et gater paa linjenoeglerne,
     aldrig paa prisversions-/timestamp-niveau."""
     src = (DSA_SQL / "staging" / "stg_fct_AftaleVarePris_ils.py").read_text(encoding="utf-8")

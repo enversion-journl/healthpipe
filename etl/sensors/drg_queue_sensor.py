@@ -32,13 +32,14 @@ names them.
 
 import json
 from datetime import date
+from typing import Any
 
 import dagster as dg
 from schedules.drg_schedules import CYCLE_DATE_TAG, LEVERANCETYPE_TAG, QUEUE_TAG, UNIT_TAG
 from schedules.schedule_default_status import get_sensor_default_status
 
 
-def build_drg_queue_sensor(ingest_jobs: list, job_for_unit: dict[tuple[str, str], object]):
+def build_drg_queue_sensor(ingest_jobs: list, job_for_unit: dict[tuple[str, str], Any]):
     """Chain sensor over the DRG ingest jobs.
 
     ``job_for_unit`` maps (leverancetype, kadence) to the job object that
@@ -85,14 +86,8 @@ def build_drg_queue_sensor(ingest_jobs: list, job_for_unit: dict[tuple[str, str]
 
         # The cycle date comes from the tag, so every link shares the run_key
         # day the schedule chose — create_timestamp is UTC and per-link, which
-        # would split a midnight-crossing cycle. Fallback for runs launched
-        # before the tag existed.
-        cycle_date = tags.get(CYCLE_DATE_TAG)
-        run_day = (
-            date.fromisoformat(cycle_date)
-            if cycle_date
-            else context.dagster_run.create_timestamp.date()
-        )
+        # would split a midnight-crossing cycle.
+        run_day = date.fromisoformat(tags[CYCLE_DATE_TAG])
         request = queue_run_request(leverancetype, entry, rest, run_day)
         context.log.info(
             f"{leverancetype}: naeste enhed {takstsystem}/{kadence} "

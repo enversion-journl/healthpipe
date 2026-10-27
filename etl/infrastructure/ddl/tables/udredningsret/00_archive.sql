@@ -37,8 +37,8 @@
 -- DSI/csv_files/udredningsret_datasets.py is enforced by
 -- tests/unit/test_udredningsret_datasets_ddl.py.
 --
--- Indexes: only what merge and guards use (PK on the merge keys, the
--- helbredsforloeb key for the recovery guard, dw_timestamp_update). An index
+-- Indexes: only what the merge and the recovery measurement use (PK on the merge keys, the
+-- helbredsforloeb key for the recovery measurement, dw_timestamp_update). An index
 -- on DW_EK_HelbredsForloeb is added only once staging (US-3) actually reads it.
 -- ============================================================================
 
@@ -99,7 +99,7 @@ BEGIN
         )
     );
 
-    -- The recovery guard and staging (US-3) go by the helbredsforloeb key.
+    -- The recovery measurement and staging (US-3) go by the helbredsforloeb key.
     CREATE NONCLUSTERED INDEX [IX_arc_udredningsret_mont_Helbredsforloeb]
         ON [arc].[udredningsret_mont] ([helbredsforloeb_noegle], [dw_is_deleted]);
 

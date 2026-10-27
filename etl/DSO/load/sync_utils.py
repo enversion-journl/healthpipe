@@ -26,11 +26,12 @@ from dataclasses import dataclass, field
 from dataclasses import replace as dc_replace
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Literal
+from typing import Any, Literal, cast
 from uuid import UUID
 
 import dagster as dg
 from core.resources import MSSQLResource, get_linked_server_config
+from utils.sql.collation import EXACT_MATCH_COLLATION
 
 # =============================================================================
 # Constants
@@ -227,7 +228,7 @@ def _build_mssql_python_chunk_input_sizes(
         if sizes[idx] is None:
             sizes[idx] = (_SQL_WVARCHAR, 1, 0)
 
-    return sizes
+    return cast(list[tuple[int, int, int]], sizes)
 
 
 def _set_mssql_python_chunk_input_sizes(conn: object, cursor, rows: list[tuple]) -> None:
@@ -269,8 +270,8 @@ def _stage_batches_via_openquery(
     context: dg.AssetExecutionContext,
     full_table: str,
     conn: object,
-    cursor: object,
-    batch_sql_for: Callable[[object], str],
+    cursor: Any,
+    batch_sql_for: Callable[[Any], str],
     next_pk_for: Callable[[object, object], object],
     reopen: Callable[[], tuple],
     estimated_batches: int | None,
@@ -518,6 +519,9 @@ class SyncTableConfig:
     # Required when staging and DSO databases use different collations and
     # the PK contains string columns (COLLATE is invalid on integer types).
     collate_columns: list[str] = field(default_factory=list)
+    # PK column -> target computed column holding it in EXACT_MATCH_COLLATION. MERGE
+    # compares those keys byte for byte; list the computed column in exclude_columns.
+    exact_match_keys: dict[str, str] = field(default_factory=dict)
     # Column that must be unique among rows with dw_is_current = 1
     # (filtered unique index on the target). MERGE checks unique indexes
     # per-row, so the outgoing current row is cleared before promoting the
@@ -562,7 +566,11 @@ def _build_on_clause(
     collate_set = string_pk_cols if string_pk_cols is not None else set(config.collate_columns)
     parts = []
     for pk in pk_cols:
-        if pk in collate_set:
+        if pk in config.exact_match_keys:
+            parts.append(
+                f"tgt.[{config.exact_match_keys[pk]}] = src.[{pk}] COLLATE {EXACT_MATCH_COLLATION}"
+            )
+        elif pk in collate_set:
             parts.append(f"tgt.[{pk}] = src.[{pk}] COLLATE DATABASE_DEFAULT")
         else:
             parts.append(f"tgt.[{pk}] = src.[{pk}]")
@@ -1683,7 +1691,8 @@ def sync_table_via_linked_server(
     if not columns:
         raise RuntimeError(f"Table {full_table} not found in DSO database or has no columns")
 
-    with DsoSyncDfmSession(mssql_source_staging, context) as dfm_session:
+    dfm_staging = cast(MSSQLResource, mssql_source_staging)
+    with DsoSyncDfmSession(dfm_staging, context) as dfm_session:
         run_ctx = dfm_session.start_run(config, dfm_mode)
         checkpoint = None if dfm_mode == "full_load" else run_ctx.checkpoint
         # Pin the watermark window *before* any MERGE/OPENQUERY so mid-sync
@@ -1723,7 +1732,7 @@ def sync_table_via_linked_server(
                         recovery_ctx,
                         config,
                         columns,
-                        mssql_source_staging,
+                        dfm_staging,
                         rows_affected=result.get("rows_affected", 0),
                         dfm_mode="full_load",
                         checkpoint_upper_bound=checkpoint_upper_bound,
@@ -1817,7 +1826,7 @@ def sync_table_via_linked_server(
                             recovery_ctx,
                             config,
                             columns,
-                            mssql_source_staging,
+                            dfm_staging,
                             rows_affected=result.get("rows_affected", 0),
                             dfm_mode="full_load",
                             checkpoint_upper_bound=checkpoint_upper_bound,
@@ -1841,7 +1850,7 @@ def sync_table_via_linked_server(
                     run_ctx,
                     config,
                     columns,
-                    mssql_source_staging,
+                    dfm_staging,
                     rows_affected=result.get("rows_affected", 0),
                     dfm_mode=dfm_mode,
                     checkpoint_upper_bound=checkpoint_upper_bound,
@@ -1874,7 +1883,7 @@ def _sync_via_linked_server_batched(
     part is simple SELECTs; the MERGE runs locally.
     """
     full_table = f"[{config.schema}].[{config.table}]"
-    pk_col = config.primary_key  # guaranteed str by caller
+    pk_col = cast(str, config.primary_key)  # guaranteed str by caller
     batch_size = config.linked_server_batch_size
 
     sync_columns = [c for c in columns if c not in config.exclude_columns]
@@ -2047,7 +2056,7 @@ def _sync_via_linked_server_batched(
         # transient connectivity error). The MAX(pk) cursor is resolved on the
         # *staging* server so it uses the staging collation, matching the batch
         # ORDER BY — a DSO-side MAX() could differ and never advance.
-        def _next_pk(cur: object, last_pk_value: object) -> object:
+        def _next_pk(cur: Any, last_pk_value: Any) -> object:
             cur.execute(_max_pk_sql(last_pk_value))
             row = cur.fetchone()
             if row is None or row[0] is None:
@@ -2068,7 +2077,7 @@ def _sync_via_linked_server_batched(
 
         if total_rows == 0:
             duration_ms = int((time.monotonic() - sync_start) * 1000)
-            effective_mode = config.mode
+            effective_mode: str = config.mode
             if config.mode == "watermark":
                 effective_mode = (
                     "watermark_delta" if last_sync_checkpoint is not None else "watermark_full"
@@ -2410,7 +2419,7 @@ def _sync_via_linked_server_batched_composite(
 
         # Phase 1: batch-INSERT via OPENQUERY (composite keyset paginated,
         # reconnecting on a transient connectivity error).
-        def _next_pk(cur: object, last_pk_value: object) -> object:
+        def _next_pk(cur: Any, last_pk_value: Any) -> object:
             cur.execute(_last_pk_sql(last_pk_value))
             row = cur.fetchone()
             return None if row is None else tuple(row)
@@ -2535,7 +2544,7 @@ def _sync_via_linked_server_batched_composite(
     sync_duration_seconds = duration_ms / 1000.0
     rows_per_second = rows_affected / sync_duration_seconds if sync_duration_seconds > 0 else 0.0
 
-    effective_mode = config.mode
+    effective_mode: str = config.mode
     if config.mode == "watermark" and last_sync_checkpoint is not None:
         effective_mode = "watermark_delta"
     elif config.mode == "watermark":
@@ -2784,7 +2793,7 @@ def _sync_via_linked_server(
     sync_duration_seconds = duration_ms / 1000.0
     rows_per_second = rows_affected / sync_duration_seconds if sync_duration_seconds > 0 else 0.0
 
-    effective_mode = config.mode
+    effective_mode: str = config.mode
     if config.mode == "watermark" and last_sync_checkpoint is not None:
         effective_mode = "watermark_delta"
     elif config.mode == "watermark":

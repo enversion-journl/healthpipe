@@ -758,8 +758,10 @@ BEGIN
         [status] NVARCHAR(50) NULL,
         [type_code] NVARCHAR(255) NULL,
         [type_display] NVARCHAR(500) NULL,
-        [period_start] NVARCHAR(50) NULL,
-        [period_end] NVARCHAR(50) NULL,
+        -- Clock time as IFDB sends it (Danish local time); any offset is dropped at load,
+        -- not converted (keep_datetime_wall_clock in sof_utils.py).
+        [period_start] DATETIME2(0) NULL,
+        [period_end] DATETIME2(0) NULL,
         [managing_organization_id] NVARCHAR(255) NULL,
         [identifier_value] NVARCHAR(255) NULL,
         [previous_episode_of_care_id] NVARCHAR(255) NULL,
@@ -776,6 +778,10 @@ BEGIN
         [created_at] DATETIME2 NULL,
         [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_EpisodeOfCare_dw_timestamp_insert] DEFAULT SYSDATETIME(),
         [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_EpisodeOfCare_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        -- Set by fhir_dw_keys_episode_of_care, not by SoF. Last, as on a migrated table.
+        [dw_ek_Borger] INT NOT NULL CONSTRAINT [DF_EpisodeOfCare_dw_ek_Borger] DEFAULT -1,
+        [dw_sk_Borger] INT NOT NULL CONSTRAINT [DF_EpisodeOfCare_dw_sk_Borger] DEFAULT -1,
+        [dw_ek_Organisation] INT NOT NULL CONSTRAINT [DF_EpisodeOfCare_dw_ek_Organisation] DEFAULT -1,
         CONSTRAINT [PK_FHIR_EpisodeOfCare] PRIMARY KEY CLUSTERED ([episode_of_care_id])
     ) ON [PRIMARY];
 
@@ -831,6 +837,8 @@ CREATE TABLE [fhir].[Location] (
     [created_at] DATETIME2 NULL,
     [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Location_dw_timestamp_insert] DEFAULT SYSDATETIME(),
     [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Location_dw_timestamp_update] DEFAULT SYSDATETIME(),
+    -- Set by fhir_dw_keys_location, not by SoF. Last, as on a migrated table.
+    [dw_ek_Organisation] INT NOT NULL CONSTRAINT [DF_Location_dw_ek_Organisation] DEFAULT -1,
     CONSTRAINT [PK_FHIR_Location] PRIMARY KEY CLUSTERED ([location_id])
 ) ON [PRIMARY];
 
@@ -946,8 +954,9 @@ BEGIN
         [category_code] NVARCHAR(100) NULL,
         [ifdb_eventmarker_id] NVARCHAR(255) NOT NULL,
         [episode_of_care_id] NVARCHAR(255) NULL,
-        [markoerkode] NVARCHAR(255) NULL,
-        [markoer_display] NVARCHAR(500) NULL,
+        [outcome_codeable_concept_code] NVARCHAR(255) NULL,
+        [outcome_codeable_concept_system] NVARCHAR(500) NULL,
+        [outcome_codeable_concept_display] NVARCHAR(500) NULL,
         [organization_id] NVARCHAR(255) NULL,
         [practitioner_id] NVARCHAR(255) NULL,
         [activity_timestamp] NVARCHAR(50) NULL,
@@ -1447,9 +1456,11 @@ GO
 -- Questionnaire_item (from questionnaire_item_view)
 -- forEach over item: one row per flat generated item.
 -- SFI lives on item.code (system='urn:dk:ifdb:sfi'); projected as element_*.
--- PK is composite: questionnaire_id + link_id + item_key. link_id is the SFI
+-- PK is composite: questionnaire_id + link_id_exact + item_key. link_id is the SFI
 -- concept; item_key is native Questionnaire.item.id and preserves repeated
--- occurrences without deduplication.
+-- occurrences without deduplication. link_id_exact is link_id compared byte for
+-- byte: the source spells some SFI codes in two cases (...txt / ...TXT), Aidbox
+-- keeps both, and the case-insensitive database collation would merge them.
 -- ============================================================================
 IF NOT EXISTS (
     SELECT *
@@ -1484,8 +1495,9 @@ CREATE TABLE [fhir].[Questionnaire_item] (
     [dw_is_deleted] INT NOT NULL CONSTRAINT [DF_Questionnaire_item_dw_is_deleted] DEFAULT 0,
     [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Questionnaire_item_dw_timestamp_insert] DEFAULT SYSDATETIME(),
     [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Questionnaire_item_dw_timestamp_update] DEFAULT SYSDATETIME(),
+    [link_id_exact] AS ([link_id] COLLATE Latin1_General_BIN2) PERSISTED NOT NULL,
     CONSTRAINT [PK_FHIR_Questionnaire_item]
-        PRIMARY KEY CLUSTERED ([questionnaire_id], [link_id], [item_key])
+        PRIMARY KEY CLUSTERED ([questionnaire_id], [link_id_exact], [item_key])
 ) ON [PRIMARY];
 
 CREATE NONCLUSTERED

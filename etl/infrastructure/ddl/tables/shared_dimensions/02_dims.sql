@@ -185,6 +185,29 @@ BEGIN
 END
 GO
 
+-- dw-key lookup from the flat fhir.* tables: patient id + time -> dw_ek_Borger / dw_sk_Borger
+-- (kept in sync with migrations/20261012_fhir_dw_keys_kolonner_og_indeks.sql)
+IF OBJECT_ID(N'[dim].[Borger]', 'U') IS NOT NULL
+   AND NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID(N'[dim].[Borger]') AND name = N'IX_Dim_Borger_FhirPatientId_Temporal')
+BEGIN
+    CREATE NONCLUSTERED INDEX [IX_Dim_Borger_FhirPatientId_Temporal]
+    ON [dim].[Borger] ([fhir_Patient_id] ASC, [dw_valid_from] ASC, [dw_valid_to] ASC)
+    INCLUDE ([dw_ek_Borger], [dw_sk_Borger], [dw_is_deleted])
+    ON [PRIMARY];
+END
+GO
+
+-- Borgere changed since a dw-key checkpoint
+IF OBJECT_ID(N'[dim].[Borger]', 'U') IS NOT NULL
+   AND NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID(N'[dim].[Borger]') AND name = N'IX_Dim_Borger_TimestampUpdate')
+BEGIN
+    CREATE NONCLUSTERED INDEX [IX_Dim_Borger_TimestampUpdate]
+    ON [dim].[Borger] ([dw_timestamp_update] ASC)
+    INCLUDE ([fhir_Patient_id])
+    ON [PRIMARY];
+END
+GO
+
 -- At most one current version per borger. Skip while duplicates remain;
 -- re-run infra after a rebuild. Existing tables are patched by
 -- 20260813_borger_one_current_version.sql.

@@ -44,21 +44,21 @@ def main():
 
     # MySupply
     print("\n--- MySupply Database ---")
-    mysupply = MySupplyMSSQLResource()
+    mysupply = MySupplyMSSQLResource().process_config_and_initialize()
     check_table_schema(mysupply, "dbo", "metadata", "MySupply")
     check_table_schema(mysupply, "dbo", "statistic_invoice_header", "MySupply")
     check_table_schema(mysupply, "dbo", "statistic_invoice_line", "MySupply")
 
     # Sydax
     print("\n--- Sydax Database ---")
-    sydax = SydaxMSSQLResource()
+    sydax = SydaxMSSQLResource().process_config_and_initialize()
     check_table_schema(sydax, "Kreditor", "Kreditor", "Sydax")
     check_table_schema(sydax, "Finans", "Finanskonto", "Sydax")
     check_table_schema(sydax, "Finans", "Finanspostering", "Sydax")
 
     # ILS
     print("\n--- ILS Database ---")
-    ils = ILSMSSQLResource()
+    ils = ILSMSSQLResource().process_config_and_initialize()
     check_table_schema(ils, "dbo", "lev", "ILS")
     check_table_schema(ils, "dbo", "vare", "ILS")
 

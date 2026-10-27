@@ -43,6 +43,9 @@ fhir_ifdb_dfm_assets = dg.AssetSelection.groups("fhir_ifdb_dfm")
 # never picked up, and the MERGE runs against a stale target schema.
 fhir_sof_dfm_assets = fhir_sof_infrastructure_assets | dg.AssetSelection.groups("fhir_sof_dfm")
 fhir_dso_sync_dfm_assets = dg.AssetSelection.groups("fhir_dso_sync_dfm")
+# dw-keys on the flat tables, after SOF and the dimensions they read and before the DSO
+# sync, and the index maintenance of those tables after the sync.
+fhir_dw_keys_assets = dg.AssetSelection.groups("fhir_dw_keys")
 fhir_quality_dfm_assets = dg.AssetSelection.groups("fhir_quality_dfm")
 dfm_operations_assets = dg.AssetSelection.groups("dfm_operations")
 
@@ -116,6 +119,7 @@ ifdb_dfm_daily_job = dg.define_asset_job(
         | patient_identity_assets
         | fhir_ifdb_dfm_assets
         | fhir_sof_dfm_assets
+        | fhir_dw_keys_assets
         | fhir_dso_sync_dfm_assets
         | fhir_quality_dfm_assets
         | codesystem_sfi_sync_assets
@@ -125,9 +129,9 @@ ifdb_dfm_daily_job = dg.define_asset_job(
     description=(
         f"The nightly IFDB → FHIR pipeline for {_IFDB_RESOURCES}: "
         "Oracle → ext → arc → identity union (ref.PatientIdentity) → FHIR server "
-        "→ SOF fhir.* → DSO sync, then the "
-        "Borger chain (ref_patient_borger → ref_patient_address_borger → "
-        "dim_Borger → dso_sync_dim_borger) and the SFI_datapoint refresh. "
+        "→ SOF fhir.* and the Borger chain (ref_patient_borger → "
+        "ref_patient_address_borger → dim_Borger → dso_sync_dim_borger) → dw-keys on fhir.* "
+        "→ DSO sync → index maintenance of the dw-key tables, and the SFI_datapoint refresh. "
         "Triggered by ifdb_dfm_daily_schedule at 06:00 CET."
     ),
 )

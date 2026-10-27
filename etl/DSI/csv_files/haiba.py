@@ -78,17 +78,9 @@ archive soft-deletes it — that is a real deletion, not a defect. Scoping the
 archive MERGE per type instead would let a half-written ext pass silently and
 would not know about the share at all.
 
-Two more guards protect the archive MERGE itself:
+One more guard protects the archive MERGE itself:
 
-3. Row drift: a type whose file carries dramatically fewer data rows than its
-   active archive history (an interrupted transfer — the file parses fine but
-   is short) fails the run before the archive can soft-delete the difference.
-   Rows are counted per the row's OWN type value, the same vocabulary arc is
-   grouped by, because the filename and the column disagree on the agg CDI
-   types (file 'CDI_COHA', column 'COHA'). ``min_row_fraction`` overrides per
-   run. Because ext is written and committed before this runs, a failed guard
-   drops the ext table so a later archive-only re-run has nothing to merge.
-4. Column width: every value is checked against the arc column widths
+3. Column width: every value is checked against the arc column widths
    (``arc_widths``, parity-tested against 00_archive.sql). An over-wide value
    would otherwise abort the whole archive MERGE with error 8152, which names
    neither column nor row. A non-key over-wide value skips its row and is
@@ -106,9 +98,10 @@ silently instead of raising.
 import csv
 import os
 import re
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from datetime import date, datetime
+from typing import cast
 
 import dagster as dg
 from core.dfm_manager import DfmManager
@@ -511,16 +504,6 @@ class HaibaExtractConfig(dg.Config):
             "and passes the guard by itself."
         ),
     )
-    min_row_fraction: float | None = Field(
-        default=None,
-        description=(
-            "Per-run override of the row-drift guard (default "
-            "DRIFT_MIN_ROW_FRACTION). A type whose file carries fewer data rows "
-            "than this fraction of its active archive rows fails the run — an "
-            "interrupted transfer parses fine but is short. Set 0.0 to accept a "
-            "known legitimate shrink (e.g. the January window roll) for one run."
-        ),
-    )
     force_reload: bool = Field(
         default=False,
         description=(
@@ -788,12 +771,6 @@ def _write_to_ext_table(
         cursor.close()
 
 
-# A type whose file shrank below this fraction of its active archive rows fails
-# the run (interrupted transfer). 0.5 deliberately tolerates the ~1/5 January
-# window roll; override per run with HaibaExtractConfig.min_row_fraction.
-DRIFT_MIN_ROW_FRACTION = 0.5
-
-
 def unusable_types_for_schema(
     files: list[HaibaFile], unusable: list[str], schema: HaibaSchema
 ) -> list[str]:
@@ -826,32 +803,6 @@ def unusable_types_for_schema(
         if detected is schema or detected is None:
             mine.append(hai_type)
     return mine
-
-
-def enforce_row_drift(written: dict[str, int], arc_active: dict[str, int], fraction: float) -> None:
-    """Fail when a DELIVERED type shrank below ``fraction`` of its archive rows.
-
-    Guards invariant 1's remaining gap: a file that parses but was cut short
-    (interrupted transfer) — or a width-rejection storm — would otherwise
-    soft-delete the difference out of the archive behind a green run. Types
-    absent from ``written`` are deliberately NOT checked: no file on the share
-    is a genuine retirement and must keep flowing (see the module docstring).
-    """
-    short = {
-        hai_type: (n, arc_active[hai_type])
-        for hai_type, n in written.items()
-        if arc_active.get(hai_type, 0) > 0 and n < fraction * arc_active[hai_type]
-    }
-    if short:
-        detail = ", ".join(
-            f"{t}={n} rows vs {a} active archive rows" for t, (n, a) in sorted(short.items())
-        )
-        raise ValueError(
-            f"Row drift below {fraction:.2f} of the archive for: {detail}. Loading "
-            f"this would soft-delete the difference. If the shrink is legitimate "
-            f"(e.g. the January window roll cut deeper than usual), rerun with "
-            f"min_row_fraction set lower for this run."
-        )
 
 
 def _rows_within_arc_widths(
@@ -976,7 +927,6 @@ def _enforce_ext_is_loadable(
     arc_active: dict[str, int],
     rejections: dict[tuple[str, str], int],
     empty_after_width: list[str],
-    fraction: float,
     context: dg.AssetExecutionContext,
 ) -> None:
     """The post-write guards, gathered so the caller can drop ext on any failure.
@@ -1004,17 +954,15 @@ def _enforce_ext_is_loadable(
             f"rejected, which reads as a retirement and would soft-delete the type."
         )
     # Vocabulary drift is visible, not fatal: a delivered type absent from a
-    # non-empty archive is a genuinely new type or a filename/column mismatch,
-    # and either way enforce_row_drift below is blind to it.
+    # non-empty archive is a genuinely new type or a filename/column mismatch.
     if arc_active:
         for delivered in sorted(rows_per_type):
             if delivered not in arc_active:
                 context.log.warning(
                     f"{schema.ext_table}: delivered type {delivered!r} is not among "
                     f"the archive's active types {sorted(arc_active)} — a new type or "
-                    f"a vocabulary mismatch; the row-drift guard cannot check it."
+                    f"a vocabulary mismatch."
                 )
-    enforce_row_drift(rows_per_type, arc_active, fraction)
 
 
 def _extract_schema(
@@ -1135,9 +1083,8 @@ def _extract_schema(
             ):
                 # Count under the row's OWN type value, not the filename's: the
                 # two diverge on the agg CDI types (file 'CDI_COHA', column
-                # 'COHA'), and enforce_row_drift compares against arc, which is
-                # grouped by the column. Keying by filename left the two largest
-                # agg types unguarded. type_column is a merge key, never None.
+                # 'COHA'), and arc is grouped by the column. type_column is a
+                # merge key, never None.
                 key = row[schema.type_column] or hai_type
                 rows_per_type[key] = rows_per_type.get(key, 0) + 1
                 survived += 1
@@ -1147,10 +1094,6 @@ def _extract_schema(
                 # every row was width-rejected — the type would vanish from ext
                 # and read as a retirement, soft-deleting its archive history.
                 empty_after_width.append(f"{hai_type} ({file.filename})")
-
-    fraction = (
-        config.min_row_fraction if config.min_row_fraction is not None else DRIFT_MIN_ROW_FRACTION
-    )
 
     with mssql.get_connection() as conn:
         # Emptied before ext is rewritten; refilled only after the guards pass.
@@ -1167,7 +1110,7 @@ def _extract_schema(
 
         try:
             _enforce_ext_is_loadable(
-                schema, rows_per_type, arc_active, rejections, empty_after_width, fraction, context
+                schema, rows_per_type, arc_active, rejections, empty_after_width, context
             )
             _write_manifest_rows(conn, schema, files, mtimes)
         except Exception:
@@ -1195,7 +1138,6 @@ def _extract_schema(
                 {f"{column}/{hai_type}": n for (column, hai_type), n in sorted(rejections.items())}
             ),
             "arc_active_rows": dg.MetadataValue.json(arc_active),
-            "drift_min_fraction": dg.MetadataValue.float(fraction),
             "source_files": dg.MetadataValue.json(sorted(f.filename for f in files.values())),
             "fallbacks": dg.MetadataValue.json(notes),
             "target_table": dg.MetadataValue.text(f"ext.{schema.ext_table}"),
@@ -1245,7 +1187,12 @@ def _build_asset(schema: HaibaSchema):
         except Exception as exc:
             dfm.fail_dfm_run(run_ctx.log_id, error_message=str(exc))
             raise
-        dfm.complete_dfm_run(run_ctx.log_id, rows_affected=result.metadata["row_count"].value)
+        dfm.complete_dfm_run(
+            run_ctx.log_id,
+            rows_affected=cast(Mapping[str, dg.IntMetadataValue], result.metadata)[
+                "row_count"
+            ].value,
+        )
         return result
 
     return _asset
@@ -1269,8 +1216,6 @@ __all__ = [
     "CASES_INFEKTION",
     "CASES_SSI",
     "DELIVERY_COLUMN",
-    "DRIFT_MIN_ROW_FRACTION",
-    "enforce_row_drift",
     "haiba_delivery_unit",
     "manifest_table",
     "unusable_types_for_schema",

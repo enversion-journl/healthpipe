@@ -31,6 +31,8 @@ This MUTATES production FHIR data (re-posts resources, reprojects flat tables);
 it is operator-triggered, never scheduled.
 """
 
+from typing import cast
+
 import dagster as dg
 from core.branch_postfix import get_postfixed_asset_key
 from dagster._core.definitions.reconstruct import ReconstructableJob, ReconstructableRepository
@@ -38,7 +40,7 @@ from dagster._core.execution.api import execute_run
 from dqa.checks.helpers import get_conn, split_table, sql_literal
 from dqa.checks.referential_integrity import violation_predicate
 from dqa.config import FHIR_SUBJECTS
-from dqa.model import DqaSubject
+from dqa.model import DqaSubject, ReplaySpec
 from pydantic import Field
 
 # entity (== ReplaySpec.entity / arc base name) -> (server, sof, dso) DFM assets.
@@ -239,7 +241,7 @@ def _recheck_and_resolve(
     MERGE only reopens 'resolved' keys, so a re-detected unresolvable key stays
     unresolvable rather than silently re-entering the loop.
     """
-    rp = subject.replay
+    rp = cast(ReplaySpec, subject.replay)
     s_schema, s_table = split_table(subject.table)
     flat = f"[{s_schema}].[{s_table}]"
     key = rp.key_column
@@ -352,7 +354,7 @@ def dqa_remediation_replay(
     subject = _subject_for_entity(entity)
     server_asset, sof_asset, dso_asset = _DFM_ASSETS[entity]
     feeder_view = f"dqa.v_replay_{entity}"
-    filter_column = subject.replay.filter_column
+    filter_column = cast(ReplaySpec, subject.replay).filter_column
     resources = context.resources
 
     with get_conn(resources, subject.resource_key) as conn:

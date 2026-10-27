@@ -142,7 +142,7 @@ def stg_dim_ILSLeverandoer(
     )
 
     row_count = 0
-    stats = (0, 0, 0, 0)
+    stats: tuple[int, ...] = (0, 0, 0, 0)
 
     try:
         with mssql_target_staging.get_connection() as conn:

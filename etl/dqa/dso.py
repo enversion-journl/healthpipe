@@ -156,7 +156,9 @@ def _build_check(subject: DqaSubject, domain: str):
     return _check
 
 
-def build_dso_all() -> tuple[list[dg.AssetsDefinition], list, list[dg.JobDefinition]]:
+def build_dso_all() -> (
+    tuple[list[dg.AssetsDefinition], list, list[dg.UnresolvedAssetJobDefinition]]
+):
     """Return (anchor assets, asset checks, jobs) for the DSO reconciliation subsystem."""
     subjects = _dso_subjects()
     by_domain: dict[str, list[DqaSubject]] = {}
@@ -165,7 +167,7 @@ def build_dso_all() -> tuple[list[dg.AssetsDefinition], list, list[dg.JobDefinit
 
     assets: list[dg.AssetsDefinition] = []
     checks: list = []
-    jobs: list[dg.JobDefinition] = []
+    jobs: list[dg.UnresolvedAssetJobDefinition] = []
     for domain in sorted(by_domain):
         domain_subjects = by_domain[domain]
         assets.append(_build_anchor(domain, len(domain_subjects)))

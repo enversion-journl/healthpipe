@@ -1326,7 +1326,7 @@ def _with_dropped_count(
 
 def _read_result_int(result: dg.MaterializeResult, key: str) -> int:
     value = result.metadata.get(key) if result.metadata else None
-    raw = getattr(value, "value", value)
+    raw: Any = getattr(value, "value", value)
     return int(raw or 0)
 
 
