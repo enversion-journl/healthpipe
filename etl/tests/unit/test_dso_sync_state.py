@@ -247,6 +247,24 @@ class TestUpdateSyncState:
         # Both timestamp columns must use SYSDATETIME (server time), not a passed-in value
         assert sql.count("SYSDATETIME()") >= 2
 
+    def test_passed_watermark_replaces_the_server_clock(self):
+        """A source high-water mark is stored as-is; only updated_at keeps the server clock."""
+        resource, _conn, cursor = _create_mock_dso_resource()
+        ctx = _create_mock_context()
+
+        mgr = SyncStateManager(resource, ctx)
+        mgr.update_sync_state(
+            "sfi_datapoint", "refresh_daily", watermark=datetime(2026, 10, 16, 8, 41, 48)
+        )
+
+        sql = cursor.execute.call_args[0][0]
+        assert "last_sync_timestamp = CAST('2026-10-16 08:41:48' AS datetime2(0))" in sql
+        assert (
+            "VALUES ('sfi_datapoint', 'refresh_daily', CAST('2026-10-16 08:41:48' AS datetime2(0))"
+            in sql
+        )
+        assert sql.count("SYSDATETIME()") == 1
+
 
 # =============================================================================
 # Watermark skip contract

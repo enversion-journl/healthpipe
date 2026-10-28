@@ -9,10 +9,10 @@
 Two assets per codesystem in :data:`CODESYSTEM_EXPORTS`, built by one factory:
 
 ``os2mo_<codesystem>_export``
-    Reads ``codesystem.<Name>*`` (and its ConceptMaps), builds the delivery set,
-    lands it in ``export.CodesystemToOs2mo`` — this codesystem's rows replaced
-    every run, because a delivery set is state and not an archive — and renders
-    the CSV. Needs no OS2mo access at all.
+    Reads ``codesystem.<Name>*``, builds the delivery set, lands it in
+    ``export.CodesystemToOs2mo`` — this codesystem's rows replaced every run,
+    because a delivery set is state and not an archive — and renders the CSV.
+    Needs no OS2mo access at all.
 
 ``os2mo_<codesystem>_upload``
     Uploads that exact CSV through OS2mo's GraphQL ``upload_file`` mutation.
@@ -39,11 +39,10 @@ from core.os2mo import OS2moConfigurationError
 from core.os2mo.client import DEFAULT_FILE_STORE
 from core.resources import MSSQLResource, OS2moResource
 from DSO.export.os2mo.codesystems import CODESYSTEM_EXPORTS
-from DSO.export.os2mo.source_query import read_mappings, read_source_rows, write_export_table
+from DSO.export.os2mo.source_query import read_source_rows, write_export_table
 from utils.os2mo.codesystem_export import (
     CodesystemExportSpec,
     build_export_rows,
-    map_slots_needed,
     unreadable_values,
 )
 from utils.os2mo.csv_format import encode_csv, render_csv, write_csv
@@ -133,7 +132,6 @@ class ExportSet(NamedTuple):
 
     rows: list[dict[str, Any]]
     codes_read: int
-    codes_mapped: int
     # Concepts with no properties left: the source no longer has them.
     codes_gone: int
     # Present but unreadable dates and flags, per source field.
@@ -144,23 +142,26 @@ class ExportSet(NamedTuple):
         """Codes read but not in the set: they sit in a parent cycle."""
         return self.codes_read - self.codes_gone - len(self.rows)
 
+    @property
+    def codes_without_type(self) -> int:
+        """Built rows with an empty ``type`` — a codesystem property gap."""
+        return sum(1 for row in self.rows if not row["type"])
+
 
 def read_export_set(mssql: MSSQLResource, spec: CodesystemExportSpec) -> ExportSet:
-    """Read a codesystem and its ConceptMaps and build the export rows.
+    """Read a codesystem and build the export rows.
 
     The one definition of "what goes in the file", shared by the export asset
     and ``scripts/os2mo_render_csv.py``.
     """
     source_rows = read_source_rows(mssql, spec)
-    mappings = read_mappings(mssql, spec)
     # A concept outlives its source: when the codesystem merge drops a code's
     # properties and parent edge, the concept row stays. Delivered, it would
     # be an open-ended root with no dates and no status.
     present = [row for row in source_rows if row.get("has_properties", 1)]
     return ExportSet(
-        rows=build_export_rows(spec, present, mappings),
+        rows=build_export_rows(spec, present),
         codes_read=len(source_rows),
-        codes_mapped=len(mappings),
         codes_gone=len(source_rows) - len(present),
         unreadable=unreadable_values(present),
     )
@@ -184,10 +185,7 @@ def _build_delivery(
         try:
             export_set = read_export_set(mssql, spec)
             export_rows = export_set.rows
-            context.log.info(
-                f"Read {export_set.codes_read} {spec.name} codes and mappings for "
-                f"{export_set.codes_mapped} of them"
-            )
+            context.log.info(f"Read {export_set.codes_read} {spec.name} codes")
 
             if not export_rows:
                 raise dg.Failure(
@@ -212,6 +210,9 @@ def _build_delivery(
                     f"{unreachable} {spec.name} codes are not reachable from any root "
                     "and are left out of the file."
                 )
+            without_type = export_set.codes_without_type
+            if without_type:
+                context.log.warning(f"{without_type} {spec.name} codes were built with no type.")
 
             # One stamp for the whole set: "when was this built", not history.
             built_at = datetime.now().replace(microsecond=0)
@@ -237,8 +238,7 @@ def _build_delivery(
             "codes_unreachable": unreachable,
             "codes_gone": export_set.codes_gone,
             "unreadable_values": dg.MetadataValue.json(export_set.unreadable),
-            "codes_with_mappings": sum(1 for row in export_rows if row.get("_mappings")),
-            "map_slots": map_slots_needed(spec, export_rows),
+            "codes_without_type": without_type,
             "target_table": "export.CodesystemToOs2mo",
             "csv_path": str(path),
             "csv_filename": filename,

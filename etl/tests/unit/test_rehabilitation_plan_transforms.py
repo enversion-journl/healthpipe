@@ -9,7 +9,7 @@ Rehabilitation plan (genoptræningsplan, G-GOP) transform tests — deep coverag
 
 REHABILITATION_PLAN (+ _RECEIVER) → FHIR ServiceRequest. The rich
 domain behaviour lives here: status/intent, the receiver fan-out (Mønster A),
-receiverKey composite derivation, NVL-sentinel handling, receiverType derivation,
+receiverKey derivation from modtager_noegle, receiverType derivation,
 source-meta, and the upsert identifier-system isolation that keeps this DFM source
 from touching the legacy HENVISNING/RIS ServiceRequests.
 
@@ -81,19 +81,20 @@ def _plan_row(**overrides):
 
 
 def _yder_receiver(**overrides):
-    """A yder (practitioner) receiver row — afdeling columns are '' (NVL sentinel).
+    """A yder (practitioner) receiver row — afdeling columns are NULL.
 
     TRANSMISSION_TIME is a ``str`` (not a ``datetime``): arc's column is
     NVARCHAR(100), and ``fetch_child_rows_for_batch`` delivers strings in
-    production. receiverKey derives from this raw string verbatim (Fix 1 / F5).
+    production.
     """
     row = {
         "OBJECT_ID": "RP-001",
+        "modtager_noegle": "55",
         "RECEIVER_YDER_NUMMER": "55",
         "RECEIVER_YDER_NAVN": "Fys Klinik",
-        "RECEIVER_AFDELING_KODE": "",
-        "RECEIVER_AFDELING_SORKODE": "",
-        "RECEIVER_AFDELING_KODETEKST": "",
+        "RECEIVER_AFDELING_KODE": None,
+        "RECEIVER_AFDELING_SORKODE": None,
+        "RECEIVER_AFDELING_KODETEKST": None,
         "STATE_KODE": "PASRehabilitation_ks.ur.SentState.Sent",
         "STATE_KODETEXT": "Sent",
         "TRANSMISSION_TIME": "2024-05-01 10:40:00",
@@ -103,11 +104,12 @@ def _yder_receiver(**overrides):
 
 
 def _afdeling_receiver(**overrides):
-    """An afdeling/kommune receiver row — yder columns are '' (NVL sentinel)."""
+    """An afdeling/kommune receiver row — yder columns are NULL."""
     row = {
         "OBJECT_ID": "RP-001",
-        "RECEIVER_YDER_NUMMER": "",
-        "RECEIVER_YDER_NAVN": "",
+        "modtager_noegle": "KOM01",
+        "RECEIVER_YDER_NUMMER": None,
+        "RECEIVER_YDER_NAVN": None,
         "RECEIVER_AFDELING_KODE": "KOM01",
         "RECEIVER_AFDELING_SORKODE": "999888777666555",
         "RECEIVER_AFDELING_KODETEKST": "Kommunal genoptræning",
@@ -115,6 +117,17 @@ def _afdeling_receiver(**overrides):
         "STATE_KODETEXT": "Sent",
         "TRANSMISSION_TIME": "2024-05-01 10:41:00",
     }
+    row.update(overrides)
+    return row
+
+
+def _sor_receiver(**overrides):
+    """A receiver row with only a SOR code — yder and afdeling code columns are NULL."""
+    row = _afdeling_receiver(
+        modtager_noegle="999888777666555",
+        RECEIVER_AFDELING_KODE=None,
+        RECEIVER_AFDELING_KODETEKST=None,
+    )
     row.update(overrides)
     return row
 
@@ -200,13 +213,14 @@ class TestRehabilitationPlanTransform:
 
 @pytest.mark.unit
 class TestRehabilitationPlanReceivers:
-    """Receiver fan-out (Mønster A) + receiverKey/receiverType/sentinel behaviour."""
+    """Receiver fan-out (Mønster A) + receiverKey/receiverType behaviour."""
 
     def test_fan_out_one_two_three(self):
         # Bug caught: receivers not grouped per plan / wrong wrapper count.
         for n in (0, 1, 2, 3):
             receivers = [
                 _yder_receiver(
+                    modtager_noegle=str(i),
                     RECEIVER_YDER_NUMMER=str(i),
                     TRANSMISSION_TIME=f"2024-05-01 10:{i:02d}:00",
                 )
@@ -218,7 +232,7 @@ class TestRehabilitationPlanReceivers:
             assert len(_receiver_wrappers(d)) == n
 
     def test_yder_receiver_subfields_and_type(self):
-        # Bug caught: sentinel '' emitted as a value; wrong receiverType; missing yderNavn.
+        # Bug caught: NULL emitted as a value; wrong receiverType; missing yderNavn.
         d = _transform_rehabilitation_plans_to_fhir([_plan_row()], {"RP-001": [_yder_receiver()]})[
             0
         ]
@@ -226,7 +240,7 @@ class TestRehabilitationPlanReceivers:
         assert _sub(w, "receiverType").valueString == "yder"
         assert _sub(w, "yderNummer").valueString == "55"
         assert _sub(w, "yderNavn").valueString == "Fys Klinik"
-        # afdeling sentinel '' must NOT be emitted as a subfield.
+        # NULL afdeling must NOT be emitted as a subfield.
         assert _sub(w, "afdelingKode") is None
         assert _sub(w, "statusCode").valueString.endswith("Sent")
         assert _sub(w, "timestamp") is not None
@@ -244,66 +258,46 @@ class TestRehabilitationPlanReceivers:
         assert org.valueReference.identifier.system == SYSTEM_SOR
         assert org.valueReference.identifier.value == "999888777666555"
 
-    def test_receiver_key_composite_and_system(self):
-        # Bug caught: unstable/incorrect recipient key → child PK collisions or churn.
+    def test_receiver_key_is_modtager_and_system(self):
+        # Bug caught: receiverKey built from anything but arc's modtager_noegle (e.g. with the
+        # transmission time) → keys churn on a resend and every resend soft-deletes and
+        # re-inserts the receiver's child row.
         d = _transform_rehabilitation_plans_to_fhir([_plan_row()], {"RP-001": [_yder_receiver()]})[
             0
         ]
         key = _sub(_receiver_wrappers(d)[0], "receiverKey").valueIdentifier
         assert key.system == SYSTEM_IFDB_REHABILITATION_PLAN_RECEIVER
-        # yder|afdeling|transmission — afdeling empty (sentinel), yder=55, raw
-        # (unformatted) transmission time verbatim from the arc row (Fix 1 / F5).
-        assert key.value == "55||2024-05-01 10:40:00"
+        assert key.value == "55"
 
-    def test_receiver_key_uses_raw_transmission_time_verbatim(self):
-        # Bug caught: nøglen må ikke afhænge af datetime-formatering. Ændres tz- eller
-        # præcisionshåndtering i fhir_datetime, ville alle nøgler churne — og child-tabellen
-        # har ingen delete-detektion, så gamle rækker ville blive liggende (F5).
-        raw = "2024-05-01 10:40:00"
-        rows = {"RP-001": [{**_yder_receiver(), "TRANSMISSION_TIME": raw}]}
-        d = _transform_rehabilitation_plans_to_fhir([_plan_row()], rows)[0]
-        key = _sub(_receiver_wrappers(d)[0], "receiverKey").valueIdentifier.value
-        assert key.endswith(f"|{raw}")  # rå værdi, verbatim
-        assert "T" not in key.split("|")[-1]  # ingen ISO-formatering
-        assert "+00:00" not in key  # ingen tz-suffiks
+    def test_sor_only_receiver_keyed_on_sor_code(self):
+        # Bug caught: a receiver with only a SOR code gets no key, or a type other than ukendt.
+        d = _transform_rehabilitation_plans_to_fhir([_plan_row()], {"RP-001": [_sor_receiver()]})[0]
+        w = _receiver_wrappers(d)[0]
+        assert _sub(w, "receiverKey").valueIdentifier.value == "999888777666555"
+        assert _sub(w, "receiverType").valueString == "ukendt"
+        assert _sub(w, "organization").valueReference.identifier.value == "999888777666555"
 
-    def test_identityless_duplicates_derive_identical_key(self):
-        # Bug caught: the deliberate arc collapse of identity-less duplicates would
-        # break if the key derivation were non-deterministic. Two receivers with no
-        # yder/afdeling identity and the same transmission time MUST share a key —
-        # and (Fix 2 / F4) MUST collapse to a single wrapper, since two wrappers
-        # sharing one recipient_key would abort the SOF MERGE with error 8672.
-        ts = "2024-05-01 10:40:00"
-        dup = {
-            "OBJECT_ID": "RP-001",
-            "RECEIVER_YDER_NUMMER": "",
-            "RECEIVER_YDER_NAVN": "",
-            "RECEIVER_AFDELING_KODE": "",
-            "RECEIVER_AFDELING_SORKODE": "",
-            "RECEIVER_AFDELING_KODETEKST": "",
-            "STATE_KODE": None,
-            "STATE_KODETEXT": None,
-            "TRANSMISSION_TIME": ts,
-        }
-        d = _transform_rehabilitation_plans_to_fhir(
-            [_plan_row()], {"RP-001": [dict(dup), dict(dup)]}
-        )[0]
-        wrappers = _receiver_wrappers(d)
-        assert len(wrappers) == 1
-        key = _sub(wrappers[0], "receiverKey").valueIdentifier.value
-        assert key == f"||{ts}"
-        # And the identity-less receiver is classified 'ukendt'.
-        assert _sub(wrappers[0], "receiverType").valueString == "ukendt"
+    def test_two_sor_only_receivers_on_one_plan_are_both_kept(self):
+        # Bug caught: receivers with only a SOR code, sent at the same time, collapse into one.
+        receivers = [
+            _sor_receiver(),
+            _sor_receiver(
+                modtager_noegle="111222333444555",
+                RECEIVER_AFDELING_SORKODE="111222333444555",
+            ),
+        ]
+        d = _transform_rehabilitation_plans_to_fhir([_plan_row()], {"RP-001": receivers})[0]
+        keys = {_sub(w, "receiverKey").valueIdentifier.value for w in _receiver_wrappers(d)}
+        assert keys == {"999888777666555", "111222333444555"}
 
-    def test_duplicate_receiver_keys_collapse_to_one_wrapper(self):
-        # Bug caught: to wrappers med samme receiverKey → SQL Server MERGE-fejl 8672
-        # i sof_service_request_recipient_dfm, dvs. hele assettet fejler.
-        dup = {**_yder_receiver(), "TRANSMISSION_TIME": "2024-05-01 10:40:00"}
-        d = _transform_rehabilitation_plans_to_fhir(
-            [_plan_row()], {"RP-001": [dict(dup), dict(dup)]}
-        )[0]
-        keys = [_sub(w, "receiverKey").valueIdentifier.value for w in _receiver_wrappers(d)]
-        assert len(keys) == 1, "dubletter skal kollapse til én wrapper"
+    def test_duplicate_receiver_key_raises(self):
+        # Bug caught: a receiverKey that repeats within a plan breaks the arc PK guarantee;
+        # dropping the extra receiver silently would hide it.
+        dup = _yder_receiver()
+        with pytest.raises(ValueError, match="RP-001"):
+            _transform_rehabilitation_plans_to_fhir(
+                [_plan_row()], {"RP-001": [dict(dup), dict(dup)]}
+            )
 
 
 @pytest.mark.unit

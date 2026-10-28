@@ -47,7 +47,7 @@ from DSA.FHIR.utils.ifdb.transforms import (
     parse_clob_datetime_safe,
 )
 from DSA.FHIR.utils.reference_resolver import ReferenceFieldConfig, ResolveValuesFn
-from DSI.oracle.ifdb_extract import REHABILITATION_PLAN_RECEIVER_NULL_SENTINEL
+from DSI.oracle.ifdb_extract import REHABILITATION_PLAN_RECEIVER_COLUMNS
 from fhir.resources.R4B.codeableconcept import CodeableConcept
 from fhir.resources.R4B.coding import Coding
 from fhir.resources.R4B.extension import Extension
@@ -83,22 +83,6 @@ _INTENT = "order"
 
 # Wrapper URL inside the receivers parent extension (Mønster A pattern; url="receiver").
 _RECEIVER_WRAPPER_URL = "receiver"
-
-# arc.ifdb_rehabilitation_plan_receiver columns fetched per batch (NVL-sentinel
-# already applied in the extract, so the two identity columns are the
-# REHABILITATION_PLAN_RECEIVER_NULL_SENTINEL token ("__NULL__") — never NULL and
-# never ''. Oracle treats '' as NULL, so an empty-string sentinel is impossible.
-_RECEIVER_COLUMNS = [
-    "OBJECT_ID",
-    "RECEIVER_YDER_NUMMER",
-    "RECEIVER_YDER_NAVN",
-    "RECEIVER_AFDELING_KODE",
-    "RECEIVER_AFDELING_SORKODE",
-    "RECEIVER_AFDELING_KODETEKST",
-    "STATE_KODE",
-    "STATE_KODETEXT",
-    "TRANSMISSION_TIME",
-]
 
 REHABILITATION_PLAN_REFERENCE_CONFIGS = [
     ReferenceFieldConfig(
@@ -163,13 +147,9 @@ def _build_source_extensions(row: dict[str, Any]) -> list[Extension]:
     ]
 
 
-def _desentinel(raw: Any) -> str:
-    """Map the extract's NULL-sentinel token (and NULLs) back to an empty string,
-    so the arc MERGE-key sentinel never leaks into FHIR."""
-    if raw is None:
-        return ""
-    value = str(raw).strip()
-    return "" if value == REHABILITATION_PLAN_RECEIVER_NULL_SENTINEL else value
+def _text(raw: Any) -> str:
+    """The stripped string value, or an empty string for NULL."""
+    return "" if raw is None else str(raw).strip()
 
 
 def _derive_receiver_type(yder_nummer: str, afdeling_kode: str) -> str:
@@ -194,37 +174,19 @@ def _build_receivers_extension(receiver_rows: list[dict[str, Any]]) -> Extension
     wrappers: list[Extension] = []
     seen_keys: set[str] = set()
     for row in receiver_rows:
-        # The extract normalizes the two nullable identity columns to a non-empty
-        # sentinel token (Oracle '' == NULL, so an empty-string sentinel is impossible
-        # at extract time). Convert it back to "absent" here so no token leaks into
-        # FHIR; empty strings are then skipped by append_subfield anyway.
-        yder_nummer = _desentinel(row.get("RECEIVER_YDER_NUMMER"))
-        afdeling_kode = _desentinel(row.get("RECEIVER_AFDELING_KODE"))
-
-        ts_raw = row.get("TRANSMISSION_TIME")
-        # receiverKey MUST use the RAW arc value, never the parsed/reformatted one.
-        # arc's PK component IS this exact string, so copying it verbatim makes the
-        # key provably injective w.r.t. the arc PK (OBJECT_ID, yder, afdeling,
-        # TRANSMISSION_TIME) and immune to any future change in how
-        # parse_clob_datetime_safe / fhir_datetime formats tz or precision.
-        # The "timestamp" sub-field below still uses the parsed value so the
-        # FHIR valueDateTime stays valid — only the KEY changes here.
-        ts_key = str(ts_raw).strip() if ts_raw else ""
+        yder_nummer = _text(row.get("RECEIVER_YDER_NUMMER"))
+        afdeling_kode = _text(row.get("RECEIVER_AFDELING_KODE"))
 
         subfields: list[Extension] = []
 
-        # receiverKey — stable per-recipient identity for the SOF child PK. The
-        # source has no id; the key is the arc composite yder|afdeling|transmission.
-        recipient_key = f"{yder_nummer}|{afdeling_kode}|{ts_key}"
-        # Two arc rows collapsing to one receiverKey would make the SOF view's
-        # forEach emit duplicate (service_request_id, recipient_key) pairs, and
-        # SQL Server aborts the whole MERGE with error 8672 ("attempted to UPDATE
-        # or DELETE the same row more than once"). The arc PK should already
-        # prevent this — the key mirrors that PK exactly — but keeping the
-        # invariant local means a divergence upstream degrades one plan instead
-        # of failing the entire asset.
+        # The arc PK (OBJECT_ID, modtager_noegle) makes receiverKey unique per plan; a duplicate
+        # would abort the SOF MERGE with error 8672.
+        recipient_key = _text(row.get("modtager_noegle"))
         if recipient_key in seen_keys:
-            continue
+            raise ValueError(
+                f"Rehabilitation plan {_text(row.get('OBJECT_ID'))!r} has receiverKey "
+                f"{recipient_key!r} more than once"
+            )
         seen_keys.add(recipient_key)
 
         subfields.append(
@@ -262,7 +224,7 @@ def _build_receivers_extension(receiver_rows: list[dict[str, Any]]) -> Extension
 
         append_subfield(subfields, "statusCode", row.get("STATE_KODE"))
         append_subfield(subfields, "statusText", row.get("STATE_KODETEXT"))
-        append_subfield(subfields, "timestamp", ts_raw, is_date=True)
+        append_subfield(subfields, "timestamp", row.get("TRANSMISSION_TIME"), is_date=True)
 
         wrappers.append(Extension(url=_RECEIVER_WRAPPER_URL, extension=subfields))
 
@@ -450,7 +412,7 @@ def fhir_server_rehabilitation_plan_dfm(
                         "arc.ifdb_rehabilitation_plan_receiver",
                         "OBJECT_ID",
                         plan_ids,
-                        _RECEIVER_COLUMNS,
+                        list(REHABILITATION_PLAN_RECEIVER_COLUMNS),
                     )
 
                     requests = _transform_rehabilitation_plans_to_fhir(batch, receivers_by_plan)

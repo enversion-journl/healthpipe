@@ -709,6 +709,8 @@ SOF_RESOURCE_CONFIGS: dict[str, dict[str, Any]] = {
         # Without it a retired row stays invisible even when the resource
         # returns.
         "resurrect_soft_deleted": True,
+        # A receiver that leaves a plan's receiver list would otherwise stay live.
+        "child_grain_reconcile": True,
     },
     # One row per Condition resource (PK: condition_id). code/code_system/
     # code_display carry the PRIMARY diagnosis coding, selected via

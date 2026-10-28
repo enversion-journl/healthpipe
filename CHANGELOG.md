@@ -7,6 +7,33 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.0.7] - 2026-10-28
+
+### Added
+
+- Security seed: fixed test users in `sec.RolleDomaene` and `sec.RBOrganisation` for
+  tests of the security views. The AD security load adds them only when
+  `SECURITY_SEED_ENABLED` is `true`, and never in a production environment.
+
+### Changed
+
+- **Breaking:** `fhir.ServiceRequest_Recipient.recipient_key` is now the YDER number,
+  the department code or the SOR code of the receiver (IFDB). It was
+  `<ydernummer>|<afdelingskode>|<afsendelsestidspunkt>`. The old key merged receivers
+  that have only a SOR code, so some receivers were missing. A migration deletes the
+  rows with the old key and resets the checkpoint, and the next IFDB daily run loads
+  all the rehabilitation plans again. Change each query that splits or stores the old
+  key.
+- The OS2mo export uses the column names of the agreed CSV file. A migration drops
+  `export.CodesystemToOs2mo`, and the next export run creates and fills it again.
+- The SFI store watermark follows the timestamps of the sources, with an overlap of
+  three hours.
+- A full load of the SQL-on-FHIR tables no longer uses the time budget of the daily
+  chain. The index rebuild of the QuestionnaireResponse tables uses the row count.
+- The `code-server-gitpoll` image reads the webserver URL again before each reload.
+- The devcontainer installs the dependencies from `uv.lock`, as CI does.
+- `pytest-xdist` is a dev dependency.
+
 ## [1.0.6] - 2026-10-27
 
 ### Added
@@ -302,7 +329,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - First public release.
 
-[Unreleased]: https://github.com/enversion-journl/healthpipe/compare/v1.0.6...HEAD
+[Unreleased]: https://github.com/enversion-journl/healthpipe/compare/v1.0.7...HEAD
+[1.0.7]: https://github.com/enversion-journl/healthpipe/compare/v1.0.6...v1.0.7
 [1.0.6]: https://github.com/enversion-journl/healthpipe/compare/v1.0.5...v1.0.6
 [1.0.5]: https://github.com/enversion-journl/healthpipe/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/enversion-journl/healthpipe/compare/v1.0.3...v1.0.4

@@ -55,7 +55,8 @@ def extract_security(context: dg.AssetExecutionContext) -> dict:
     description=(
         "Load extracted AD data into staging: sec.RolleDomaene (TRUNCATE+INSERT), "
         "sec.RBOrganisation (swap), and the historised sec.RolleDomaeneHistorik and "
-        "sec.SORTildelingHistorik."
+        "sec.SORTildelingHistorik. Adds the fixed test users to sec.RolleDomaene and "
+        "sec.RBOrganisation when SECURITY_SEED_ENABLED is on (never in prod)."
     ),
 )
 def populate_security(
@@ -77,6 +78,7 @@ def populate_security(
         _max_removed_grants_ratio,
         _min_count_ratio,
     )
+    from infrastructure.security.security_seed import seed_enabled
 
     host = (os.environ.get("MSSQL_TARGET_STAGING_HOST") or "mssql").strip()
     port = int((os.environ.get("MSSQL_TARGET_STAGING_PORT") or "1433").strip())
@@ -89,6 +91,7 @@ def populate_security(
     min_ratio = _min_count_ratio()
     max_removed_grants_ratio = _max_removed_grants_ratio()
     max_lost_users_ratio = _max_lost_users_ratio()
+    seed = seed_enabled()
 
     # ExtractTooSmallError (udtræk for lille eller for forskelligt fra sidste load) propagerer
     # bevidst uden at blive fanget her, så Dagster-runet markeres failed.
@@ -159,6 +162,7 @@ def populate_security(
         rb_msg = "load skipped (empty extract) — live table untouched"
     context.log.info(
         f"sec.RolleDomaene: {rd_ins} inserted; sec.RBOrganisation: {rb_msg}; "
+        f"testbrugere (seed): {'on' if seed else 'off'}; "
         + "; ".join(
             f"sec.{name}: {m['closed']} closed, {m['inserted']} inserted"
             for name, m in historik_metrics.items()
@@ -166,6 +170,7 @@ def populate_security(
     )
     return dg.MaterializeResult(
         metadata={
+            "security_seed_enabled": seed,
             "rolledomaene_inserted": rd_ins,
             "rborganisation_rows_old": rb["rows_old"],
             "rborganisation_rows_new": rb["rows_new"],

@@ -6,6 +6,9 @@
 
 """Unit tests for SFI_datapoint store incremental refresh assets."""
 
+from datetime import datetime
+from types import SimpleNamespace
+
 import pytest
 from dagster import AssetKey
 from DSO.load.refresh_sfi_datapoint import (
@@ -31,8 +34,10 @@ from DSO.load.refresh_sfi_datapoint import (
     _build_reconciliation_qr_gap_sql,
     _build_reconciliation_setup_sql,
     _build_sfi_props_pivot_sql,
+    _execute_incremental_refresh,
     _incremental_batch_size,
     _is_store_missing_error,
+    _next_watermark,
     _qr_preflight_mode,
     _qr_zero_warn_threshold,
     _refresh_columns,
@@ -545,3 +550,81 @@ def test_reconciliation_batch_routed_variant_reads_build_view_once() -> None:
     assert routed.count("[fhir].[SFI_datapoint_build]") == 1
     assert "INTO #batch_rows" in routed and "INTO #batch_rows" not in plain
     assert "SFI_datapoint_store_backfill" in routed and "SFI_datapoint_store_backfill" not in plain
+
+
+@pytest.mark.unit
+def test_changed_resources_sql_caps_at_the_upper_bound() -> None:
+    sql = _build_changed_resources_sql("2026-10-16 08:17:03", "2026-10-16 08:41:48")
+    for alias in ("o", "qr", "qri"):
+        assert f"{alias}.[dw_timestamp_effective] >= '2026-10-16 08:17:03'" in sql
+        assert f"{alias}.[dw_timestamp_effective] <= '2026-10-16 08:41:48'" in sql
+
+
+@pytest.mark.unit
+def test_next_watermark_never_moves_backwards() -> None:
+    later, earlier = datetime(2026, 10, 16, 10, 17, 3), datetime(2026, 10, 16, 8, 41, 48)
+    assert _next_watermark(later, earlier) == later
+    assert _next_watermark(earlier, later) == later
+    assert _next_watermark(None, earlier) == earlier
+    assert _next_watermark(later, None) == later
+
+
+class _RefreshCursor:
+    """Answers the incremental refresh's queries for a run that finds no changes."""
+
+    def __init__(self, high_water):
+        self.high_water = high_water
+        self.sql: list[str] = []
+
+    def execute(self, sql, params=None):
+        self.sql.append(sql)
+
+    def fetchone(self):
+        last = self.sql[-1]
+        if "MAX(o.[dw_timestamp_effective])" in last:
+            return self.high_water
+        if "#changed_resources" in last:
+            return (0,)
+        return (17_982_923,)
+
+    def close(self):
+        pass
+
+
+@pytest.mark.unit
+def test_incremental_refresh_reads_back_the_overlap_and_stores_the_source_high_water(
+    monkeypatch,
+) -> None:
+    import DSO.load.refresh_sfi_datapoint as refresh
+
+    stored: dict = {}
+
+    class _StateManager:
+        def __init__(self, *_):
+            pass
+
+        def get_last_sync_timestamp(self, *_):
+            return datetime(2026, 10, 16, 8, 17, 3)
+
+        def update_sync_state(self, *_, **kwargs):
+            stored.update(kwargs)
+
+    cursor = _RefreshCursor(
+        (datetime(2026, 10, 16, 8, 30), datetime(2026, 10, 16, 8, 41, 48, 700000), None)
+    )
+    conn = SimpleNamespace(cursor=lambda: cursor, commit=lambda: None, rollback=lambda: None)
+
+    class _Dso:
+        def get_connection(self):
+            from contextlib import nullcontext
+
+            return nullcontext(conn)
+
+    monkeypatch.setattr(refresh, "SyncStateManager", _StateManager)
+    context = SimpleNamespace(log=SimpleNamespace(info=lambda *a: None, warning=lambda *a: None))
+    _execute_incremental_refresh(context, _Dso(), "refresh_daily")
+
+    assert stored["watermark"] == datetime(2026, 10, 16, 8, 41, 48)
+    changed_sql = next(s for s in cursor.sql if "INTO #changed_resources" in s)
+    assert ">= '2026-10-16 05:17:03'" in changed_sql
+    assert "<= '2026-10-16 08:41:48'" in changed_sql

@@ -1134,8 +1134,8 @@ GO
 -- ============================================================================
 -- ServiceRequest_Recipient (from the rehabilitation_plan_receivers
 -- extension via servicerequest_recipient_view). One row per receiver of a
--- genoptræningsplan. recipient_key is the stable composite child key
--- (yder_nummer|afdeling_kode|transmission_time), mirroring DocumentReference_Recipient.
+-- genoptræningsplan. recipient_key is arc.ifdb_rehabilitation_plan_receiver.modtager_noegle:
+-- the receiver's yder number, else department code, else SOR code.
 -- dw_is_deleted is warehouse-managed (not projected from the resource); see
 -- Encounter_Location.
 -- PK is composite: service_request_id + recipient_key.

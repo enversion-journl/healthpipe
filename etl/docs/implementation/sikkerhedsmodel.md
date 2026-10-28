@@ -13,7 +13,8 @@
 > **Vigtigt:** Der er kun én måde at blive tildelt sikkerhed på, og det er
 > igennem AD. De to DPA-tabeller (`sec.RolleDomaene`, `sec.RBOrganisation`)
 > populeres udelukkende fra HealthPipe's AD-grupper via det natlige Dagster-job
-> (se [Drift (Dagster)](#drift-dagster)).
+> (se [Drift (Dagster)](#drift-dagster)). Eneste undtagelse er de faste
+> testbrugere på DEV og QA (se [Testbrugere (seed-data)](#testbrugere-seed-data)).
 
 Sikkerhedsmodellen implementerer adgangskontrol på DPA-views på datamarterne.
 Viewene kalder sikkerhedsfunktionerne i DSO-databasen.
@@ -443,6 +444,56 @@ python infrastructure/security/load_healthpipe_ad_to_mssql.py
 ```
 
 Se modulernes docstrings for detaljer (miljøvariabler, dublet-regler, exit codes).
+
+---
+
+## Testbrugere (seed-data)
+
+Fire faste testbrugere gør det muligt at teste sikkerhedsviews uden at oprette
+nogen i AD-grupperne. De er defineret i
+`infrastructure/security/security_seed.py` og har samme rolle i alle
+DPA-sikkerhedsdomæner:
+
+| bruger | Rolle | Populationsansvar | sec.RBOrganisation |
+|--------|-------|-------------------|--------------------|
+| `testbruger_ingen_adgang` | `K` | `''` | Ingen |
+| `testbruger_org1` | `K` | `''` | SOR `247991000016009` inkl. underliggende |
+| `testbruger_population` | `P` | `SLB` | Ingen |
+| `testbruger_U` | `U` | `''` | Ingen |
+
+Domænerne er listen `SIKKERHEDSDOMAENER` i modulet plus de domæner, der står i
+AD-udtrækket, så et nyt domæne automatisk får testbrugere.
+
+**Indlæsning:** Når `SECURITY_SEED_ENABLED=true`, lægger
+`populate_security` testbrugerne ind i `sec.RolleDomaene` og
+`sec.RBOrganisation` i samme transaktion som AD-rækkerne, før
+størrelses-guard, TRUNCATE og swap. De overlever derfor den natlige
+genindlæsning og synkroniseres til DSO med de øvrige rækker. SOR-tildelingen
+udpakkes via `codesystem.SORHierarchy` som en AD-tildeling. Testbrugerne
+historiseres ikke i `sec.RolleDomaeneHistorik` og `sec.SORTildelingHistorik`.
+
+- Variablen er slået fra som standard og sættes kun på DEV og QA.
+- Loaderen afviser seed-data, hvis miljøet ligner prod (`core.environment`),
+  og ved en ukendt værdi i variablen.
+- Findes en testbruger også i AD-udtrækket, fejler indlæsningen.
+- Er AD-udtrækket for en tabel tomt, springes tabellen over som før. Seed-rækkerne
+  fra forrige indlæsning står så urørt; på en helt tom tabel kommer de først med
+  ved første AD-indlæsning med rækker.
+
+**Test:** Testbrugerne findes kun i sikkerhedstabellerne og ikke som logins i
+AD, så man kan ikke logge ind eller bruge `EXECUTE AS` som dem. Sæt i stedet
+navnet i `AktuelBruger` i DimBorger-viewet (se testvejledningen i skabelonerne
+under [Sikkerhed på datamarterne](#sikkerhed-på-datamarterne)), og kør
+testforespørgslen pr. testbruger. Funktionerne kan også kaldes direkte:
+
+```sql
+SELECT * FROM [sec].[HentBrugerRolleDomaene](N'testbruger_population', N'DPA_Medicin');
+SELECT COUNT(*) FROM [sec].[RBOrganisation] WHERE [bruger] = N'testbruger_org1';
+```
+
+`zzdummy1`/`zzdummy2` fra `verify_sor_expansion` er noget andet: de er
+midlertidige og fjernes igen efter verifikationen, mens testbrugerne er
+permanente.
 
 ---
 

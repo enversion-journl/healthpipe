@@ -111,6 +111,18 @@ guard is skipped, and a stale hierarchy hardly moves the row count enough to
 trip the ratio. An empty hierarchy therefore fails separately (exit 4);
 freshness is enforced by ``deps`` on ``cs_sor``.
 
+Testbrugere (seed-data)
+-----------------------
+- ``SECURITY_SEED_ENABLED`` (default: slået fra) — ``true`` lægger de faste
+  testbrugere fra ``security_seed.py`` ind sammen med AD-rækkerne i
+  ``sec.RolleDomaene`` og ``sec.RBOrganisation``, så de overlever
+  genindlæsningen. De historiseres ikke. Afvises i et miljø, der ligner prod,
+  og ved ukendt værdi (exit 2). Findes en testbruger også i AD-udtrækket,
+  fejler indlæsningen (exit 1).
+
+Er AD-udtrækket for en tabel tomt, springes den over som før, og seed-rækkerne
+fra forrige indlæsning står urørt.
+
 Exit codes
 ----------
 - **0** — indlæsning gennemført
@@ -137,6 +149,7 @@ from dotenv import load_dotenv
 
 # Shared with the other SOR modules — one implementation of the expansion.
 from DSA.ConceptMap.utils import find_all_descendants, rows_to_hierarchy_dict
+from infrastructure.security import security_seed
 
 
 def _load_dotenv_repo_root() -> None:
@@ -338,12 +351,18 @@ def _load_rolle_domaene(
     dry_run: bool,
     min_ratio: float,
 ) -> int:
-    """TRUNCATE+INSERT rows into sec.RolleDomaene. Returns inserted row count."""
+    """TRUNCATE+INSERT rows into sec.RolleDomaene (+ testbrugere when seeding). Returns row count."""
     if not rows:
         # Fail-safe med vilje: et tomt udtræk må IKKE truncate'e tabellen —
         # forældede rækker overlever hellere end at sikkerhedsdata tømmes.
         print("  sec.RolleDomaene: ingen rækker at indlæse.")
         return 0
+
+    if security_seed.seed_enabled():
+        security_seed.assert_no_collision(bruger for bruger, _, _, _ in rows)
+        seed_rows = security_seed.rolle_domaene_rows(domain for _, domain, _, _ in rows)
+        rows = rows + seed_rows
+        print(f"  sec.RolleDomaene: {len(seed_rows)} testbruger-rækker (seed) lagt til")
 
     if dry_run:
         print("  [DRY-RUN] sec.RolleDomaene")
@@ -574,6 +593,12 @@ def _load_rb_organisation(
         # forældede rækker overlever hellere end at sikkerhedsdata tømmes.
         print("  sec.RBOrganisation: ingen rækker at indlæse.")
         return metrics
+
+    if security_seed.seed_enabled():
+        security_seed.assert_no_collision(_strip_bruger_domain(r["bruger"]) for r in org_rows)
+        seed_rows = security_seed.rb_organisation_rows()
+        org_rows = org_rows + seed_rows
+        print(f"  sec.RBOrganisation: {len(seed_rows)} testbruger-tildelinger (seed) lagt til")
 
     if dry_run:
         # Hierarki-udpakning kræver DB-opslag (codesystem.SORHierarchy) og
@@ -868,6 +893,8 @@ def main() -> int:
         min_ratio = _min_count_ratio()
         max_removed_grants_ratio = _max_removed_grants_ratio()
         max_lost_users_ratio = _max_lost_users_ratio()
+        if security_seed.seed_enabled():
+            print("Testbrugere (seed): slået til")
     except ValueError as e:
         print(f"FEJL: {e}")
         return 2

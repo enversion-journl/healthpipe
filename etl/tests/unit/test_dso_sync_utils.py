@@ -2728,16 +2728,29 @@ class TestBatchedSyncIndexDisable:
                 return
             super().execute(sql, params)
 
-    def _run_ratio(self, target_rows, monkeypatch, *, composite=False, min_rows="1", ratio="0.1"):
+    def _run_ratio(
+        self,
+        target_rows,
+        monkeypatch,
+        *,
+        composite=False,
+        min_rows="1",
+        ratio="0.1",
+        config=None,
+        columns=None,
+    ):
         monkeypatch.setenv(sync_utils._INDEX_DISABLE_MIN_ROWS_ENV, min_rows)
-        monkeypatch.setenv(sync_utils._INDEX_DISABLE_MIN_RATIO_ENV, ratio)
+        if ratio is None:
+            monkeypatch.delenv(sync_utils._INDEX_DISABLE_MIN_RATIO_ENV, raising=False)
+        else:
+            monkeypatch.setenv(sync_utils._INDEX_DISABLE_MIN_RATIO_ENV, ratio)
         cursor = self._RatioAwareCursor(True, ["IX_a", "IX_b"], target_rows)
         conn = _MssqlPythonDummyConnection(cursor)
         resource = _RawConnResource([conn])
         context = MagicMock()
         context.log = MagicMock()
         if composite:
-            config = SyncTableConfig(
+            config = config or SyncTableConfig(
                 schema="fhir",
                 table="QuestionnaireResponse_item",
                 primary_key=["qr_id", "link_id"],
@@ -2745,22 +2758,23 @@ class TestBatchedSyncIndexDisable:
                 watermark_column="dw_timestamp_update",
                 disable_target_indexes_during_sync=True,
             )
-            cursor._next_pks = [("qr-1", "l-1")]
+            cursor._next_pks = [tuple(f"pk-{i}" for i in range(len(config.primary_key)))]
             result = sync_utils._sync_via_linked_server_batched_composite(
                 context=context,
                 mssql_target_dso=resource,
                 config=config,
                 last_sync_checkpoint=None,
-                columns=["qr_id", "link_id", "dw_timestamp_insert", "dw_timestamp_update"],
+                columns=columns
+                or ["qr_id", "link_id", "dw_timestamp_insert", "dw_timestamp_update"],
                 string_pk_cols=set(),
             )
         else:
             result = sync_utils._sync_via_linked_server_batched(
                 context=context,
                 mssql_target_dso=resource,
-                config=self._config(),
+                config=config or self._config(),
                 last_sync_checkpoint=None,
-                columns=self._columns(),
+                columns=columns or self._columns(),
                 string_pk_cols=set(),
             )
         return cursor, result
@@ -2797,6 +2811,45 @@ class TestBatchedSyncIndexDisable:
         assert cursor.did_merge is True and cursor.tablock_insert is False
         assert result["rows_affected"] == 3
 
+    @pytest.mark.parametrize(
+        ("config_name", "composite", "columns"),
+        [
+            (
+                "fhir_questionnaire_response",
+                False,
+                ["qr_id", "dw_timestamp_insert", "dw_timestamp_update"],
+            ),
+            (
+                "fhir_questionnaire_response_item",
+                True,
+                ["qr_id", "link_id", "item_key", "answer_index", "dw_timestamp_update"],
+            ),
+        ],
+    )
+    def test_qr_configs_disable_on_min_rows_alone(
+        self, monkeypatch, config_name, composite, columns
+    ):
+        # Få rækker mod 1.000 i målet er under 1 %, og miljøet kræver 50 %;
+        # QR-tabellernes egen andel på 0 vinder over miljøet.
+        from DSO.load.sync_configs import FHIR_SYNC_CONFIGS
+
+        cursor, _ = self._run_ratio(
+            target_rows=1000,
+            monkeypatch=monkeypatch,
+            composite=composite,
+            ratio="0.5",
+            config=FHIR_SYNC_CONFIGS[config_name],
+            columns=columns,
+        )
+        assert len(cursor.disabled) == 2 and len(cursor.rebuilt) == 2
+        assert cursor.did_merge is True
+
+    def test_table_without_own_ratio_keeps_indexes_under_the_default_share(self, monkeypatch):
+        # DRG-lignende tabel uden eget andelskrav og uden miljøværdi: standarden på 10 % gælder.
+        cursor, _ = self._run_ratio(target_rows=1000, monkeypatch=monkeypatch, ratio=None)
+        assert cursor.disabled == [] and cursor.rebuilt == []
+        assert cursor.did_merge is True
+
     def test_composite_small_delta_keeps_indexes(self, monkeypatch):
         cursor, _ = self._run_ratio(target_rows=1000, monkeypatch=monkeypatch, composite=True)
         assert cursor.index_lookup_calls == 0
@@ -2821,3 +2874,17 @@ def test_index_disable_thresholds_run_tags_overstyrer_miljoe(monkeypatch):
     assert sync_utils._index_disable_thresholds(ctx) == (1000, 0.0)
     # MagicMock-kontekst (som i de øvrige tests) har ingen dict-tags -> miljøet gælder
     assert sync_utils._index_disable_thresholds(MagicMock()) == (500, 0.5)
+
+
+def test_index_disable_ratio_tag_before_table_before_environment(monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setenv(sync_utils._INDEX_DISABLE_MIN_RATIO_ENV, "0.5")
+    assert sync_utils._index_disable_thresholds(None, 0.0)[1] == 0.0
+    assert sync_utils._index_disable_thresholds(None, None)[1] == 0.5
+    ctx = SimpleNamespace(
+        run=SimpleNamespace(tags={sync_utils._INDEX_DISABLE_MIN_RATIO_TAG: "0.3"})
+    )
+    assert sync_utils._index_disable_thresholds(ctx, 0.0)[1] == 0.3
+    monkeypatch.delenv(sync_utils._INDEX_DISABLE_MIN_RATIO_ENV)
+    assert sync_utils._index_disable_thresholds(None, None)[1] == 0.10

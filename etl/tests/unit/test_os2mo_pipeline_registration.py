@@ -8,13 +8,14 @@
 
 Pure asset-graph validation — no live OS2mo, no database. What is guarded here
 is the wiring that silently breaks: that each delivery hangs off a freshly built
-codesystem (and its ConceptMaps), that each upload sends its own export, that
-the read-back waits for its archive table to exist, and that the groups the
-job selects on are the groups the assets actually declare.
+codesystem, that each upload sends its own export, that the read-back waits for
+its archive table to exist, and that the groups the job selects on are the
+groups the assets actually declare.
 
-Also guards the group-name split from ``DSI/csv_files/os2mo.py``: those four
-CSV override assets live in ``os2mo_extract``, and pulling them into this job
-by reusing that name would run unrelated ConceptMap inputs on every delivery.
+Also guards the group-name split from ``DSI/csv_files/conceptmap_csv.py``: those
+four ``ext_csv_*`` assets live in ``conceptmap_csv_extract``, and pulling them
+into this job by reusing that name would run unrelated ConceptMap inputs on
+every delivery.
 """
 
 import pytest
@@ -51,14 +52,20 @@ def _keys(*names: str) -> set[AssetKey]:
     return {AssetKey.from_user_string(name) for name in names}
 
 
+def test_spec_names_and_prefixes_are_unique():
+    names = [spec.name for spec in CODESYSTEM_EXPORTS]
+    prefixes = [spec.asset_prefix for spec in CODESYSTEM_EXPORTS]
+    assert len(names) == len(set(names))
+    assert len(prefixes) == len(set(prefixes))
+
+
 class TestAssetWiring:
     def test_sor_is_built_from_a_fresh_codesystem_into_its_table(self):
         assert _deps("os2mo_sor_export") == _keys("cs_sor", "staging_infra_export")
 
-    def test_okosted_waits_for_its_codesystem_and_its_conceptmap(self):
-        assert _deps("os2mo_okosted_export") == _keys(
-            "cs_okosted", "cm_okosted_to_sor", "staging_infra_export"
-        )
+    def test_okosted_is_built_from_its_codesystem_alone(self):
+        # Mappings left the file; the delivery depends only on the codesystem.
+        assert _deps("os2mo_okosted_export") == _keys("cs_okosted", "staging_infra_export")
 
     @pytest.mark.parametrize("spec", CODESYSTEM_EXPORTS, ids=lambda s: s.name)
     def test_each_upload_consumes_its_own_export(self, spec):

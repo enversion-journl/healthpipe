@@ -121,7 +121,8 @@ SYSTEM_IFDB_REHABILITATION_PLAN = (
 )
 # Local plan-type system — TYPE_KODETEKST has no separate code column, so the code IS the text.
 SYSTEM_IFDB_REHABILITATION_PLAN_TYPE = "urn:source:ifdb:rehabilitation_plan_type"
-# REHABILITATION_PLAN_RECEIVER has no own id; recipientKey = yder_nummer|afdeling_kode|transmission_time
+# REHABILITATION_PLAN_RECEIVER has no own id; receiverKey = arc modtager_noegle
+# (yder, afdeling or SOR code)
 SYSTEM_IFDB_REHABILITATION_PLAN_RECEIVER = "urn:source:ifdb:rehabilitation_plan_receiver"
 
 # =============================================================================

@@ -28,7 +28,7 @@
   ],
   // Auto-install pre-commit + gitleaks (the secret/PII commit guard) on container create,
   // so the hook is active for everyone using the devcontainer (not opt-in).
-  "postCreateCommand": "mkdir -p /workspaces/healthpipe/data && python -m pip install -e .[dev] --no-cache-dir && python .devcontainer/startup_scripts/create_databases.py && bash .devcontainer/startup_scripts/setup-precommit.sh",
+  "postCreateCommand": "mkdir -p /workspaces/healthpipe/data && sudo python -m pip install --no-cache-dir uv && uv export --locked --extra dev --no-emit-project --no-emit-package pip -q -o /tmp/requirements.txt && sudo uv pip install --system --no-cache --compile-bytecode --require-hashes --no-deps -r /tmp/requirements.txt && sudo uv pip install --system --no-cache --no-deps -e . && python .devcontainer/startup_scripts/create_databases.py && bash .devcontainer/startup_scripts/setup-precommit.sh",
   "postStartCommand": "bash .devcontainer/startup_scripts/setup-ssh.sh",
   "remoteEnv": {
     "MSSQL_SA_PASSWORD": "${containerEnv:MSSQL_SA_PASSWORD}",

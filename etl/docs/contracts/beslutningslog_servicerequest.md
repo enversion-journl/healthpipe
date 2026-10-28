@@ -71,3 +71,20 @@ direkte på dem.
 eller afsender med en organisationskode, sættes rekvirenten ikke — den
 behandlende afdeling er ikke den, der har bedt om noget. *Aftager:* en tom
 rekvirent betyder, at kilden ikke oplyste den.
+
+## Genoptræningsplanens modtagere
+
+**En modtager kendes på sit ydernummer, sin afdelingskode eller sin SOR-kode.**
+Kilden har ingen nøgle på modtagerrækkerne. En modtager står med enten et
+ydernummer eller en afdelingskode — aldrig begge — og ellers kun med en
+SOR-kode, og de tre koder kommer fra hver sit kodesystem. Modtagernøglen
+(`recipient_key`) er den første udfyldte af ydernummer, afdelingskode og
+SOR-kode, i den rækkefølge, og den er entydig inden for en genoptræningsplan. Kilden fører
+én række pr. modtager pr. plan, så afsendelsestidspunktet indgår ikke i
+nøglen. Den tidligere nøgle — ydernummer, afdelingskode og
+afsendelsestidspunkt — kunne ikke skelne modtagere, der kun har en SOR-kode, og
+smed alle på nær én af dem væk, når de var sendt samtidig. *Aftager:* alle
+kildens modtagere er med. `recipient_key` er ydernummeret, afdelingskoden eller
+SOR-koden, ikke en sammensat streng; en afdeling med både afdelingskode og
+SOR-kode har afdelingskoden som nøgle. En modtager med kun en SOR-kode har
+`receiver_type` = `ukendt`; SOR-koden står i `organization_ref`.

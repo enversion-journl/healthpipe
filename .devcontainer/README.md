@@ -42,7 +42,8 @@ has the short quick-start; this guide goes deeper for day-to-day development.
 3. **Reopen in Container** (`Ctrl+Shift+P` → *Dev Containers: Reopen in Container*).
    On first create the devcontainer:
    - builds the local toolchain image ([Dockerfile](Dockerfile)),
-   - installs the project (`pip install -e .[dev]`),
+   - installs the locked dependencies from `uv.lock` (the same recipe as CI) and the project;
+     after a `pyproject.toml` change, run `uv lock` first, or this step stops on the stale lock,
    - creates the empty application databases
      ([startup_scripts/create_databases.py](startup_scripts/create_databases.py)),
    - and starts Postgres, SQL Server, Oracle, and the Aidbox FHIR server.
@@ -161,12 +162,6 @@ docker volume rm <project>_mssql-data <project>_oracle-ifdbdata
    (30–60 s on first startup); verify settings in `.env`.
 5. **FHIR server won't start** — it runs in dev mode without a license; if you set
    `AIDBOX_LICENSE`, confirm the value is valid (an invalid license blocks startup).
-6. **`pip's dependency resolver ... conflicts`** — a dropped dependency leaves its
-   orphans behind, and they can pin an older version. The install still succeeded.
-   ```bash
-   pip check                    # lists the offenders
-   pip uninstall -y dagstermill dagster-sqlalchemy
-   ```
 
 ### Useful commands
 

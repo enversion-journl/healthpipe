@@ -12,18 +12,20 @@
 -- rows that are rendered into the uploaded CSV file. Whether that file was
 -- delivered is in meta.DFMRunLog (schema_name 'os2mo').
 --
--- Grain: one row per (codesystem, user_key). The columns carry the same names
--- as the file's — OS2mo's own vocabulary — so a query reads like the file.
+-- Grain: one row per (codesystem, kode). The columns carry the file's agreed
+-- names (kode/kode_parent/gyldig_fra/gyldig_til/navn/type/niveau/aktiv), so a
+-- query reads like the file — except the three that would collide with this
+-- warehouse's own audit-column names, which carry a _codesystem postfix.
+-- dw_timestamp_insert, without that postfix, is this table's own build stamp.
 --
 -- REPLACED EVERY RUN, per codesystem — DELETE + INSERT, no history. A delivery
 -- set is state, not an archive. The run history lives in meta.DFMRunLog under
 -- schema_name 'export' (building the set) and 'os2mo' (uploading the file).
 --
 -- Columns are typed rather than stringly: the table exists to be queried.
--- created / updated are the warehouse's timestamps for the code — see
--- utils/os2mo/codesystem_export.py for exactly what moves updated.
--- mappings is a JSON array of {code, system, relationship} — the pre-mapped
--- codes the file carries as map_code_N/map_system_N/map_relation_N.
+-- dw_timestamp_insert_codesystem / dw_timestamp_update_codesystem are the
+-- warehouse's timestamps for the code — see utils/os2mo/codesystem_export.py
+-- for exactly what moves the latter.
 --
 -- Scope: STAGING only. Its own folder means only staging_infra_export executes
 -- it, so no DB_NAME guard is needed: DSO never runs this file.
@@ -41,20 +43,20 @@ IF NOT EXISTS (
 )
 BEGIN
     CREATE TABLE [export].[CodesystemToOs2mo] (
-        [codesystem]          NVARCHAR(50)  NOT NULL,
-        [user_key]            NVARCHAR(100) NOT NULL,
-        [parent_user_key]     NVARCHAR(100) NULL,
-        [validity_from]       DATE          NULL,
-        [validity_to]         DATE          NULL,
-        [name]                NVARCHAR(500) NULL,
-        [org_unit_type]       NVARCHAR(500) NULL,
-        [active]              BIT           NULL,
-        [deleted]             BIT           NULL,
-        [created]             DATETIME2(0)  NULL,
-        [updated]             DATETIME2(0)  NULL,
-        [mappings]            NVARCHAR(MAX) NULL,
-        [dw_timestamp_insert] DATETIME2(0)  NOT NULL,
-        CONSTRAINT [PK_export_CodesystemToOs2mo] PRIMARY KEY CLUSTERED ([codesystem], [user_key])
+        [codesystem]                     NVARCHAR(50)   NOT NULL,
+        [kode]                           NVARCHAR(120)  NOT NULL,
+        [kode_parent]                    NVARCHAR(120)  NULL,
+        [gyldig_fra]                     DATE           NULL,
+        [gyldig_til]                     DATE           NULL,
+        [navn]                           NVARCHAR(500)  NULL,
+        [type]                           NVARCHAR(500)  NULL,
+        [niveau]                         INT            NOT NULL,
+        [aktiv]                          BIT            NULL,
+        [dw_is_deleted_codesystem]       BIT            NULL,
+        [dw_timestamp_insert_codesystem] DATETIME2(0)   NULL,
+        [dw_timestamp_update_codesystem] DATETIME2(0)   NULL,
+        [dw_timestamp_insert]            DATETIME2(0)   NOT NULL,
+        CONSTRAINT [PK_export_CodesystemToOs2mo] PRIMARY KEY CLUSTERED ([codesystem], [kode])
     );
 END
 GO
