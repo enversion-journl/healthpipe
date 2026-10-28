@@ -8,15 +8,22 @@
 
 SOR is checked against a real subtree lifted out of the phase-1 CSV Magenta
 received, so the expected values are Magenta's, not ours. The generic format
-keeps the phase-1 columns that describe the unit itself, names them in OS2mo's
-vocabulary and writes dates as ISO, so the file is translated column by column
-and every value must still match. The phase-1 Level and Niv columns are left
-out: the parent key is the file's only hierarchy information.
+keeps the phase-1 columns that describe the unit itself, renames them to
+Example Region's own delivery names and writes dates as ISO, so the file is
+translated column by column and every value must still match. The phase-1
+Level column becomes ``niveau`` — the generic format computes it from the
+delivered tree rather than copying phase-1's own value, but on this fixture
+the two still agree row for row. The phase-1 Niv1..Niv8 ancestor-name columns
+are left out: ``kode_parent`` is the file's only ancestry information.
 
 Sibling ORDER is deliberately not asserted against the file: the phase-1
 export's within-level order is not reproducible from the codesystem, so the
 builder sorts siblings by code for determinism instead. What must hold is that
 a parent always precedes its children.
+
+The specs used here are built locally rather than imported from
+``DSO.export.os2mo.codesystems``: that module's production specs are a
+downstream consumer of this model, exercised on their own terms elsewhere.
 """
 
 import csv
@@ -25,16 +32,14 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
-from DSO.export.os2mo.codesystems import CODESYSTEM_EXPORTS, OKOSTED_EXPORT, SOR_EXPORT
 from utils.os2mo.codesystem_export import (
+    BASE_COLUMNS,
     CodesystemExportSpec,
-    MappingSource,
     build_export_rows,
     export_columns,
     format_export_date,
     format_export_end_date,
     format_flag,
-    map_slots_needed,
     parse_export_date,
     parse_export_timestamp,
     unreadable_values,
@@ -45,18 +50,35 @@ pytestmark = pytest.mark.unit
 FIXTURE = Path(__file__).parent.parent / "fixtures" / "os2mo" / "sor_fase1_subtree.csv"
 SOR_ROOT = "6101000016001"
 
+# A local stand-in for the production SOR spec (DSO.export.os2mo.codesystems):
+# same property names, so the phase-1 parity checks below exercise the same
+# shape of spec without depending on that consumer module.
+SOR_SPEC = CodesystemExportSpec(
+    name="SOR",
+    asset_prefix="sor",
+    source_deps=("cs_sor",),
+    from_property="openingDate",
+    to_property="closingDate",
+    type_property="entityType",
+    active_property="activeOwnOrganization",
+    active_value="true",
+    status_active_property="activeOwnOrganization",
+    root_code=SOR_ROOT,
+)
+
 # The phase-1 file's columns, and their names in the generic format.
 PHASE1_RENAMES = {
-    "CodeSOR": "user_key",
-    "ParentCodeSOR": "parent_user_key",
-    "FromDate": "validity_from",
-    "ToDate": "validity_to",
-    "Name": "name",
-    "Type": "org_unit_type",
+    "CodeSOR": "kode",
+    "ParentCodeSOR": "kode_parent",
+    "FromDate": "gyldig_fra",
+    "ToDate": "gyldig_til",
+    "Name": "navn",
+    "Type": "type",
+    "Level": "niveau",
 }
 
-# Phase-1 columns the generic format deliberately leaves out.
-PHASE1_HIERARCHY_COLUMNS = {"Level", *(f"Niv{level}" for level in range(1, 9))}
+# Phase-1's ancestor-name columns the generic format deliberately leaves out.
+PHASE1_HIERARCHY_COLUMNS = {f"Niv{level}" for level in range(1, 9)}
 
 
 def _fixture_rows() -> list[dict[str, str]]:
@@ -79,14 +101,14 @@ def _generic(row: dict[str, str]) -> dict[str, str]:
         for key, value in row.items()
         if key not in PHASE1_HIERARCHY_COLUMNS
     }
-    out["validity_from"] = _phase1_date_to_iso(row["FromDate"])
-    out["validity_to"] = _phase1_date_to_iso(row["ToDate"])
+    out["gyldig_fra"] = _phase1_date_to_iso(row["FromDate"])
+    out["gyldig_til"] = _phase1_date_to_iso(row["ToDate"])
     # Not in the phase-1 file. Every delivered SOR unit is active; SOR has no
     # deleted flag, and the fixture carries no warehouse timestamps.
-    out["active"] = "true"
-    out["deleted"] = ""
-    out["created"] = ""
-    out["updated"] = ""
+    out["aktiv"] = "true"
+    out["dw_is_deleted"] = ""
+    out["dw_timestamp_insert"] = ""
+    out["dw_timestamp_update"] = ""
     return out
 
 
@@ -114,56 +136,50 @@ def _sor_source_rows() -> list[dict[str, str]]:
 
 
 def _sor_rows() -> list[dict]:
-    return build_export_rows(SOR_EXPORT, _sor_source_rows())
-
-
-def _without_mappings(row: dict) -> dict:
-    return {key: value for key, value in row.items() if key != "_mappings"}
+    return build_export_rows(SOR_SPEC, _sor_source_rows())
 
 
 class TestSorPhase1Parity:
     def test_every_unit_matches_the_phase1_file(self):
         expected = {row["CodeSOR"]: _generic(row) for row in _fixture_rows()}
-        built = {row["user_key"]: _without_mappings(row) for row in _sor_rows()}
+        built = {row["kode"]: row for row in _sor_rows()}
 
         assert set(built) == set(expected)
         for code, expected_row in expected.items():
             assert built[code] == expected_row, f"SOR {code} does not match the phase-1 file"
 
-    def test_the_columns_are_the_phase1_layout_in_os2mo_names(self):
+    def test_the_columns_are_the_phase1_layout_in_the_delivery_names(self):
         with open(FIXTURE, encoding="utf-8-sig", newline="") as handle:
             phase1 = handle.readline().strip().split(";")
         translated = [PHASE1_RENAMES[c] for c in phase1 if c not in PHASE1_HIERARCHY_COLUMNS]
-        # The unit's own phase-1 columns in order, then status and timestamps.
-        assert export_columns(0) == [
+        # The unit's own phase-1 columns (niveau included), then status flags
+        # and timestamps.
+        assert export_columns() == [
             *translated,
-            "active",
-            "deleted",
-            "created",
-            "updated",
+            "aktiv",
+            "dw_is_deleted",
+            "dw_timestamp_insert",
+            "dw_timestamp_update",
         ]
-
-    def test_sor_carries_no_mapping_columns(self):
-        assert map_slots_needed(SOR_EXPORT, _sor_rows()) == 0
 
 
 class TestOrdering:
     def test_parents_always_precede_their_children(self):
         seen: set[str] = set()
         for row in _sor_rows():
-            if row["parent_user_key"]:
-                assert row["parent_user_key"] in seen, f"{row['user_key']} came before its parent"
-            seen.add(row["user_key"])
+            if row["kode_parent"]:
+                assert row["kode_parent"] in seen, f"{row['kode']} came before its parent"
+            seen.add(row["kode"])
 
     def test_root_is_first(self):
         built = _sor_rows()
-        assert built[0]["user_key"] == SOR_ROOT
-        assert built[0]["parent_user_key"] == ""
+        assert built[0]["kode"] == SOR_ROOT
+        assert built[0]["kode_parent"] == ""
 
     def test_order_is_stable_across_input_permutations(self):
         source = _sor_source_rows()
-        assert build_export_rows(SOR_EXPORT, source) == build_export_rows(
-            SOR_EXPORT, list(reversed(source))
+        assert build_export_rows(SOR_SPEC, source) == build_export_rows(
+            SOR_SPEC, list(reversed(source))
         )
 
 
@@ -173,7 +189,7 @@ class TestSorSelection:
         for row in source:
             if row["code"] != SOR_ROOT:
                 row["active"] = "false"
-        assert [row["user_key"] for row in build_export_rows(SOR_EXPORT, source)] == [SOR_ROOT]
+        assert [row["kode"] for row in build_export_rows(SOR_SPEC, source)] == [SOR_ROOT]
 
     def test_children_of_an_inactive_parent_are_unreachable(self):
         source = _sor_source_rows()
@@ -181,7 +197,7 @@ class TestSorSelection:
             if row["code"] == "8081000016006":  # Psykiatrien — the level-2 branch
                 row["active"] = "false"
 
-        codes = {row["user_key"] for row in build_export_rows(SOR_EXPORT, source)}
+        codes = {row["kode"] for row in build_export_rows(SOR_SPEC, source)}
         assert "8081000016006" not in codes
         assert "243221000016006" not in codes
         assert "372211000016002" in codes
@@ -189,14 +205,32 @@ class TestSorSelection:
     def test_missing_root_refuses_to_build_a_delivery(self):
         source = [row for row in _sor_source_rows() if row["code"] != SOR_ROOT]
         with pytest.raises(ValueError, match=SOR_ROOT):
-            build_export_rows(SOR_EXPORT, source)
+            build_export_rows(SOR_SPEC, source)
 
     def test_boolean_active_flag_is_accepted(self):
         source = _sor_source_rows()
         for row in source:
             row["active"] = True
-        assert len(build_export_rows(SOR_EXPORT, source)) == len(source)
+        assert len(build_export_rows(SOR_SPEC, source)) == len(source)
 
+
+def _spec(**overrides):
+    defaults = dict(
+        name="Okosted",
+        asset_prefix="okosted",
+        source_deps=("cs_okosted",),
+        from_property="startsdate",
+        to_property="enddate",
+        type_property="enhedstype",
+        status_active_property="aktiv",
+        status_deleted_property="slettet",
+    )
+    defaults.update(overrides)
+    return CodesystemExportSpec(**defaults)
+
+
+# A local stand-in for the production Okosted spec (DSO.export.os2mo.codesystems).
+OKOSTED_SPEC = _spec()
 
 # A small cost-centre forest: two roots, one inactive code, three levels.
 OKOSTED_SOURCE = [
@@ -217,51 +251,27 @@ OKOSTED_SOURCE = [
     {"code": "FAEL", "display": "Fællesudgifter", "parent_code": "", "valid_from": "2019-01-01"},
 ]
 
-OKOSTED_MAPPINGS = {
-    "OUH": [("12345", "SOR", "equivalent")],
-    "4711": [("67890", "SOR", "narrower"), ("12345", "SOR", "narrower")],
-}
 
-
-def _okosted_rows(mappings=None) -> list[dict]:
-    return build_export_rows(OKOSTED_EXPORT, OKOSTED_SOURCE, mappings)
+def _okosted_rows() -> list[dict]:
+    return build_export_rows(OKOSTED_SPEC, OKOSTED_SOURCE)
 
 
 class TestOkosted:
     def test_the_whole_codesystem_is_delivered(self):
-        # No active filter: a closed code is delivered with its own validity_to.
-        assert {row["user_key"] for row in _okosted_rows()} == {"RSD", "OUH", "4711", "FAEL"}
+        # No active filter: a closed code is delivered with its own gyldig_til.
+        assert {row["kode"] for row in _okosted_rows()} == {"RSD", "OUH", "4711", "FAEL"}
 
     def test_every_parentless_code_is_a_root(self):
-        roots = [row for row in _okosted_rows() if row["parent_user_key"] == ""]
-        assert sorted(row["user_key"] for row in roots) == ["FAEL", "RSD"]
+        roots = [row for row in _okosted_rows() if row["kode_parent"] == ""]
+        assert sorted(row["kode"] for row in roots) == ["FAEL", "RSD"]
 
     def test_a_closed_code_carries_its_end_date(self):
-        built = {row["user_key"]: row for row in _okosted_rows()}
-        assert built["4711"]["validity_to"] == "2025-12-31"
-        assert built["OUH"]["validity_to"] == ""
+        built = {row["kode"]: row for row in _okosted_rows()}
+        assert built["4711"]["gyldig_til"] == "2025-12-31"
+        assert built["OUH"]["gyldig_til"] == ""
 
     def test_okosted_has_no_type(self):
-        assert {row["org_unit_type"] for row in _okosted_rows()} == {""}
-
-    def test_mappings_travel_with_their_code_sorted(self):
-        built = {row["user_key"]: row for row in _okosted_rows(OKOSTED_MAPPINGS)}
-        assert built["4711"]["_mappings"] == [
-            ("12345", "SOR", "narrower"),
-            ("67890", "SOR", "narrower"),
-        ]
-        assert built["RSD"]["_mappings"] == []
-
-    def test_the_header_widens_to_the_most_mapped_code(self):
-        assert map_slots_needed(OKOSTED_EXPORT, _okosted_rows(OKOSTED_MAPPINGS)) == 2
-
-    def test_the_header_keeps_its_minimum_without_mappings(self):
-        assert map_slots_needed(OKOSTED_EXPORT, _okosted_rows()) == 1
-        assert export_columns(1)[-3:] == [
-            "map_code_1",
-            "map_system_1",
-            "map_relation_1",
-        ]
+        assert {row["type"] for row in _okosted_rows()} == {""}
 
     def test_a_parent_cycle_does_not_hang(self):
         source = [
@@ -269,7 +279,7 @@ class TestOkosted:
             {"code": "B", "display": "B", "parent_code": "A"},
         ]
         # Neither is a root, so neither is reachable — and the walk terminates.
-        assert build_export_rows(OKOSTED_EXPORT, source) == []
+        assert build_export_rows(OKOSTED_SPEC, source) == []
 
 
 class TestUnreadableValues:
@@ -292,13 +302,13 @@ class TestStatusFlags:
             {"code": "A", "display": "A", "status_active": "1", "status_deleted": "0"},
             {"code": "B", "display": "B", "status_active": "0", "status_deleted": "1"},
         ]
-        built = {row["user_key"]: row for row in build_export_rows(OKOSTED_EXPORT, source)}
-        assert (built["A"]["active"], built["A"]["deleted"]) == ("true", "false")
-        assert (built["B"]["active"], built["B"]["deleted"]) == ("false", "true")
+        built = {row["kode"]: row for row in build_export_rows(OKOSTED_SPEC, source)}
+        assert (built["A"]["aktiv"], built["A"]["dw_is_deleted"]) == ("true", "false")
+        assert (built["B"]["aktiv"], built["B"]["dw_is_deleted"]) == ("false", "true")
 
     def test_a_missing_flag_is_empty_not_false(self):
-        built = build_export_rows(OKOSTED_EXPORT, [{"code": "A", "display": "A"}])
-        assert (built[0]["active"], built[0]["deleted"]) == ("", "")
+        built = build_export_rows(OKOSTED_SPEC, [{"code": "A", "display": "A"}])
+        assert (built[0]["aktiv"], built[0]["dw_is_deleted"]) == ("", "")
 
     @pytest.mark.parametrize(
         ("value", "expected"),
@@ -322,9 +332,9 @@ class TestOpenEndedSentinel:
         source = [
             {"code": "A", "display": "A", "valid_from": "1900-01-01", "valid_to": "9999-12-31"}
         ]
-        built = build_export_rows(OKOSTED_EXPORT, source)
-        assert built[0]["validity_from"] == "1900-01-01"
-        assert built[0]["validity_to"] == ""
+        built = build_export_rows(OKOSTED_SPEC, source)
+        assert built[0]["gyldig_fra"] == "1900-01-01"
+        assert built[0]["gyldig_til"] == ""
 
     @pytest.mark.parametrize(
         ("value", "expected"),
@@ -341,7 +351,7 @@ class TestOpenEndedSentinel:
 
 
 class TestTimestamps:
-    """created/updated let Magenta's integration act on the rows that changed."""
+    """dw_timestamp_insert/dw_timestamp_update let Magenta act on the rows that changed."""
 
     SOURCE = [
         {
@@ -368,21 +378,21 @@ class TestTimestamps:
     ]
 
     def _built(self):
-        return {row["user_key"]: row for row in build_export_rows(OKOSTED_EXPORT, self.SOURCE)}
+        return {row["kode"]: row for row in build_export_rows(OKOSTED_SPEC, self.SOURCE)}
 
     def test_created_is_iso_to_the_second(self):
-        assert self._built()["4711"]["created"] == "2024-02-01T02:00:00"
+        assert self._built()["4711"]["dw_timestamp_insert"] == "2024-02-01T02:00:00"
 
     def test_updated_is_passed_through(self):
-        assert self._built()["OUH"]["updated"] == "2024-05-01T02:00:00"
+        assert self._built()["OUH"]["dw_timestamp_update"] == "2024-05-01T02:00:00"
 
     def test_an_ancestors_updated_is_not_inherited(self):
         # The file carries no ancestor names, so OUH changing on 2024-05-01
-        # leaves 4711's row — and its updated — as they were.
-        assert self._built()["4711"]["updated"] == "2024-02-01T02:00:00"
+        # leaves 4711's row — and its dw_timestamp_update — as they were.
+        assert self._built()["4711"]["dw_timestamp_update"] == "2024-02-01T02:00:00"
 
     def test_missing_timestamps_render_empty(self):
-        assert {row["created"] for row in _okosted_rows()} == {""}
+        assert {row["dw_timestamp_insert"] for row in _okosted_rows()} == {""}
 
     @pytest.mark.parametrize(
         ("value", "expected"),
@@ -399,40 +409,21 @@ class TestTimestamps:
 
 
 class TestSpecs:
-    def test_asset_prefixes_and_names_are_unique(self):
-        assert len({spec.asset_prefix for spec in CODESYSTEM_EXPORTS}) == len(CODESYSTEM_EXPORTS)
-        assert len({spec.name for spec in CODESYSTEM_EXPORTS}) == len(CODESYSTEM_EXPORTS)
-
     def test_each_built_set_gets_its_own_file_name(self):
         built_at = datetime(2026, 10, 6, 1, 30, 7)
-        assert SOR_EXPORT.filename(built_at) == "rsyd_sor_20261006_013007.csv"
-        assert OKOSTED_EXPORT.filename(built_at) == "rsyd_okosted_20261006_013007.csv"
+        assert SOR_SPEC.filename(built_at) == "rsyd_sor_20261006_013007.csv"
+        assert OKOSTED_SPEC.filename(built_at) == "rsyd_okosted_20261006_013007.csv"
 
     @pytest.mark.parametrize("field", ["name", "from_property", "type_property"])
     def test_identifiers_that_reach_sql_must_be_plain(self, field):
         with pytest.raises(ValueError):
-            replace(SOR_EXPORT, **{field: "x]; DROP TABLE y --"})
-
-    def test_a_mapping_table_must_be_plain(self):
-        with pytest.raises(ValueError):
-            MappingSource(table="a]; --", system="SOR")
-
-    def test_min_map_slots_needs_a_mapping(self):
-        with pytest.raises(ValueError):
-            CodesystemExportSpec(
-                name="X",
-                asset_prefix="x",
-                source_deps=(),
-                from_property="a",
-                to_property="b",
-                min_map_slots=1,
-            )
+            replace(SOR_SPEC, **{field: "x]; DROP TABLE y --"})
 
 
 class TestDateFormats:
-    def test_open_units_have_an_empty_validity_to(self):
+    def test_open_units_have_an_empty_gyldig_til(self):
         # Empty is open-ended, as null is in OS2mo's validity.
-        assert {row["validity_to"] for row in _sor_rows()} == {""}
+        assert {row["gyldig_til"] for row in _sor_rows()} == {""}
 
     @pytest.mark.parametrize(
         ("value", "expected"),
@@ -450,10 +441,59 @@ class TestDateFormats:
 
     def test_the_rendering_round_trips(self):
         for row in _sor_rows():
-            parsed = parse_export_date(row["validity_from"])
+            parsed = parse_export_date(row["gyldig_fra"])
             assert parsed is not None
-            assert parsed.isoformat() == row["validity_from"]
+            assert parsed.isoformat() == row["gyldig_fra"]
 
     @pytest.mark.parametrize("value", ["", "   ", None, "not a date", "20150730 00:00:00 "])
     def test_an_unrenderable_value_parses_to_none(self, value):
         assert parse_export_date(value) is None
+
+
+def test_row_keys_are_exactly_the_delivered_columns():
+    rows = build_export_rows(_spec(), [{"code": "A_NIVEAU_1", "display": "Rod"}])
+    assert list(rows[0].keys()) == BASE_COLUMNS
+    assert BASE_COLUMNS == [
+        "kode",
+        "kode_parent",
+        "gyldig_fra",
+        "gyldig_til",
+        "navn",
+        "type",
+        "niveau",
+        "aktiv",
+        "dw_is_deleted",
+        "dw_timestamp_insert",
+        "dw_timestamp_update",
+    ]
+
+
+def test_niveau_is_depth_in_the_delivered_tree_per_root():
+    source = [
+        {"code": "A_NIVEAU_1", "display": "Rod A"},
+        {"code": "B_NIVEAU_1", "display": "Rod B"},
+        {"code": "A.X_NIVEAU_2", "display": "Barn", "parent_code": "A_NIVEAU_1"},
+        {"code": "A.X.Y_NIVEAU_3", "display": "Barnebarn", "parent_code": "A.X_NIVEAU_2"},
+    ]
+    niveau = {r["kode"]: r["niveau"] for r in build_export_rows(_spec(), source)}
+    assert niveau == {
+        "A_NIVEAU_1": "1",
+        "B_NIVEAU_1": "1",
+        "A.X_NIVEAU_2": "2",
+        "A.X.Y_NIVEAU_3": "3",
+    }
+
+
+def test_type_comes_from_the_type_property():
+    rows = build_export_rows(
+        _spec(), [{"code": "A_NIVEAU_1", "display": "Rod", "type": "juridisk enhed"}]
+    )
+    assert rows[0]["type"] == "juridisk enhed"
+
+
+def test_mapping_machinery_is_gone():
+    import utils.os2mo.codesystem_export as m
+
+    assert not hasattr(m, "MappingSource")
+    assert not hasattr(m, "map_slots_needed")
+    assert "mappings" not in CodesystemExportSpec.__dataclass_fields__

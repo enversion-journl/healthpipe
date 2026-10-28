@@ -4,8 +4,8 @@
 # This file is part of Healthpipe. See the LICENSE file in the project
 # root for the full AGPL-3.0 license text.
 
-"""The reads of codesystem.* and conceptmap.* that feed an OS2mo delivery, and
-the write of the delivery set to export.CodesystemToOs2mo.
+"""The reads of codesystem.* that feed an OS2mo delivery, and the write of the
+delivery set to export.CodesystemToOs2mo.
 
 Every codesystem in the warehouse has the same three tables —
 ``codesystem.<name>Concept``, ``<name>Hierarchy`` and ``<name>Properties`` — so
@@ -15,16 +15,21 @@ Always a full read. The delivery is a full load by contract, so there is no
 DFM checkpoint and no delta window here. When a spec filters on an active flag,
 the filter is applied in SQL rather than in Python: for SOR the inactive codes
 are ~96% of the national register, and the builder never looks at them.
+
+export.CodesystemToOs2mo mirrors the file column for column, so a query reads
+like the CSV. Three of the file's columns — ``dw_is_deleted``,
+``dw_timestamp_insert`` and ``dw_timestamp_update`` — collide with this
+warehouse's own audit-column names, so the table carries them with a
+``_codesystem`` postfix; the table's own (postfix-free) ``dw_timestamp_insert``
+is the build stamp the writer appends, not a file column.
 """
 
-import json
 from datetime import datetime
 from typing import Any
 
 from core.resources import MSSQLResource
 from utils.os2mo.codesystem_export import (
     CodesystemExportSpec,
-    MappingSource,
     parse_export_date,
     parse_export_timestamp,
 )
@@ -32,9 +37,7 @@ from utils.os2mo.codesystem_export import (
 __all__ = [
     "EXPORT_TABLE",
     "EXPORT_TABLE_COLUMNS",
-    "build_mapping_query",
     "build_source_query",
-    "read_mappings",
     "read_source_rows",
     "write_export_table",
 ]
@@ -132,14 +135,6 @@ def build_source_query(spec: CodesystemExportSpec) -> str:
     return sql.format(name=spec.name)
 
 
-def build_mapping_query(mapping: MappingSource) -> str:
-    """Every (source, target, relationship) row of one ConceptMap."""
-    return (
-        "    SELECT [source_code], [target_code], [relationship]\n"
-        f"    FROM [conceptmap].[{mapping.table}]"
-    )
-
-
 def _fetch(mssql: MSSQLResource, sql: str) -> list[tuple]:
     with mssql.get_connection() as conn:
         cursor = conn.cursor()
@@ -156,42 +151,29 @@ def read_source_rows(mssql: MSSQLResource, spec: CodesystemExportSpec) -> list[d
     return [dict(zip(_SOURCE_COLUMNS, row, strict=False)) for row in rows]
 
 
-def read_mappings(
-    mssql: MSSQLResource, spec: CodesystemExportSpec
-) -> dict[str, list[tuple[str, str, str]]]:
-    """Every pre-mapped target per source code, across the spec's ConceptMaps."""
-    by_code: dict[str, list[tuple[str, str, str]]] = {}
-    for mapping in spec.mappings:
-        for source_code, target_code, relationship in _fetch(mssql, build_mapping_query(mapping)):
-            if not source_code or not target_code:
-                continue
-            by_code.setdefault(str(source_code), []).append(
-                (str(target_code), mapping.system, str(relationship or ""))
-            )
-    return by_code
-
-
 # --------------------------------------------------------------------------
 # Writing the delivery set
 # --------------------------------------------------------------------------
 
 EXPORT_TABLE = "[export].[CodesystemToOs2mo]"
 
-# Column order of export.CodesystemToOs2mo, minus dw_timestamp_insert which the
-# writer stamps itself. Named as the file's columns.
+# Column order of export.CodesystemToOs2mo, minus the table's own
+# dw_timestamp_insert (the build stamp), which the writer appends itself.
+# Named as the file's columns, except the three that collide with this
+# warehouse's own audit-column names — those carry a _codesystem postfix.
 EXPORT_TABLE_COLUMNS = (
     "codesystem",
-    "user_key",
-    "parent_user_key",
-    "validity_from",
-    "validity_to",
-    "name",
-    "org_unit_type",
-    "active",
-    "deleted",
-    "created",
-    "updated",
-    "mappings",
+    "kode",
+    "kode_parent",
+    "gyldig_fra",
+    "gyldig_til",
+    "navn",
+    "type",
+    "niveau",
+    "aktiv",
+    "dw_is_deleted_codesystem",
+    "dw_timestamp_insert_codesystem",
+    "dw_timestamp_update_codesystem",
 )
 
 INSERT_CHUNK_SIZE = 1000
@@ -200,7 +182,8 @@ INSERT_CHUNK_SIZE = 1000
 def _export_row_to_tuple(
     spec: CodesystemExportSpec, row: dict[str, Any], built_at: datetime
 ) -> tuple:
-    """Convert one export row into the table's typed column order.
+    """Convert one file row (keyed by BASE_COLUMNS) into the table's typed,
+    _codesystem-postfixed column order, plus the table's own build stamp.
 
     The export model carries the CSV's text, because that file is the contract.
     The table is for querying, so the values are converted back to real types
@@ -214,30 +197,19 @@ def _export_row_to_tuple(
         value = str(row.get(key) or "").strip()
         return value or None
 
-    mappings = row.get("_mappings") or []
     return (
         spec.name,
-        str(row["user_key"]),
-        _text("parent_user_key"),
-        parse_export_date(row.get("validity_from")),
-        parse_export_date(row.get("validity_to")),
-        _text("name"),
-        _text("org_unit_type"),
-        _bit(row.get("active")),
-        _bit(row.get("deleted")),
-        parse_export_timestamp(row.get("created")),
-        parse_export_timestamp(row.get("updated")),
-        (
-            json.dumps(
-                [
-                    {"code": code, "system": system, "relationship": relation}
-                    for code, system, relation in mappings
-                ],
-                ensure_ascii=False,
-            )
-            if mappings
-            else None
-        ),
+        str(row["kode"]),
+        _text("kode_parent"),
+        parse_export_date(row.get("gyldig_fra")),
+        parse_export_date(row.get("gyldig_til")),
+        _text("navn"),
+        _text("type"),
+        int(row["niveau"]),
+        _bit(row.get("aktiv")),
+        _bit(row.get("dw_is_deleted")),
+        parse_export_timestamp(row.get("dw_timestamp_insert")),
+        parse_export_timestamp(row.get("dw_timestamp_update")),
         built_at,
     )
 

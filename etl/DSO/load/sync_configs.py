@@ -672,9 +672,11 @@ FHIR_SYNC_CONFIGS = {
     # De to største FHIR-tabeller (20,9 mio. QR / 29,8 mio. items efter to
     # kvartaler). Under backfill-vinduer er deltaet på størrelse med målet, og
     # MERGE'ns tid gik 64 % til tilfældige sidelæsninger i de sekundære indeks.
-    # Frakoblingen er portet: kun når deltaet er både stort og stort i forhold
-    # til målet (se _should_disable_target_indexes); den daglige delta beholder
-    # alle indeks.
+    # Frakoblingen er portet på antal rækker alene (index_disable_min_ratio=0.0):
+    # tilfældige uuid-nøgler gør vedligeholdelse pr. række dyrere, jo større
+    # tabellen er, så skæringspunktet er et næsten fast antal rækker. Et delta under
+    # DSO_SYNC_INDEX_DISABLE_MIN_ROWS beholder alle indeks; et større delta genopbygger
+    # dem, både i fuldindlæsningen og i den daglige kæde.
     "fhir_questionnaire_response": SyncTableConfig(
         schema="fhir",
         table="QuestionnaireResponse",
@@ -684,6 +686,7 @@ FHIR_SYNC_CONFIGS = {
         exclude_columns=["dw_timestamp_effective"],
         watermark_effective_column="dw_timestamp_effective",
         disable_target_indexes_during_sync=True,
+        index_disable_min_ratio=0.0,
     ),
     "fhir_questionnaire_response_item": SyncTableConfig(
         schema="fhir",
@@ -694,6 +697,7 @@ FHIR_SYNC_CONFIGS = {
         exclude_columns=["dw_timestamp_effective"],
         watermark_effective_column="dw_timestamp_effective",
         disable_target_indexes_during_sync=True,
+        index_disable_min_ratio=0.0,
     ),
     "fhir_procedure": SyncTableConfig(
         schema="fhir",
@@ -1047,13 +1051,13 @@ DRG_SYNC_CONFIGS = {
     # empty DSO target (dso_infra_drg creates the table but never seeds it), and
     # maintaining 11 nonclustered B-trees per row over 35.6M rows is pure random
     # I/O — the sync hung on PAGEIOLATCH_EX for hours on dev. disable_target_
-    # indexes_during_sync makes the sync drop the nonclustered indexes for the
-    # bulk-load path only (empty target / truncate_insert), so the insert
-    # maintains just the clustered PK and the 11 indexes are rebuilt once,
-    # sorted, afterwards. The nightly watermark delta lands on a populated
-    # target and takes the MERGE path, where the indexes are left intact (see
-    # _sync_via_linked_server_batched): rebuilding every index over the whole
-    # table to absorb a small delta would cost far more than per-row upkeep.
+    # indexes_during_sync makes the sync drop the nonclustered indexes for a bulk
+    # load (empty target / truncate_insert) or a delta large enough to pass the
+    # gate in _should_disable_target_indexes, so the insert maintains just the
+    # clustered PK and the 11 indexes are rebuilt once, sorted, afterwards. A
+    # nightly watermark delta stays under the gate and leaves the indexes intact:
+    # rebuilding every index over the whole table to absorb a small delta would
+    # cost far more than per-row upkeep.
     "fct_DRGKontakt": SyncTableConfig(
         schema="fct",
         table="DRGKontakt",
@@ -1118,19 +1122,19 @@ UDREDNINGSRET_SYNC_CONFIGS = {
         mode="watermark",
         watermark_column="dw_timestamp_update",
     ),
-    # Both facts take disable_target_indexes_during_sync. The flag fires on the
-    # BULK path only — truncate_insert or an empty target — which here means the
-    # first load into the table dso_infra_udredningsret creates and never seeds.
-    # The nightly watermark delta lands on a populated target and takes the MERGE
-    # path, where the nonclustered indexes are left intact: rebuilding every index
-    # over the whole table to absorb a small delta would cost far more than per-row
-    # upkeep (see _sync_via_linked_server_batched).
+    # Both facts take disable_target_indexes_during_sync. The flag fires on a bulk
+    # load — truncate_insert or an empty target, here the first load into the
+    # table dso_infra_udredningsret creates and never seeds — and on a delta large
+    # enough to pass the gate in _should_disable_target_indexes. A nightly
+    # watermark delta stays under the gate and leaves the nonclustered indexes
+    # intact: rebuilding every index over the whole table to absorb a small delta
+    # would cost far more than per-row upkeep.
     #
     # fct.Udredningsforloeb is 1.9M rows with eight nonclustered indexes on top of
     # the clustered PK — ~15M random index writes on the first load. That is an
     # order of magnitude short of fct.DRGKontakt's 35.6M x 11, which hung on
     # PAGEIOLATCH_EX for hours on dev, but it is the same failure shape, the flag
-    # is inert on every run after the first, and one rule for both facts beats two
+    # stays inert on nightly deltas, and one rule for both facts beats two
     # rules for the same problem.
     "fct_Udredningsforloeb": SyncTableConfig(
         schema="fct",

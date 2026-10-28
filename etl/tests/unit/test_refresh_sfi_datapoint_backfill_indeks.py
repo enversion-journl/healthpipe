@@ -262,5 +262,5 @@ def test_fuld_afstemning_saar_manglende_watermarks_til_kandidatsaettets_tidspunk
         p[4] == "2026-09-09 10:35:18" and p[5] == "seeded_by_reconciliation" for _, p in cur.sql
     )
     assert conn.commits == 1
-    # setup-SQL'en leverer tidspunktet sammen med tællingen
-    assert "AS candidates_captured_at" in m._build_reconciliation_setup_sql()
+    # vandmærket kommer fra kildernes tidsstempler, aldrig fra serverens ur
+    assert "SYSDATETIME" not in m._build_reconciliation_setup_sql()

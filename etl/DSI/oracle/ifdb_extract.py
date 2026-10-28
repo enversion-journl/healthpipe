@@ -383,14 +383,15 @@ REHABILITATION_PLAN_COLUMN_TYPES: dict[str, str] = {
     "UPDATE_TIME": "NVARCHAR(100) NULL",
 }
 
-# The four merge-key columns are NOT NULL: OBJECT_ID + TRANSMISSION_TIME are 100%
-# populated (uniqueness check 2026-07-10); the two nullable identity columns are
-# NVL-normalized to a sentinel in the extract SELECT below, so the archive MERGE ON
-# clause matches reliably.
+# The source has no PK. A receiver carries a yder number or a department code, never
+# both, and otherwise only a SOR code; the three come from different code systems, so
+# modtager_noegle (their COALESCE, derived in the extract SELECT below) identifies the
+# receiver within a plan. arc keys on (OBJECT_ID, modtager_noegle).
 REHABILITATION_PLAN_RECEIVER_COLUMN_TYPES: dict[str, str] = {
     "OBJECT_ID": "NVARCHAR(50) NOT NULL",
-    "RECEIVER_YDER_NUMMER": "NVARCHAR(50) NOT NULL",
-    "RECEIVER_AFDELING_KODE": "NVARCHAR(512) NOT NULL",
+    "modtager_noegle": "NVARCHAR(255) NOT NULL",
+    "RECEIVER_YDER_NUMMER": "NVARCHAR(50) NULL",
+    "RECEIVER_AFDELING_KODE": "NVARCHAR(512) NULL",
     "TRANSMISSION_TIME": "NVARCHAR(100) NOT NULL",
     "RECEIVER_YDER_NAVN": "NVARCHAR(512) NULL",
     "RECEIVER_AFDELING_SORKODE": "NVARCHAR(512) NULL",
@@ -1122,16 +1123,11 @@ REHABILITATION_PLAN_EXTRACT_CONFIG = DfmExtractConfig(
     description="IFDB Genoptræningsplan (delta on UPDATE_TIME).",
 )
 
-# NVL-sentinel + dedup SELECT+FROM. The source has no PK and both identity columns
-# are nullable: NULLs become a non-empty token because MERGE ON never matches
-# NULL=NULL and Oracle treats '' as NULL (the FHIR transform maps it back to absent).
-# Identity-less duplicates then share the composite key, so ROW_NUMBER collapses them
-# here — arc enforces that key as a real PK — with NULLS LAST for a deterministic
-# winner. Partition columns MUST equal
-# REHABILITATION_PLAN_RECEIVER_ARCHIVE_CONFIG.merge_keys (pinned by a unit test).
-REHABILITATION_PLAN_RECEIVER_NULL_SENTINEL = "__NULL__"
+# Quoted alias: the extract looks rows up by column name, and Oracle upper-cases unquoted ones.
 _REHABILITATION_PLAN_RECEIVER_SELECT_FROM = (
     "SELECT OBJECT_ID, "
+    "COALESCE(RECEIVER_YDER_NUMMER, RECEIVER_AFDELING_KODE, RECEIVER_AFDELING_SORKODE) "
+    'AS "modtager_noegle", '
     "RECEIVER_YDER_NUMMER, "
     "RECEIVER_AFDELING_KODE, "
     "TRANSMISSION_TIME, "
@@ -1140,26 +1136,7 @@ _REHABILITATION_PLAN_RECEIVER_SELECT_FROM = (
     "RECEIVER_AFDELING_KODETEKST, "
     "STATE_KODE, "
     "STATE_KODETEXT "
-    "FROM (SELECT r.OBJECT_ID, "
-    f"NVL(r.RECEIVER_YDER_NUMMER, '{REHABILITATION_PLAN_RECEIVER_NULL_SENTINEL}') AS RECEIVER_YDER_NUMMER, "
-    f"NVL(r.RECEIVER_AFDELING_KODE, '{REHABILITATION_PLAN_RECEIVER_NULL_SENTINEL}') AS RECEIVER_AFDELING_KODE, "
-    "r.TRANSMISSION_TIME, "
-    "r.RECEIVER_YDER_NAVN, "
-    "r.RECEIVER_AFDELING_SORKODE, "
-    "r.RECEIVER_AFDELING_KODETEKST, "
-    "r.STATE_KODE, "
-    "r.STATE_KODETEXT, "
-    "ROW_NUMBER() OVER (PARTITION BY r.OBJECT_ID, "
-    f"NVL(r.RECEIVER_YDER_NUMMER, '{REHABILITATION_PLAN_RECEIVER_NULL_SENTINEL}'), "
-    f"NVL(r.RECEIVER_AFDELING_KODE, '{REHABILITATION_PLAN_RECEIVER_NULL_SENTINEL}'), "
-    "r.TRANSMISSION_TIME "
-    "ORDER BY r.RECEIVER_AFDELING_SORKODE NULLS LAST, "
-    "r.STATE_KODE NULLS LAST, "
-    "r.STATE_KODETEXT NULLS LAST, "
-    "r.RECEIVER_YDER_NAVN NULLS LAST, "
-    "r.RECEIVER_AFDELING_KODETEKST NULLS LAST) AS DEDUP_RN "
-    "FROM IFDB.REHABILITATION_PLAN_RECEIVER r) "
-    "WHERE DEDUP_RN = 1"
+    "FROM IFDB.REHABILITATION_PLAN_RECEIVER"
 )
 
 REHABILITATION_PLAN_RECEIVER_EXTRACT_CONFIG = DfmExtractConfig(
@@ -1171,15 +1148,10 @@ REHABILITATION_PLAN_RECEIVER_EXTRACT_CONFIG = DfmExtractConfig(
     columns=REHABILITATION_PLAN_RECEIVER_COLUMNS,
     column_types=REHABILITATION_PLAN_RECEIVER_COLUMN_TYPES,
     select_from_expr=_REHABILITATION_PLAN_RECEIVER_SELECT_FROM,
-    index_keys=(
-        "OBJECT_ID",
-        "RECEIVER_YDER_NUMMER",
-        "RECEIVER_AFDELING_KODE",
-        "TRANSMISSION_TIME",
-    ),
+    index_keys=("OBJECT_ID", "modtager_noegle"),
     description=(
         "IFDB Genoptræningsplan-modtagere (full load, no PK in source; "
-        "NVL-sentinel on nullable key columns)."
+        "modtager_noegle = COALESCE of the three receiver columns)."
     ),
 )
 

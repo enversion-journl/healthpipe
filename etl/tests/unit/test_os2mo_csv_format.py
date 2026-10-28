@@ -10,21 +10,75 @@ import csv
 import io
 
 import pytest
-from DSO.export.os2mo.codesystems import OKOSTED_EXPORT, SOR_EXPORT
+from utils.os2mo.codesystem_export import CodesystemExportSpec
 from utils.os2mo.csv_format import encode_csv, render_csv, write_csv
 
 pytestmark = pytest.mark.unit
 
-SOR_ROW = {"user_key": "6101000016001", "name": "Example Region", "_mappings": []}
+# Simple test spec with no optional fields
+_SIMPLE_SPEC = CodesystemExportSpec(
+    name="Test",
+    asset_prefix="test",
+    source_deps=(),
+    from_property="valid_from",
+    to_property="valid_to",
+)
+
+# Test rows keyed by BASE_COLUMNS from Task 1
+SOR_ROW = {
+    "kode": "6101000016001",
+    "kode_parent": "",
+    "gyldig_fra": "",
+    "gyldig_til": "",
+    "navn": "Example Region",
+    "type": "",
+    "niveau": "1",
+    "aktiv": "",
+    "dw_is_deleted": "",
+    "dw_timestamp_insert": "",
+    "dw_timestamp_update": "",
+}
 
 OKOSTED_ROWS = [
-    {"user_key": "OUH", "name": "OUH", "_mappings": [("12345", "SOR", "equivalent")]},
     {
-        "user_key": "4711",
-        "name": "Kardiologi",
-        "_mappings": [("12345", "SOR", "narrower"), ("67890", "SOR", "narrower")],
+        "kode": "OUH",
+        "kode_parent": "",
+        "gyldig_fra": "",
+        "gyldig_til": "",
+        "navn": "OUH",
+        "type": "",
+        "niveau": "1",
+        "aktiv": "",
+        "dw_is_deleted": "",
+        "dw_timestamp_insert": "",
+        "dw_timestamp_update": "",
     },
-    {"user_key": "4712", "name": "Ingen match", "_mappings": []},
+    {
+        "kode": "4711",
+        "kode_parent": "",
+        "gyldig_fra": "",
+        "gyldig_til": "",
+        "navn": "Kardiologi",
+        "type": "",
+        "niveau": "2",
+        "aktiv": "",
+        "dw_is_deleted": "",
+        "dw_timestamp_insert": "",
+        "dw_timestamp_update": "",
+    },
+    {
+        "kode": "4712",
+        "kode_parent": "",
+        "gyldig_fra": "",
+        "gyldig_til": "",
+        "navn": "Ingen match",
+        "type": "",
+        "niveau": "2",
+        "aktiv": "",
+        "dw_is_deleted": "",
+        "dw_timestamp_insert": "",
+        "dw_timestamp_update": "",
+    },
 ]
 
 
@@ -38,60 +92,52 @@ def _reparse_rows(text: str) -> list[dict[str, str]]:
 
 
 class TestRender:
-    def test_the_header_uses_os2mo_names(self):
-        header = render_csv(SOR_EXPORT, [SOR_ROW]).split("\r\n")[0]
-        assert header == (
-            '"user_key";"parent_user_key";"validity_from";"validity_to";"name";'
-            '"org_unit_type";"active";"deleted";"created";"updated"'
-        )
+    EXPECTED_HEADER = (
+        '"kode";"kode_parent";"gyldig_fra";"gyldig_til";"navn";"type";'
+        '"niveau";"aktiv";"dw_is_deleted";"dw_timestamp_insert";"dw_timestamp_update"'
+    )
 
-    def test_mappings_spread_into_numbered_columns(self):
-        rows = {row["user_key"]: row for row in _reparse(render_csv(OKOSTED_EXPORT, OKOSTED_ROWS))}
-
-        assert rows["4711"]["map_code_1"] == "12345"
-        assert rows["4711"]["map_system_2"] == "SOR"
-        assert rows["4711"]["map_relation_2"] == "narrower"
-        assert rows["OUH"]["map_code_2"] == ""
-        assert rows["4712"]["map_code_1"] == ""
+    def test_header_is_always_the_eleven_agreed_columns(self):
+        # The header must not depend on the data: no dynamic map-column width.
+        text = render_csv(_SIMPLE_SPEC, [])
+        assert text.split("\r\n")[0] == self.EXPECTED_HEADER
 
     def test_every_field_is_quoted_even_when_empty(self):
-        line = render_csv(SOR_EXPORT, [SOR_ROW]).split("\r\n")[1]
+        line = render_csv(_SIMPLE_SPEC, [SOR_ROW]).split("\r\n")[1]
         assert line.startswith('"6101000016001";"";')
 
     def test_quotes_separators_and_line_breaks_survive(self):
         name = 'Afsnit "Nord"; 2. sal\nbygning 7'
-        rows = _reparse_rows(render_csv(SOR_EXPORT, [{**SOR_ROW, "name": name}]))
-        assert rows[0]["name"] == name
+        row_with_name = {**SOR_ROW, "navn": name}
+        rows = _reparse_rows(render_csv(_SIMPLE_SPEC, [row_with_name]))
+        assert rows[0]["navn"] == name
         # The quote is escaped by doubling it.
-        assert '"Afsnit ""Nord""; 2. sal' in render_csv(SOR_EXPORT, [{**SOR_ROW, "name": name}])
-
-    def test_the_internal_mapping_list_never_reaches_the_file(self):
-        assert "_mappings" not in render_csv(OKOSTED_EXPORT, OKOSTED_ROWS)
+        assert '"Afsnit ""Nord""; 2. sal' in render_csv(_SIMPLE_SPEC, [row_with_name])
 
 
 class TestBytes:
     def test_lines_end_in_a_single_crlf(self):
-        data = encode_csv(render_csv(SOR_EXPORT, [SOR_ROW]))
+        data = encode_csv(render_csv(_SIMPLE_SPEC, [SOR_ROW]))
         assert b"\r\r\n" not in data
         assert data.count(b"\r\n") == 2  # header + one row
 
     def test_the_file_starts_with_the_bom(self):
-        assert encode_csv(render_csv(SOR_EXPORT, [SOR_ROW])).startswith(b"\xef\xbb\xbf")
+        assert encode_csv(render_csv(_SIMPLE_SPEC, [SOR_ROW])).startswith(b"\xef\xbb\xbf")
 
     def test_danish_letters_survive_the_round_trip(self):
         name = "Ærø Østergård Åbenrå — æøå"
-        data = encode_csv(render_csv(SOR_EXPORT, [{**SOR_ROW, "name": name}]))
+        data = encode_csv(render_csv(_SIMPLE_SPEC, [{**SOR_ROW, "navn": name}]))
 
         # UTF-8: each letter is its two-byte sequence, never a "?" or a dropped byte.
         assert "Æ".encode() in data and "ø".encode() in data and "å".encode() in data
         rows = _reparse_rows(data.decode("utf-8-sig"))
-        assert rows[0]["name"] == name
+        assert rows[0]["navn"] == name
 
     def test_a_utf8_sig_reader_sees_a_clean_first_header(self):
-        data = encode_csv(render_csv(SOR_EXPORT, [SOR_ROW]))
-        assert _reparse_rows(data.decode("utf-8-sig"))[0]["user_key"] == "6101000016001"
+        data = encode_csv(render_csv(_SIMPLE_SPEC, [SOR_ROW]))
+        assert _reparse_rows(data.decode("utf-8-sig"))[0]["kode"] == "6101000016001"
 
     def test_the_written_file_is_the_uploaded_bytes(self, tmp_path):
-        text = render_csv(OKOSTED_EXPORT, OKOSTED_ROWS)
+        text = render_csv(_SIMPLE_SPEC, OKOSTED_ROWS)
         path = write_csv(text, tmp_path / "nested" / "rsyd_okosted_20261006_013000.csv")
         assert path.read_bytes() == encode_csv(text)

@@ -25,6 +25,7 @@ Runs after FHIR flat-table sync and codesystem.sfi_* sync so consumer views
 import os
 import re
 import time
+from datetime import datetime, timedelta
 from typing import Any, Literal
 
 import dagster as dg
@@ -190,14 +191,51 @@ def _refresh_columns() -> list[str]:
     return re.findall(r"\[(\w+)\]", _REFRESH_INSERT_COLUMNS)
 
 
-def _build_changed_resources_sql(last_watermark_str: str | None) -> str:
+def _build_source_high_water_sql() -> str:
+    """Newest dw_timestamp_effective per source of the store: SFI observations, QR and QR items."""
+    return """
+        SELECT
+            (SELECT MAX(o.[dw_timestamp_effective]) FROM [fhir].[Observation] o
+             WHERE o.[element_system] = N'urn:dk:ifdb:sfi'),
+            (SELECT MAX(qr.[dw_timestamp_effective]) FROM [fhir].[QuestionnaireResponse] qr),
+            (SELECT MAX(qri.[dw_timestamp_effective]) FROM [fhir].[QuestionnaireResponse_item] qri);
+    """
+
+
+def _source_high_water(cursor: Any) -> datetime | None:
+    """The run's upper bound and next watermark, in the sources' own clock; None when empty."""
+    cursor.execute(_build_source_high_water_sql())
+    stamps = [stamp for stamp in cursor.fetchone() or () if stamp is not None]
+    return max(stamps).replace(microsecond=0) if stamps else None
+
+
+def _next_watermark(last: datetime | None, high_water: datetime | None) -> datetime | None:
+    """Never move the watermark backwards."""
+    if last is None or high_water is None:
+        return high_water or last
+    return max(last, high_water)
+
+
+# DSO stamps UPDATEs with its local clock, up to two hours ahead of staging's UTC stamps.
+_WATERMARK_OVERLAP = timedelta(hours=3)
+
+
+def _read_from(last: datetime | None) -> datetime | None:
+    """Lower bound of the change scan: the watermark minus the overlap; None on a first run."""
+    return last - _WATERMARK_OVERLAP if last is not None else None
+
+
+def _build_changed_resources_sql(
+    last_watermark_str: str | None, upper_bound_str: str | None = None
+) -> str:
     """Build SQL that populates #changed_resources with resource IDs modified since watermark.
 
     The timestamp string must be in 'YYYY-MM-DD HH:MM:SS' format (same convention as
     SyncStateManager / build_delta_merge_statement in the rest of DSO load).
 
     When last_watermark_str is None (first run), all resources are treated as changed
-    by omitting the WHERE timestamp filter.
+    by omitting the WHERE timestamp filter. ``upper_bound_str`` caps the selection at the
+    high-water mark the run stores as its next watermark.
 
     Change detection filters on the PERSISTED computed column
     ``dw_timestamp_effective`` (= ISNULL(dw_timestamp_update, dw_timestamp_insert),
@@ -205,14 +243,14 @@ def _build_changed_resources_sql(last_watermark_str: str | None) -> str:
     so the watermark predicate is sargable and served by an index seek instead
     of three full clustered scans per run.
     """
+    predicates = []
     if last_watermark_str is not None:
-        obs_where = f"AND o.[dw_timestamp_effective] >= '{last_watermark_str}'"
-        qr_where = f"AND qr.[dw_timestamp_effective] >= '{last_watermark_str}'"
-        qri_where = f"AND qri.[dw_timestamp_effective] >= '{last_watermark_str}'"
-    else:
-        obs_where = ""
-        qr_where = ""
-        qri_where = ""
+        predicates.append(f">= '{last_watermark_str}'")
+    if upper_bound_str is not None:
+        predicates.append(f"<= '{upper_bound_str}'")
+    obs_where = "".join(f" AND o.[dw_timestamp_effective] {p}" for p in predicates)
+    qr_where = "".join(f" AND qr.[dw_timestamp_effective] {p}" for p in predicates)
+    qri_where = "".join(f" AND qri.[dw_timestamp_effective] {p}" for p in predicates)
 
     return f"""
         IF OBJECT_ID(N'tempdb..#changed_resources') IS NOT NULL
@@ -1050,9 +1088,7 @@ def _build_reconciliation_setup_sql() -> str:
         CREATE NONCLUSTERED INDEX [IX_reconcile_resources_SourceResourceId]
             ON #reconcile_resources ([source_resource], [source_resource_id]);
 
-        SELECT
-            COUNT_BIG(*) AS total_resources,
-            CAST(SYSDATETIME() AS datetime2(0)) AS candidates_captured_at
+        SELECT COUNT_BIG(*) AS total_resources
         FROM #reconcile_resources;
     """
 
@@ -1060,7 +1096,7 @@ def _build_reconciliation_setup_sql() -> str:
 def _seed_watermark_sql() -> str:
     """Indsæt en manglende watermark-række (parametre: schema, table, timestamp, status).
     Bruges efter en fuld afstemning, så den daglige/månedlige refresh starter inkrementelt
-    fra kandidatsættets tidspunkt i stedet for at genopbygge alt endnu en gang."""
+    fra kildernes højeste tidsstempel i stedet for at genopbygge alt endnu en gang."""
     return f"""
         IF NOT EXISTS (
             SELECT 1 FROM {SyncStateManager.WATERMARK_TABLE}
@@ -1077,8 +1113,9 @@ def _seed_missing_watermarks(
     cursor: Any, conn: Any, log: Any, *, captured_at: Any, exclude: str
 ) -> list[str]:
     """Efter en fuld afstemning: de andre refresh-watermarks, der mangler (fx efter
-    migrationen, der droppede storen), sættes til kandidatsættets tidspunkt. Ændringer
-    efter det tidspunkt tages af næste delta; ændringer før er med i genopbygningen."""
+    migrationen, der droppede storen), sættes til kildernes højeste tidsstempel ved
+    afstemningens start. Ændringer efter det tages af næste delta; ændringer før er med i
+    genopbygningen."""
     seeded: list[str] = []
     for table in (
         _WATERMARK_TABLE_DAILY,
@@ -1103,7 +1140,7 @@ def _seed_missing_watermarks(
     conn.commit()
     if seeded:
         log.info(
-            "Watermarks %s sat til %s (kandidatsættets tidspunkt), så næste refresh er inkrementel.",
+            "Watermarks %s sat til %s (kildernes højeste tidsstempel), så næste refresh er inkrementel.",
             ", ".join(seeded),
             captured_at,
         )
@@ -1900,9 +1937,10 @@ def _execute_incremental_refresh(
     last_watermark = state_mgr.get_last_sync_timestamp(_WATERMARK_SCHEMA, watermark_table)
 
     is_first_run = last_watermark is None
+    read_from = _read_from(last_watermark)
     # Use the same timestamp format as the rest of the DSO watermark logic (sync_utils.py)
     # for safe embedding in generated SQL literals.
-    last_watermark_str = last_watermark.strftime("%Y-%m-%d %H:%M:%S") if last_watermark else None
+    read_from_str = read_from.strftime("%Y-%m-%d %H:%M:%S") if read_from else None
     # Human-friendly form for logs only
     log_watermark = last_watermark.isoformat() if last_watermark else None
 
@@ -1920,7 +1958,6 @@ def _execute_incremental_refresh(
             watermark_table,
         )
 
-    changed_sql = _build_changed_resources_sql(last_watermark_str)
     pivot_sql = _build_sfi_props_pivot_sql()
     number_sql = _build_number_changed_resources_sql()
     preflight_mode = _qr_preflight_mode()
@@ -1929,7 +1966,15 @@ def _execute_incremental_refresh(
     with mssql_target_dso.get_connection() as conn:
         cursor = conn.cursor()
         try:
-            cursor.execute(changed_sql)
+            high_water = _source_high_water(cursor)
+            next_watermark = _next_watermark(last_watermark, high_water)
+            upper_bound_str = high_water.strftime("%Y-%m-%d %H:%M:%S") if high_water else None
+            context.log.info(
+                "Reading changes from %s to source high-water mark %s.",
+                read_from_str,
+                upper_bound_str,
+            )
+            cursor.execute(_build_changed_resources_sql(read_from_str, upper_bound_str))
 
             cursor.execute("SELECT COUNT(*) FROM #changed_resources")
             changed_count = int(cursor.fetchone()[0])
@@ -1946,6 +1991,7 @@ def _execute_incremental_refresh(
                     rows_affected=0,
                     duration_ms=int(duration_ms),
                     status="success_noop",
+                    watermark=next_watermark,
                 )
 
                 context.log.info(
@@ -2095,6 +2141,7 @@ def _execute_incremental_refresh(
                 rows_affected=inserted_total,
                 duration_ms=int(duration_ms),
                 status="success",
+                watermark=next_watermark,
             )
 
             refresh_mode = "incremental_full_initial" if is_first_run else "incremental"
@@ -2208,11 +2255,11 @@ def _execute_full_reconciliation(
                         _QR_PREFLIGHT_MODE_WARN,
                     )
 
+            high_water = _source_high_water(cursor)
             setup_sql = _build_reconciliation_setup_sql()
             cursor.execute(setup_sql)
             setup_row = _fetch_single_row_result(cursor, result_name="reconciliation setup total")
             total_resources = int(setup_row[0])
-            candidates_captured_at = setup_row[1] if len(setup_row) > 1 else None
 
             total_batches = (total_resources + batch_size - 1) // batch_size
             context.log.info(
@@ -2269,14 +2316,15 @@ def _execute_full_reconciliation(
                 rows_affected=inserted_total,
                 duration_ms=int(duration_ms),
                 status="success_reconciliation",
+                watermark=high_water,
             )
             seeded_watermarks: list[str] = []
-            if candidates_captured_at is not None:
+            if high_water is not None:
                 seeded_watermarks = _seed_missing_watermarks(
                     cursor,
                     conn,
                     context.log,
-                    captured_at=candidates_captured_at,
+                    captured_at=high_water,
                     exclude=watermark_table,
                 )
 

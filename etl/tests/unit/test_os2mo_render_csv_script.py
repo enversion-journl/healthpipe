@@ -18,12 +18,12 @@ from utils.os2mo.csv_format import encode_csv, render_csv
 pytestmark = pytest.mark.unit
 
 ROWS = [
-    {"user_key": "RSD", "parent_user_key": "", "name": "Example Region", "_mappings": []},
+    {"kode": "RSD", "kode_parent": "", "navn": "Example Region", "type": "juridisk enhed"},
 ]
 
 
 def _render(tmp_path, codesystems):
-    export_set = ExportSet(rows=ROWS, codes_read=3, codes_mapped=0, codes_gone=0, unreadable={})
+    export_set = ExportSet(rows=ROWS, codes_read=3, codes_gone=0, unreadable={})
     with patch.object(os2mo_render_csv, "read_export_set", return_value=export_set) as read:
         paths = os2mo_render_csv.render(MagicMock(), codesystems, tmp_path)
     return paths, read

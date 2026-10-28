@@ -18,6 +18,7 @@ from unittest.mock import MagicMock, patch
 import dagster as dg
 import pytest
 from core.dfm_manager import CHECKPOINT_OWNER_SCHEMAS, SCHEMA_TO_TARGET_TYPE
+from DSO.export.os2mo import codesystem_assets
 from DSO.export.os2mo.codesystem_assets import (
     DELIVERY_DFM_SCHEMA,
     EXPORT_DFM_SCHEMA,
@@ -38,14 +39,12 @@ SOURCE_ROWS = [
     {"code": "RSD", "display": "Example Region", "parent_code": "", "valid_from": "2020-01-01"},
     {"code": "OUH", "display": "OUH", "parent_code": "RSD", "valid_from": "2020-01-01"},
 ]
-MAPPINGS = {"OUH": [("12345", "SOR", "equivalent")]}
 
 
 def _build(tmp_path, source_rows=SOURCE_ROWS):
     with (
         patch(f"{MODULE}.DfmManager") as dfm_cls,
         patch(f"{MODULE}.read_source_rows", return_value=source_rows),
-        patch(f"{MODULE}.read_mappings", return_value=MAPPINGS),
         patch(f"{MODULE}.write_export_table", side_effect=lambda m, s, rows, b: len(rows)),
     ):
         dfm = dfm_cls.return_value
@@ -82,6 +81,18 @@ def _upload(os2mo, **config):
     return result, dfm_cls, dfm
 
 
+class TestReadExportSet:
+    def test_codes_without_type_is_counted_and_rest_have_type(self):
+        source = [
+            {"code": "A", "display": "Rod", "type": "juridisk enhed", "has_properties": 1},
+            {"code": "B", "display": "Rod uden type", "parent_code": "A", "has_properties": 1},
+        ]
+        with patch(f"{MODULE}.read_source_rows", return_value=source):
+            export_set = codesystem_assets.read_export_set(MagicMock(), OKOSTED_EXPORT)
+
+        assert export_set.codes_without_type == 1
+
+
 class TestSchemaRegistration:
     def test_neither_is_a_checkpoint_owner(self):
         assert EXPORT_DFM_SCHEMA not in CHECKPOINT_OWNER_SCHEMAS
@@ -101,7 +112,6 @@ class TestBuild:
         # The local copy carries the delivered name and the delivered bytes.
         on_disk = (tmp_path / delivery["filename"]).read_bytes()
         assert on_disk == encode_csv(delivery["csv"])
-        assert '"12345";"SOR";"equivalent"' in delivery["csv"]
 
     def test_codes_outside_the_tree_are_counted(self, tmp_path):
         cycle = [
@@ -126,6 +136,13 @@ class TestBuild:
         _, _, metadata = _build(tmp_path, source_rows=SOURCE_ROWS + odd)
         assert metadata["unreadable_values"].value == {"valid_to": 1}
 
+    def test_codes_without_type_reach_the_metadata(self, tmp_path):
+        # SOURCE_ROWS carries no `type`, so both built rows are untyped.
+        _, _, metadata = _build(tmp_path)
+        assert metadata["codes_without_type"].value == 2
+        assert "codes_with_mappings" not in metadata
+        assert "map_slots" not in metadata
+
     def test_the_build_is_logged_under_export(self, tmp_path):
         _, dfm, _ = _build(tmp_path)
 
@@ -136,7 +153,6 @@ class TestBuild:
         with (
             patch(f"{MODULE}.DfmManager") as dfm_cls,
             patch(f"{MODULE}.read_source_rows", return_value=[]),
-            patch(f"{MODULE}.read_mappings", return_value={}),
             patch(f"{MODULE}.write_export_table") as write,
         ):
             dfm = dfm_cls.return_value
@@ -159,7 +175,7 @@ class TestPreview:
         delivery, _, metadata = _build(tmp_path)
         preview = metadata["csv_preview"].value
 
-        assert preview.startswith('```\n"user_key";"parent_user_key"')
+        assert preview.startswith('```\n"kode";"kode_parent"')
         assert '"OUH"' in preview
         assert metadata["csv_filename"].value == delivery["filename"]
 

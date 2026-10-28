@@ -171,7 +171,7 @@ HEALTHISSUE_ARCHIVE_CONFIG = ArchiveMergeConfig(
 # ---------------------------------------------------------------------------
 # Rehabilitationplan (ServiceRequest) archive configs
 # Parent: delta, upsert on OBJECT_ID, soft-delete via DELETED (1:1 CDR parent).
-# Receiver: full-load, sentinel-normalized composite upsert,
+# Receiver: full-load, upsert on (OBJECT_ID, modtager_noegle),
 #   soft-delete via NOT MATCHED BY SOURCE (CDRR pattern).
 # ---------------------------------------------------------------------------
 
@@ -192,17 +192,8 @@ REHABILITATION_PLAN_ARCHIVE_CONFIG = ArchiveMergeConfig(
     source_delete_column="DELETED",
 )
 
-# Composite key relies on the NVL-sentinel normalization done in the extract
-# SELECT (RECEIVER_YDER_NUMMER / RECEIVER_AFDELING_KODE → the "__NULL__" sentinel
-# token when NULL — Oracle treats '' as NULL, so an empty-string sentinel is
-# impossible) so the MERGE ON clause matches reliably; the 84 identity-less
-# duplicate groups collapse.
-_REHABILITATION_PLAN_RECEIVER_MERGE_KEYS = (
-    "OBJECT_ID",
-    "RECEIVER_YDER_NUMMER",
-    "RECEIVER_AFDELING_KODE",
-    "TRANSMISSION_TIME",
-)
+# modtager_noegle is NOT NULL in ext, so the MERGE ON clause never compares NULLs.
+_REHABILITATION_PLAN_RECEIVER_MERGE_KEYS = ("OBJECT_ID", "modtager_noegle")
 _REHABILITATION_PLAN_RECEIVER_NON_KEY = tuple(
     c
     for c in REHABILITATION_PLAN_RECEIVER_COLUMNS
@@ -1932,8 +1923,8 @@ def arc_rehabilitation_plan_ifdb(
     },
     description=(
         "MERGE upsert ext.ifdb_rehabilitation_plan_receiver → "
-        "arc.ifdb_rehabilitation_plan_receiver (full-load, sentinel-normalized "
-        "composite key, soft-delete on NOT MATCHED BY SOURCE)."
+        "arc.ifdb_rehabilitation_plan_receiver (full-load, keyed on OBJECT_ID + "
+        "modtager_noegle, soft-delete on NOT MATCHED BY SOURCE)."
     ),
 )
 def arc_rehabilitation_plan_receiver_ifdb(

@@ -56,22 +56,6 @@ class TestRehabilitationPlanPipelineRegistration:
         for key_str in ("arc_rehabilitation_plan_ifdb", "arc_rehabilitation_plan_receiver_ifdb"):
             assert graph.has(AssetKey.from_user_string(key_str)), f"Missing: {key_str}"
 
-    def test_receiver_extract_dedupes_on_the_arc_merge_keys(self):
-        # Bug caught in remote dev: PROD has identity-less duplicate rows (both
-        # identity columns NULL for the same plan + transmission time). After
-        # sentinel normalization they share the composite key and violated the arc
-        # PRIMARY KEY. The intentional collapse must therefore happen in the
-        # extract; if the ROW_NUMBER partition ever drifts from the arc merge keys,
-        # the PK violation returns. Pin the two to each other.
-        from DSI.oracle.ifdb_archive import REHABILITATION_PLAN_RECEIVER_ARCHIVE_CONFIG
-        from DSI.oracle.ifdb_extract import _REHABILITATION_PLAN_RECEIVER_SELECT_FROM as select_expr
-
-        partition_clause = select_expr.split("PARTITION BY", 1)[1].split("ORDER BY", 1)[0]
-        for key in REHABILITATION_PLAN_RECEIVER_ARCHIVE_CONFIG.merge_keys:
-            assert key in partition_clause, f"arc merge key not in dedup partition: {key}"
-        assert "ROW_NUMBER() OVER" in select_expr
-        assert select_expr.rstrip().endswith("WHERE DEDUP_RN = 1")
-
 
 # DDL business columns of [fhir].[ServiceRequest_Recipient] (audit cols excluded) —
 # the flatten-back view MUST project exactly these so the MERGE column set matches.

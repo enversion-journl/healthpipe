@@ -75,6 +75,13 @@ description = "Possible person name adjacent to a name/patient field"
 regex = '''(?i)\b(navn|fornavn|efternavn|first[_]?name|last[_]?name|full[_]?name|patient(?:navn|[_]?name)|kontaktperson|contact[_]?person)\b["'\s:=]{1,4}["']?(?-i:[A-ZÆØÅ][a-zæøå]+ [A-ZÆØÅ][a-zæøå]+)'''
 tags = ["pii", "name"]
 
+# The OS2mo delivery's name column is Danish ("navn") and carries organisation
+# names; "Example Region" is the root unit, not a person (known FP in the
+# delivery's test fixtures).
+[[rules.allowlists]]
+regexTarget = "match"
+regexes = ['''(?-i:Example Region)''']
+
 # ---------------------------------------------------------------------------
 # Allowlist — local-dev placeholders, templates, public registry data, FPs
 # ---------------------------------------------------------------------------

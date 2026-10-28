@@ -104,21 +104,16 @@ class SyncStateManager:
         rows_affected: int = 0,
         duration_ms: int | None = None,
         status: str = "success",
+        watermark: datetime | None = None,
     ) -> None:
         """
         Update the sync state after a successful sync.
 
-        Uses MERGE to insert or update the watermark row. The timestamp is set to
-        SYSDATETIME() on the DSO server to avoid clock skew between client and server.
-
-        Known limitation (watermark-race): SYSDATETIME() captures the *end* of
-        the sync run, not the start. Rows written to source tables *during* a
-        long-running sync can have dw_timestamp_update values that fall between
-        the start and end of the run. Because the next run uses >= last_sync_timestamp,
-        those rows may be skipped. A future improvement would accept an optional
-        pre-captured ``run_start_timestamp`` parameter. This affects all callers
-        (sync_utils, refresh_sfi_datapoint, etc.) and should be addressed as a
-        cross-cutting change across the DSO layer, not per individual sync asset.
+        Uses MERGE to insert or update the watermark row. ``watermark`` is the source
+        high-water mark the run read up to; without it the watermark is SYSDATETIME() on
+        the DSO server. Pass it whenever the source timestamps are compared against the
+        watermark: those are written in UTC, SYSDATETIME() is server local time, and the
+        end of a run is later than the newest row it read.
 
         Args:
             schema: Schema name (e.g. 'dim')
@@ -126,8 +121,14 @@ class SyncStateManager:
             rows_affected: Number of rows inserted/updated in this sync
             duration_ms: Duration of the sync in milliseconds (optional)
             status: Sync status string (default: 'success')
+            watermark: Source high-water mark to store (optional)
         """
         duration_expr = f"{duration_ms}" if duration_ms is not None else "NULL"
+        watermark_expr = (
+            f"CAST('{watermark:%Y-%m-%d %H:%M:%S}' AS datetime2(0))"
+            if watermark is not None
+            else "CAST(SYSDATETIME() AS datetime2(0))"
+        )
 
         merge_sql = f"""
             MERGE {self.WATERMARK_TABLE} AS tgt
@@ -140,7 +141,7 @@ class SyncStateManager:
 
             WHEN MATCHED THEN
                 UPDATE SET
-                    last_sync_timestamp = CAST(SYSDATETIME() AS datetime2(0)),
+                    last_sync_timestamp = {watermark_expr},
                     last_sync_rows = {rows_affected},
                     last_sync_duration_ms = {duration_expr},
                     last_sync_status = '{status}',
@@ -149,7 +150,7 @@ class SyncStateManager:
             WHEN NOT MATCHED THEN
                 INSERT (schema_name, table_name, last_sync_timestamp,
                         last_sync_rows, last_sync_duration_ms, last_sync_status)
-                VALUES ('{schema}', '{table}', CAST(SYSDATETIME() AS datetime2(0)),
+                VALUES ('{schema}', '{table}', {watermark_expr},
                         {rows_affected}, {duration_expr}, '{status}');
         """
         with self._mssql.get_connection() as conn:

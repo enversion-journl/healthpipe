@@ -500,8 +500,8 @@ class SyncTableConfig:
     # LOAD — a truncate_insert refresh, the empty-target first load, or a delta
     # that is large relative to the populated target (backfill window, see
     # _should_disable_target_indexes: incoming rows >= DSO_SYNC_INDEX_DISABLE_
-    # MIN_ROWS and incoming/target >= DSO_SYNC_INDEX_DISABLE_MIN_RATIO) — and
-    # rebuild them afterwards, so the load maintains just the clustered PK and
+    # MIN_ROWS and incoming/target >= index_disable_min_ratio) — and rebuild them
+    # afterwards, so the load maintains just the clustered PK and
     # the nonclustered indexes are rebuilt once (sorted) instead of taking a
     # random write per row per index. A small incremental MERGE into a populated
     # target leaves the indexes intact: rebuilding every index over the whole
@@ -510,6 +510,9 @@ class SyncTableConfig:
     # bulk loads dominates; adds risk (rebuild must run in finally). Source
     # (staging) indexes are never disabled.
     disable_target_indexes_during_sync: bool = False
+    # Share of the target a delta must reach before indexes are disabled. None uses
+    # DSO_SYNC_INDEX_DISABLE_MIN_RATIO, else 0.10; a run tag overrides both.
+    index_disable_min_ratio: float | None = None
     # Rows per chunk when using the Python fallback path (_sync_via_python).
     # Controls fetchmany() size and executemany() batch size to keep memory constant.
     # Default 5k keeps memory <10 MB even for wide dims with NVARCHAR(MAX).
@@ -1315,7 +1318,9 @@ def _get_non_pk_nonclustered_index_names(
 # målet) beholder alle indeks; et backfill-vindue (Q2: 11,8 mio. rækker ind i
 # 9,1 mio.) slår dem fra og genopbygger dem én gang bagefter. Målt 2022-Q2:
 # MERGE'n af QuestionnaireResponse tog 63 min, hvoraf 64 % var ventetid på
-# tilfældige sidelæsninger til de fem sekundære indeks.
+# tilfældige sidelæsninger til de fem sekundære indeks. Andelskravet gælder pr.
+# tabel, når SyncTableConfig.index_disable_min_ratio er sat; miljøvariablen og
+# standarden er fælles fallback.
 _INDEX_DISABLE_MIN_RATIO_ENV = "DSO_SYNC_INDEX_DISABLE_MIN_RATIO"
 _INDEX_DISABLE_MIN_ROWS_ENV = "DSO_SYNC_INDEX_DISABLE_MIN_ROWS"
 _DEFAULT_INDEX_DISABLE_MIN_RATIO = 0.10
@@ -1331,8 +1336,10 @@ def _run_tags(context) -> dict[str, str]:
     return dict(tags) if isinstance(tags, dict) else {}
 
 
-def _index_disable_thresholds(context=None) -> tuple[int, float]:
-    """(min_rows, min_ratio): run-tag før miljø, med sikre defaults."""
+def _index_disable_thresholds(
+    context=None, table_min_ratio: float | None = None
+) -> tuple[int, float]:
+    """(min_rows, min_ratio): run-tag før tabellens værdi før miljø før default."""
     tags = _run_tags(context)
     try:
         min_rows = max(
@@ -1345,15 +1352,13 @@ def _index_disable_thresholds(context=None) -> tuple[int, float]:
         )
     except ValueError:
         min_rows = _DEFAULT_INDEX_DISABLE_MIN_ROWS
+    fallback_ratio = (
+        table_min_ratio
+        if table_min_ratio is not None
+        else os.environ.get(_INDEX_DISABLE_MIN_RATIO_ENV) or _DEFAULT_INDEX_DISABLE_MIN_RATIO
+    )
     try:
-        min_ratio = max(
-            0.0,
-            float(
-                tags.get(_INDEX_DISABLE_MIN_RATIO_TAG)
-                or os.environ.get(_INDEX_DISABLE_MIN_RATIO_ENV)
-                or _DEFAULT_INDEX_DISABLE_MIN_RATIO
-            ),
-        )
+        min_ratio = max(0.0, float(tags.get(_INDEX_DISABLE_MIN_RATIO_TAG) or fallback_ratio))
     except ValueError:
         min_ratio = _DEFAULT_INDEX_DISABLE_MIN_RATIO
     return min_rows, min_ratio
@@ -1384,15 +1389,15 @@ def _should_disable_target_indexes(
     """Afgør om målets nonclustered indeks skal slås fra under denne skrivning.
 
     Kun når tabellen har valgt det til. En egentlig bulk load (truncate/tomt
-    mål) slår altid fra. Et delta ind i et fyldt mål slår fra, når det både er
-    absolut stort og stort i forhold til målet — ellers koster genopbygningen
-    mere end vedligeholdelsen pr. række.
+    mål) slår altid fra. Et delta ind i et fyldt mål slår fra, når det er mindst
+    min_rows rækker og mindst min_ratio af målet; under det koster genopbygningen
+    mere end vedligeholdelsen pr. række. min_ratio kan sættes pr. tabel.
     """
     if not config.disable_target_indexes_during_sync:
         return False
     if is_bulk_load:
         return True
-    min_rows, min_ratio = _index_disable_thresholds(context)
+    min_rows, min_ratio = _index_disable_thresholds(context, config.index_disable_min_ratio)
     if incoming_rows < min_rows:
         return False
     target_rows = _target_row_estimate(cursor, config.schema, config.table)

@@ -17,6 +17,10 @@ Fejl disse tests fanger:
 - en måned, der ikke blev postet, rykker markøren, og næste vindues post arver den
 - et vindue poster eller synker side om side med den daglige kæde
 - et nyt vindue begynder, selv om det ikke når at blive færdigt før den daglige kæde
+- vinduets SOF stopper på den daglige kædes tidsbudget og lader resten af måneden til
+  næste morgen, mens vinduet melder grønt
+- trinnene mister kørslens dso_sync/*-tags, så indeksporten ikke kan styres for én
+  fuldindlæsning
 """
 
 from __future__ import annotations
@@ -380,3 +384,71 @@ def test_post_runs_when_no_daily_run_is_active(monkeypatch):
     monkeypatch.setattr(m, "_koer_trin", fake)
     m.koer_vindue(_ctx_with_runs([other]), m.Vindue("2022-01-01", "2022-01-31"), m.FuldloadConfig())
     assert "post" in ran
+
+
+def _koer_sof_trin(monkeypatch, foraelder_tags=None) -> dict:
+    """Kører _koer_trin for sof_dso med Dagster skiftet ud og returnerer barnets tags."""
+    from types import SimpleNamespace
+
+    oprettet: dict = {}
+
+    def create_run_for_job(**kwargs):
+        oprettet.update(kwargs)
+        return SimpleNamespace(run_id="barn-1")
+
+    monkeypatch.setattr(m, "_grupper_pr_noegle", lambda repo_def: {})
+    monkeypatch.setattr(m, "udvaelg_noegler", lambda *a, **k: [dg.AssetKey("sof_x")])
+    monkeypatch.setattr(m, "_reconstructable_job", lambda context, navn: None)
+    monkeypatch.setattr(m, "execute_run", lambda **k: SimpleNamespace(success=True))
+    repo_def = SimpleNamespace(
+        get_implicit_job_def_for_assets=lambda noegler: SimpleNamespace(name="__ASSET_JOB")
+    )
+    context = SimpleNamespace(
+        repository_def=repo_def,
+        run_id="forælder-1",
+        run=SimpleNamespace(tags=foraelder_tags or {}),
+        instance=SimpleNamespace(create_run_for_job=create_run_for_job),
+        log=SimpleNamespace(info=lambda *a: None, error=lambda *a: None),
+    )
+    trin = next(t for t in m.TRIN if t.navn == "sof_dso")
+    assert m._koer_trin(context, trin, m.Vindue("2022-08-01", "2022-08-31"), 5).ok
+    return oprettet["tags"]
+
+
+@pytest.mark.parametrize("miljoe", [None, "60"])
+def test_trinkoersler_slaar_sof_tidsbudgettet_fra(monkeypatch, miljoe):
+    from types import SimpleNamespace
+
+    from DSA.FHIR.utils.sql_on_fhir.sof_utils import (
+        SOF_SLICE_TIME_BUDGET_MINUTES_ENV,
+        sof_slice_settings,
+    )
+
+    if miljoe is None:
+        monkeypatch.delenv(SOF_SLICE_TIME_BUDGET_MINUTES_ENV, raising=False)
+    else:
+        monkeypatch.setenv(SOF_SLICE_TIME_BUDGET_MINUTES_ENV, miljoe)
+
+    barn = SimpleNamespace(run=SimpleNamespace(tags=_koer_sof_trin(monkeypatch)))
+
+    assert sof_slice_settings(barn)[1] == 0
+
+
+def test_trinkoersler_arver_indeksportens_tags_fra_koerslen(monkeypatch):
+    from types import SimpleNamespace
+
+    from DSO.load import sync_utils
+
+    tags = _koer_sof_trin(
+        monkeypatch,
+        foraelder_tags={
+            sync_utils._INDEX_DISABLE_MIN_ROWS_TAG: "500000",
+            sync_utils._INDEX_DISABLE_MIN_RATIO_TAG: "0.02",
+            "driver": "sla",
+        },
+    )
+
+    assert "driver" not in tags
+    assert tags["fuldload/trin"] == "sof_dso"
+    barn = SimpleNamespace(run=SimpleNamespace(tags=tags))
+    assert sync_utils._index_disable_thresholds(barn, 0.0) == (500_000, 0.02)

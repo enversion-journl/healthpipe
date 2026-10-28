@@ -617,13 +617,13 @@ GO
 
 -- ----------------------------------------------------------------------------
 -- arc.ifdb_rehabilitation_plan_receiver
---   (1:1 from IFDB.REHABILITATION_PLAN_RECEIVER — 9 source columns)
---   No PK in source; composite UPSERT key (OBJECT_ID, RECEIVER_YDER_NUMMER,
---   RECEIVER_AFDELING_KODE, TRANSMISSION_TIME) is MERGE-safe because the extract
---   NVL-normalizes the two nullable identity columns to the "__NULL__" sentinel
---   token — Oracle treats '' as NULL, so an empty-string sentinel is impossible.
---   The 84 identity-less duplicate groups collapse deliberately. Full-load +
---   soft-delete. Index rule: ONLY on dw_timestamp_update.
+--   (1:1 from IFDB.REHABILITATION_PLAN_RECEIVER — 9 source columns + modtager_noegle)
+--   No PK in source. modtager_noegle = COALESCE(RECEIVER_YDER_NUMMER,
+--   RECEIVER_AFDELING_KODE, RECEIVER_AFDELING_SORKODE), derived in the extract. A
+--   receiver carries a yder number or a department code, never both, and otherwise
+--   only a SOR code; the three come from different code systems, so
+--   (OBJECT_ID, modtager_noegle) is the UPSERT key. Full-load + soft-delete.
+--   Index rule: ONLY on dw_timestamp_update.
 -- ----------------------------------------------------------------------------
 
 IF NOT EXISTS (
@@ -633,8 +633,10 @@ IF NOT EXISTS (
 BEGIN
     CREATE TABLE [arc].[ifdb_rehabilitation_plan_receiver] (
         [OBJECT_ID]                       NVARCHAR(50)    NOT NULL,
-        [RECEIVER_YDER_NUMMER]            NVARCHAR(50)    NOT NULL,
-        [RECEIVER_AFDELING_KODE]          NVARCHAR(512)   NOT NULL,
+        -- 255 = fhir.ServiceRequest_Recipient.recipient_key, which carries modtager_noegle.
+        [modtager_noegle]                 NVARCHAR(255)   NOT NULL,
+        [RECEIVER_YDER_NUMMER]            NVARCHAR(50)    NULL,
+        [RECEIVER_AFDELING_KODE]          NVARCHAR(512)   NULL,
         [TRANSMISSION_TIME]               NVARCHAR(100)   NOT NULL,
         [RECEIVER_YDER_NAVN]              NVARCHAR(512)   NULL,
         [RECEIVER_AFDELING_SORKODE]       NVARCHAR(512)   NULL,
@@ -648,9 +650,7 @@ BEGIN
         [dw_is_deleted]                    BIT             NOT NULL CONSTRAINT [DF_ifdb_rehabilitation_plan_receiver_dw_is_deleted] DEFAULT (0),
 
         CONSTRAINT [PK_arc_rehabilitation_plan_receiver_ifdb]
-            PRIMARY KEY CLUSTERED (
-                [OBJECT_ID], [RECEIVER_YDER_NUMMER], [RECEIVER_AFDELING_KODE], [TRANSMISSION_TIME]
-            )
+            PRIMARY KEY CLUSTERED ([OBJECT_ID], [modtager_noegle])
     );
 END
 GO

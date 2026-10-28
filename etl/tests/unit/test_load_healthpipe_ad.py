@@ -13,6 +13,7 @@ import contextlib
 import infrastructure.security.load_healthpipe_ad_to_mssql as loader
 import pytest
 from DSA.ConceptMap.utils import find_all_descendants
+from infrastructure.security import security_seed
 from infrastructure.security.export_healthpipe_ad_groups import _parse_groups
 from infrastructure.security.load_healthpipe_ad_to_mssql import (
     ExtractTooSmallError,
@@ -538,3 +539,123 @@ def test_populate_security_historises_two_tables_without_closes_on_failed_lookup
     assert historik <= set(_FakeDfm.rows)
     assert result.metadata["sortildelinghistorik_open_before"] == 1
     assert conn.closed
+
+
+@pytest.fixture
+def _non_prod_environment(monkeypatch):
+    monkeypatch.delenv(security_seed.SEED_ENABLED_ENV, raising=False)
+    monkeypatch.setenv("DAGSTER_ENVIRONMENT", "dev")
+    monkeypatch.setenv("MSSQL_TARGET_STAGING_HOST", "mssql")
+    monkeypatch.setenv("MSSQL_TARGET_DSO_HOST", "mssql")
+
+
+def _staged_rolle_rows(conn):
+    return [p for s, p in _all_executed(conn) if s.startswith("INSERT INTO #SrcRolleDomaene")]
+
+
+_AD_ROLLE_ROWS = [("ab1", "DPA_Medicin", "U", "")]
+
+
+@pytest.mark.parametrize(("seed", "expect_testbrugere"), [("", False), ("true", True)])
+def test_load_rolle_domaene_stages_testbrugere_only_when_seeding(
+    monkeypatch, _non_prod_environment, seed, expect_testbrugere
+):
+    monkeypatch.setenv(security_seed.SEED_ENABLED_ENV, seed)
+    conn = _FakeHistorikConn(open_count=0)
+    loader._load_rolle_domaene(conn, _AD_ROLLE_ROWS, dry_run=False, min_ratio=0.8)
+
+    staged = _staged_rolle_rows(conn)
+    assert ("ab1", "DPA_Medicin", "U", "") in staged
+    assert (("testbruger_population", "DPA_Medicin", "P", "SLB") in staged) is expect_testbrugere
+
+
+def test_load_rolle_domaene_seed_collision_fails_before_truncate(
+    monkeypatch, _non_prod_environment
+):
+    monkeypatch.setenv(security_seed.SEED_ENABLED_ENV, "true")
+    conn = _FakeHistorikConn(open_count=0)
+    rows = _AD_ROLLE_ROWS + [("TESTBRUGER_U", "DPA_Medicin", "U", "")]
+    with pytest.raises(security_seed.SeedCollisionError):
+        loader._load_rolle_domaene(conn, rows, dry_run=False, min_ratio=0.8)
+    assert not any("TRUNCATE" in s for s, _ in _all_executed(conn))
+
+
+def test_load_rolle_domaene_empty_ad_extract_skips_even_with_seed(
+    monkeypatch, _non_prod_environment
+):
+    monkeypatch.setenv(security_seed.SEED_ENABLED_ENV, "true")
+    conn = _FakeHistorikConn(open_count=0)
+    assert loader._load_rolle_domaene(conn, [], dry_run=False, min_ratio=0.8) == 0
+    assert _all_executed(conn) == []
+
+
+def test_load_rb_organisation_with_seed_stages_expanded_testbruger_grant(
+    monkeypatch, _non_prod_environment
+):
+    monkeypatch.setenv(security_seed.SEED_ENABLED_ENV, "true")
+    monkeypatch.setattr(
+        security_seed,
+        "TESTBRUGERE",
+        (security_seed.Testbruger("testbruger_org1", "K", sor_koder=("100",)),),
+    )
+    conn = _FakeLoadConn(live_counts=(0, 0), new_counts=(4, 2))
+    loader._load_rb_organisation(
+        conn,
+        [{"bruger": "abc1", "code_sor": "111"}],
+        dry_run=False,
+        min_ratio=0.8,
+        max_removed_grants_ratio=0.2,
+        max_lost_users_ratio=0.1,
+    )
+
+    staged = {
+        (params[i], params[i + 1])
+        for sql, params in _all_executed(conn)
+        if sql.startswith("INSERT INTO #SrcRBOrganisation") and params
+        for i in range(0, len(params), 2)
+    }
+    assert staged == {
+        ("abc1", "111"),
+        ("testbruger_org1", "100"),
+        ("testbruger_org1", "110"),
+        ("testbruger_org1", "111"),
+    }
+
+
+def test_populate_security_with_seed_keeps_testbrugere_out_of_historik(
+    monkeypatch, _non_prod_environment
+):
+    import dagster as dg
+    import infrastructure.assets.security_ad_assets as assets
+
+    class _FakeDfm:
+        @contextlib.contextmanager
+        def target_runs(self, *_, **__):
+            yield {}
+
+    conn = _FakeHistorikConn(open_count=0)
+    monkeypatch.setenv(security_seed.SEED_ENABLED_ENV, "true")
+    monkeypatch.setenv("MSSQL_TARGET_STAGING_USER", "u")
+    monkeypatch.setenv("MSSQL_TARGET_STAGING_PASSWORD", "p")
+    monkeypatch.setattr(loader, "_connect", lambda *_: conn)
+    monkeypatch.setattr(assets, "DfmManager", lambda *_: _FakeDfm())
+
+    result = assets.populate_security(
+        context=dg.build_asset_context(),
+        extract_security={
+            "roller": [{"bruger": "u0", "domain": "DPA_ERP", "rolle": "U"}],
+            "org": [{"bruger": "u0", "code_sor": "100"}],
+            "fejlede_opslag": [],
+            "source": {"user": "svc", "host": "ldap", "table": "OU=HealthPipe"},
+        },
+        mssql_target_staging=None,
+    )
+
+    executed = _all_executed(conn)
+    historik_params = [
+        v for s, p in executed if s.startswith("INSERT INTO #SrcHistorik") for v in p
+    ]
+    assert "u0" in historik_params
+    assert not any(str(v).startswith("testbruger_") for v in historik_params)
+    assert any(r[0] == "testbruger_U" for r in _staged_rolle_rows(conn))
+    assert result.metadata["security_seed_enabled"] is True
