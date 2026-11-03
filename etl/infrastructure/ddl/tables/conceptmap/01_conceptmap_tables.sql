@@ -22,8 +22,8 @@ BEGIN
         [target_display]             NVARCHAR(500)  NULL,
         [dw_ek_Rekvirent]           INT            NULL,
         [dw_ek_Organisation_target] INT            NULL,
-        [dw_timestamp_insert]       DATETIME2(0)   NOT NULL CONSTRAINT [DF_RekvirentToSOR_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update]       DATETIME2(0)   NOT NULL CONSTRAINT [DF_RekvirentToSOR_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert]       DATETIME2(0)   NOT NULL CONSTRAINT [DF_RekvirentToSOR_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update]       DATETIME2(0)   NOT NULL CONSTRAINT [DF_RekvirentToSOR_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_conceptmap_RekvirentToSOR] PRIMARY KEY CLUSTERED ([source_code], [target_code])
     );
 
@@ -45,8 +45,8 @@ BEGIN
         [target_display]             NVARCHAR(500)  NULL,
         [dw_ek_Lager]               INT            NULL,
         [dw_ek_Organisation_target] INT            NULL,
-        [dw_timestamp_insert]       DATETIME2(0)   NOT NULL CONSTRAINT [DF_LagerToSOR_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update]       DATETIME2(0)   NOT NULL CONSTRAINT [DF_LagerToSOR_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert]       DATETIME2(0)   NOT NULL CONSTRAINT [DF_LagerToSOR_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update]       DATETIME2(0)   NOT NULL CONSTRAINT [DF_LagerToSOR_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_conceptmap_LagerToSOR] PRIMARY KEY CLUSTERED ([source_code], [target_code])
     );
 
@@ -68,8 +68,8 @@ BEGIN
         [target_display]             NVARCHAR(500)  NULL,
         [dw_ek_EAN]                 INT            NULL,
         [dw_ek_Organisation_target] INT            NULL,
-        [dw_timestamp_insert]       DATETIME2(0)   NOT NULL CONSTRAINT [DF_EANToSOR_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update]       DATETIME2(0)   NOT NULL CONSTRAINT [DF_EANToSOR_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert]       DATETIME2(0)   NOT NULL CONSTRAINT [DF_EANToSOR_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update]       DATETIME2(0)   NOT NULL CONSTRAINT [DF_EANToSOR_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_conceptmap_EANToSOR] PRIMARY KEY CLUSTERED ([source_code], [target_code])
     );
 
@@ -95,8 +95,8 @@ BEGIN
         [target_display]              NVARCHAR(500)  NULL,
         [dw_ek_Okosted]             INT            NULL,
         [dw_ek_Organisation_target]  INT            NULL,
-        [dw_timestamp_insert]        DATETIME2(0)   NOT NULL CONSTRAINT [DF_OkostedToSOR_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update]        DATETIME2(0)   NOT NULL CONSTRAINT [DF_OkostedToSOR_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert]        DATETIME2(0)   NOT NULL CONSTRAINT [DF_OkostedToSOR_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update]        DATETIME2(0)   NOT NULL CONSTRAINT [DF_OkostedToSOR_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_conceptmap_OkostedToSOR] PRIMARY KEY CLUSTERED ([source_code], [target_code])
     );
 
@@ -122,8 +122,8 @@ BEGIN
         [target_display]              NVARCHAR(500)  NULL,
         [dw_ek_SHAK]                 INT            NULL,
         [dw_ek_Organisation_target]  INT            NULL,
-        [dw_timestamp_insert]        DATETIME2(0)   NOT NULL CONSTRAINT [DF_SHAKToSOR_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update]        DATETIME2(0)   NOT NULL CONSTRAINT [DF_SHAKToSOR_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert]        DATETIME2(0)   NOT NULL CONSTRAINT [DF_SHAKToSOR_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update]        DATETIME2(0)   NOT NULL CONSTRAINT [DF_SHAKToSOR_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_conceptmap_SHAKToSOR] PRIMARY KEY CLUSTERED ([source_code], [target_code])
     );
 
@@ -146,8 +146,8 @@ BEGIN
         [target_display]              NVARCHAR(500)  NULL,
         [dw_ek_SHAKAlike]            INT            NULL,
         [dw_ek_Organisation_target]  INT            NULL,
-        [dw_timestamp_insert]        DATETIME2(0)   NOT NULL CONSTRAINT [DF_SHAKAlikeToSOR_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update]        DATETIME2(0)   NOT NULL CONSTRAINT [DF_SHAKAlikeToSOR_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert]        DATETIME2(0)   NOT NULL CONSTRAINT [DF_SHAKAlikeToSOR_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update]        DATETIME2(0)   NOT NULL CONSTRAINT [DF_SHAKAlikeToSOR_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_conceptmap_SHAKAlikeToSOR] PRIMARY KEY CLUSTERED ([source_code], [target_code])
     );
 

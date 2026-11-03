@@ -49,8 +49,8 @@ BEGIN
         [speciale] NVARCHAR(100) NULL,
         [forloebslabel] NVARCHAR(20) NULL,
         [mrk_l_n] NVARCHAR(5) NULL,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_UdredningsretEgenskaber_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_UdredningsretEgenskaber_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_UdredningsretEgenskaber_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_UdredningsretEgenskaber_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_Dim_UdredningsretEgenskaber] PRIMARY KEY CLUSTERED ([dw_ek_Udredningsforloeb] ASC)
     ) ON [PRIMARY];
 
@@ -90,8 +90,8 @@ BEGIN
         [bopaelsregion_forloeb] NVARCHAR(10) NULL,
         [bopaelsregion_forloeb_tekst] NVARCHAR(50) NULL,
         [speciale] NVARCHAR(100) NULL,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_UdredningsretKlassifikation_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_UdredningsretKlassifikation_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_UdredningsretKlassifikation_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_UdredningsretKlassifikation_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_Dim_UdredningsretKlassifikation] PRIMARY KEY CLUSTERED ([dw_ek_UdredningsretKlassifikation] ASC)
     ) ON [PRIMARY];
 
@@ -117,8 +117,8 @@ BEGIN
         [gruppe] NVARCHAR(40) NULL,
         [gruppe_tekst] NVARCHAR(100) NULL,
         [tekst_kilde] NVARCHAR(30) NULL,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Forloebsmarkoer_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Forloebsmarkoer_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Forloebsmarkoer_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Forloebsmarkoer_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_Dim_Forloebsmarkoer] PRIMARY KEY CLUSTERED ([dw_ek_Forloebsmarkoer] ASC)
     ) ON [PRIMARY];
 

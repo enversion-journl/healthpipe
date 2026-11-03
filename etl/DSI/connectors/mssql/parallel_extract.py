@@ -28,10 +28,9 @@ from dataclasses import dataclass, replace
 from datetime import date, datetime
 from typing import Any
 
-import mssql_python
 from core.parallel import ParallelPolicy, ParallelStage, run_parallel_stage
 from core.parallel.spawn import configure_spawn_import_paths_for_file
-from core.resources import build_mssql_conn_str
+from core.resources import _connect_mssql_python, build_mssql_conn_str
 from DSI.connectors.mssql.bulk_copy import (
     build_bcp_truncation_limits,
     compute_streaming_chunk_size,
@@ -634,11 +633,7 @@ class _ConnStrResource:
 
     @contextmanager
     def get_connection(self):
-        conn = mssql_python.connect(
-            self._conn_str,
-            timeout=6000,
-            attrs_before={mssql_python.SQL_ATTR_LOGIN_TIMEOUT: 60},
-        )
+        conn = _connect_mssql_python(self._conn_str, timeout=6000)
         try:
             yield conn
         finally:
@@ -708,16 +703,8 @@ def _window_process_worker(task: dict) -> dict:
 
     sem = SourceConnectionSemaphore(task["source_key"], task["source_capacity"])
     with sem.slot(timeout=3600.0):
-        source_conn = mssql_python.connect(
-            task["source_conn_str"],
-            timeout=6000,
-            attrs_before={mssql_python.SQL_ATTR_LOGIN_TIMEOUT: 60},
-        )
-        target_conn = mssql_python.connect(
-            task["target_conn_str"],
-            timeout=6000,
-            attrs_before={mssql_python.SQL_ATTR_LOGIN_TIMEOUT: 60},
-        )
+        source_conn = _connect_mssql_python(task["source_conn_str"], timeout=6000)
+        target_conn = _connect_mssql_python(task["target_conn_str"], timeout=6000)
         progress_q = task.get("progress_q")
         worker_log = _QueueLogger(progress_q) if progress_q is not None else _ProcessLogger()
         try:

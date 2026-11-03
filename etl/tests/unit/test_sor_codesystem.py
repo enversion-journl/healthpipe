@@ -4,21 +4,27 @@
 # This file is part of Healthpipe. See the LICENSE file in the project
 # root for the full AGPL-3.0 license text.
 
-"""Unit tests for the SOR CodeSystem builder — activeOwnOrganization property.
+"""Unit tests for the SOR CodeSystem builder — the RSD organisation properties.
 
-The property marks entities that belong to Example Region's own current
-organisation: open (no closingDate), taken effect (openingDate <= now) and
-reachable from SOR_ROOT through a chain of open entities.
+rsdOrganization marks every entity reachable from SOR_ROOT, whether open,
+closed or not yet opened. activeOwnOrganization marks the entities that belong
+to Example Region's own current organisation: in effect (openingDate <= now,
+and no closingDate on or before now) and reachable from SOR_ROOT through a
+chain of entities in effect.
 """
+
+from datetime import datetime
 
 import pytest
 from DSA.CodeSystem.sor.sor import (
     ACTIVE_OWN_PROPERTY_KEY,
     KNOWN_PROPERTY_KEYS,
+    RSD_PROPERTY_KEY,
     SOR_ROOT,
     build_sor_codesystem,
     build_sor_codesystem_streaming,
 )
+from DSA.FHIR.utils.sql_on_fhir.period_keys import DW_TIMEZONE
 
 pytestmark = pytest.mark.unit
 
@@ -34,8 +40,8 @@ def _wide_row(code, parent="", opening="2020-01-01 00:00:00", closing="", name=N
     }
 
 
-def _flags(properties):
-    return {p["CODE"]: p["VALUE"] for p in properties if p["KEY"] == ACTIVE_OWN_PROPERTY_KEY}
+def _flags(properties, key=ACTIVE_OWN_PROPERTY_KEY):
+    return {p["CODE"]: p["VALUE"] for p in properties if p["KEY"] == key}
 
 
 class TestActiveOwnProperty:
@@ -88,6 +94,17 @@ class TestActiveOwnProperty:
         _, properties, _ = build_sor_codesystem(rows)
         assert _flags(properties)["H1"] == "false"
 
+    def test_future_closing_date_is_still_true(self):
+        rows = [
+            _wide_row(SOR_ROOT),
+            _wide_row("H1", parent=SOR_ROOT, closing="2999-01-01 00:00:00"),
+            _wide_row("a1", parent="H1"),
+        ]
+        _, properties, _ = build_sor_codesystem(rows)
+        flags = _flags(properties)
+        assert flags["H1"] == "true"
+        assert flags["a1"] == "true"
+
     def test_missing_root_makes_everything_false(self):
         rows = [
             _wide_row("H1"),
@@ -122,6 +139,40 @@ class TestActiveOwnProperty:
         assert ACTIVE_OWN_PROPERTY_KEY in KNOWN_PROPERTY_KEYS
 
 
+class TestRsdProperty:
+    def test_closed_and_future_entities_under_root_are_true(self):
+        rows = [
+            _wide_row(SOR_ROOT),
+            _wide_row("H1", parent=SOR_ROOT, closing="2023-06-30 00:00:00"),
+            _wide_row("a1", parent="H1"),
+            _wide_row("FUT1", parent=SOR_ROOT, opening="2999-01-01 00:00:00"),
+        ]
+        _, properties, _ = build_sor_codesystem(rows)
+        assert _flags(properties, RSD_PROPERTY_KEY) == {
+            SOR_ROOT: "true",
+            "H1": "true",
+            "a1": "true",
+            "FUT1": "true",
+        }
+        assert _flags(properties) == {
+            SOR_ROOT: "true",
+            "H1": "false",
+            "a1": "false",
+            "FUT1": "false",
+        }
+
+    def test_entities_outside_root_tree_are_false(self):
+        rows = [
+            _wide_row(SOR_ROOT),
+            _wide_row("PRAKSIS1", closing="2023-06-30 00:00:00"),
+            _wide_row("PRAKSIS2", parent="PRAKSIS1"),
+        ]
+        _, properties, _ = build_sor_codesystem(rows)
+        flags = _flags(properties, RSD_PROPERTY_KEY)
+        assert flags["PRAKSIS1"] == "false"
+        assert flags["PRAKSIS2"] == "false"
+
+
 class TestStreamingBuildEquivalence:
     """The memory-lean streaming build (used by the cs_sor asset) must produce
     exactly the same concepts/properties/hierarchy as the list-based build —
@@ -132,7 +183,9 @@ class TestStreamingBuildEquivalence:
             _wide_row(SOR_ROOT, name="Example Region"),
             _wide_row("H1", parent=SOR_ROOT),
             _wide_row("a1", parent="H1", closing="2023-06-30 00:00:00"),
+            _wide_row("b1", parent="a1"),
             _wide_row("FUT1", parent=SOR_ROOT, opening="2999-01-01 00:00:00"),
+            _wide_row("CLOSING1", parent=SOR_ROOT, closing="2999-01-01 00:00:00"),
             _wide_row("PRAKSIS1"),
             {"code": "", "display": "no code", "parent_code": "", "entityType": ""},
         ]
@@ -155,6 +208,22 @@ class TestStreamingBuildEquivalence:
         assert key(hierarchy_s, ["CODE", "PARENT_CODE"]) == key(
             hierarchy_l, ["CODE", "PARENT_CODE"]
         )
+
+    def test_a_unit_closes_and_opens_on_the_day_itself(self):
+        rows = [
+            _wide_row(SOR_ROOT),
+            _wide_row("CLOSES_TODAY", parent=SOR_ROOT, closing="2026-07-01 00:00:00"),
+            _wide_row("OPENS_TODAY", parent=SOR_ROOT, opening="2026-07-01 00:00:00"),
+        ]
+        columns = ["code", "display", "parent_code", "entityType", "openingDate", "closingDate"]
+        tuple_rows = [tuple(r.get(c, "") for c in columns) for r in rows]
+
+        _, properties_iter, _ = build_sor_codesystem_streaming(
+            tuple_rows, columns, now=datetime(2026, 7, 1, 1, 0, tzinfo=DW_TIMEZONE)
+        )
+        flags = _flags(list(properties_iter))
+        assert flags["CLOSES_TODAY"] == "false"
+        assert flags["OPENS_TODAY"] == "true"
 
     def test_streaming_properties_unique_per_code_and_key(self):
         rows = [_wide_row(SOR_ROOT), _wide_row("H1", parent=SOR_ROOT)]

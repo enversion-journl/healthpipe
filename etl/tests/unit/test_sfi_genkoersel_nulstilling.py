@@ -33,7 +33,6 @@ from infrastructure.assets.sfi_genkoersel_nulstilling import (
     dfmstate_where,
     pg_truncate_statement,
     sfi_genkoersel_nulstilling,
-    vandmaerke_where,
 )
 
 pytestmark = pytest.mark.unit
@@ -94,8 +93,11 @@ def test_dfmstate_where_rammer_begge_scopes_og_alle_poster():
     assert "N'ServiceRequest'" in where
     for navn in FLADE_FAMILIETABELLER:
         assert f"N'{navn}'" in where
-    # SFI-lageret er materialiseret uden eget checkpoint — må ikke stå her.
-    assert SFI_STORE_TABEL not in where
+    # Et tømt SFI-lager uden checkpoint genopbygges ved næste refresh.
+    assert (
+        f"[scope] = N'sfi_store' AND [schema_name] = N'fhir' AND [table_name] = N'{SFI_STORE_TABEL}'"
+        in where
+    )
     assert "Patient" not in where
     assert "Encounter" not in where
 
@@ -117,17 +119,6 @@ def test_dfmstate_where_kun_sof_freder_de_seedbare_fhir_server_poster():
 
 def test_uden_seed_posterne_er_ikke_blandt_de_seedbare():
     assert not set(FHIR_SERVER_CHECKPOINTS_UDEN_SEED) & set(FHIR_SERVER_CHECKPOINTS)
-
-
-def test_vandmaerke_where_tager_familien_plus_sfi_lageret():
-    where = vandmaerke_where()
-    assert f"N'{SFI_STORE_TABEL}'" in where
-    assert "N'sfi_datapoint'" in where
-    for navn in FLADE_FAMILIETABELLER:
-        assert f"N'{navn}'" in where
-    # De øvrige synkroniserede fhir-kopier og ERP-vandmærkerne skal overleve.
-    assert "N'Patient'" not in where
-    assert "dim" not in where
 
 
 def test_forkert_bekraeftelse_afvises_foer_noget_roeres():

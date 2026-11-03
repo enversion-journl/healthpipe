@@ -28,14 +28,19 @@ def _parents(key_str: str) -> set[str]:
 @pytest.mark.unit
 class TestBudgetPipelineGraph:
     def test_pre_stg_budget_reads_the_seven_sydax_archives(self):
-        assert _parents("erp/pre_stg_Budget_sydax") == {
-            "arc_budgetpost_sydax",
-            "arc_budgetmodel_sydax",
-            "arc_budgetpoststatus_sydax",
-            "arc_budgetbeloebtype_sydax",
-            "arc_finanskonto_sydax",
-            "arc_finanskonto_omkostningssted_sydax",
-            "arc_omkostningssted_hierarki_sydax",
+        parents = _parents("erp/pre_stg_Budget_sydax")
+        graph = defs.resolve_asset_graph()
+        assert all(
+            graph.get(AssetKey.from_user_string(p)).is_materializable for p in parents
+        ), parents
+        assert parents == {
+            "arc_sydax_budgetpost",
+            "arc_sydax_budgetmodel",
+            "arc_sydax_budgetpoststatus",
+            "arc_sydax_budgetbeloebtype",
+            "arc_sydax_finanskonto",
+            "arc_sydax_finanskonto_omkostningssted",
+            "arc_sydax_omkostningssted_hierarki",
         }
 
     def test_both_budget_stagings_read_pre_stg_only(self):

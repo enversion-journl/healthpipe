@@ -21,6 +21,10 @@ precision to lose from the legacy store — style 121 emits .000 for those value
 Source dw_timestamp_* columns used by ongoing DSO delta are also typically
 DATETIME2(0); MERGE on PK remains idempotent if a boundary second is reprocessed.
 
+The SFI datapoint store's watermark (sfi_datapoint.refresh_daily) becomes its checkpoint
+under scope='sfi_store', three hours back: DSO stamps written in Danish local time lie up to
+two hours ahead of UTC.
+
 Also fills existing DFMState rows that still have checkpoint_value NULL (auto-seeded
 by start_dfm_run if a DSO sync ran before the migrator). Rows with a non-NULL
 checkpoint are left untouched.
@@ -41,7 +45,7 @@ Optional CLI fallback (from etl/ with same DB env as Dagster resources):
     MSSQL_TARGET_STAGING_*   — write [meta].[DFMState] on staging
       (falls back to MSSQL_SOURCE_STAGING_* if TARGET staging password unset)
 
-Skips sfi_datapoint.* keys. Idempotent. Prefer running once per environment
+Other sfi_datapoint.* keys are not copied. Idempotent. Prefer running once per environment
 cutover (DEV → TEST → PROD) *before* the first watermark DSO sync on the new
 code so those runs stay delta rather than full MERGE; NULL-seed fill still
 recovers if ordering slips.
@@ -57,6 +61,7 @@ from typing import NamedTuple
 import dagster as dg
 from core.dfm_manager import SCHEMA_TO_TARGET_TYPE
 from core.resources import MSSQLResource
+from DSO.load.refresh_sfi_datapoint import STORE_DFM_SCHEMA, STORE_DFM_SCOPE, STORE_DFM_TABLE
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +69,8 @@ SYNC_WATERMARKS_TABLE = "[meta].[SyncWatermarks]"
 DFM_STATE_TABLE = "[meta].[DFMState]"
 DSO_SCOPE = "dso"
 SFI_SCHEMA = "sfi_datapoint"
+SFI_STORE_WATERMARK = "refresh_daily"
+SFI_STORE_STEP_BACK_HOURS = 3
 
 
 class MigrationStats(NamedTuple):
@@ -114,11 +121,13 @@ def migrate_sync_watermarks_to_dfm(
     mssql_staging: MSSQLResource,
     context: dg.AssetExecutionContext | None = None,
 ) -> MigrationStats:
-    """Copy SyncWatermarks into DFMState scope='dso'; fill NULL seeds; skip set checkpoints."""
+    """Copy SyncWatermarks into DFMState (scope 'dso', and the SFI store under 'sfi_store');
+    fill NULL seeds; skip set checkpoints."""
     log = context.log if context is not None else logger
 
     select_sql = f"""
         SELECT
+            N'{DSO_SCOPE}' AS [scope],
             [schema_name],
             [table_name],
             CONVERT(
@@ -128,18 +137,30 @@ def migrate_sync_watermarks_to_dfm(
             ) AS [checkpoint_value]
         FROM {SYNC_WATERMARKS_TABLE}
         WHERE [schema_name] <> ?
+        UNION ALL
+        SELECT
+            N'{STORE_DFM_SCOPE}',
+            N'{STORE_DFM_SCHEMA}',
+            N'{STORE_DFM_TABLE}',
+            CONVERT(
+                NVARCHAR(50),
+                DATEADD(HOUR, -{SFI_STORE_STEP_BACK_HOURS}, [last_sync_timestamp]),
+                121
+            )
+        FROM {SYNC_WATERMARKS_TABLE}
+        WHERE [schema_name] = ? AND [table_name] = ?
     """
 
     with mssql_dso.get_connection() as dso_conn:
         cursor = dso_conn.cursor()
         try:
-            cursor.execute(select_sql, (SFI_SCHEMA,))
+            cursor.execute(select_sql, (SFI_SCHEMA, SFI_SCHEMA, SFI_STORE_WATERMARK))
             rows = cursor.fetchall()
         finally:
             cursor.close()
 
     if not rows:
-        log.info("No SyncWatermarks rows to migrate (excluding SFI).")
+        log.info("No SyncWatermarks rows to migrate.")
         return MigrationStats(inserted=0, updated=0, skipped=0)
 
     merge_sql = f"""
@@ -169,11 +190,11 @@ def migrate_sync_watermarks_to_dfm(
     with mssql_staging.get_connection() as stg_conn:
         cursor = stg_conn.cursor()
         try:
-            for schema_name, table_name, checkpoint_value in rows:
+            for scope, schema_name, table_name, checkpoint_value in rows:
                 target_type = _target_type_for_schema(schema_name)
                 cursor.execute(
                     merge_sql,
-                    (DSO_SCOPE, target_type, schema_name, table_name, checkpoint_value),
+                    (scope, target_type, schema_name, table_name, checkpoint_value),
                 )
                 action_rows = cursor.fetchall()
                 for action_row in action_rows:
@@ -189,7 +210,7 @@ def migrate_sync_watermarks_to_dfm(
     skipped = len(rows) - inserted - updated
     stats = MigrationStats(inserted=inserted, updated=updated, skipped=skipped)
     log.info(
-        "SyncWatermarks → DFMState scope='dso': inserted=%s updated_null=%s "
+        "SyncWatermarks → DFMState: inserted=%s updated_null=%s "
         "skipped_existing=%s (source_rows=%s).",
         stats.inserted,
         stats.updated,

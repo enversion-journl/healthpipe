@@ -280,6 +280,27 @@ def test_disable_lists_all_nonclustered_but_only_disables_enabled_ones():
     assert set(timings) == {"IX_a", "IX_b"} and conn.commits == 2
 
 
+@pytest.mark.parametrize(
+    ("disable_all", "disabled", "rebuilt"),
+    [(True, ["IX_a", "IX_c"], ["IX_a", "IX_b"]), (False, ["IX_c"], ["IX_b"])],
+)
+def test_held_consumer_index_stays_off_and_a_leftover_is_healed(disable_all, disabled, rebuilt):
+    cur = _Cursor([("FROM sys.indexes i", [("IX_a", 0), ("IX_b", 1), ("IX_c", 0)])])
+    names = su._disable_target_indexes(
+        cur, "QuestionnaireResponse", disable_all=disable_all, hold=frozenset({"IX_c"})
+    )
+    assert names == rebuilt
+    assert cur.executed("DISABLE") == [
+        f"ALTER INDEX [{n}] ON [fhir].[QuestionnaireResponse] DISABLE" for n in disabled
+    ]
+
+
+def test_staging_keeps_the_indexes_the_dso_sync_reads_the_delta_with():
+    for view in ("questionnaire_response_view", "questionnaire_response_item_view"):
+        held = SOF_RESOURCE_CONFIGS[view]["consumer_indexes"]
+        assert held and not [n for n in held if "DWEffective" in n or "Watermark" in n], held
+
+
 # ---------------------------------------------------------------------------
 # Hele stien med attrapper
 # ---------------------------------------------------------------------------
@@ -331,7 +352,7 @@ class _MssqlResource:
         yield self._conn
 
 
-def _run_qr_extract(plan):
+def _run_qr_extract(plan, consumers_absent_since=None):
     columns = ["qr_id", "questionnaire", "status", "dw_is_deleted", "last_updated", "created_at"]
     pg = _PgCursor([[("q1", "Q|1", "completed", None, "t", "t")]], columns)
     cur = _Cursor(
@@ -342,6 +363,7 @@ def _run_qr_extract(plan):
             ),
             ("FROM sys.indexes i", [("IX_FHIR_QR_LastUpdated", 0), ("IX_FHIR_QR_DWEffective", 0)]),
             ("SELECT MAX([__sof_batch])", [(1,)]),
+            ("[meta].[DFMState]", [(consumers_absent_since,)] if consumers_absent_since else []),
         ],
         rowcount=1,
     )
@@ -378,6 +400,16 @@ def test_backfill_plan_drives_disable_batched_merge_and_rebuild():
         "IX_FHIR_QR_DWEffective",
     ]
     assert timings["plan"].startswith("active")
+
+
+def test_the_dfm_switch_holds_the_consumer_index_off_through_a_backfill_load():
+    plan = SofBackfillPlan(True, 250_000, True, "test")
+    *_, cur, _conn, timings = _run_qr_extract(plan, consumers_absent_since="2026-10-27 09:00:00")
+    assert len(cur.executed("] ON [fhir].[QuestionnaireResponse] DISABLE")) == 2
+    assert cur.executed("] ON [fhir].[QuestionnaireResponse] REBUILD") == [
+        "ALTER INDEX [IX_FHIR_QR_DWEffective] ON [fhir].[QuestionnaireResponse] REBUILD"
+    ]
+    assert timings["disabled_indexes"] == ["IX_FHIR_QR_DWEffective"]
 
 
 def test_inactive_plan_keeps_the_single_statement_path():

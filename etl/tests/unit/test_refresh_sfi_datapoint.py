@@ -21,10 +21,6 @@ from DSO.load.refresh_sfi_datapoint import (
     _QR_PREFLIGHT_MODE_WARN,
     _QR_ZERO_WARN_THRESHOLD_ENV,
     _SFI_PROPS_PIVOT_COLUMNS,
-    _WATERMARK_SCHEMA,
-    _WATERMARK_TABLE_DAILY,
-    _WATERMARK_TABLE_MONTHLY,
-    _WATERMARK_TABLE_RECONCILIATION,
     _build_changed_resources_sql,
     _build_inline_batch_apply_sql,
     _build_number_changed_resources_sql,
@@ -37,10 +33,11 @@ from DSO.load.refresh_sfi_datapoint import (
     _execute_incremental_refresh,
     _incremental_batch_size,
     _is_store_missing_error,
-    _next_watermark,
+    _next_checkpoint,
     _qr_preflight_mode,
     _qr_zero_warn_threshold,
     _refresh_columns,
+    _refresh_sfi_datapoint_store,
     _validate_qr_preflight_stats,
     dso_refresh_sfi_datapoint_daily,
 )
@@ -76,19 +73,11 @@ def test_store_missing_error_detector() -> None:
 
 
 @pytest.mark.unit
-def test_watermark_constants() -> None:
-    assert _WATERMARK_SCHEMA == "sfi_datapoint"
-    assert _WATERMARK_TABLE_DAILY == "refresh_daily"
-    assert _WATERMARK_TABLE_MONTHLY == "refresh_monthly"
-    assert _WATERMARK_TABLE_RECONCILIATION == "refresh_reconciliation"
-
-
-@pytest.mark.unit
 def test_changed_resources_sql_with_watermark() -> None:
     """Incremental mode: watermark filter should appear in all three CTEs.
 
     The timestamp format passed here matches the canonical DSO watermark format
-    ("%Y-%m-%d %H:%M:%S") used by SyncStateManager and sync_utils.
+    ("%Y-%m-%d %H:%M:%S") used by sync_utils.
     """
     sql = _build_changed_resources_sql("2026-06-01 00:00:00")
     assert "2026-06-01 00:00:00" in sql
@@ -107,20 +96,10 @@ def test_changed_resources_sql_with_watermark() -> None:
 
 @pytest.mark.unit
 def test_changed_resources_sql_indexes_temp_table() -> None:
-    sql = _build_changed_resources_sql(None)
+    sql = _build_changed_resources_sql("2026-06-01 00:00:00")
 
     assert "CREATE CLUSTERED INDEX [IX_changed_resources_SourceResourceId]" in sql
     assert "ON #changed_resources ([source_resource], [source_resource_id])" in sql
-
-
-@pytest.mark.unit
-def test_changed_resources_sql_first_run() -> None:
-    """First run (NULL watermark): no timestamp filter, but SFI filter still present."""
-    sql = _build_changed_resources_sql(None)
-    assert ">=" not in sql
-    assert "element_system" in sql
-    assert "urn:dk:ifdb:sfi" in sql
-    assert "#changed_resources" in sql
 
 
 @pytest.mark.unit
@@ -487,10 +466,6 @@ def test_daily_sfi_refresh_shares_a_job_with_its_upstreams() -> None:
     assert "dso_sync_fhir_observation_dfm" in pipeline_nodes
     assert "dso_sync_codesystem_sfi_concept" in pipeline_nodes
     assert "cs_sfi" in pipeline_nodes
-
-    # The monthly variant is ad-hoc only — DFM SFI has no monthly cadence.
-    assert "dso_refresh_sfi_datapoint_monthly" not in pipeline_nodes
-    assert "dso_refresh_sfi_datapoint_monthly" not in recon_nodes
     assert "dso_reconcile_sfi_datapoint_store" in recon_nodes
 
 
@@ -560,13 +535,52 @@ def test_changed_resources_sql_caps_at_the_upper_bound() -> None:
         assert f"{alias}.[dw_timestamp_effective] <= '2026-10-16 08:41:48'" in sql
 
 
+class _Dfm:
+    """In-flight DSO-sync starts per source table; records checkpoint and run outcome."""
+
+    def __init__(self, in_flight=None, checkpoint=None, consumers_absent_since=None):
+        self.in_flight = in_flight or {}
+        self.checkpoint = checkpoint
+        self.consumers_absent_since = consumers_absent_since
+        self.calls: list[tuple] = []
+
+    def get_checkpoint(self, schema, table, *, scope="staging"):
+        return self.consumers_absent_since if scope == "sfi_consumers" else None
+
+    def safe_reader_checkpoint(self, started_at, *, writer=None, writer_scope=None):
+        self.calls.append(("safe_reader_checkpoint", writer, writer_scope))
+        held = self.in_flight.get(writer) if writer_scope == "dso" else None
+        return min(started_at, held) if held else started_at
+
+    def start_dfm_run(self, schema, table, **kwargs):
+        self.calls.append(("start", schema, table, kwargs["scope"], kwargs["mode"]))
+        return SimpleNamespace(log_id=7, checkpoint=self.checkpoint, started_at=None)
+
+    def set_checkpoint(self, schema, table, **kwargs):
+        self.calls.append(("set", schema, table, kwargs["scope"], kwargs["value"]))
+
+    def complete_dfm_run(self, log_id, **kwargs):
+        self.calls.append(("complete", log_id, kwargs["checkpoint_after"]))
+
+    def fail_dfm_run(self, log_id, **kwargs):
+        self.calls.append(("fail", log_id))
+
+
 @pytest.mark.unit
-def test_next_watermark_never_moves_backwards() -> None:
-    later, earlier = datetime(2026, 10, 16, 10, 17, 3), datetime(2026, 10, 16, 8, 41, 48)
-    assert _next_watermark(later, earlier) == later
-    assert _next_watermark(earlier, later) == later
-    assert _next_watermark(None, earlier) == earlier
-    assert _next_watermark(later, None) == later
+def test_next_checkpoint_is_held_back_to_an_unfinished_source_sync() -> None:
+    high_water = datetime(2026, 10, 22, 6, 0, 0)
+    assert _next_checkpoint(_Dfm(), high_water) == high_water
+    assert _next_checkpoint(_Dfm(), None) is None
+
+    # The QR-item sync started before the high-water mark and has not committed: its rows
+    # carry stamps below the mark that the scan could not see yet.
+    dfm = _Dfm({("fhir", "QuestionnaireResponse_item"): "2026-10-22 05:41:12.0000000"})
+    assert _next_checkpoint(dfm, high_water) == datetime(2026, 10, 22, 5, 41, 12)
+    assert {(c[1], c[2]) for c in dfm.calls} == {
+        (("fhir", "Observation"), "dso"),
+        (("fhir", "QuestionnaireResponse"), "dso"),
+        (("fhir", "QuestionnaireResponse_item"), "dso"),
+    }
 
 
 class _RefreshCursor:
@@ -591,40 +605,167 @@ class _RefreshCursor:
         pass
 
 
+def _dso_with(cursor):
+    from contextlib import nullcontext
+
+    conn = SimpleNamespace(cursor=lambda: cursor, commit=lambda: None, rollback=lambda: None)
+    return SimpleNamespace(get_connection=lambda: nullcontext(conn))
+
+
+_LOG_CONTEXT = SimpleNamespace(
+    run_id="run-1", log=SimpleNamespace(info=lambda *a: None, warning=lambda *a: None)
+)
+
+
 @pytest.mark.unit
-def test_incremental_refresh_reads_back_the_overlap_and_stores_the_source_high_water(
-    monkeypatch,
+def test_incremental_refresh_reads_from_the_checkpoint_up_to_the_source_high_water() -> None:
+    cursor = _RefreshCursor(
+        (
+            datetime(2026, 10, 16, 8, 30),
+            datetime(2026, 10, 16, 8, 41, 48, 700000),
+            None,
+            datetime(2026, 10, 16, 9, 0),
+        )
+    )
+    next_checkpoint = _execute_incremental_refresh(
+        _LOG_CONTEXT, _dso_with(cursor), _Dfm(), datetime(2026, 10, 16, 8, 17, 3)
+    ).next_checkpoint
+
+    assert next_checkpoint == datetime(2026, 10, 16, 8, 41, 48)
+    changed_sql = next(s for s in cursor.sql if "INTO #changed_resources" in s)
+    assert ">= '2026-10-16 08:17:03'" in changed_sql
+    assert "<= '2026-10-16 08:41:48'" in changed_sql
+
+
+@pytest.mark.unit
+def test_store_refresh_keeps_its_checkpoint_in_dfm_and_leaves_it_on_failure(monkeypatch) -> None:
+    import DSO.load.refresh_sfi_datapoint as refresh
+    from core.dfm_config import RunModeConfig
+
+    monkeypatch.setattr(refresh, "_ensure_store_table_exists", lambda *a: None)
+    cursor = _RefreshCursor(
+        (datetime(2026, 10, 22, 6, 0, 0), None, None, datetime(2026, 10, 22, 7))
+    )
+    dfm = _Dfm(checkpoint="2026-10-21 06:00:00")
+    monkeypatch.setattr(refresh, "DfmManager", lambda *a: dfm)
+
+    _refresh_sfi_datapoint_store(_LOG_CONTEXT, _dso_with(cursor), None, RunModeConfig())
+    assert ("start", "fhir", "SFI_datapoint_store", "sfi_store", "delta") in dfm.calls
+    assert ("set", "fhir", "SFI_datapoint_store", "sfi_store", "2026-10-22 06:00:00") in dfm.calls
+    assert ("complete", 7, "2026-10-22 06:00:00") in dfm.calls
+
+    def _broken(*_a):
+        raise RuntimeError("build failed")
+
+    monkeypatch.setattr(refresh, "_execute_incremental_refresh", _broken)
+    dfm.calls.clear()
+    with pytest.raises(RuntimeError, match="build failed"):
+        _refresh_sfi_datapoint_store(_LOG_CONTEXT, _dso_with(cursor), None, RunModeConfig())
+    assert ("fail", 7) in dfm.calls
+    assert not [c for c in dfm.calls if c[0] in ("set", "complete")]
+
+
+@pytest.mark.unit
+def test_high_water_never_passes_dso_current_utc_time() -> None:
+    """A stamp written in Danish local time before the switch lies up to two hours ahead."""
+    from DSO.load.refresh_sfi_datapoint import _source_high_water
+
+    now = datetime(2026, 10, 23, 8, 0, 0)
+    local_stamp = datetime(2026, 10, 23, 9, 30, 0)
+    assert _source_high_water(_RefreshCursor((local_stamp, None, None, now))) == now
+    earlier = datetime(2026, 10, 23, 7, 15, 0)
+    assert _source_high_water(_RefreshCursor((earlier, None, None, now))) == earlier
+    assert _source_high_water(_RefreshCursor((None, None, None, now))) is None
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("switched_on_since", "tag", "paused"),
+    [
+        ("2026-10-27 09:00:00", None, True),
+        (None, "true", True),
+        ("2026-10-27 09:00:00", "false", False),
+        (None, None, False),
+    ],
+)
+def test_a_paused_daily_refresh_touches_neither_store_nor_checkpoint(
+    monkeypatch, switched_on_since, tag, paused
 ) -> None:
     import DSO.load.refresh_sfi_datapoint as refresh
+    from core.dfm_config import RunModeConfig
+    from utils.fhir import sfi_consumers
 
-    stored: dict = {}
-
-    class _StateManager:
-        def __init__(self, *_):
-            pass
-
-        def get_last_sync_timestamp(self, *_):
-            return datetime(2026, 10, 16, 8, 17, 3)
-
-        def update_sync_state(self, *_, **kwargs):
-            stored.update(kwargs)
-
-    cursor = _RefreshCursor(
-        (datetime(2026, 10, 16, 8, 30), datetime(2026, 10, 16, 8, 41, 48, 700000), None)
+    tags = {sfi_consumers.CONSUMERS_ABSENT_TAG: tag} if tag else {}
+    context = SimpleNamespace(run_id="run-1", run=SimpleNamespace(tags=tags), log=_LOG_CONTEXT.log)
+    dfm = _Dfm(checkpoint="2026-10-21 06:00:00", consumers_absent_since=switched_on_since)
+    monkeypatch.setattr(refresh, "DfmManager", lambda *a: dfm)
+    monkeypatch.setattr(refresh, "_ensure_store_table_exists", lambda *a: None)
+    ran = SimpleNamespace(metadata={})
+    monkeypatch.setattr(
+        refresh,
+        "_execute_incremental_refresh",
+        lambda *a: refresh._RefreshOutcome(ran, datetime(2026, 10, 22, 6, 0, 0), 0),
     )
-    conn = SimpleNamespace(cursor=lambda: cursor, commit=lambda: None, rollback=lambda: None)
 
-    class _Dso:
-        def get_connection(self):
-            from contextlib import nullcontext
+    result = _refresh_sfi_datapoint_store(context, None, None, RunModeConfig())
 
-            return nullcontext(conn)
+    if paused:
+        assert result.metadata["paused"].value is True
+        assert dfm.calls == []
+    else:
+        assert result is ran
+        assert ("set", "fhir", "SFI_datapoint_store", "sfi_store", "2026-10-22 06:00:00") in (
+            dfm.calls
+        )
 
-    monkeypatch.setattr(refresh, "SyncStateManager", _StateManager)
-    context = SimpleNamespace(log=SimpleNamespace(info=lambda *a: None, warning=lambda *a: None))
-    _execute_incremental_refresh(context, _Dso(), "refresh_daily")
 
-    assert stored["watermark"] == datetime(2026, 10, 16, 8, 41, 48)
-    changed_sql = next(s for s in cursor.sql if "INTO #changed_resources" in s)
-    assert ">= '2026-10-16 05:17:03'" in changed_sql
-    assert "<= '2026-10-16 08:41:48'" in changed_sql
+@pytest.mark.unit
+def test_the_rebuild_is_never_paused(monkeypatch) -> None:
+    import DSO.load.refresh_sfi_datapoint as refresh
+    from core.dfm_config import RunModeConfig
+
+    monkeypatch.setattr(refresh, "_ensure_store_table_exists", lambda *a: None)
+    monkeypatch.setattr(
+        refresh,
+        "DfmManager",
+        lambda *a: _Dfm(checkpoint=None, consumers_absent_since="2026-10-27 09:00:00"),
+    )
+    rebuilt = SimpleNamespace(metadata={})
+    monkeypatch.setattr(
+        refresh,
+        "_execute_full_reconciliation",
+        lambda *a: refresh._RefreshOutcome(rebuilt, datetime(2026, 10, 22, 6, 0, 0), 0),
+    )
+
+    result = _refresh_sfi_datapoint_store(_LOG_CONTEXT, None, None, RunModeConfig(mode="full_load"))
+    assert result is rebuilt
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("mode", "checkpoint"), [("full_load", "2026-10-21 06:00:00"), ("delta", None)]
+)
+def test_store_is_rebuilt_in_full_load_or_without_a_checkpoint(
+    monkeypatch, mode, checkpoint
+) -> None:
+    import DSO.load.refresh_sfi_datapoint as refresh
+    from core.dfm_config import RunModeConfig
+
+    monkeypatch.setattr(refresh, "_ensure_store_table_exists", lambda *a: None)
+    dfm = _Dfm(checkpoint=checkpoint)
+    monkeypatch.setattr(refresh, "DfmManager", lambda *a: dfm)
+    rebuilt = SimpleNamespace(metadata={})
+    monkeypatch.setattr(
+        refresh,
+        "_execute_full_reconciliation",
+        lambda *a: refresh._RefreshOutcome(rebuilt, datetime(2026, 10, 22, 6, 0, 0), 0),
+    )
+
+    def _incremental(*_a):
+        raise AssertionError("incremental refresh must not run")
+
+    monkeypatch.setattr(refresh, "_execute_incremental_refresh", _incremental)
+
+    result = _refresh_sfi_datapoint_store(_LOG_CONTEXT, None, None, RunModeConfig(mode=mode))
+    assert result is rebuilt
+    assert ("set", "fhir", "SFI_datapoint_store", "sfi_store", "2026-10-22 06:00:00") in dfm.calls

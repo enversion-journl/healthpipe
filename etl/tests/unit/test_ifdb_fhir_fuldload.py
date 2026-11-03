@@ -434,6 +434,39 @@ def test_trinkoersler_slaar_sof_tidsbudgettet_fra(monkeypatch, miljoe):
     assert sof_slice_settings(barn)[1] == 0
 
 
+def test_trinkoersler_aabner_sof_backfill_porten_for_hele_vinduet(monkeypatch):
+    from types import SimpleNamespace
+
+    from DSA.FHIR.utils.sql_on_fhir.sof_utils import (
+        SOF_BACKFILL_MIN_RATIO_ENV,
+        SOF_RESOURCE_CONFIGS,
+        SOF_SLICE_MAX_RESOURCES_ENV,
+        resolve_sof_backfill_plan,
+        sof_slice_settings,
+    )
+
+    class _Maaltabel:
+        def execute(self, sql, params=None):
+            pass
+
+        def fetchone(self):
+            return (82_600_000,)
+
+    monkeypatch.setenv(SOF_SLICE_MAX_RESOURCES_ENV, "1000000")
+    monkeypatch.setenv(SOF_BACKFILL_MIN_RATIO_ENV, "0.10")
+    barn = SimpleNamespace(run=SimpleNamespace(tags=_koer_sof_trin(monkeypatch)))
+
+    assert sof_slice_settings(barn)[0] == 0
+    plan = resolve_sof_backfill_plan(
+        _Maaltabel(),
+        "QuestionnaireResponse_item",
+        SOF_RESOURCE_CONFIGS["questionnaire_response_item_view"],
+        8_000_000,
+        barn,
+    )
+    assert plan.active and plan.disable_indexes
+
+
 def test_trinkoersler_arver_indeksportens_tags_fra_koerslen(monkeypatch):
     from types import SimpleNamespace
 
@@ -452,3 +485,13 @@ def test_trinkoersler_arver_indeksportens_tags_fra_koerslen(monkeypatch):
     assert tags["fuldload/trin"] == "sof_dso"
     barn = SimpleNamespace(run=SimpleNamespace(tags=tags))
     assert sync_utils._index_disable_thresholds(barn, 0.0) == (500_000, 0.02)
+
+
+def test_trinkoersler_arver_storens_pause_fra_koerslen(monkeypatch):
+    from types import SimpleNamespace
+
+    from utils.fhir import sfi_consumers
+
+    tags = _koer_sof_trin(monkeypatch, foraelder_tags={sfi_consumers.CONSUMERS_ABSENT_TAG: "true"})
+
+    assert sfi_consumers.sfi_consumers_absent(SimpleNamespace(run=SimpleNamespace(tags=tags)))

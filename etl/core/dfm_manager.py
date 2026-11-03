@@ -362,6 +362,7 @@ class DfmManager:
         started_at: str | None,
         *,
         writer: tuple[str, str] | None = None,
+        writer_scope: str | None = None,
     ) -> str | None:
         """The latest checkpoint a reader of an archive can safely move to.
 
@@ -379,12 +380,17 @@ class DfmManager:
 
         ``writer`` (schema, table) narrows the in-flight runs to that one table's,
         for a reader of something other than the archive, e.g. ``("dim", "Borger")``.
+        ``writer_scope`` narrows them further to one scope, e.g. ``"dso"`` for the DSO
+        sync of a table that staging also writes under the same name.
         """
         writer_filter = ""
         params: list[str | None] = [started_at, SCHEMA_TO_TARGET_TYPE["arc"]]
         if writer is not None:
             writer_filter = "AND [schema_name] = ? AND [table_name] = ?"
             params = [started_at, _target_type_for_schema(writer[0]), *writer]
+        if writer_scope is not None:
+            writer_filter += " AND [scope] = ?"
+            params.append(writer_scope)
         sql = f"""
             SELECT CONVERT(NVARCHAR(50), (
                 SELECT MIN(t) FROM (VALUES

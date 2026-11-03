@@ -28,8 +28,8 @@ CREATE TABLE [bridge].[DRGDiagnoseGruppe] (
     [dw_ek_DRGDiagnoseGruppe] INT       NOT NULL,
     [dw_ek_DRGDiagnose]       INT       NOT NULL,
     [dw_is_deleted]           BIT       NOT NULL CONSTRAINT [DF_DRGDiagnoseGruppe_dw_is_deleted] DEFAULT 0,
-    [dw_timestamp_insert]     DATETIME2 NOT NULL CONSTRAINT [DF_DRGDiagnoseGruppe_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-    [dw_timestamp_update]     DATETIME2 NOT NULL CONSTRAINT [DF_DRGDiagnoseGruppe_dw_timestamp_update] DEFAULT SYSDATETIME(),
+    [dw_timestamp_insert]     DATETIME2 NOT NULL CONSTRAINT [DF_DRGDiagnoseGruppe_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+    [dw_timestamp_update]     DATETIME2 NOT NULL CONSTRAINT [DF_DRGDiagnoseGruppe_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
     CONSTRAINT [PK_Bridge_DRGDiagnoseGruppe] PRIMARY KEY CLUSTERED ([dw_ek_DRGDiagnoseGruppe] ASC, [dw_ek_DRGDiagnose] ASC)
 ) ON [PRIMARY];
 END
@@ -60,8 +60,8 @@ CREATE TABLE [bridge].[DRGProcedureGruppe] (
     [dw_ek_DRGProcedure]              INT       NOT NULL,
     [dw_ek_Organisation_producerende] INT       NOT NULL CONSTRAINT [DF_DRGProcedureGruppe_dw_ek_Organisation_producerende] DEFAULT -1,
     [dw_is_deleted]                   BIT       NOT NULL CONSTRAINT [DF_DRGProcedureGruppe_dw_is_deleted] DEFAULT 0,
-    [dw_timestamp_insert]             DATETIME2 NOT NULL CONSTRAINT [DF_DRGProcedureGruppe_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-    [dw_timestamp_update]             DATETIME2 NOT NULL CONSTRAINT [DF_DRGProcedureGruppe_dw_timestamp_update] DEFAULT SYSDATETIME(),
+    [dw_timestamp_insert]             DATETIME2 NOT NULL CONSTRAINT [DF_DRGProcedureGruppe_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+    [dw_timestamp_update]             DATETIME2 NOT NULL CONSTRAINT [DF_DRGProcedureGruppe_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
     -- Membership grain (group, procedure-code, producing unit): the producing
     -- unit is part of the group's defining set, so the same code from two units
     -- is two membership rows.

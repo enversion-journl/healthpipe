@@ -48,8 +48,8 @@ CREATE TABLE [fct].[Fakturalinje] (
     -- Summed allowance/charges per line (detail on dim.Fakturalinje as '#'-concat)
     [gebyr_beloeb] DECIMAL(18, 4) NULL,
     [rabatbeloeb] DECIMAL(18, 4) NULL,
-    [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Fakturalinje_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-    [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Fakturalinje_dw_timestamp_update] DEFAULT SYSDATETIME(),
+    [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Fakturalinje_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+    [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Fakturalinje_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
     CONSTRAINT [PK_Fct_Fakturalinje] PRIMARY KEY CLUSTERED ([dw_ek_Fakturalinje] ASC)
 ) ON [PRIMARY];
 END
@@ -136,8 +136,8 @@ CREATE TABLE [fct].[Postering] (
     [posteringsbeloeb] DECIMAL(30, 12) NULL,
     [faktura_nr] NVARCHAR(100) NULL,
     [dw_haendelsestidspunkt] DATETIME2 NULL,
-    [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Postering_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-    [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Postering_dw_timestamp_update] DEFAULT SYSDATETIME(),
+    [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Postering_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+    [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Postering_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
     CONSTRAINT [PK_Fct_Postering] PRIMARY KEY CLUSTERED ([ref_ledgertrans_id] ASC)
 ) ON [PRIMARY];
 END
@@ -194,8 +194,8 @@ CREATE TABLE [fct].[Faktura] (
     -- Summed allowance/charges per header (detail on dim.Faktura as '#'-concat)
     [gebyr_beloeb] DECIMAL(18, 4) NULL,
     [rabatbeloeb] DECIMAL(18, 4) NULL,
-    [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Faktura_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-    [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Faktura_dw_timestamp_update] DEFAULT SYSDATETIME(),
+    [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Faktura_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+    [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Faktura_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
     CONSTRAINT [PK_Fct_Faktura] PRIMARY KEY CLUSTERED ([dw_ek_Faktura] ASC)
 ) ON [PRIMARY];
 END
@@ -241,8 +241,8 @@ BEGIN
         [rabatbeloeb] DECIMAL(19,4) NULL,
         [lager_antal] DECIMAL(18,4) NULL,
         [dw_haendelsestidspunkt] DATETIME2 NULL,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Vareudlevering_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Vareudlevering_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Vareudlevering_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Vareudlevering_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_Fct_Vareudlevering] PRIMARY KEY CLUSTERED ([dw_ek_Vareudlevering] ASC)
     ) ON [PRIMARY];
 
@@ -301,8 +301,8 @@ BEGIN
         [dato_tid_snapshot] DATETIME2 NULL,
         [antal] DECIMAL(18,3) NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_Lagerbeholdning_dw_is_deleted] DEFAULT 0,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Lagerbeholdning_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Lagerbeholdning_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Lagerbeholdning_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Lagerbeholdning_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_Fct_Lagerbeholdning] PRIMARY KEY CLUSTERED ([dw_ek_Lagerbeholdning] ASC)
     ) ON [PRIMARY];
 
@@ -344,8 +344,8 @@ BEGIN
         [dato_tid_snapshot] DATETIME2 NULL,
         [antal] DECIMAL(18,3) NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_AfdelingLagerbeholdning_dw_is_deleted] DEFAULT 0,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_AfdelingLagerbeholdning_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_AfdelingLagerbeholdning_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_AfdelingLagerbeholdning_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_AfdelingLagerbeholdning_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_Fct_AfdelingLagerbeholdning] PRIMARY KEY CLUSTERED ([dw_ek_AfdelingLagerbeholdning] ASC)
     ) ON [PRIMARY];
 
@@ -393,8 +393,8 @@ BEGIN
         [dw_ek_Dato_oprettet] INT NOT NULL CONSTRAINT [DF_Finanskladdelinje_dw_ek_Dato_oprettet] DEFAULT -1,
         [dato_tid_oprettet] DATETIME2 NULL,
         [dw_haendelsestidspunkt] DATETIME2 NULL,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Finanskladdelinje_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Finanskladdelinje_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Finanskladdelinje_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Finanskladdelinje_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_Fct_Finanskladdelinje] PRIMARY KEY CLUSTERED ([dw_ek_Finanskladdelinje] ASC)
     ) ON [PRIMARY];
 END
@@ -439,8 +439,8 @@ CREATE TABLE [fct].[Budget] (
     [budgetbeloeb] DECIMAL(30, 12) NULL,
     [budgetbeloeb_valuta] DECIMAL(30, 12) NULL,
     [dw_haendelsestidspunkt] DATETIME2 NULL,
-    [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Budget_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-    [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Budget_dw_timestamp_update] DEFAULT SYSDATETIME(),
+    [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Budget_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+    [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Budget_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
     CONSTRAINT [PK_Fct_Budget] PRIMARY KEY CLUSTERED ([dw_ek_Budget] ASC)
 ) ON [PRIMARY];
 END
@@ -519,8 +519,8 @@ BEGIN
         [dw_is_current] BIT NOT NULL CONSTRAINT [DF_AftaleVarePris_dw_is_current] DEFAULT 0,
         [source_aktiv] BIT NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_AftaleVarePris_dw_is_deleted] DEFAULT 0,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_AftaleVarePris_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_AftaleVarePris_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_AftaleVarePris_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_AftaleVarePris_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_Fct_AftaleVarePris] PRIMARY KEY CLUSTERED ([dw_sk_AftaleVarePris] ASC)
     ) ON [PRIMARY];
 

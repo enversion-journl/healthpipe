@@ -53,8 +53,8 @@ sync_table_via_linked_server()
   │
   ├── Same-database mode?  ──yes──>  Skip sync (data already in place)
   │
-  ├── Staging reachable?   ──no───>  DSO has data? ──yes──> local_dev_skip
-  │                                                 ──no──> ERROR
+  ├── Staging reachable?   ──no───>  Local (no DAGSTER_CODE_LOCATION_NAME) and DSO has data? ──yes──> local_dev_skip
+  │   (probe tried 4 times)                                                                  ──no──> ERROR
   │
   └── Validate linked server
         │
@@ -209,25 +209,12 @@ The `COALESCE` ensures that rows where the watermark column is NULL are still ca
 DSO table sync state lives in `[meta].[DFMState]` on **staging** with `scope='dso'`.
 Run history is in `[meta].[DFMRunLog]`. See `dfm_design.md` §8 and `DSO/load/sync_dfm.py`.
 
-Legacy `[meta].[SyncWatermarks]` on DSO remains for **SFI datapoint refresh** only (`refresh_sfi_datapoint.py`). DDL (deprecated for table sync):
+The SFI datapoint store keeps its checkpoint in the same table with `scope='sfi_store'`
+(`fhir.SFI_datapoint_store`). No sync or refresh reads `[meta].[SyncWatermarks]` on DSO.
 
-```sql
-CREATE TABLE [meta].[SyncWatermarks] (
-    schema_name           NVARCHAR(128)   NOT NULL,
-    table_name            NVARCHAR(128)   NOT NULL,
-    last_sync_timestamp   DATETIME2(0)    NOT NULL,
-    last_sync_rows        INT             NULL,
-    last_sync_duration_ms INT             NULL,
-    last_sync_status      NVARCHAR(50)    NULL,
-    created_at            DATETIME2(0)    NOT NULL,
-    updated_at            DATETIME2(0)    NOT NULL,
-    CONSTRAINT PK_SyncWatermarks PRIMARY KEY (schema_name, table_name)
-);
-```
-
-Deployed via the `dso_infra_meta` Dagster asset (see `etl/infrastructure/assets/dso_infrastructure.py`).
-
-The timestamp is always set server-side with `CAST(SYSDATETIME() AS datetime2(0))` to avoid clock skew between the Dagster worker and SQL Server.
+DSO stamps its own writes: every sync path sets `dw_timestamp_insert` and
+`dw_timestamp_update` to `CAST(SYSUTCDATETIME() AS datetime2(0))` on INSERT and UPDATE
+(`WRITE_TIMESTAMP_UTC` in `utils/sql/write_timestamp.py`).
 
 ### 3.3 Watermark Rules (Source of Truth)
 
@@ -265,8 +252,6 @@ Full-MERGE recovery runs **only when `dso_count < staging_count`** (missing rows
 on DSO). When `dso_count >= staging_count` (DSO-only residue / orphans), log a
 warning and skip recovery — MERGE does not delete those. Disable with
 `auto_recover_mismatch=False`.
-
-**Legacy:** `[meta].[SyncWatermarks]` on DSO remains for SFI datapoint refresh only.
 
 **Implementation checklist:** (1) `build_delta_merge_statement` / OPENQUERY WHERE
 must use `COALESCE(...) > checkpoint AND COALESCE(...) <= max_now`. (2)
@@ -343,10 +328,11 @@ Every sync asset returns `MaterializeResult` metadata visible in the Dagster UI:
 
 The `sync_mode` value distinguishes between a watermark first-run (`watermark_full`) and a subsequent delta run (`watermark_delta`).  Dagster plots `sync_duration_seconds` and `rows_per_second` as time-series automatically, enabling performance trend monitoring across runs.
 
-Watermark state can also be queried directly:
+Checkpoint state can also be queried directly on staging:
 
 ```sql
-SELECT * FROM [meta].[SyncWatermarks] ORDER BY updated_at DESC;
+SELECT schema_name, table_name, checkpoint_value, last_mode, updated_at
+FROM [meta].[DFMState] WHERE scope = 'dso' ORDER BY updated_at DESC;
 ```
 
 ---
@@ -381,37 +367,21 @@ Schema validation runs automatically when `validate_schemas=True` (the default).
 
 ### Row Count Validation Failures
 
-**Symptom:** `counts_match: False` in Dagster metadata.
+**Symptom:** The sync fails with `ROW_COUNT_MISMATCH` (DSO has fewer rows than staging), or `counts_match: False` in Dagster metadata (DSO has more rows than staging; the run stays green).
 
 **Possible causes:**
-- Sync ran in watermark mode but staging had rows inserted between the MERGE and the count check (harmless, resolves on next run)
+- Staging had rows inserted between the MERGE and the count check
 - Table has an IDENTITY sentinel row (`DW_EK = -1`) counted differently in staging vs DSO
 - Python fallback was used and an error occurred mid-transfer
+- DSO has more rows: MERGE does not delete DSO-only rows
 
-**Fix:** Check whether the count difference is within the expected delta window.  If large, run a manual full sync:
+**Fix:** Re-run the sync.  If it fails again, run the table's DSO sync asset with `mode: full_load` (see "Checkpoint Reset" below).
 
-```sql
--- Reset watermark to force full sync on next run
-DELETE FROM [meta].[SyncWatermarks]
-WHERE schema_name = '<schema>' AND table_name = '<table>';
-```
+### Checkpoint Reset
 
-### SyncStateManager Reset
-
-To force a full sync for a specific table (bypassing delta), delete its watermark row:
-
-```sql
-DELETE FROM [meta].[SyncWatermarks]
-WHERE schema_name = '<schema>' AND table_name = '<table>';
-```
-
-The next sync run will detect `last_sync_timestamp = None` and execute a full MERGE.
-
-To reset all watermarks (force full sync for every table):
-
-```sql
-TRUNCATE TABLE [meta].[SyncWatermarks];
-```
+To force a full sync for a specific table, run its DSO sync asset with `mode: full_load`,
+or move its checkpoint on staging with `usp_dfm_reset` (`@scope = 'dso'`); see
+`dfm_operations_guide.md` §10.
 
 ### Python Fallback Issues
 
@@ -512,7 +482,6 @@ Documented in detail in `etl/docs/architecture/dso_delta_load_strategy.md`.
 |------|---------|
 | `DSO/load/sync_utils.py` | Core sync logic: `SyncTableConfig`, `build_merge_statement()`, `build_delta_merge_statement()`, `sync_table_via_linked_server()` |
 | `DSO/load/sync_configs.py` | **Source of truth** for which tables are synced and their configuration (mode, watermark column, etc.) |
-| `DSO/load/sync_state.py` | `SyncStateManager` class for watermark state tracking |
 | `DSO/load/sync_dim.py` | Dimension sync Dagster assets (ERP and shared dimensions) |
 | `DSO/load/sync_fct.py` | Fact sync Dagster assets |
 | `DSO/load/sync_fhir.py` | FHIR flat-table sync Dagster assets |

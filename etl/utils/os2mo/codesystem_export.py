@@ -43,10 +43,11 @@ when only an ancestor changes: the file carries no ancestor information for it
 to move with.
 
 What differs between codesystems is described by a :class:`CodesystemExportSpec`
-— which properties carry the dates and the type, whether the set is filtered on
-an "active" flag, and where the tree starts. Nothing in this module performs
-I/O. The file carries no mappings: a code's ConceptMap targets are not part of
-this delivery — they are set up by hand in OS2mo instead.
+— which properties carry the dates and the type, whether the set is limited to
+the codes with a given property value, and where the tree starts. Nothing in
+this module performs I/O. The file carries no mappings: a code's ConceptMap
+targets are not part of this delivery — they are set up by hand in OS2mo
+instead.
 
 **Order** is breadth-first from the root(s), so a parent always precedes its
 children; siblings are sorted by code so two runs over the same data render
@@ -107,9 +108,9 @@ class CodesystemExportSpec:
             set is built.
         from_property / to_property: Properties holding the validity dates.
         type_property: Property rendered as type, or None for empty.
-        active_property: When set, only codes whose property equals
-            ``active_value`` are delivered, and only those reachable from the
-            root through active codes. None delivers the whole codesystem.
+        scope_property: When set, only codes whose property equals
+            ``scope_value`` are delivered, and only those reachable from the
+            root through such codes. None delivers the whole codesystem.
         status_active_property / status_deleted_property: Properties rendered
             as the ``aktiv`` / ``dw_is_deleted`` flags, or None for empty.
         root_code: The single root the tree is walked from. None means every
@@ -122,8 +123,8 @@ class CodesystemExportSpec:
     from_property: str
     to_property: str
     type_property: str | None = None
-    active_property: str | None = None
-    active_value: str = "true"
+    scope_property: str | None = None
+    scope_value: str = "true"
     status_active_property: str | None = None
     status_deleted_property: str | None = None
     root_code: str | None = None
@@ -134,7 +135,7 @@ class CodesystemExportSpec:
                 raise ValueError(f"Not a plain identifier: {value!r}")
         for optional in (
             self.type_property,
-            self.active_property,
+            self.scope_property,
             self.status_active_property,
             self.status_deleted_property,
         ):
@@ -256,18 +257,18 @@ def export_columns() -> list[str]:
     return list(BASE_COLUMNS)
 
 
-def _is_active(spec: CodesystemExportSpec, row: dict[str, Any]) -> bool:
-    """True when the row passes the spec's active filter (or there is none).
+def _in_scope(spec: CodesystemExportSpec, row: dict[str, Any]) -> bool:
+    """True when the row is in the spec's scope (or the spec has none).
 
     Compared as text, case-insensitively: the property arrives as the string
     stored in ``codesystem.<name>Properties``, and a real bool is tolerated.
     """
-    if spec.active_property is None:
+    if spec.scope_property is None:
         return True
-    value = row.get("active")
+    value = row.get("scope")
     if isinstance(value, bool):
         return value
-    return str(value).strip().lower() == spec.active_value.lower()
+    return str(value).strip().lower() == spec.scope_value.lower()
 
 
 def build_export_rows(
@@ -279,7 +280,7 @@ def build_export_rows(
     Args:
         spec: The codesystem's delivery description.
         source_rows: One dict per code with ``code``, ``display``,
-            ``parent_code``, ``valid_from``, ``valid_to``, ``type``, ``active``,
+            ``parent_code``, ``valid_from``, ``valid_to``, ``type``, ``scope``,
             ``status_active``, ``status_deleted``, ``created`` and ``updated``
             (all but the first three may be absent).
 
@@ -290,14 +291,14 @@ def build_export_rows(
         ValueError: if the spec names a root that is not in the selected set —
             the codesystem is then in a state no delivery should be built on.
     """
-    selected = {str(row["code"]): row for row in source_rows if _is_active(spec, row)}
+    selected = {str(row["code"]): row for row in source_rows if _in_scope(spec, row)}
 
     if spec.root_code is not None:
         if spec.root_code not in selected:
             raise ValueError(
                 f"{spec.name} root {spec.root_code} is not present in the selected set "
                 f"({len(selected)} codes). codesystem.{spec.name}* is incomplete or its "
-                "active flag was not computed — refuse to build a delivery from it."
+                "scope flag was not computed — refuse to build a delivery from it."
             )
         roots = [spec.root_code]
     else:

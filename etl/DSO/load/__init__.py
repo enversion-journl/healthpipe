@@ -15,8 +15,6 @@ from DSO.load.refresh_sfi_datapoint import (
     all_sfi_datapoint_refresh_assets,
     dso_reconcile_sfi_datapoint_store,
     dso_refresh_sfi_datapoint_daily,
-    dso_sfi_datapoint_watermark_reset,
-    dso_refresh_sfi_datapoint_monthly,
 )
 from DSO.load.sync_codesystem import (
     all_codesystem_dso_sync_assets,
@@ -113,7 +111,6 @@ from DSO.load.sync_security import (
     dso_sync_sec_rborganisation,
     dso_sync_sec_rolledomaene,
 )
-from DSO.load.sync_state import SyncStateManager
 from DSO.load.sync_udredningsret import all_udredningsret_dso_sync_assets
 from DSO.load.sync_utils import (
     LINKED_SERVER_NAME,
@@ -153,8 +150,6 @@ __all__ = [
     "SchemaValidationError",
     # Config classes
     "SyncTableConfig",
-    # State management
-    "SyncStateManager",
     # Core functions
     "sync_table_via_linked_server",
     "validate_linked_server",
@@ -251,8 +246,6 @@ __all__ = [
     "all_sfi_datapoint_refresh_assets",
     "dso_reconcile_sfi_datapoint_store",
     "dso_refresh_sfi_datapoint_daily",
-    "dso_sfi_datapoint_watermark_reset",
-    "dso_refresh_sfi_datapoint_monthly",
     # Combined
     "all_dso_sync_assets",
     "all_codesystem_dso_sync_assets",

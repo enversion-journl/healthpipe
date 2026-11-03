@@ -231,16 +231,25 @@ tabellen har desuden `codesystem`. Den bærer ingen mapninger længere.
 | | SOR | Okosted |
 | :--- | :--- | :--- |
 | Kilde | `codesystem.SOR*` (`cs_sor`) | `codesystem.Okosted*` (`cs_okosted`) |
-| Afgrænsning | `activeOwnOrganization = true` (filtreret i SQL) | **Hele kodesystemet** |
+| Afgrænsning | `rsdOrganization = true` (filtreret i SQL) — se nedenfor | **Hele kodesystemet** |
 | Rod | `6101000016001` (Example Region) | Alle koder uden forælder (niveau-1-knuderne, de 9 toppe) |
 | `gyldig_fra` / `gyldig_til` | `openingDate` / `closingDate` | `startsdate` / `enddate` |
 | `type` | `entityType` | `enhedstype` (udfyldt) |
-| `aktiv` / `dw_is_deleted` | `activeOwnOrganization` (altid `true`) / tom | SydAX' `Aktiv` / `Slettet` |
+| `aktiv` / `dw_is_deleted` | `activeOwnOrganization` / tom | SydAX' `Aktiv` / `Slettet` |
 | Mapninger | ingen — vedligeholdes manuelt i OS2mo | ingen — vedligeholdes manuelt i OS2mo |
 | Fil | `rsyd_sor_<YYYYMMDD_HHMMSS>.csv` | `rsyd_okosted_<YYYYMMDD_HHMMSS>.csv` |
 
 Begge kodesystemer og `cm_okosted_to_sor` bygges af `organisation_cs_job`.
 `os2mo_delivery_sensor` starter leverancen, når det job er lykkedes.
+
+SOR-filen indeholder alle enheder, `cs_sor` markerer som `rsdOrganization`:
+enheder, der kan nås fra roden `6101000016001`, uanset om de er åbne, lukkede
+eller endnu ikke åbnet. `aktiv` er `activeOwnOrganization`: `true`, når enheden
+er i kraft — `openingDate` er nået, og der er ingen `closingDate` på eller før
+i dag (dansk tid) — og kan nås fra roden gennem enheder, der også er i kraft. En lukket
+enhed leveres derfor med `aktiv = false` og udfyldt `gyldig_til`, en kommende
+med `aktiv = false` og `gyldig_fra` i fremtiden. En åben enhed under en lukket
+forælder er også `aktiv = false`.
 
 Okosteds `kode` er en sammensat identitet: en knude er parret `(nummer,
 niveau)`, og koden skrives `<nummer>_NIVEAU_<niveau>`, fx `RSD_NIVEAU_1` eller

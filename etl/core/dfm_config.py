@@ -279,5 +279,5 @@ class DfmResetConfig(dg.Config):
     )
     scope: str = Field(
         default="staging",
-        description='Checkpoint scope. Options: "staging", "dso".',
+        description='Checkpoint scope. Options: "staging", "dso", "sfi_store".',
     )

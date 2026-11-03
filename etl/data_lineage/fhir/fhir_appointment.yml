@@ -38,6 +38,9 @@ dso_lineage:
     dw_is_deleted:                   { DataType: INT, FhirPath: "extension.where(url='urn:fhir:isDeleted').valueInteger", Source: [bom_ifdb.BOM_IFDB.AFTALE.DATOSLETTET] }
     last_updated:                 { DataType: DATETIME2, FhirPath: "r.ts" }
     created_at:                   { DataType: DATETIME2, FhirPath: "r.cts" }
+    dw_ek_Borger:                 { Type: FK, DataType: INT, Expr: "dim.Borger.dw_ek_Borger hvor fhir_Patient_id = patient_id", Description: "Borgeren aftalen er med. -1 når patienten ikke findes i dim.Borger. Findes borgeren kun som slettet, peger nøglen stadig på den." }
+    dw_sk_Borger:                 { Type: FK, DataType: INT, Expr: "dim.Borger.dw_sk_Borger for den levende version, hvor dw_valid_from <= start < dw_valid_to; start læses som det klokkeslæt, IFDB leverer", Description: "Den version af borgeren (adresse m.m.), der gjaldt ved aftalens start. -1 når borgeren eller en gældende version ikke findes, eller når start mangler." }
+    dw_ek_Organisation:           { Type: FK, DataType: INT, Expr: "fhir.Location.dw_ek_Organisation hvor location_id = performing_location_id", Description: "Den udførende enhed, arvet fra aftalens lokation (organisationen med samme SOR-kode). -1 når aftalen ikke har en lokation, eller lokationen ikke har en organisation." }
 
   # FHIR-resource-felter som bygges/postes til Aidbox men IKKE projiceres ned i
   # den flade fhir.Appointment DWH-tabel (SoF-viewet udelader dem). identifier_value

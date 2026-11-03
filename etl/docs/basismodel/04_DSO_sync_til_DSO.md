@@ -63,6 +63,13 @@ plus `fallback_reason`.
 Rækkefølgen er bundet i Dagster: **map → dim → fct**, hvor map findes. Hvert
 sync-asset afhænger af sit upstream staging-asset.
 
+**DSO stempler selv.** Alle tre modes sætter `dw_timestamp_insert` og
+`dw_timestamp_update` til DSO's skrivetidspunkt i UTC (`SYSUTCDATETIME()`), ved både
+INSERT og UPDATE. Stagings stempler kopieres ikke med. Et stempel på DSO angiver derfor,
+hvornår DSO skrev rækken, og alle stempler går efter samme ur, som kun går fremad. En
+række, der når DSO sent, får et sent stempel. Den, der læser ændringer på DSO, skal
+derfor kun bruge DSO's egne stempler.
+
 ## Checkpoint-reglerne
 
 Sync'en holder styr på, hvor langt den er nået, med et checkpoint — ligesom resten
@@ -80,8 +87,8 @@ implementeret i `build_delta_merge_statement` og `DfmManager` (`scope='dso'`).
   indsættelsestidspunktet.
 - Grænsen er **eksklusiv (`>`)**. Rækker med timestamp præcis lig checkpointet blev
   hentet sidste gang. Var grænsen inklusiv, ville hele det sidste sekund blive
-  gen-MERGE'et hver nat — og fordi MERGE'en på DSO stempler
-  `dw_timestamp_update = SYSDATETIME()`, ville det aldrig stoppe.
+  gen-MERGE'et hver nat — og fordi MERGE'en på DSO stempler sin egen skrivetid i
+  `dw_timestamp_update`, ville det aldrig stoppe.
 
 **Checkpointet:**
 
@@ -89,8 +96,7 @@ implementeret i `build_delta_merge_statement` og `DfmManager` (`scope='dso'`).
   Al læsning er derefter afgrænset til `> checkpoint AND <= max_now`, så rækker, der
   indsættes midt i synkroniseringen, ikke kan flytte checkpointet forbi noget ulæst.
 - Efter en succesfuld kørsel med rækker sættes checkpointet til det **forudmålte**
-  `max_now` — aldrig til et `MAX` målt efter MERGE'en, og aldrig til DSO's
-  `SYSDATETIME()`.
+  `max_now` — aldrig til et `MAX` målt efter MERGE'en, og aldrig til DSO's eget ur.
 - **Nul-række-guard:** checkpointet flyttes ikke, når `rows_affected == 0`.
 
 **Automatisk genopretning:** efter hver delta-kørsel sammenlignes `COUNT(*)` på
@@ -111,9 +117,10 @@ Reset til en fuld re-sync sker med `meta.usp_dfm_reset` med
 `@scope = 'dso'` — se
 [dfm_operations_guide.md §10](../implementation/dfm_operations_guide.md).
 
-> `[meta].[SyncWatermarks]` på DSO er **udgået** for tabel-sync. Den bruges kun
-> stadig til refresh af SFI-datapunkter. Brug ikke den tabel til at resette en
-> tabel-sync.
+> Ingen sync eller refresh læser `[meta].[SyncWatermarks]` på DSO. SFI-datapunktstoren har sit
+> checkpoint i `[meta].[DFMState]` med `scope='sfi_store'`
+> (`fhir.SFI_datapoint_store`). Storen læser ændringer på DSO's egne stempler og
+> holder checkpointet tilbage til starten af en DSO-sync af sine kilder, der stadig kører.
 
 ## Sådan tilføjer du en tabel
 
@@ -232,8 +239,8 @@ Konkret at tjekke ved en ny tabel:
 | `Linked server 'STAGING_LINK' does not exist` | Kør infrastruktur-assettet `dso_infra_linked_server`. Tjek med `SELECT * FROM sys.servers WHERE name = 'STAGING_LINK'`. |
 | `SchemaValidationError: Column mismatch` | Staging-skemaet er ændret. Opdatér DSO-tabellens DDL, kør `dso_infra_*`, kør synkroniseringen igen. DSO må aldrig ændre DSA's skema. |
 | `sync_engine=python_fallback` | Linked serveren var utilgængelig. Undersøg netværk og credentials — behandl det som en hændelse, ikke som normal drift. |
-| `counts_match: false` med lille forskel | Rækker indsat mellem MERGE og optælling. Løser sig selv ved næste kørsel. |
-| `counts_match: false` med stor forskel | Enten rester på DSO (MERGE sletter dem ikke) eller en fejlet fallback-overførsel. Overvej at resette checkpointet og køre en fuld re-sync. |
+| Synken fejler med `ROW_COUNT_MISMATCH` | DSO har færre rækker end staging: rækker indsat mellem MERGE og optælling, eller en fejlet fallback-overførsel. Kør synken igen. Fejler den igen, så reset checkpointet og kør en fuld re-sync. |
+| `counts_match: false` med flere rækker på DSO | Rester på DSO (MERGE sletter dem ikke). Kørslen forbliver grøn. |
 | Første kørsel med `mode="watermark"` MERGE'er alt | Forventet: `scope='dso'`-checkpointet var tomt. |
 
 ## Videre herfra

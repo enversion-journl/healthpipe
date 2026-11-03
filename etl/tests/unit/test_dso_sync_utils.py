@@ -241,9 +241,9 @@ class TestBuildMergeStatement:
         update_set_part = sql.split("UPDATE SET")[1].split("WHEN NOT MATCHED")[0]
         # PK should NOT appear in the UPDATE SET clause
         assert "tgt.[dw_ek_Kreditor] =" not in update_set_part
-        # dw_timestamp_update should be set to SYSDATETIME
-        assert "dw_timestamp_update" in sql
-        assert "SYSDATETIME()" in sql
+        assert (
+            "tgt.[dw_timestamp_update] = CAST(SYSUTCDATETIME() AS datetime2(0))" in update_set_part
+        )
 
     def test_merge_composite_pk(self):
         """Test MERGE statement with composite primary key."""
@@ -434,7 +434,9 @@ class TestBuildDeltaMergeStatement:
         assert "tgt.[CVR_CleanCode] = src.[CVR_CleanCode]" in update_set_part
         assert "tgt.[kreditornavn] = src.[kreditornavn]" in update_set_part
         assert "tgt.[dw_ek_Kreditor] =" not in update_set_part
-        assert "SYSDATETIME()" in sql
+        assert (
+            "tgt.[dw_timestamp_update] = CAST(SYSUTCDATETIME() AS datetime2(0))" in update_set_part
+        )
 
     def test_delta_merge_composite_pk(self):
         """Test delta MERGE with composite primary key and watermark."""
@@ -1095,6 +1097,9 @@ class TestPythonFallbackWatermark:
         insert_sql, inserted_rows = dso_cursor.executemany_calls[0]
         assert "INSERT INTO [dim].[Kreditor]" in insert_sql
         assert len(inserted_rows) == 1
+        # Staging's stamps are bound but not written: DSO stamps its own write time.
+        assert insert_sql.count("?") == len(inserted_rows[0])
+        assert insert_sql.split("FROM (VALUES")[0].count(_UTC) == 2
 
 
 class TestPythonFallbackTruncateInsert:
@@ -1830,8 +1835,8 @@ class TestMismatchRecovery:
         assert recovery_call_config.mode == "merge"
         assert mock_finalize.call_count >= 1
 
-    def test_recovery_failed_sets_flag_without_retry(self):
-        """When recovery MERGE runs but counts still mismatch, flag failure — no retry."""
+    def test_recovery_still_missing_rows_raises_without_retry(self):
+        """When recovery MERGE runs but DSO still misses rows, fail the sync — no retry."""
         ctx = _create_mock_context()
         dso_resource, _conn, _cursor = _create_mock_dso_resource()
         staging_resource, _, _ = _create_mock_dso_resource()
@@ -1877,28 +1882,22 @@ class TestMismatchRecovery:
                     side_effect=[delta_result, recovery_result],
                 ) as mock_sync,
                 unittest.mock.patch.object(
-                    sync_utils,
-                    "compare_row_counts",
-                    side_effect=[
-                        {"staging_count": 30000, "dso_count": 29000, "match": False},
-                        {"staging_count": 30000, "dso_count": 29500, "match": False},
-                    ],
+                    sync_utils, "get_staging_row_count", side_effect=[30000, 30000]
                 ),
+                unittest.mock.patch.object(
+                    sync_utils, "get_dso_row_count", side_effect=[29000, 29500]
+                ),
+                pytest.raises(RuntimeError, match="ROW_COUNT_MISMATCH"),
             ):
-                result = sync_utils.sync_table_via_linked_server(
+                sync_utils.sync_table_via_linked_server(
                     ctx,
                     dso_resource,
                     config,
                     mssql_source_staging=staging_resource,
                 )
 
-        # Recovery ran but failed — flag is set
-        assert result["recovery_full_merge"] is True
-        assert result["recovery_failed"] is True
         # Only 2 calls to _sync_via_linked_server (no infinite retry)
         assert mock_sync.call_count == 2
-        # Error was logged
-        ctx.log.error.assert_called_once()
 
     def test_recovery_preserves_identity_insert(self):
         """Recovery config preserves identity_insert=True from original config."""
@@ -1916,6 +1915,54 @@ class TestMismatchRecovery:
         assert recovery_config.watermark_column == "dw_timestamp_update"
         assert recovery_config.schema == "fct"
         assert recovery_config.table == "Vareudlevering"
+
+
+@pytest.mark.parametrize(
+    ("code_location", "skips"), [("development", False), ("release-1-0-83", False), (None, True)]
+)
+def test_unreachable_staging_skips_only_locally(monkeypatch, code_location, skips):
+    if code_location is None:
+        monkeypatch.delenv("DAGSTER_CODE_LOCATION_NAME", raising=False)
+    else:
+        monkeypatch.setenv("DAGSTER_CODE_LOCATION_NAME", code_location)
+    dso_resource, _conn, cursor = _create_mock_dso_resource()
+    cursor.fetchone.return_value = (42,)
+    staging_resource, _, _ = _create_mock_dso_resource()
+    config = SyncTableConfig(schema="dim", table="SOR", primary_key="dw_ek_SOR")
+
+    with (
+        unittest.mock.patch.object(sync_utils, "is_same_database_mode", return_value=False),
+        unittest.mock.patch.object(sync_utils, "can_connect_to_staging", return_value=False),
+    ):
+        if skips:
+            result = sync_utils.sync_table_via_linked_server(
+                _create_mock_context(), dso_resource, config, mssql_source_staging=staging_resource
+            )
+            assert result["mode"] == "local_dev_skip"
+        else:
+            with pytest.raises(RuntimeError, match="staging database unreachable"):
+                sync_utils.sync_table_via_linked_server(
+                    _create_mock_context(),
+                    dso_resource,
+                    config,
+                    mssql_source_staging=staging_resource,
+                )
+
+
+@pytest.mark.parametrize(("dso_count", "raises"), [(99, True), (100, False), (101, False)])
+def test_compare_row_counts_raises_only_on_missing_dso_rows(dso_count, raises):
+    with (
+        unittest.mock.patch.object(sync_utils, "get_staging_row_count", return_value=100),
+        unittest.mock.patch.object(sync_utils, "get_dso_row_count", return_value=dso_count),
+    ):
+        if raises:
+            with pytest.raises(RuntimeError, match="ROW_COUNT_MISMATCH"):
+                sync_utils.compare_row_counts(_create_mock_context(), MagicMock(), "dim", "SOR")
+        else:
+            counts = sync_utils.compare_row_counts(
+                _create_mock_context(), MagicMock(), "dim", "SOR"
+            )
+            assert counts["match"] is (dso_count == 100)
 
 
 class TestDispatcherFallbackOnConnectivityError:
@@ -2654,9 +2701,9 @@ class TestBatchedSyncIndexDisable:
                 self._fetch.append(self._next_pks.pop(0))
             elif "EXISTS" in sql:  # Phase-2 emptiness probe
                 self._fetch.append((1,) if self._target_populated else (0,))
-            elif "sys.indexes" in sql:  # _get_non_pk_nonclustered_index_names
+            elif "sys.indexes" in sql:  # _nonclustered_index_states
                 self.index_lookup_calls += 1
-                self.fetchall_queue.append([(n,) for n in self._index_names])
+                self.fetchall_queue.append([(n, False) for n in self._index_names])
             elif "DISABLE" in sql:
                 self.disabled.append(sql)
             elif "REBUILD" in sql:
@@ -2888,3 +2935,310 @@ def test_index_disable_ratio_tag_before_table_before_environment(monkeypatch):
     assert sync_utils._index_disable_thresholds(ctx, 0.0)[1] == 0.3
     monkeypatch.delenv(sync_utils._INDEX_DISABLE_MIN_RATIO_ENV)
     assert sync_utils._index_disable_thresholds(None, None)[1] == 0.10
+
+
+_UTC = "CAST(SYSUTCDATETIME() AS datetime2(0))"
+_STAMPED_COLUMNS = ["qr_id", "link_id", "value", "dw_timestamp_insert", "dw_timestamp_update"]
+
+
+class _MergeRecordingCursor(_DummyCursor):
+    """Answers the batched paths' queries for a two-row delta into a populated target."""
+
+    def __init__(self):
+        super().__init__()
+        self._fetch: list[tuple] = []
+        self._batch_rowcounts = [2, 0]
+
+    def execute(self, sql, params=None):
+        self.execute_calls.append((sql, params))
+        if "CASE WHEN EXISTS" in sql:
+            self._fetch.append((1,))
+        elif "COUNT(*)" in sql:
+            self._fetch.append((2,))
+        elif "INSERT INTO #_sync_staging" in sql:
+            self.rowcount = self._batch_rowcounts.pop(0) if self._batch_rowcounts else 0
+        elif "MAX(" in sql or "SELECT TOP(1)" in sql:
+            self._fetch.append(("k2", "k2"))
+        elif sql.lstrip().startswith("MERGE"):
+            self.rowcount = 2
+
+    def fetchone(self):
+        return self._fetch.pop(0) if self._fetch else (0,)
+
+    def fetchall(self):
+        return []
+
+    def merge_sql(self) -> str:
+        merges = [sql for sql, _ in self.execute_calls if sql.lstrip().startswith("MERGE")]
+        assert len(merges) == 1, f"expected one MERGE, got {len(merges)}"
+        return merges[0]
+
+
+class _EmptyTargetCursor(_MergeRecordingCursor):
+    """As above, into an empty target: the batched path bulk-INSERTs instead of MERGE."""
+
+    def execute(self, sql, params=None):
+        super().execute(sql, params)
+        if "CASE WHEN EXISTS" in sql:
+            self._fetch[-1] = (0,)
+
+    def bulk_insert_sql(self) -> str:
+        (insert,) = [sql for sql, _ in self.execute_calls if "WITH (TABLOCK)" in sql]
+        return insert
+
+
+def _assert_dso_stamps(merge_sql: str) -> None:
+    """UPDATE and INSERT both stamp the DSO write time; staging's stamps are never copied."""
+    update_set = merge_sql.split("UPDATE SET")[1].split("WHEN NOT MATCHED")[0]
+    insert_values = merge_sql.split("VALUES")[-1]
+    assert f"tgt.[dw_timestamp_update] = {_UTC}" in update_set
+    assert "dw_timestamp_insert" not in update_set
+    assert insert_values.count(_UTC) == 2
+    assert "src.[value]" in insert_values
+    assert "src.[dw_timestamp_" not in merge_sql
+    assert "SYSDATETIME()" not in merge_sql
+
+
+class TestDsoStampsItsOwnWritesInUtc:
+    """A stamp on DSO is when DSO wrote the row, in UTC, on every write path.
+
+    Staging's stamps are in another clock and say when staging changed the row; a copied
+    or local-time stamp lets a reader of DSO's stamps, such as the SFI store, skip rows.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _reset_collation_cache(self, monkeypatch):
+        monkeypatch.setattr(sync_utils, "_collation_mismatch_cache", False)
+
+    @staticmethod
+    def _config(**kwargs) -> SyncTableConfig:
+        return SyncTableConfig(
+            schema="fhir",
+            table="QuestionnaireResponse_item",
+            primary_key=["qr_id", "link_id"],
+            mode="watermark",
+            watermark_column="dw_timestamp_update",
+            **kwargs,
+        )
+
+    def test_full_and_delta_merge(self):
+        _assert_dso_stamps(build_merge_statement(self._config(), _STAMPED_COLUMNS, staging_db="T"))
+        _assert_dso_stamps(
+            build_delta_merge_statement(
+                self._config(), _STAMPED_COLUMNS, "2026-10-16 08:00:00", staging_db="T"
+            )
+        )
+
+    def test_truncate_insert_selects_the_write_time_for_the_stamps(self):
+        _, insert_sql = build_truncate_insert_statement(
+            self._config(), _STAMPED_COLUMNS, staging_db="T"
+        )
+        select_list = insert_sql.split("SELECT")[1].split("FROM")[0]
+        assert select_list.count(_UTC) == 2
+        assert "[value]" in select_list and "[dw_timestamp_" not in select_list
+
+    def test_clearing_an_outgoing_current_version_stamps_it(self):
+        config = SyncTableConfig(
+            schema="dim",
+            table="Borger",
+            primary_key="dw_sk_Borger",
+            unique_current_key="dw_ek_Borger",
+        )
+        sql = build_clear_stale_current_sql(config, "#_sync_staging")
+        assert f"tgt.dw_timestamp_update = {_UTC}" in sql
+
+    def test_batched_single_key_merge(self):
+        cursor = _MergeRecordingCursor()
+        sync_utils._sync_via_linked_server_batched(
+            context=MagicMock(),
+            mssql_target_dso=_RawConnResource([_MssqlPythonDummyConnection(cursor)]),
+            config=SyncTableConfig(
+                schema="fhir",
+                table="Observation",
+                primary_key="observation_id",
+                mode="watermark",
+                watermark_column="dw_timestamp_update",
+            ),
+            last_sync_checkpoint="2026-10-16 08:00:00",
+            columns=["observation_id", "value", "dw_timestamp_insert", "dw_timestamp_update"],
+            string_pk_cols=set(),
+        )
+        _assert_dso_stamps(cursor.merge_sql())
+
+    def test_batched_bulk_insert_into_an_empty_target(self):
+        cursor = _EmptyTargetCursor()
+        sync_utils._sync_via_linked_server_batched_composite(
+            context=MagicMock(),
+            mssql_target_dso=_RawConnResource([_MssqlPythonDummyConnection(cursor)]),
+            config=self._config(),
+            last_sync_checkpoint="2026-10-16 08:00:00",
+            columns=_STAMPED_COLUMNS,
+            string_pk_cols=set(),
+        )
+        select_list = cursor.bulk_insert_sql().split("SELECT")[1].split("FROM")[0]
+        assert select_list.count(_UTC) == 2
+        assert "[value]" in select_list and "[dw_timestamp_" not in select_list
+
+    def test_batched_composite_key_merge(self):
+        cursor = _MergeRecordingCursor()
+        sync_utils._sync_via_linked_server_batched_composite(
+            context=MagicMock(),
+            mssql_target_dso=_RawConnResource([_MssqlPythonDummyConnection(cursor)]),
+            config=self._config(),
+            last_sync_checkpoint="2026-10-16 08:00:00",
+            columns=_STAMPED_COLUMNS,
+            string_pk_cols=set(),
+        )
+        _assert_dso_stamps(cursor.merge_sql())
+
+
+def test_interrupted_sync_marks_its_dfm_run_failed():
+    """A run left 'running' holds back every reader that waits for in-flight syncs."""
+    from core.dfm_manager import DfmRunContext
+    from dagster._core.errors import DagsterExecutionInterruptedError
+
+    failed: list[int] = []
+
+    class _RecordingDfmSession:
+        def __init__(self, _staging, _context):
+            self.dfm = MagicMock()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def start_run(self, _config, _dfm_mode):
+            return DfmRunContext(log_id=7, checkpoint="2026-10-24 03:00:00")
+
+        def fail_run(self, log_id, _message):
+            failed.append(log_id)
+
+    dso_resource, _, _ = _create_mock_dso_resource()
+    staging_resource, _, _ = _create_mock_dso_resource()
+    config = SyncTableConfig(
+        schema="fhir",
+        table="QuestionnaireResponse_item",
+        primary_key=["qr_id", "link_id"],
+        mode="watermark",
+        watermark_column="dw_timestamp_update",
+    )
+    with (
+        unittest.mock.patch("DSO.load.sync_dfm.DsoSyncDfmSession", _RecordingDfmSession),
+        unittest.mock.patch.object(
+            sync_utils, "get_table_columns", return_value=["qr_id", "link_id", "value"]
+        ),
+        unittest.mock.patch.object(sync_utils, "is_same_database_mode", return_value=False),
+        unittest.mock.patch.object(sync_utils, "can_connect_to_staging", return_value=True),
+        unittest.mock.patch.object(sync_utils, "validate_table_schemas_match"),
+        unittest.mock.patch.object(sync_utils, "validate_linked_server"),
+        unittest.mock.patch("DSO.load.sync_dfm.query_source_checkpoint", return_value=None),
+        unittest.mock.patch.object(
+            sync_utils, "_attempt_sync_with_fallbacks", side_effect=DagsterExecutionInterruptedError
+        ),
+    ):
+        with pytest.raises(DagsterExecutionInterruptedError):
+            sync_utils.sync_table_via_linked_server(
+                _create_mock_context(), dso_resource, config, mssql_source_staging=staging_resource
+            )
+    assert failed == [7]
+
+
+@pytest.mark.parametrize(("since", "held"), [("2026-10-27 09:00:00", True), (None, False)])
+def test_the_sync_holds_consumer_indexes_while_the_dfm_switch_is_on(since, held):
+    from core.dfm_manager import DfmRunContext
+
+    seen: list[SyncTableConfig] = []
+
+    class _DfmSession:
+        def __init__(self, _staging, _context):
+            self.dfm = MagicMock()
+            self.dfm.get_checkpoint.return_value = since
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def start_run(self, _config, _dfm_mode):
+            return DfmRunContext(log_id=7, checkpoint="2026-10-24 03:00:00")
+
+        def fail_run(self, *_args):
+            pass
+
+    def _capture(_context, _dso, config, *_args, **_kwargs):
+        seen.append(config)
+        raise RuntimeError("stop after the config is resolved")
+
+    dso_resource, _, _ = _create_mock_dso_resource()
+    staging_resource, _, _ = _create_mock_dso_resource()
+    config = SyncTableConfig(
+        schema="fhir",
+        table="QuestionnaireResponse",
+        primary_key="qr_id",
+        mode="watermark",
+        watermark_column="dw_timestamp_update",
+        consumer_indexes=("IX_FHIR_QR_LastUpdated",),
+    )
+    with (
+        unittest.mock.patch("DSO.load.sync_dfm.DsoSyncDfmSession", _DfmSession),
+        unittest.mock.patch.object(
+            sync_utils, "get_table_columns", return_value=["qr_id", "value"]
+        ),
+        unittest.mock.patch.object(sync_utils, "is_same_database_mode", return_value=False),
+        unittest.mock.patch.object(sync_utils, "can_connect_to_staging", return_value=True),
+        unittest.mock.patch.object(sync_utils, "validate_table_schemas_match"),
+        unittest.mock.patch.object(sync_utils, "validate_linked_server"),
+        unittest.mock.patch("DSO.load.sync_dfm.query_source_checkpoint", return_value=None),
+        unittest.mock.patch.object(sync_utils, "_attempt_sync_with_fallbacks", _capture),
+    ):
+        with pytest.raises(RuntimeError, match="stop after"):
+            sync_utils.sync_table_via_linked_server(
+                _create_mock_context(), dso_resource, config, mssql_source_staging=staging_resource
+            )
+    assert seen and seen[0].hold_consumer_indexes is held
+
+
+@pytest.mark.parametrize(
+    ("hold", "disable_all", "disabled", "rebuilt"),
+    [
+        (True, True, ["IX_a", "IX_c"], ["IX_a", "IX_b"]),
+        (True, False, ["IX_c"], ["IX_b"]),
+        (False, False, [], ["IX_b"]),
+    ],
+)
+def test_consumer_indexes_stay_off_without_consumers_and_leftovers_are_healed(
+    hold, disable_all, disabled, rebuilt
+):
+    from types import SimpleNamespace
+
+    from DSO.load.sync_utils import SyncTableConfig, _prepare_target_indexes
+
+    executed: list[str] = []
+
+    class _Cursor:
+        def execute(self, sql, params=None):
+            executed.append(sql)
+
+        def fetchall(self):
+            return [("IX_a", False), ("IX_b", True), ("IX_c", False)]
+
+    config = SyncTableConfig(
+        schema="fhir",
+        table="QuestionnaireResponse",
+        primary_key="qr_id",
+        consumer_indexes=("IX_c",),
+        hold_consumer_indexes=hold,
+    )
+    context = SimpleNamespace(log=SimpleNamespace(info=print))
+
+    result = _prepare_target_indexes(
+        _Cursor(), config, context, "[fhir].[QuestionnaireResponse]", disable_all=disable_all
+    )
+
+    assert result == rebuilt
+    assert [sql for sql in executed if "DISABLE" in sql] == [
+        f"ALTER INDEX [{n}] ON [fhir].[QuestionnaireResponse] DISABLE" for n in disabled
+    ]

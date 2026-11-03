@@ -33,6 +33,9 @@ Sensors:
   DSA layer and syncs it to DSO after the Borger chain, gated on
   meta.UdredningsretLeverance's delivery watermark and on live forloeb still
   at dw_ek_Borger = -1 (built via a factory in definitions.py)
+- release_infrastructure_sensor: Runs full_infrastructure_setup once per release-*/main-*
+  deployment; every schedule there is gated on its success, and its FAILURE twin
+  alarms (built via factories in definitions.py)
 
 The DFM base-job sensors are gone: the IFDB → FHIR pipeline is one job
 (``ifdb_dfm_daily_job``) on one schedule, so there is no downstream job to fan
@@ -49,6 +52,11 @@ from sensors.drg_queue_sensor import (
 from sensors.haiba_publish_sensor import build_haiba_publish_sensor
 from sensors.nightly_failure_sensor import build_nightly_failure_sensor
 from sensors.os2mo_delivery_sensor import build_os2mo_delivery_sensor
+from sensors.release_infrastructure_sensor import (
+    build_release_infrastructure_failure_sensor,
+    build_release_infrastructure_sensor,
+    gate_schedules_on_release_infrastructure,
+)
 from sensors.udredningsret_publish_sensor import build_udredningsret_publish_sensor
 
 nightly_failure_report_sensor = build_nightly_failure_sensor()
@@ -65,7 +73,10 @@ __all__ = [
     "build_haiba_publish_sensor",
     "build_nightly_failure_sensor",
     "build_os2mo_delivery_sensor",
+    "build_release_infrastructure_failure_sensor",
+    "build_release_infrastructure_sensor",
     "build_udredningsret_publish_sensor",
+    "gate_schedules_on_release_infrastructure",
     "nightly_failure_report_sensor",
     "all_sensors",
 ]

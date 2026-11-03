@@ -14,6 +14,7 @@ to staging, where dim_Borger joins it, and to DSO.
 
 import dagster as dg
 from core.resources import MSSQLResource
+from utils.sql.write_timestamp import WRITE_TIMESTAMP_UTC
 
 REF_TABLE = "[ref].[KommuneToPopulationsansvar]"
 
@@ -59,7 +60,7 @@ MERGE_SQL = f"""
         ON tgt.[kommunekode] = src.[kommunekode]
     WHEN MATCHED AND tgt.[populationsansvar] <> src.[populationsansvar] THEN
         UPDATE SET [populationsansvar] = src.[populationsansvar],
-                   [dw_timestamp_update] = CAST(SYSDATETIME() AS datetime2(0))
+                   [dw_timestamp_update] = {WRITE_TIMESTAMP_UTC}
     WHEN NOT MATCHED BY TARGET THEN
         INSERT ([kommunekode], [populationsansvar])
         VALUES (src.[kommunekode], src.[populationsansvar])

@@ -279,7 +279,7 @@ BEGIN
         [vaerdi_efter]        NVARCHAR(50)  NULL,
         [leverance_dato_foer] DATE          NULL,
         [leverance_dato]      DATE          NOT NULL,
-        [dw_timestamp_insert] DATETIME2(0)  NOT NULL CONSTRAINT [DF_haiba_agg_revision_dw_timestamp_insert] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2(0)  NOT NULL CONSTRAINT [DF_haiba_agg_revision_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_arc_haiba_agg_revision] PRIMARY KEY CLUSTERED ([revision_id])
     );
 

@@ -10,14 +10,13 @@ Adding a codesystem is adding a spec here: the assets, the job selection, the
 delivery sensor's run config and the export table all follow from this tuple.
 """
 
-from DSA.CodeSystem.sor.sor import ACTIVE_OWN_PROPERTY_KEY, SOR_ROOT
+from DSA.CodeSystem.sor.sor import ACTIVE_OWN_PROPERTY_KEY, RSD_PROPERTY_KEY, SOR_ROOT
 from utils.os2mo.codesystem_export import CodesystemExportSpec
 
 __all__ = ["CODESYSTEM_EXPORTS", "OKOSTED_EXPORT", "SOR_EXPORT"]
 
-# Example Region's own SOR organisation: the codes cs_sor flags as
-# activeOwnOrganization (open, in effect, and reachable from the RSD root
-# through open units), walked from that root.
+# Example Region's SOR tree: every code cs_sor flags as rsdOrganization,
+# walked from SOR_ROOT — closed and not-yet-opened units included.
 SOR_EXPORT = CodesystemExportSpec(
     name="SOR",
     asset_prefix="sor",
@@ -25,8 +24,8 @@ SOR_EXPORT = CodesystemExportSpec(
     from_property="openingDate",
     to_property="closingDate",
     type_property="entityType",
-    active_property=ACTIVE_OWN_PROPERTY_KEY,
-    active_value="true",
+    scope_property=RSD_PROPERTY_KEY,
+    scope_value="true",
     status_active_property=ACTIVE_OWN_PROPERTY_KEY,
     root_code=SOR_ROOT,
 )

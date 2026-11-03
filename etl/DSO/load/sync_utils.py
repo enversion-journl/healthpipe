@@ -31,7 +31,9 @@ from uuid import UUID
 
 import dagster as dg
 from core.resources import MSSQLResource, get_linked_server_config
+from utils.fhir.sfi_consumers import sfi_consumers_absent
 from utils.sql.collation import EXACT_MATCH_COLLATION
+from utils.sql.write_timestamp import WRITE_TIMESTAMP_UTC
 
 # =============================================================================
 # Constants
@@ -262,8 +264,8 @@ def _safe_close(*objs: object) -> None:
             continue
         try:
             obj.close()  # type: ignore[attr-defined]
-        except Exception:
-            pass
+        except Exception as e:
+            dg.get_dagster_logger().warning(f"Could not close {obj!r}: {e}")
 
 
 def _stage_batches_via_openquery(
@@ -444,23 +446,33 @@ def is_same_database_mode(
     return staging_host == dso_host and staging_db == dso_db
 
 
-def can_connect_to_staging(mssql_source_staging: MSSQLResource) -> bool:
+def can_connect_to_staging(
+    mssql_source_staging: MSSQLResource, context: dg.AssetExecutionContext
+) -> bool:
     """
     Test if we can actually connect to the staging database.
 
     Returns:
         True if connection succeeds, False otherwise
     """
-    try:
-        with mssql_source_staging.get_connection() as conn:
-            cursor = conn.cursor()
-            try:
-                cursor.execute("SELECT 1")
-                return True
-            finally:
-                cursor.close()
-    except Exception:
-        return False
+    backoff_seconds = (5, 15, 45)
+    for attempt in range(len(backoff_seconds) + 1):
+        try:
+            with mssql_source_staging.get_connection() as conn:
+                cursor = conn.cursor()
+                try:
+                    cursor.execute("SELECT 1")
+                    return True
+                finally:
+                    cursor.close()
+        except Exception as e:
+            context.log.warning(
+                f"Staging probe failed (attempt {attempt + 1}/{len(backoff_seconds) + 1}): "
+                f"{str(e)[:200]}"
+            )
+            if attempt < len(backoff_seconds):
+                time.sleep(backoff_seconds[attempt])
+    return False
 
 
 # =============================================================================
@@ -513,6 +525,12 @@ class SyncTableConfig:
     # Share of the target a delta must reach before indexes are disabled. None uses
     # DSO_SYNC_INDEX_DISABLE_MIN_RATIO, else 0.10; a run tag overrides both.
     index_disable_min_ratio: float | None = None
+    # Indexes only consumers read. While the SFI chain runs without consumers (a full load)
+    # they stay disabled and are not rebuilt per write; the next write after it heals them.
+    consumer_indexes: tuple[str, ...] = ()
+    # Resolved per run from the SFI switch in DFM (sync_table_via_linked_server); never set in
+    # sync_configs.
+    hold_consumer_indexes: bool = False
     # Rows per chunk when using the Python fallback path (_sync_via_python).
     # Controls fetchmany() size and executemany() batch size to keep memory constant.
     # Default 5k keeps memory <10 MB even for wide dims with NVARCHAR(MAX).
@@ -607,7 +625,8 @@ def build_clear_stale_current_sql(
 
     return f"""
         UPDATE tgt
-        SET tgt.dw_is_current = 0
+        SET tgt.dw_is_current = 0,
+            tgt.dw_timestamp_update = {WRITE_TIMESTAMP_UTC}
         FROM [{config.schema}].[{config.table}] AS tgt
         INNER JOIN {source_from} AS src
             ON {key_join}
@@ -642,6 +661,20 @@ def _find_insert_timestamp_col(columns: list[str]) -> str | None:
         if col in ("dw_timestamp_insert",):
             return col
     return None
+
+
+def _update_timestamp_assignment(update_ts_col: str) -> str:
+    """UPDATE SET for the update timestamp: the DSO write time, not staging's value."""
+    return f"tgt.[{update_ts_col}] = {WRITE_TIMESTAMP_UTC}"
+
+
+def _write_values(sync_columns: list[str], alias: str | None = "src") -> str:
+    """INSERT values for ``sync_columns``: the source columns, the DSO write time in the stamps."""
+    stamped = {_find_insert_timestamp_col(sync_columns), _find_update_timestamp_col(sync_columns)}
+    prefix = f"{alias}." if alias else ""
+    return ", ".join(
+        WRITE_TIMESTAMP_UTC if c in stamped else f"{prefix}[{c}]" for c in sync_columns
+    )
 
 
 # =============================================================================
@@ -1104,7 +1137,6 @@ def build_merge_statement(
     # Detect the actual update timestamp column name
     update_ts_col = _find_update_timestamp_col(sync_columns)
 
-    # Build column lists (exclude update timestamp -- set to SYSDATETIME() separately)
     update_columns = [
         c
         for c in sync_columns
@@ -1123,11 +1155,11 @@ def build_merge_statement(
     # Build UPDATE SET clause
     update_set = ", ".join(f"tgt.[{c}] = src.[{c}]" for c in update_columns)
     if update_ts_col:
-        update_set += f", tgt.[{update_ts_col}] = CAST(SYSDATETIME() AS datetime2(0))"
+        update_set += ", " + _update_timestamp_assignment(update_ts_col)
 
     # Build INSERT column list and values
     insert_cols = ", ".join(f"[{c}]" for c in sync_columns)
-    insert_vals = ", ".join(f"src.[{c}]" for c in sync_columns)
+    insert_vals = _write_values(sync_columns)
 
     merge_sql = f"""
         MERGE {target_table} AS tgt
@@ -1237,7 +1269,6 @@ def build_delta_merge_statement(
     update_ts_col = _find_update_timestamp_col(sync_columns)
     insert_ts_col = _find_insert_timestamp_col(sync_columns)
 
-    # Build column lists (exclude update timestamp -- set to SYSDATETIME() separately)
     update_columns = [
         c
         for c in sync_columns
@@ -1269,11 +1300,11 @@ def build_delta_merge_statement(
     # Build UPDATE SET clause
     update_set = ", ".join(f"tgt.[{c}] = src.[{c}]" for c in update_columns)
     if update_ts_col:
-        update_set += f", tgt.[{update_ts_col}] = CAST(SYSDATETIME() AS datetime2(0))"
+        update_set += ", " + _update_timestamp_assignment(update_ts_col)
 
     # Build INSERT column list and values
     insert_cols = ", ".join(f"[{c}]" for c in sync_columns)
-    insert_vals = ", ".join(f"src.[{c}]" for c in sync_columns)
+    insert_vals = _write_values(sync_columns)
 
     merge_sql = f"""
         MERGE {target_table} AS tgt
@@ -1294,15 +1325,15 @@ def build_delta_merge_statement(
     return merge_sql
 
 
-def _get_non_pk_nonclustered_index_names(
+def _nonclustered_index_states(
     cursor,
     schema: str,
     table: str,
-) -> list[str]:
-    """Return names of nonclustered, non-PK indexes on the given table (for disable/rebuild)."""
+) -> list[tuple[str, bool]]:
+    """(name, is_disabled) for the nonclustered, non-PK indexes on the given table."""
     cursor.execute(
         f"""
-        SELECT i.name
+        SELECT i.name, i.is_disabled
         FROM sys.indexes i
         INNER JOIN sys.tables t ON i.object_id = t.object_id
         INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
@@ -1310,7 +1341,33 @@ def _get_non_pk_nonclustered_index_names(
           AND i.is_primary_key = 0 AND i.type = 2
         """
     )
-    return [row[0] for row in cursor.fetchall()]
+    return [(str(row[0]), bool(row[1])) for row in cursor.fetchall()]
+
+
+def _prepare_target_indexes(
+    cursor, config: SyncTableConfig, context, full_table: str, *, disable_all: bool
+) -> list[str]:
+    """Slå målets indeks fra før skrivningen; returnér dem, der skal genopbygges bagefter.
+
+    ``disable_all`` slår alle fra. Mens SFI-kæden kører uden aftagere, står tabellens
+    aftagerindeks fra uden genopbygning; et indeks, en tidligere kørsel efterlod slået fra,
+    genopbygges.
+    """
+    if not (disable_all or config.consumer_indexes):
+        return []
+    hold = frozenset(config.consumer_indexes) if config.hold_consumer_indexes else frozenset()
+    states = _nonclustered_index_states(cursor, config.schema, config.table)
+    for name, disabled in states:
+        if not disabled and (disable_all or name in hold):
+            cursor.execute(f"ALTER INDEX [{name}] ON {full_table} DISABLE")
+    rebuild = [name for name, disabled in states if name not in hold and (disable_all or disabled)]
+    held = sorted(hold & {name for name, _ in states})
+    if rebuild or held:
+        context.log.info(
+            f"Nonclustered indexes on {full_table}: rebuilt after the write: "
+            f"{', '.join(rebuild) or '-'}; held off without consumers: {', '.join(held) or '-'}"
+        )
+    return rebuild
 
 
 # Backfill-port for indeks-frakobling: et delta, der er stort i forhold til
@@ -1442,7 +1499,7 @@ def build_truncate_insert_statement(
     col_list = ", ".join(f"[{c}]" for c in sync_columns)
     insert_sql = f"""
         INSERT INTO {target_table} ({col_list})
-        SELECT {col_list}
+        SELECT {_write_values(sync_columns, alias=None)}
         FROM {source_table}
     """
 
@@ -1630,11 +1687,13 @@ def sync_table_via_linked_server(
     # Check if staging is reachable - if not and linked server unavailable,
     # this might be a local dev setup where all data is already in DSO
     staging_reachable = mssql_source_staging is not None and can_connect_to_staging(
-        mssql_source_staging
+        mssql_source_staging, context
     )
 
     if not staging_reachable:
         context.log.warning("⚠️ Staging database is not reachable")
+        if os.getenv("DAGSTER_CODE_LOCATION_NAME"):
+            raise RuntimeError(f"Cannot sync {full_table}: staging database unreachable")
 
         # Check if data already exists in DSO (local dev with shared database)
         with mssql_target_dso.get_connection() as conn:
@@ -1659,8 +1718,6 @@ def sync_table_via_linked_server(
                         "rows_per_second": 0.0,
                         "note": "Staging unreachable, but DSO already has data",
                     }
-            except Exception:
-                pass  # Table might not exist in DSO yet
             finally:
                 cursor.close()
 
@@ -1698,6 +1755,8 @@ def sync_table_via_linked_server(
 
     dfm_staging = cast(MSSQLResource, mssql_source_staging)
     with DsoSyncDfmSession(dfm_staging, context) as dfm_session:
+        if config.consumer_indexes and sfi_consumers_absent(context, dfm_session.dfm):
+            config = dc_replace(config, hold_consumer_indexes=True)
         run_ctx = dfm_session.start_run(config, dfm_mode)
         checkpoint = None if dfm_mode == "full_load" else run_ctx.checkpoint
         # Pin the watermark window *before* any MERGE/OPENQUERY so mid-sync
@@ -1721,7 +1780,7 @@ def sync_table_via_linked_server(
                     last_sync_checkpoint=checkpoint,
                     checkpoint_upper_bound=checkpoint_upper_bound,
                 )
-            except Exception as exc:
+            except BaseException as exc:
                 dfm_session.fail_run(run_ctx.log_id, str(exc))
                 raise
 
@@ -1742,7 +1801,7 @@ def sync_table_via_linked_server(
                         dfm_mode="full_load",
                         checkpoint_upper_bound=checkpoint_upper_bound,
                     )
-                except Exception as exc:
+                except BaseException as exc:
                     dfm_session.fail_run(recovery_ctx.log_id, str(exc))
                     raise
                 return result
@@ -1760,6 +1819,7 @@ def sync_table_via_linked_server(
                     mssql_source_staging=mssql_source_staging,
                     staging_schema=config.staging_schema,
                     staging_table=config.staging_table,
+                    raise_on_missing_rows=False,
                 )
                 staging_count = counts["staging_count"]
                 dso_count = counts["dso_count"]
@@ -1836,7 +1896,7 @@ def sync_table_via_linked_server(
                             dfm_mode="full_load",
                             checkpoint_upper_bound=checkpoint_upper_bound,
                         )
-                    except Exception as exc:
+                    except BaseException as exc:
                         dfm_session.fail_run(recovery_ctx.log_id, str(exc))
                         raise
                     return result
@@ -1860,7 +1920,7 @@ def sync_table_via_linked_server(
                     dfm_mode=dfm_mode,
                     checkpoint_upper_bound=checkpoint_upper_bound,
                 )
-            except Exception as exc:
+            except BaseException as exc:
                 dfm_session.fail_run(run_ctx.log_id, str(exc))
                 raise
             return result
@@ -1977,10 +2037,10 @@ def _sync_via_linked_server_batched(
         ]
         update_set = ", ".join(f"tgt.[{c}] = src.[{c}]" for c in update_columns)
         if update_ts_col:
-            update_set += f", tgt.[{update_ts_col}] = CAST(SYSDATETIME() AS datetime2(0))"
+            update_set += ", " + _update_timestamp_assignment(update_ts_col)
 
         insert_cols = ", ".join(f"[{c}]" for c in sync_columns)
-        insert_vals = ", ".join(f"src.[{c}]" for c in sync_columns)
+        insert_vals = _write_values(sync_columns)
 
         return (
             f"MERGE {full_table} AS tgt "
@@ -2021,8 +2081,10 @@ def _sync_via_linked_server_batched(
             # setup fails first, close it here so a reconnect attempt cannot leak it.
             try:
                 conn.close()
-            except Exception:
-                pass
+            except Exception as e:
+                context.log.warning(
+                    f"Could not close the connection after temp-table setup failed: {e}"
+                )
             raise
         return conn, cursor
 
@@ -2123,20 +2185,15 @@ def _sync_via_linked_server_batched(
         # sorted; for an incremental MERGE into a populated target we leave them
         # intact (rebuilding every index over the whole table to absorb a small
         # delta would cost far more than per-row upkeep). See the field docstring.
-        disabled_indexes: list[str] = []
-        if _should_disable_target_indexes(
-            cursor, config, context, incoming_rows=total_rows, is_bulk_load=is_bulk_load
-        ):
-            disabled_indexes = _get_non_pk_nonclustered_index_names(
-                cursor, config.schema, config.table
-            )
-            for idx_name in disabled_indexes:
-                cursor.execute(f"ALTER INDEX [{idx_name}] ON {full_table} DISABLE")
-            if disabled_indexes:
-                context.log.info(
-                    f"Disabled {len(disabled_indexes)} nonclustered indexes on {full_table} "
-                    f"for bulk load (rebuilt after Phase 2)"
-                )
+        disabled_indexes = _prepare_target_indexes(
+            cursor,
+            config,
+            context,
+            full_table,
+            disable_all=_should_disable_target_indexes(
+                cursor, config, context, incoming_rows=total_rows, is_bulk_load=is_bulk_load
+            ),
+        )
 
         if config.identity_insert:
             context.log.info(f"Enabling IDENTITY_INSERT for {full_table}")
@@ -2148,7 +2205,7 @@ def _sync_via_linked_server_batched(
                 cursor.execute(f"TRUNCATE TABLE {full_table}")
                 cursor.execute(
                     f"INSERT INTO {full_table} ({col_list}) "
-                    f"SELECT {col_list} FROM #_sync_staging"
+                    f"SELECT {_write_values(sync_columns, alias=None)} FROM #_sync_staging"
                 )
                 rows_affected = cursor.rowcount
             elif not target_is_empty:
@@ -2169,7 +2226,7 @@ def _sync_via_linked_server_batched(
                 )
                 cursor.execute(
                     f"INSERT INTO {full_table} WITH (TABLOCK) ({col_list}) "
-                    f"SELECT {col_list} FROM #_sync_staging"
+                    f"SELECT {_write_values(sync_columns, alias=None)} FROM #_sync_staging"
                 )
                 rows_affected = cursor.rowcount
 
@@ -2202,16 +2259,16 @@ def _sync_via_linked_server_batched(
             cursor.execute(
                 "IF OBJECT_ID('tempdb..#_sync_staging') IS NOT NULL " "DROP TABLE #_sync_staging"
             )
-        except Exception:
-            pass
+        except Exception as e:
+            context.log.warning(f"Could not drop #_sync_staging: {e}")
         try:
             cursor.close()
-        except Exception:
-            pass
+        except Exception as e:
+            context.log.warning(f"Could not close the cursor: {e}")
         try:
             conn.close()
-        except Exception:
-            pass
+        except Exception as e:
+            context.log.warning(f"Could not close the connection: {e}")
 
     duration_ms = int((time.monotonic() - sync_start) * 1000)
     sync_duration_seconds = duration_ms / 1000.0
@@ -2357,10 +2414,10 @@ def _sync_via_linked_server_batched_composite(
         ]
         update_set = ", ".join(f"tgt.[{c}] = src.[{c}]" for c in update_columns)
         if update_ts_col:
-            update_set += f", tgt.[{update_ts_col}] = CAST(SYSDATETIME() AS datetime2(0))"
+            update_set += ", " + _update_timestamp_assignment(update_ts_col)
 
         insert_cols = ", ".join(f"[{c}]" for c in sync_columns)
-        insert_vals = ", ".join(f"src.[{c}]" for c in sync_columns)
+        insert_vals = _write_values(sync_columns)
 
         return (
             f"MERGE {full_table} AS tgt "
@@ -2390,8 +2447,10 @@ def _sync_via_linked_server_batched_composite(
         except BaseException:
             try:
                 conn.close()
-            except Exception:
-                pass
+            except Exception as e:
+                context.log.warning(
+                    f"Could not close the connection after temp-table setup failed: {e}"
+                )
             raise
         return conn, cursor
 
@@ -2457,19 +2516,16 @@ def _sync_via_linked_server_batched_composite(
         is_bulk_load = config.mode == "truncate_insert" or target_is_empty
 
         disabled_indexes: list[str] = []
-        if total_rows > 0 and _should_disable_target_indexes(
-            cursor, config, context, incoming_rows=total_rows, is_bulk_load=is_bulk_load
-        ):
-            disabled_indexes = _get_non_pk_nonclustered_index_names(
-                cursor, config.schema, config.table
+        if total_rows > 0:
+            disabled_indexes = _prepare_target_indexes(
+                cursor,
+                config,
+                context,
+                full_table,
+                disable_all=_should_disable_target_indexes(
+                    cursor, config, context, incoming_rows=total_rows, is_bulk_load=is_bulk_load
+                ),
             )
-            for idx_name in disabled_indexes:
-                cursor.execute(f"ALTER INDEX [{idx_name}] ON {full_table} DISABLE")
-            if disabled_indexes:
-                context.log.info(
-                    f"Disabled {len(disabled_indexes)} nonclustered indexes on {full_table} "
-                    f"for bulk load (rebuilt after Phase 2)"
-                )
 
         try:
             if config.mode == "truncate_insert":
@@ -2484,7 +2540,7 @@ def _sync_via_linked_server_batched_composite(
                 else:
                     cursor.execute(
                         f"INSERT INTO {full_table} ({col_list}) "
-                        f"SELECT {col_list} FROM #_sync_staging"
+                        f"SELECT {_write_values(sync_columns, alias=None)} FROM #_sync_staging"
                     )
                     rows_affected = cursor.rowcount
             elif total_rows == 0:
@@ -2506,7 +2562,7 @@ def _sync_via_linked_server_batched_composite(
                 )
                 cursor.execute(
                     f"INSERT INTO {full_table} WITH (TABLOCK) ({col_list}) "
-                    f"SELECT {col_list} FROM #_sync_staging"
+                    f"SELECT {_write_values(sync_columns, alias=None)} FROM #_sync_staging"
                 )
                 rows_affected = cursor.rowcount
         finally:
@@ -2534,16 +2590,16 @@ def _sync_via_linked_server_batched_composite(
             cursor.execute(
                 "IF OBJECT_ID('tempdb..#_sync_staging') IS NOT NULL " "DROP TABLE #_sync_staging"
             )
-        except Exception:
-            pass
+        except Exception as e:
+            context.log.warning(f"Could not drop #_sync_staging: {e}")
         try:
             cursor.close()
-        except Exception:
-            pass
+        except Exception as e:
+            context.log.warning(f"Could not close the cursor: {e}")
         try:
             conn.close()
-        except Exception:
-            pass
+        except Exception as e:
+            context.log.warning(f"Could not close the connection: {e}")
 
     duration_ms = int((time.monotonic() - sync_start) * 1000)
     sync_duration_seconds = duration_ms / 1000.0
@@ -2701,17 +2757,13 @@ def _sync_via_linked_server(
         cursor = conn.cursor()
 
         # Optionally disable non-PK nonclustered indexes on target to reduce MERGE cost
-        disabled_indexes: list[str] = []
-        if config.disable_target_indexes_during_sync:
-            disabled_indexes = _get_non_pk_nonclustered_index_names(
-                cursor, config.schema, config.table
-            )
-            for idx_name in disabled_indexes:
-                cursor.execute(f"ALTER INDEX [{idx_name}] ON {full_table} DISABLE")
-            if disabled_indexes:
-                context.log.info(
-                    f"Disabled {len(disabled_indexes)} nonclustered indexes on {full_table} for sync"
-                )
+        disabled_indexes = _prepare_target_indexes(
+            cursor,
+            config,
+            context,
+            full_table,
+            disable_all=config.disable_target_indexes_during_sync,
+        )
 
         # Enable IDENTITY_INSERT if needed (when PK is an IDENTITY column)
         if config.identity_insert:
@@ -2981,7 +3033,10 @@ def _sync_via_python(
     # Prepare DSO statements
     target_placeholder = get_param_placeholder(mssql_target_dso)
     placeholders = ", ".join([target_placeholder] * len(sync_columns))
-    insert_sql = f"INSERT INTO {target_table_ref} ({col_list}) VALUES ({placeholders})"
+    insert_sql = (
+        f"INSERT INTO {target_table_ref} ({col_list}) "
+        f"SELECT {_write_values(sync_columns)} FROM (VALUES ({placeholders})) AS src ({col_list})"
+    )
 
     # For watermark-delta: prefer temp table + set-based MERGE per chunk.
     # Falls back to row-level upsert if temp table creation fails (e.g. tempdb permissions).
@@ -3001,11 +3056,9 @@ def _sync_via_python(
         ]
         update_assignments = [f"tgt.[{c}] = src.[{c}]" for c in update_columns]
         if update_ts_col:
-            update_assignments.append(
-                f"tgt.[{update_ts_col}] = CAST(SYSDATETIME() AS datetime2(0))"
-            )
+            update_assignments.append(_update_timestamp_assignment(update_ts_col))
         update_set = ", ".join(update_assignments)
-        insert_vals = ", ".join(f"src.[{c}]" for c in sync_columns)
+        insert_vals = _write_values(sync_columns)
 
         # Primary strategy: temp table + set-based MERGE
         temp_insert_sql = f"INSERT INTO {temp_table_name} ({col_list}) VALUES ({placeholders})"
@@ -3180,8 +3233,8 @@ def _sync_via_python(
                                         f"IF OBJECT_ID('tempdb..{temp_table_name}') IS NOT NULL "
                                         f"DROP TABLE {temp_table_name}"
                                     )
-                                except Exception:
-                                    pass
+                                except Exception as e:
+                                    context.log.warning(f"Could not drop {temp_table_name}: {e}")
                             if config.identity_insert:
                                 context.log.info(f"Disabling IDENTITY_INSERT for {full_table}")
                                 dso_cursor.execute(f"SET IDENTITY_INSERT {full_table} OFF")
@@ -3324,6 +3377,7 @@ def compare_row_counts(
     mssql_source_staging: MSSQLResource | None = None,
     staging_schema: str | None = None,
     staging_table: str | None = None,
+    raise_on_missing_rows: bool = True,
 ) -> dict:
     """
     Compare row counts between staging and DSO for a table.
@@ -3336,6 +3390,7 @@ def compare_row_counts(
         mssql_source_staging: Optional staging resource for direct query fallback
         staging_schema: Staging schema when it differs from DSO (defaults to schema)
         staging_table: Staging table/view when it differs from DSO (defaults to table)
+        raise_on_missing_rows: Raise when DSO has fewer rows than staging
 
     Returns:
         Dictionary with staging_count, dso_count, and match status
@@ -3357,6 +3412,11 @@ def compare_row_counts(
         f"{status}: {src_schema}.{src_table} -> {schema}.{table} - "
         f"Staging: {staging_count}, DSO: {dso_count}"
     )
+    if raise_on_missing_rows and dso_count < staging_count:
+        raise RuntimeError(
+            f"ROW_COUNT_MISMATCH: {schema}.{table} is missing rows in DSO "
+            f"(staging={staging_count}, dso={dso_count})"
+        )
 
     return {
         "staging_count": staging_count,

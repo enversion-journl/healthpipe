@@ -25,8 +25,8 @@ CREATE TABLE [bridge].[LeverandoervareILSVare] (
     [dw_ek_ILSVare]         INT           NOT NULL,
     [bridge_kilder]         NVARCHAR(100) NULL,
     [dw_is_deleted]         BIT           NOT NULL CONSTRAINT [DF_LeverandoervareILSVare_dw_is_deleted] DEFAULT 0,
-    [dw_timestamp_insert]   DATETIME2     NOT NULL CONSTRAINT [DF_LeverandoervareILSVare_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-    [dw_timestamp_update]   DATETIME2     NOT NULL CONSTRAINT [DF_LeverandoervareILSVare_dw_timestamp_update] DEFAULT SYSDATETIME(),
+    [dw_timestamp_insert]   DATETIME2     NOT NULL CONSTRAINT [DF_LeverandoervareILSVare_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+    [dw_timestamp_update]   DATETIME2     NOT NULL CONSTRAINT [DF_LeverandoervareILSVare_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
     CONSTRAINT [PK_Bridge_LeverandoervareILSVare] PRIMARY KEY CLUSTERED ([dw_ek_Leverandoervare] ASC, [dw_ek_ILSVare] ASC)
 ) ON [PRIMARY];
 END
@@ -112,8 +112,8 @@ CREATE TABLE [bridge].[AftaleLager] (
     [maa_benyttes]         BIT           NULL,
     [foerste_prioritet]    BIT           NULL,
     [dw_is_deleted]        BIT           NOT NULL CONSTRAINT [DF_AftaleLager_dw_is_deleted] DEFAULT 0,
-    [dw_timestamp_insert]  DATETIME2     NOT NULL CONSTRAINT [DF_AftaleLager_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-    [dw_timestamp_update]  DATETIME2     NOT NULL CONSTRAINT [DF_AftaleLager_dw_timestamp_update] DEFAULT SYSDATETIME(),
+    [dw_timestamp_insert]  DATETIME2     NOT NULL CONSTRAINT [DF_AftaleLager_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+    [dw_timestamp_update]  DATETIME2     NOT NULL CONSTRAINT [DF_AftaleLager_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
     CONSTRAINT [PK_Bridge_AftaleLager] PRIMARY KEY CLUSTERED ([dw_sk_AftaleLager] ASC)
 ) ON [PRIMARY];
 END

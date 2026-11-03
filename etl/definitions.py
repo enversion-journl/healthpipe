@@ -202,6 +202,12 @@ from infrastructure.assets.ifdb_fhir_fuldload import (
 # DPA security AD pipeline (extract from AD -> populate staging; feeds dso_sync_security)
 from infrastructure.assets.security_ad_assets import all_security_ad_assets
 
+# Kontakten for SFI-kæden uden aftagere (fuldindlæsning, før nogen læser data)
+from infrastructure.assets.sfi_consumers_absent import (
+    sfi_consumers_absent_start,
+    sfi_consumers_absent_start_job,
+)
+
 # Operatørudløst nulstilling af SFI/procedure/diagnose-sporet før genkørsel
 from infrastructure.assets.sfi_genkoersel_nulstilling import (
     sfi_genkoersel_nulstilling,
@@ -240,7 +246,10 @@ from sensors import (
     build_drg_queue_sensor,
     build_haiba_publish_sensor,
     build_os2mo_delivery_sensor,
+    build_release_infrastructure_failure_sensor,
+    build_release_infrastructure_sensor,
     build_udredningsret_publish_sensor,
+    gate_schedules_on_release_infrastructure,
 )
 
 # Source assets (unchanged - still in sources/)
@@ -389,6 +398,8 @@ all_assets = [
     sfi_genkoersel_nulstilling,
     # MIDLERTIDIG: verifikation af genkørslens indlæste data
     sfi_genkoersel_verifikation,
+    # Kontakten for SFI-kæden uden aftagere
+    sfi_consumers_absent_start,
     # Fuldindlæsning af IFDB -> FHIR-kæden, ét vindue ad gangen
     ifdb_backfill_window_reconciliation,
     ifdb_fhir_fuldload,
@@ -473,6 +484,7 @@ postfixed_jobs = postfix_jobs(
         dqa_patient_delete_propagation_job,
         sfi_genkoersel_nulstilling_job,
         sfi_genkoersel_verifikation_job,
+        sfi_consumers_absent_start_job,
         ifdb_fhir_fuldload_job,
         sfi_store_layout_benchmark_job,
         sof_merge_benchmark_job,
@@ -518,6 +530,17 @@ postfixed_checks = postfix_asset_checks(
 _postfixed_job_by_name = {j.name: j for j in postfixed_jobs}
 _pfx = get_postfixed_name
 _ifdb_dfm_daily_job = _postfixed_job_by_name[_pfx("ifdb_dfm_daily_job")]
+
+# Release infrastructure: on a release-*/main-* deployment full_infrastructure_setup
+# runs once per release, and every schedule tick skips or fails until it succeeds.
+_full_infrastructure_job = _postfixed_job_by_name[_pfx("full_infrastructure_setup")]
+release_infrastructure_sensor = build_release_infrastructure_sensor(_full_infrastructure_job)
+release_infrastructure_failure_sensor = build_release_infrastructure_failure_sensor(
+    _full_infrastructure_job
+)
+postfixed_schedules = gate_schedules_on_release_infrastructure(
+    postfixed_schedules, _full_infrastructure_job.name
+)
 
 # HAIBA publish sensor: the dm rebuild must run AFTER the SOF+Borger chain, so
 # stub patients created by haiba_ingest_job at 05:00 have a dw_ek_Borger by the
@@ -635,6 +658,8 @@ postfixed_sensors = [
     drg_queue_sensor,
     drg_queue_failure_sensor,
     udredningsret_publish_sensor,
+    release_infrastructure_sensor,
+    release_infrastructure_failure_sensor,
     *dqa_after_etl_sensors,
 ]
 

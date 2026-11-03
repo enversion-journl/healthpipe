@@ -45,9 +45,9 @@ BEGIN
         [raekker_soft_slettet]        INT           NULL,
         [helbredsforloeb_genfindelse] DECIMAL(7,6)  NULL,
         [dw_timestamp_insert]         DATETIME2(0)  NOT NULL
-            CONSTRAINT [DF_UdredningsretLeverance_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
+            CONSTRAINT [DF_UdredningsretLeverance_dw_timestamp_insert] DEFAULT (CAST(SYSUTCDATETIME() AS DATETIME2(0))),
         [dw_timestamp_update]         DATETIME2(0)  NOT NULL
-            CONSTRAINT [DF_UdredningsretLeverance_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
+            CONSTRAINT [DF_UdredningsretLeverance_dw_timestamp_update] DEFAULT (CAST(SYSUTCDATETIME() AS DATETIME2(0))),
         CONSTRAINT [PK_udredningsret_meta_leverance] PRIMARY KEY CLUSTERED (
             [kildetabel], [leverance_tidsstempel]
         )

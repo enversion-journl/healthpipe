@@ -22,8 +22,8 @@ BEGIN
         [dw_ek_Organisation] [int] IDENTITY(1, 1) NOT NULL,
         [clean_code] [varchar](100) UNIQUE NOT NULL,
         [code] [varchar](50) NOT NULL,
-        [dw_timestamp_insert] [datetime2](7) NOT NULL CONSTRAINT [DF_Organisation_dw_timestamp_insert] DEFAULT GETDATE(),
-        [dw_timestamp_update] [datetime2](7) NOT NULL CONSTRAINT [DF_Organisation_dw_timestamp_update] DEFAULT GETDATE(),
+        [dw_timestamp_insert] [datetime2](7) NOT NULL CONSTRAINT [DF_Organisation_dw_timestamp_insert] DEFAULT GETUTCDATE(),
+        [dw_timestamp_update] [datetime2](7) NOT NULL CONSTRAINT [DF_Organisation_dw_timestamp_update] DEFAULT GETUTCDATE(),
         CONSTRAINT [PK_Map_Organisation] PRIMARY KEY CLUSTERED ([dw_ek_Organisation] ASC)
     ) ON [PRIMARY];
 

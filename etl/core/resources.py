@@ -88,21 +88,22 @@ def _connect_mssql_python(conn_str: str, timeout: int = 0, login_timeout: int = 
     """Connect via mssql-python.
 
     ``timeout`` is the *query* timeout applied to every cursor on the resulting
-    connection (the driver stores it on ``Connection.timeout`` despite the
-    misleading top-level docstring). ``login_timeout`` is passed through
+    connection, set on ``Connection.timeout`` after connect: ``connect(timeout=)``
+    is a login timeout. ``login_timeout`` is passed through
     ``attrs_before={SQL_ATTR_LOGIN_TIMEOUT: ...}`` so a dead network fails fast
-    during connect instead of waiting for the full query timeout.
+    during connect.
     """
     if mssql_python is None:
         raise RuntimeError(
             "mssql_python is required for MSSQLResource mssql-python connections. "
             "Install the driver or use a code path that does not require MSSQL."
         )
-    return mssql_python.connect(
+    conn = mssql_python.connect(
         conn_str,
-        timeout=timeout,
         attrs_before={mssql_python.SQL_ATTR_LOGIN_TIMEOUT: login_timeout},
     )
+    conn.timeout = timeout
+    return conn
 
 
 def build_mssql_conn_str(host, port, database, user, password) -> str:

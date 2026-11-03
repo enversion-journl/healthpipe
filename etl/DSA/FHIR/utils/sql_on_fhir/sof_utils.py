@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 import dagster as dg
+from core.dfm_manager import DfmManager
 from core.resources import (
     FHIRDatabaseResource,
     FHIRServerResource,
@@ -40,6 +41,7 @@ from utils.fhir.identifier_systems import (
     SYSTEM_IFDB_RIS_YDELSE,
 )
 from utils.fhir.protection import ADDRESS_PROTECTED_TEXT
+from utils.fhir.sfi_consumers import sfi_consumers_absent
 from utils.sql.collation import EXACT_MATCH_COLLATION
 
 _SERVICE_REQUEST_SOURCE_TABLES = {
@@ -345,15 +347,22 @@ def _nonclustered_index_names_sql(table_name: str) -> str:
     """
 
 
-def _disable_target_indexes(cursor: Any, table_name: str) -> list[str]:
-    """Slå målets sekundære indeks fra; returnér alle, der skal genopbygges bagefter
-    (også dem, en tidligere afbrudt kørsel har efterladt slået fra)."""
+def _disable_target_indexes(
+    cursor: Any,
+    table_name: str,
+    *,
+    disable_all: bool = True,
+    hold: frozenset[str] = frozenset(),
+) -> list[str]:
+    """Slå målets sekundære indeks fra før skrivningen; returnér dem, der skal genopbygges
+    bagefter. ``disable_all`` slår alle fra, ellers kun dem i ``hold``. Indeks i ``hold`` står
+    fra uden genopbygning; et indeks, en tidligere kørsel efterlod slået fra, genopbygges."""
     cursor.execute(_nonclustered_index_names_sql(table_name))
     rows = [(str(name), bool(disabled)) for name, disabled in cursor.fetchall()]
     for name, disabled in rows:
-        if not disabled:
+        if not disabled and (disable_all or name in hold):
             cursor.execute(f"ALTER INDEX [{name}] ON [fhir].[{table_name}] DISABLE")
-    return [name for name, _ in rows]
+    return [name for name, disabled in rows if name not in hold and (disable_all or disabled)]
 
 
 def _rebuild_target_indexes(
@@ -902,6 +911,14 @@ SOF_RESOURCE_CONFIGS: dict[str, dict[str, Any]] = {
         # Backfill-vinduer (mio. rækker ind i en tabel med fem sekundære indeks):
         # portioneret MERGE og indeks fra, se resolve_sof_backfill_plan.
         "backfill_mode": True,
+        # Indeks, kun aftagere læser: de står fra, mens SFI-kæden kører uden aftagere.
+        # DWEffective og Watermark er systemiske — DSO-synken finder deltaet med dem.
+        "consumer_indexes": (
+            "IX_FHIR_QR_CanonicalVersion",
+            "IX_FHIR_QR_LastUpdated",
+            "IX_FHIR_QR_PatientAuthored",
+            "IX_FHIR_QR_SourceAktivitet",
+        ),
         # dw_is_deleted is not projected by this view: dqa_fhir_server_cleanup
         # sets it to 1, and this MERGE is the only thing that writes 0 back.
         # Without it a retired row stays invisible even when the resource
@@ -914,6 +931,11 @@ SOF_RESOURCE_CONFIGS: dict[str, dict[str, Any]] = {
         "primary_keys": ["qr_id", "link_id", "item_key", "answer_index"],
         "null_sentinel_columns": ["link_id", "item_key", "answer_index"],
         "backfill_mode": True,
+        "consumer_indexes": (
+            "IX_FHIR_QRItem_LastUpdated",
+            "IX_FHIR_QRItem_LinkId",
+            "IX_FHIR_QRItem_QrId",
+        ),
         # dw_is_deleted is not projected by this view: dqa_fhir_server_cleanup
         # sets it to 1, and this MERGE is the only thing that writes 0 back.
         # Without it a retired row stays invisible even when the resource
@@ -1852,18 +1874,34 @@ def extract_and_merge_sof_view(
                     _t_idx = 0.0
                     reconcile_open = False
                     try:
-                        if plan.disable_indexes and source_row_count > 0:
+                        consumer_indexes = frozenset(
+                            (table_cfg or {}).get("consumer_indexes") or ()
+                        )
+                        hold = (
+                            consumer_indexes
+                            if consumer_indexes
+                            and context is not None
+                            and sfi_consumers_absent(context, DfmManager(mssql_target, context))
+                            else frozenset()
+                        )
+                        if (plan.disable_indexes or consumer_indexes) and source_row_count > 0:
                             # Slås fra FØR reconcile-markeringerne og MERGE'n; opslag på
                             # forældre-id går via det klyngede indeks (PK-præfiks).
                             _t_disable_start = time.perf_counter()
-                            disabled_indexes = _disable_target_indexes(mssql_cursor, table_name)
+                            disabled_indexes = _disable_target_indexes(
+                                mssql_cursor,
+                                table_name,
+                                disable_all=plan.disable_indexes,
+                                hold=hold,
+                            )
                             mssql_conn.commit()
                             _t_disable = time.perf_counter() - _t_disable_start
                             if context:
                                 context.log.info(
-                                    f"[SOF_BACKFILL] disabled {len(disabled_indexes)} nonclustered "
-                                    f"index(es) on fhir.{table_name} in {_t_disable:.2f}s: "
-                                    f"{', '.join(disabled_indexes) or '-'}"
+                                    f"[SOF_BACKFILL] fhir.{table_name}: rebuild after load: "
+                                    f"{', '.join(disabled_indexes) or '-'}; held off without "
+                                    f"consumers: {', '.join(sorted(hold)) or '-'} "
+                                    f"({_t_disable:.2f}s)"
                                 )
                         if reconcile_deletes and (full_load or parent_ids):
                             # A full extract with no rows would retire the entire

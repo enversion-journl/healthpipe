@@ -687,6 +687,15 @@ FHIR_SYNC_CONFIGS = {
         watermark_effective_column="dw_timestamp_effective",
         disable_target_indexes_during_sync=True,
         index_disable_min_ratio=0.0,
+        # På DSO læser kun storen (og aftagerne) disse indeks; storen står stille uden aftagere.
+        consumer_indexes=(
+            "IX_FHIR_QR_CanonicalVersion",
+            "IX_FHIR_QR_DWEffective",
+            "IX_FHIR_QR_LastUpdated",
+            "IX_FHIR_QR_PatientAuthored",
+            "IX_FHIR_QR_SourceAktivitet",
+            "IX_fhir_QuestionnaireResponse_Watermark",
+        ),
     ),
     "fhir_questionnaire_response_item": SyncTableConfig(
         schema="fhir",
@@ -698,6 +707,13 @@ FHIR_SYNC_CONFIGS = {
         watermark_effective_column="dw_timestamp_effective",
         disable_target_indexes_during_sync=True,
         index_disable_min_ratio=0.0,
+        consumer_indexes=(
+            "IX_FHIR_QRI_DWEffective",
+            "IX_FHIR_QRItem_LastUpdated",
+            "IX_FHIR_QRItem_LinkId",
+            "IX_FHIR_QRItem_QrId",
+            "IX_fhir_QuestionnaireResponse_item_Watermark",
+        ),
     ),
     "fhir_procedure": SyncTableConfig(
         schema="fhir",

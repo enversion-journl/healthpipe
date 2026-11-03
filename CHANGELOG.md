@@ -7,7 +7,38 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## [1.0.7] - 2026-10-28
+## [1.0.8] - 2026-11-03
+
+### Added
+
+- Dimension keys on more FHIR tables (IFDB). `fhir.Appointment`, `fhir.CarePlan`,
+  `fhir.CarePlan_Activity`, `fhir.DocumentReference` and `fhir.Encounter` have the new
+  columns `dw_ek_Borger`, `dw_sk_Borger` and `dw_ek_Organisation`. `fhir.ServiceRequest`
+  has `dw_ek_Borger`, `dw_sk_Borger`, `dw_ek_Organisation_henvist_fra` and
+  `dw_ek_Organisation_henvist_til`. `fhir.WardUnit` has `dw_ek_Organisation`. The value
+  is `-1` when the platform cannot find the citizen or the organisation.
+- The deploy to QA and production runs `full_infrastructure_setup` automatically.
+
+### Changed
+
+- **Breaking:** The DSO writes the `dw_timestamp_*` columns in UTC. A migration
+  changes the `dw_timestamp_*` defaults to UTC in staging and in the DSO. Change each
+  query that reads a DSO `dw_timestamp_*` value as Danish local time.
+- The OS2mo export also delivers the SOR units that are no longer active and the SOR
+  units that become active later.
+- `ext` tables from SilkeborgData keep the characters that are not in code page 1252.
+- The SYDAX budget load waits for its archives.
+- The DSO sync fails when it cannot connect to staging, and when the DSO has fewer
+  rows than staging. The DSO sync state is in the DFM state.
+- A full load of the SFI data stops the store refresh and the consumer indexes until
+  the load is complete. The store loads its portions in the order of the source date.
+- A retry of a FHIR batch upsert keeps the sub-batches that it wrote before.
+- The logs mask CPR numbers in `context.log` and in the failure events.
+- Three DQA checks no longer fail when there is no data error.
+- `mssql-python` is pinned to 1.16.0. `filelock`, `certifi`, `uv` and `virtualenv`
+  have new versions that fix pip-audit advisories.
+
+## [1.0.7] - 2026-11-03
 
 ### Added
 
@@ -329,7 +360,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - First public release.
 
-[Unreleased]: https://github.com/enversion-journl/healthpipe/compare/v1.0.7...HEAD
+[Unreleased]: https://github.com/enversion-journl/healthpipe/compare/v1.0.8...HEAD
+[1.0.8]: https://github.com/enversion-journl/healthpipe/compare/v1.0.7...v1.0.8
 [1.0.7]: https://github.com/enversion-journl/healthpipe/compare/v1.0.6...v1.0.7
 [1.0.6]: https://github.com/enversion-journl/healthpipe/compare/v1.0.5...v1.0.6
 [1.0.5]: https://github.com/enversion-journl/healthpipe/compare/v1.0.4...v1.0.5

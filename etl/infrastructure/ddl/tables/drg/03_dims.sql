@@ -63,8 +63,8 @@ BEGIN
         [betaler_region] NVARCHAR(20) NULL,
         [alder_aar] NVARCHAR(11) NULL,
         [koen] NVARCHAR(1) NULL,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_DRGKontaktEgenskaber_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_DRGKontaktEgenskaber_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_DRGKontaktEgenskaber_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_DRGKontaktEgenskaber_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_Dim_DRGKontaktEgenskaber] PRIMARY KEY CLUSTERED ([dw_ek_DRGKontakt] ASC)
     ) ON [PRIMARY];
 
@@ -110,8 +110,8 @@ BEGIN
         [drg_beskrivelse] NVARCHAR(500) NULL,
         [trimpunkt] NVARCHAR(10) NULL,
         [standardtakst] DECIMAL(19,4) NULL,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_DRGKontaktKlassifikation_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_DRGKontaktKlassifikation_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_DRGKontaktKlassifikation_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_DRGKontaktKlassifikation_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_Dim_DRGKontaktKlassifikation] PRIMARY KEY CLUSTERED ([dw_ek_DRGKontaktKlassifikation] ASC)
     ) ON [PRIMARY];
 
@@ -137,8 +137,8 @@ BEGIN
         [art] NVARCHAR(20) NULL,
         [sideangivelse] NVARCHAR(20) NULL,
         [tillaegskoder] NVARCHAR(MAX) NULL,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_DRGDiagnose_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_DRGDiagnose_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_DRGDiagnose_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_DRGDiagnose_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_Dim_DRGDiagnose] PRIMARY KEY CLUSTERED ([dw_ek_DRGDiagnose] ASC)
     ) ON [PRIMARY];
 
@@ -165,8 +165,8 @@ BEGIN
         [handlingsspec] NVARCHAR(100) NULL,
         [kontrast] NVARCHAR(100) NULL,
         [tillaegskoder] NVARCHAR(MAX) NULL,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_DRGProcedure_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_DRGProcedure_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_DRGProcedure_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_DRGProcedure_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_Dim_DRGProcedure] PRIMARY KEY CLUSTERED ([dw_ek_DRGProcedure] ASC)
     ) ON [PRIMARY];
 

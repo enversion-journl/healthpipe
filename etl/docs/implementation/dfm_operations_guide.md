@@ -854,4 +854,57 @@ delta; NULL-seed fill still recovers if ordering slips. Verify afterwards:
 SELECT COUNT(*) FROM [meta].[DFMState] WHERE scope = 'dso';
 ```
 
-**Note:** SFI datapoint refresh still uses legacy `[meta].[SyncWatermarks]` on DSO.
+### SFI datapoint store: checkpoint in DFMState
+
+The store's refresh keeps one checkpoint in `[meta].[DFMState]` on staging, under
+`scope = 'sfi_store'`, schema `fhir`, table `SFI_datapoint_store`. It is read and set by
+`dso_refresh_sfi_datapoint_daily` (delta) and `dso_reconcile_sfi_datapoint_store` (the
+same refresh in `full_load`); a missing row rebuilds the store. On deploy,
+`migrate_dso_sync_watermarks_to_dfm` (part of `full_infrastructure_setup`) seeds a missing
+row from the legacy `refresh_daily` watermark minus three hours. Replay or move it with
+`usp_dfm_reset`, or with the `dfm_reset` asset and `scope: sfi_store`:
+
+```sql
+EXEC meta.usp_dfm_reset
+    @schema_name = N'fhir',
+    @table_name  = N'SFI_datapoint_store',
+    @new_value   = N'2026-10-22 03:00:00',
+    @reason      = N'<why>',
+    @scope       = N'sfi_store';
+```
+
+The value is a DSO stamp: DSO writes `dw_timestamp_*` in UTC.
+
+#### Running the SFI chain without consumers during a full load
+
+While the IFDB full load backfills history and nobody reads SFI data, run
+`sfi_consumers_absent_start_job`. It sets a row in `[meta].[DFMState]` (scope `sfi_consumers`,
+`fhir.SFI_datapoint_store`, the value is when it was switched on); running it again changes
+nothing. From the next run:
+
+- `dso_refresh_sfi_datapoint_daily` touches neither the store nor its checkpoint, and the
+  full load's verification reports the store's grain as a measurement instead of a contract.
+  `full_load` — `dso_reconcile_sfi_datapoint_store` — is never paused.
+- The consumer indexes on `fhir.QuestionnaireResponse` and `fhir.QuestionnaireResponse_item`
+  stay disabled and are not rebuilt after each window: on staging the ones listed under
+  `consumer_indexes` in `SOF_RESOURCE_CONFIGS`, on DSO the ones in the two `SyncTableConfig`
+  entries. Staging keeps `DWEffective` and `Watermark`, which the DSO sync reads the delta
+  with. Primary keys are never touched.
+
+The run tag `sfi_datapoint/consumers_absent=true|false` overrides the row for one run; the full
+load passes it on to its steps.
+
+When the history is in, or before the first consumer arrives:
+
+1. Clear the row: `usp_dfm_reset` with `@scope = N'sfi_consumers'`, `@schema_name = N'fhir'`,
+   `@table_name = N'SFI_datapoint_store'` and `@new_value = NULL`.
+2. Rebuild the indexes left disabled, on staging and on DSO:
+   `ALTER INDEX ALL ON [fhir].[QuestionnaireResponse] REBUILD;` and the same for
+   `[fhir].[QuestionnaireResponse_item]`. Skip it and the next SOF load and DSO sync of each
+   table rebuild them instead, inside that run.
+3. On DSO: `TRUNCATE TABLE [fhir].[SFI_datapoint_store];`
+4. Run `sfi_datapoint_reconciliation_job`. With every partition empty it loads through the
+   work table and switches the partitions in; it sets the checkpoint when it finishes.
+
+Rebuild the store from empty, not on top of the old rows: the reconciliation deletes without a
+date window, so against a populated store every batch scans all of it.

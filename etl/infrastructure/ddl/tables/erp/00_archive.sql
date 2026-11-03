@@ -853,8 +853,8 @@ BEGIN
         [pro2modified] datetime       NULL,
 
         -- DWH audit columns
-        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_vareart_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_vareart_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_vareart_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_vareart_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
 
         CONSTRAINT [PK_arc_ils_vareart] PRIMARY KEY CLUSTERED ([prrowid])
     );
@@ -899,8 +899,8 @@ BEGIN
         [pro2modified] datetime       NULL,
 
         -- DWH audit columns
-        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_varegrp_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_varegrp_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_varegrp_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_varegrp_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
 
         CONSTRAINT [PK_arc_ils_varegrp] PRIMARY KEY CLUSTERED ([prrowid])
     );
@@ -944,8 +944,8 @@ BEGIN
         [pro2modified] datetime       NULL,
 
         -- DWH audit columns
-        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_varetype_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_varetype_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_varetype_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_varetype_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
 
         CONSTRAINT [PK_arc_ils_varetype] PRIMARY KEY CLUSTERED ([prrowid])
     );
@@ -988,8 +988,8 @@ BEGIN
         [pro2created]  datetime       NULL,
         [pro2modified] datetime       NULL,
 
-        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_varetype2_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_varetype2_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_varetype2_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_varetype2_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
 
         CONSTRAINT [PK_arc_ils_varetype2] PRIMARY KEY CLUSTERED ([prrowid])
     );
@@ -1037,8 +1037,8 @@ BEGIN
         [pro2created]  datetime       NULL,
         [pro2modified] datetime       NULL,
 
-        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_projekt_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_projekt_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_projekt_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_projekt_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
 
         CONSTRAINT [PK_arc_ils_projekt] PRIMARY KEY CLUSTERED ([prrowid])
     );
@@ -1084,8 +1084,8 @@ BEGIN
         [fradragpct]   decimal(17,2)  NULL,
 
         -- DWH audit columns
-        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_moms_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_moms_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_moms_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_moms_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
 
         CONSTRAINT [PK_arc_ils_moms] PRIMARY KEY CLUSTERED ([prrowid])
     );
@@ -1210,8 +1210,8 @@ BEGIN
         [pro2modified]         datetime       NULL,
 
         -- DWH audit columns
-        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_lev_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_lev_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_lev_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_lev_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
 
         CONSTRAINT [PK_arc_ils_lev] PRIMARY KEY CLUSTERED ([prrowid])
     );
@@ -1273,8 +1273,8 @@ BEGIN
         [pro2modified] datetime       NULL,
 
         -- DWH audit columns
-        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_sgh_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_sgh_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_sgh_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_sgh_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
 
         CONSTRAINT [PK_arc_ils_sgh] PRIMARY KEY CLUSTERED ([prrowid])
     );
@@ -1401,8 +1401,8 @@ BEGIN
         [ktovejafg]        varchar(20)    NULL,
 
         -- DWH audit columns
-        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_lgr_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_lgr_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_lgr_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_lgr_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
 
         CONSTRAINT [PK_arc_ils_lgr] PRIMARY KEY CLUSTERED ([prrowid])
     );
@@ -1508,8 +1508,8 @@ BEGIN
         [pro2modified]         datetime       NULL,
 
         -- DWH audit columns
-        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_rekv_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_rekv_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_rekv_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_rekv_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
 
         CONSTRAINT [PK_arc_ils_rekv] PRIMARY KEY CLUSTERED ([prrowid])
     );
@@ -1553,8 +1553,8 @@ BEGIN
         [pro2modified] datetime       NULL,
 
         -- DWH audit columns
-        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_rekvgrp_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_rekvgrp_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_rekvgrp_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_rekvgrp_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
 
         CONSTRAINT [PK_arc_ils_rekvgrp] PRIMARY KEY CLUSTERED ([prrowid])
     );
@@ -1601,8 +1601,8 @@ BEGIN
         [pro2modified] datetime       NULL,
 
         -- DWH audit columns
-        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_postdi_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_postdi_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_postdi_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_postdi_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
 
         CONSTRAINT [PK_arc_ils_postdi] PRIMARY KEY CLUSTERED ([prrowid])
     );
@@ -1648,9 +1648,9 @@ BEGIN
         [navn]                  varchar(80)    NULL,
 
         [dw_timestamp_insert]   DATETIME2(0)   NOT NULL
-            CONSTRAINT [DF_ils_rekvundtagne_dw_timestamp_insert] DEFAULT SYSDATETIME(),
+            CONSTRAINT [DF_ils_rekvundtagne_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
         [dw_timestamp_update]   DATETIME2(0)   NOT NULL
-            CONSTRAINT [DF_ils_rekvundtagne_dw_timestamp_update] DEFAULT SYSDATETIME(),
+            CONSTRAINT [DF_ils_rekvundtagne_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
 
         CONSTRAINT [PK_arc_ils_rekvundtagne] PRIMARY KEY CLUSTERED ([sgh], [rnr])
     );
@@ -1732,8 +1732,8 @@ BEGIN
         [pro2modified]     datetime       NULL,
 
         -- DWH audit columns
-        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_lafth_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_lafth_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_lafth_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_lafth_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
 
         CONSTRAINT [PK_arc_ils_lafth] PRIMARY KEY CLUSTERED ([prrowid])
     );
@@ -1782,7 +1782,7 @@ BEGIN
         [pro2modified] datetime       NULL,
 
         -- DWH audit columns
-        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_lafthsgh_dw_timestamp_insert] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_lafthsgh_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
         [dw_timestamp_update]   DATETIME2(0)   NOT NULL,
 
         CONSTRAINT [PK_arc_ils_lafthsgh] PRIMARY KEY CLUSTERED ([prrowid])
@@ -1862,7 +1862,7 @@ BEGIN
         [pro2modified] datetime       NULL,
 
         -- DWH audit columns
-        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_zz_oper_dw_timestamp_insert] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_zz_oper_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
         [dw_timestamp_update]   DATETIME2(0)   NOT NULL,
 
         CONSTRAINT [PK_arc_ils_zz_oper] PRIMARY KEY CLUSTERED ([prrowid])
@@ -1918,8 +1918,8 @@ BEGIN
         [pro2modified] datetime       NULL,
 
         -- DWH audit columns
-        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_laftdpris_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_laftdpris_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_laftdpris_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_laftdpris_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
 
         CONSTRAINT [PK_arc_ils_laftdpris] PRIMARY KEY CLUSTERED ([prrowid])
     );
@@ -2003,8 +2003,8 @@ BEGIN
         [pmdmid]       int            NULL,
 
         -- DWH audit columns
-        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_laftdstam_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_laftdstam_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_laftdstam_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_laftdstam_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
 
         CONSTRAINT [PK_arc_ils_laftdstam] PRIMARY KEY CLUSTERED ([prrowid])
     );
@@ -2090,8 +2090,8 @@ BEGIN
         [pro2modified]  datetime       NULL,
 
         -- DWH audit columns
-        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_laftd_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_laftd_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_laftd_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_laftd_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
 
         CONSTRAINT [PK_arc_ils_laftd] PRIMARY KEY CLUSTERED ([prrowid])
     );
@@ -2204,8 +2204,8 @@ BEGIN
         [aarsag]           varchar(16)    NULL,
 
         -- DWH audit columns
-        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_udlev_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_udlev_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_udlev_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_udlev_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
 
         CONSTRAINT [PK_arc_ils_udlev] PRIMARY KEY CLUSTERED ([prrowid])
     );
@@ -2354,8 +2354,8 @@ BEGIN
         [udlob_obs]            int            NULL,
 
         -- DWH audit columns
-        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_lgrvare_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_lgrvare_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_lgrvare_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_lgrvare_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
 
         CONSTRAINT [PK_arc_ils_lgrvare] PRIMARY KEY CLUSTERED ([prrowid])
     );
@@ -2523,8 +2523,8 @@ BEGIN
         [sw_ikkeeu]            bit            NULL,
 
         -- DWH audit columns
-        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_pmdm_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_pmdm_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_pmdm_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_pmdm_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
 
         CONSTRAINT [PK_arc_ils_pmdm] PRIMARY KEY CLUSTERED ([prrowid])
     );
@@ -2616,8 +2616,8 @@ BEGIN
         [pro2modified]     datetime       NULL,
 
         -- DWH audit columns
-        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_indkfak_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_indkfak_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_indkfak_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_indkfak_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
 
         CONSTRAINT [PK_arc_ils_indkfak] PRIMARY KEY CLUSTERED ([prrowid])
     );
@@ -2676,7 +2676,7 @@ BEGIN
         [pro2modified]     datetime       NULL,
 
         -- DWH audit columns
-        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_changelog_dw_timestamp_insert] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert]   DATETIME2(0)   NOT NULL CONSTRAINT [DF_ils_changelog_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
         [dw_timestamp_update]   DATETIME2(0)   NOT NULL,
 
         CONSTRAINT [PK_arc_ils_changelog] PRIMARY KEY CLUSTERED ([prrowid])

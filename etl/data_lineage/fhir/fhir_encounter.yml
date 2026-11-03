@@ -29,3 +29,6 @@ dso_lineage:
     dw_is_deleted:         { DataType: INT, FhirPath: "extension.where(url='urn:fhir:isDeleted').valueInteger" }
     last_updated:       { DataType: DATETIME2, FhirPath: "r.ts" }
     created_at:         { DataType: DATETIME2, FhirPath: "r.cts" }
+    dw_ek_Borger:       { Type: FK, DataType: INT, Expr: "dim.Borger.dw_ek_Borger hvor fhir_Patient_id = patient_id", Description: "Borgeren kontakten handler om. -1 når patienten ikke findes i dim.Borger. Findes borgeren kun som slettet, peger nøglen stadig på den." }
+    dw_sk_Borger:       { Type: FK, DataType: INT, Expr: "dim.Borger.dw_sk_Borger for den levende version, hvor dw_valid_from <= period_start < dw_valid_to; period_start læses som det klokkeslæt, IFDB leverer", Description: "Den version af borgeren (adresse m.m.), der gjaldt ved kontaktens start. -1 når borgeren eller en gældende version ikke findes, eller når period_start mangler." }
+    dw_ek_Organisation: { Type: FK, DataType: INT, Expr: "dim.Organisation.dw_ek_Organisation hvor fhir_Organization_id = service_provider_id", Description: "Organisationen, der leverer kontakten. -1 når kontakten ikke har en organisation, eller organisationen ikke findes i dim.Organisation." }

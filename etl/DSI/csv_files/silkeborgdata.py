@@ -37,6 +37,7 @@ not touched to decide what to load.
 
 import csv
 import os
+import re
 import time
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
@@ -44,6 +45,7 @@ from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 
 import dagster as dg
+from mssql_python import SQL_DECIMAL, SQL_TYPE_DATE, SQL_WVARCHAR
 
 # Injected into the code-server by the Nomad job that mounts the SMB share.
 # dev/QA: "/mnt/ftproot/LØN/arkiv/E26". Never defaulted — see module docstring.
@@ -427,6 +429,26 @@ def read_delivery_rows(path: str, encoding: str) -> Iterator[tuple[int, list[str
             yield reader.line_num, fields
 
 
+_PARAMETER_TYPES = {"NVARCHAR": SQL_WVARCHAR, "DECIMAL": SQL_DECIMAL, "DATE": SQL_TYPE_DATE}
+_DECLARED_TYPE = re.compile(r"(\w+)(?:\((\d+)(?:,\s*(\d+))?\))?")
+
+
+def _input_sizes(column_types: dict[str, str]) -> list[tuple[int, int, int]]:
+    """Explicit parameter types, so NVARCHAR binds wide when a chunk's longest value is ASCII."""
+    sizes = []
+    for column, declared in column_types.items():
+        match = _DECLARED_TYPE.match(declared)
+        if match is None or match.group(1) not in _PARAMETER_TYPES:
+            raise ValueError(f"No parameter type for ext column [{column}] {declared}")
+        name, size, digits = match.groups()
+        column_size = int(size or 0)
+        if name == "DECIMAL":
+            # The driver sends DECIMAL as text: room for the sign and the decimal point.
+            column_size += 2
+        sizes.append((_PARAMETER_TYPES[name], column_size, int(digits or 0)))
+    return sizes
+
+
 def write_to_ext_table(
     conn,
     table: str,
@@ -468,12 +490,14 @@ def write_to_ext_table(
         col_names = ", ".join(f"[{c}]" for c in columns)
         insert_sql = f"INSERT INTO {qualified} ({col_names}) VALUES ({placeholders})"
 
+        input_sizes = _input_sizes(column_types)
         total = 0
         buffer: list[tuple] = []
 
         def _flush() -> None:
             nonlocal total
             if buffer:
+                cursor.setinputsizes(input_sizes)
                 cursor.executemany(insert_sql, buffer)
                 total += len(buffer)
                 buffer.clear()

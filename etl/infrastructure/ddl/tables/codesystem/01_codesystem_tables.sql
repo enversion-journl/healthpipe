@@ -27,8 +27,8 @@ BEGIN
     CREATE TABLE [codesystem].[RekvirentConcept] (
         [code]                NVARCHAR(100)  NOT NULL,
         [display]             NVARCHAR(500)  NULL,
-        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_RekvirentConcept_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_RekvirentConcept_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_RekvirentConcept_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_RekvirentConcept_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_codesystem_RekvirentConcept] PRIMARY KEY CLUSTERED ([code])
     );
 END
@@ -44,8 +44,8 @@ BEGIN
         [property_code]        NVARCHAR(100)  NOT NULL,
         [value]               NVARCHAR(500)  NULL,
         [type]                NVARCHAR(50)   NULL,
-        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_RekvirentProperties_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_RekvirentProperties_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_RekvirentProperties_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_RekvirentProperties_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_codesystem_RekvirentProperties] PRIMARY KEY CLUSTERED ([code], [property_code])
     );
 
@@ -62,8 +62,8 @@ BEGIN
     CREATE TABLE [codesystem].[RekvirentHierarchy] (
         [parent_code]          NVARCHAR(100)  NOT NULL,
         [child_code]           NVARCHAR(100)  NOT NULL,
-        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_RekvirentHierarchy_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_RekvirentHierarchy_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_RekvirentHierarchy_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_RekvirentHierarchy_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_codesystem_RekvirentHierarchy] PRIMARY KEY CLUSTERED ([parent_code], [child_code])
     );
 
@@ -84,8 +84,8 @@ BEGIN
     CREATE TABLE [codesystem].[LagerConcept] (
         [code]                NVARCHAR(100)  NOT NULL,
         [display]             NVARCHAR(500)  NULL,
-        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_LagerConcept_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_LagerConcept_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_LagerConcept_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_LagerConcept_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_codesystem_LagerConcept] PRIMARY KEY CLUSTERED ([code])
     );
 END
@@ -101,8 +101,8 @@ BEGIN
         [property_code]        NVARCHAR(100)  NOT NULL,
         [value]               NVARCHAR(500)  NULL,
         [type]                NVARCHAR(50)   NULL,
-        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_LagerProperties_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_LagerProperties_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_LagerProperties_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_LagerProperties_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_codesystem_LagerProperties] PRIMARY KEY CLUSTERED ([code], [property_code])
     );
 
@@ -119,8 +119,8 @@ BEGIN
     CREATE TABLE [codesystem].[LagerHierarchy] (
         [parent_code]          NVARCHAR(100)  NOT NULL,
         [child_code]           NVARCHAR(100)  NOT NULL,
-        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_LagerHierarchy_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_LagerHierarchy_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_LagerHierarchy_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_LagerHierarchy_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_codesystem_LagerHierarchy] PRIMARY KEY CLUSTERED ([parent_code], [child_code])
     );
 
@@ -141,8 +141,8 @@ BEGIN
     CREATE TABLE [codesystem].[EANConcept] (
         [code]                NVARCHAR(100)  NOT NULL,
         [display]             NVARCHAR(500)  NULL,
-        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_EANConcept_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_EANConcept_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_EANConcept_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_EANConcept_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_codesystem_EANConcept] PRIMARY KEY CLUSTERED ([code])
     );
 END
@@ -158,8 +158,8 @@ BEGIN
         [property_code]        NVARCHAR(100)  NOT NULL,
         [value]               NVARCHAR(500)  NULL,
         [type]                NVARCHAR(50)   NULL,
-        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_EANProperties_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_EANProperties_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_EANProperties_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_EANProperties_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_codesystem_EANProperties] PRIMARY KEY CLUSTERED ([code], [property_code])
     );
 
@@ -176,8 +176,8 @@ BEGIN
     CREATE TABLE [codesystem].[EANHierarchy] (
         [parent_code]          NVARCHAR(100)  NOT NULL,
         [child_code]           NVARCHAR(100)  NOT NULL,
-        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_EANHierarchy_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_EANHierarchy_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_EANHierarchy_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_EANHierarchy_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_codesystem_EANHierarchy] PRIMARY KEY CLUSTERED ([parent_code], [child_code])
     );
 
@@ -198,8 +198,8 @@ BEGIN
     CREATE TABLE [codesystem].[SORConcept] (
         [code]                NVARCHAR(100)  NOT NULL,
         [display]             NVARCHAR(500)  NULL,
-        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SORConcept_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SORConcept_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SORConcept_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SORConcept_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_codesystem_SORConcept] PRIMARY KEY CLUSTERED ([code])
     );
 END
@@ -215,8 +215,8 @@ BEGIN
         [property_code]        NVARCHAR(100)  NOT NULL,
         [value]               NVARCHAR(500)  NULL,
         [type]                NVARCHAR(50)   NULL,
-        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SORProperties_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SORProperties_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SORProperties_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SORProperties_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_codesystem_SORProperties] PRIMARY KEY CLUSTERED ([code], [property_code])
     );
 
@@ -233,8 +233,8 @@ BEGIN
     CREATE TABLE [codesystem].[SORHierarchy] (
         [parent_code]          NVARCHAR(100)  NOT NULL,
         [child_code]           NVARCHAR(100)  NOT NULL,
-        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SORHierarchy_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SORHierarchy_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SORHierarchy_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SORHierarchy_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_codesystem_SORHierarchy] PRIMARY KEY CLUSTERED ([parent_code], [child_code])
     );
 
@@ -255,8 +255,8 @@ BEGIN
     CREATE TABLE [codesystem].[SHAKConcept] (
         [code]                NVARCHAR(100)  NOT NULL,
         [display]             NVARCHAR(500)  NULL,
-        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SHAKConcept_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SHAKConcept_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SHAKConcept_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SHAKConcept_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_codesystem_SHAKConcept] PRIMARY KEY CLUSTERED ([code])
     );
 END
@@ -272,8 +272,8 @@ BEGIN
         [property_code]        NVARCHAR(100)  NOT NULL,
         [value]               NVARCHAR(500)  NULL,
         [type]                NVARCHAR(50)   NULL,
-        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SHAKProperties_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SHAKProperties_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SHAKProperties_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SHAKProperties_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_codesystem_SHAKProperties] PRIMARY KEY CLUSTERED ([code], [property_code])
     );
 
@@ -290,8 +290,8 @@ BEGIN
     CREATE TABLE [codesystem].[SHAKHierarchy] (
         [parent_code]          NVARCHAR(100)  NOT NULL,
         [child_code]           NVARCHAR(100)  NOT NULL,
-        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SHAKHierarchy_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SHAKHierarchy_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SHAKHierarchy_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SHAKHierarchy_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_codesystem_SHAKHierarchy] PRIMARY KEY CLUSTERED ([parent_code], [child_code])
     );
 
@@ -312,8 +312,8 @@ BEGIN
     CREATE TABLE [codesystem].[OkostedConcept] (
         [code]                NVARCHAR(120)  NOT NULL,
         [display]             NVARCHAR(500)  NULL,
-        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_OkostedConcept_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_OkostedConcept_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_OkostedConcept_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_OkostedConcept_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_codesystem_OkostedConcept] PRIMARY KEY CLUSTERED ([code])
     );
 END
@@ -329,8 +329,8 @@ BEGIN
         [property_code]        NVARCHAR(100)  NOT NULL,
         [value]               NVARCHAR(500)  NULL,
         [type]                NVARCHAR(50)   NULL,
-        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_OkostedProperties_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_OkostedProperties_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_OkostedProperties_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_OkostedProperties_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_codesystem_OkostedProperties] PRIMARY KEY CLUSTERED ([code], [property_code])
     );
 
@@ -347,8 +347,8 @@ BEGIN
     CREATE TABLE [codesystem].[OkostedHierarchy] (
         [parent_code]          NVARCHAR(120)  NOT NULL,
         [child_code]           NVARCHAR(120)  NOT NULL,
-        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_OkostedHierarchy_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_OkostedHierarchy_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_OkostedHierarchy_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_OkostedHierarchy_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_codesystem_OkostedHierarchy] PRIMARY KEY CLUSTERED ([parent_code], [child_code])
     );
 
@@ -372,8 +372,8 @@ BEGIN
     CREATE TABLE [codesystem].[SFIConcept] (
         [code]                NVARCHAR(450)  NOT NULL,
         [display]             NVARCHAR(500)  NULL,
-        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SFIConcept_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SFIConcept_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SFIConcept_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SFIConcept_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_codesystem_SFIConcept] PRIMARY KEY CLUSTERED ([code])
     );
 
@@ -392,8 +392,8 @@ BEGIN
         [property_code]        NVARCHAR(100)  NOT NULL,
         [value]               NVARCHAR(500)  NULL,
         [type]                NVARCHAR(50)   NULL,
-        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SFIProperties_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SFIProperties_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SFIProperties_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SFIProperties_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_codesystem_SFIProperties] PRIMARY KEY CLUSTERED ([code], [property_code])
     );
 
@@ -410,8 +410,8 @@ BEGIN
     CREATE TABLE [codesystem].[SFIHierarchy] (
         [parent_code]          NVARCHAR(450)  NOT NULL,
         [child_code]           NVARCHAR(450)  NOT NULL,
-        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SFIHierarchy_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SFIHierarchy_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SFIHierarchy_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SFIHierarchy_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_codesystem_SFIHierarchy] PRIMARY KEY CLUSTERED ([parent_code], [child_code])
     );
 
@@ -437,8 +437,8 @@ BEGIN
         [active_from]          DATE           NOT NULL CONSTRAINT [DF_SFIAlias_active_from] DEFAULT CAST(GETDATE() AS DATE),
         [active_to]            DATE           NULL,
         [owner]               NVARCHAR(255)  NULL,
-        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SFIAlias_dw_timestamp_insert] DEFAULT CAST(SYSDATETIME() AS datetime2(0)),
-        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SFIAlias_dw_timestamp_update] DEFAULT CAST(SYSDATETIME() AS datetime2(0)),
+        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SFIAlias_dw_timestamp_insert] DEFAULT CAST(SYSUTCDATETIME() AS datetime2(0)),
+        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SFIAlias_dw_timestamp_update] DEFAULT CAST(SYSUTCDATETIME() AS datetime2(0)),
         CONSTRAINT [PK_codesystem_SFIAlias] PRIMARY KEY CLUSTERED ([alias_code])
     );
 END
@@ -454,8 +454,8 @@ BEGIN
         [sfi_code]             NVARCHAR(450)  NOT NULL,
         [member_role]          NVARCHAR(100)  NULL,
         [sort_order]           INT            NULL,
-        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SFIAliasMember_dw_timestamp_insert] DEFAULT CAST(SYSDATETIME() AS datetime2(0)),
-        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SFIAliasMember_dw_timestamp_update] DEFAULT CAST(SYSDATETIME() AS datetime2(0)),
+        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SFIAliasMember_dw_timestamp_insert] DEFAULT CAST(SYSUTCDATETIME() AS datetime2(0)),
+        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SFIAliasMember_dw_timestamp_update] DEFAULT CAST(SYSUTCDATETIME() AS datetime2(0)),
         CONSTRAINT [PK_codesystem_SFIAliasMember] PRIMARY KEY CLUSTERED ([alias_code], [sfi_code])
     );
 
@@ -483,8 +483,8 @@ BEGIN
         [search_text]          NVARCHAR(MAX) NOT NULL,
         [search_source_hash]   VARBINARY(32) NULL,
         [is_active]            BIT NOT NULL CONSTRAINT [DF_SFISearchDocument_is_active] DEFAULT 1,
-        [dw_timestamp_insert]  DATETIME2(0) NOT NULL CONSTRAINT [DF_SFISearchDocument_dw_timestamp_insert] DEFAULT CAST(SYSDATETIME() AS datetime2(0)),
-        [dw_timestamp_update]  DATETIME2(0) NOT NULL CONSTRAINT [DF_SFISearchDocument_dw_timestamp_update] DEFAULT CAST(SYSDATETIME() AS datetime2(0)),
+        [dw_timestamp_insert]  DATETIME2(0) NOT NULL CONSTRAINT [DF_SFISearchDocument_dw_timestamp_insert] DEFAULT CAST(SYSUTCDATETIME() AS datetime2(0)),
+        [dw_timestamp_update]  DATETIME2(0) NOT NULL CONSTRAINT [DF_SFISearchDocument_dw_timestamp_update] DEFAULT CAST(SYSUTCDATETIME() AS datetime2(0)),
         CONSTRAINT [PK_codesystem_SFISearchDocument] PRIMARY KEY CLUSTERED ([element_code])
     ) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY];
 
@@ -556,8 +556,8 @@ BEGIN
         [element_code]        NVARCHAR(450) NOT NULL,
         [reason]              NVARCHAR(400) NULL,
         [is_active]           BIT NOT NULL CONSTRAINT [DF_SFISearchOverride_is_active] DEFAULT 1,
-        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_SFISearchOverride_dw_timestamp_insert] DEFAULT CAST(SYSDATETIME() AS datetime2(0)),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_SFISearchOverride_dw_timestamp_update] DEFAULT CAST(SYSDATETIME() AS datetime2(0)),
+        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_SFISearchOverride_dw_timestamp_insert] DEFAULT CAST(SYSUTCDATETIME() AS datetime2(0)),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_SFISearchOverride_dw_timestamp_update] DEFAULT CAST(SYSUTCDATETIME() AS datetime2(0)),
         CONSTRAINT [PK_codesystem_SFISearchOverride] PRIMARY KEY CLUSTERED ([override_id])
     ) ON [PRIMARY];
 
@@ -579,8 +579,8 @@ BEGIN
     CREATE TABLE [codesystem].[SKSConcept] (
         [code]                NVARCHAR(100)  NOT NULL,
         [display]             NVARCHAR(500)  NULL,
-        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SKSConcept_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SKSConcept_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SKSConcept_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SKSConcept_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_codesystem_SKSConcept] PRIMARY KEY CLUSTERED ([code])
     );
 END
@@ -619,8 +619,8 @@ BEGIN
         [property_code]        NVARCHAR(100)  NOT NULL,
         [value]               NVARCHAR(200)  NOT NULL,
         [type]                NVARCHAR(50)   NULL,
-        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SKSProperties_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SKSProperties_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SKSProperties_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SKSProperties_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_codesystem_SKSProperties] PRIMARY KEY CLUSTERED ([code], [property_code], [value])
     );
 
@@ -637,8 +637,8 @@ BEGIN
     CREATE TABLE [codesystem].[SKSHierarchy] (
         [parent_code]          NVARCHAR(100)  NOT NULL,
         [child_code]           NVARCHAR(100)  NOT NULL,
-        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SKSHierarchy_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SKSHierarchy_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SKSHierarchy_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SKSHierarchy_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_codesystem_SKSHierarchy] PRIMARY KEY CLUSTERED ([parent_code], [child_code])
     );
 
@@ -667,8 +667,8 @@ BEGIN
     CREATE TABLE [codesystem].[IFDBConcept] (
         [code]                NVARCHAR(450)  NOT NULL,
         [display]             NVARCHAR(500)  NULL,
-        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_IFDBConcept_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_IFDBConcept_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_IFDBConcept_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_IFDBConcept_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_codesystem_IFDBConcept] PRIMARY KEY CLUSTERED ([code])
     );
 
@@ -687,8 +687,8 @@ BEGIN
         [property_code]       NVARCHAR(100)  NOT NULL,
         [value]               NVARCHAR(500)  NULL,
         [type]                NVARCHAR(50)   NULL,
-        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_IFDBProperties_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_IFDBProperties_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_IFDBProperties_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_IFDBProperties_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_codesystem_IFDBProperties] PRIMARY KEY CLUSTERED ([code], [property_code])
     );
 
@@ -706,8 +706,8 @@ BEGIN
     CREATE TABLE [codesystem].[IFDBHierarchy] (
         [parent_code]         NVARCHAR(450)  NOT NULL,
         [child_code]          NVARCHAR(450)  NOT NULL,
-        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_IFDBHierarchy_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_IFDBHierarchy_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_IFDBHierarchy_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_IFDBHierarchy_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_codesystem_IFDBHierarchy] PRIMARY KEY CLUSTERED ([parent_code], [child_code])
     );
 END
@@ -725,8 +725,8 @@ BEGIN
     CREATE TABLE [codesystem].[SHAKAlikeConcept] (
         [code]                NVARCHAR(100)  NOT NULL,
         [display]             NVARCHAR(500)  NULL,
-        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SHAKAlikeConcept_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SHAKAlikeConcept_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SHAKAlikeConcept_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SHAKAlikeConcept_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_codesystem_SHAKAlikeConcept] PRIMARY KEY CLUSTERED ([code])
     );
 END
@@ -742,8 +742,8 @@ BEGIN
         [property_code]        NVARCHAR(100)  NOT NULL,
         [value]               NVARCHAR(500)  NULL,
         [type]                NVARCHAR(50)   NULL,
-        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SHAKAlikeProperties_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SHAKAlikeProperties_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SHAKAlikeProperties_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SHAKAlikeProperties_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_codesystem_SHAKAlikeProperties] PRIMARY KEY CLUSTERED ([code], [property_code])
     );
 
@@ -760,8 +760,8 @@ BEGIN
     CREATE TABLE [codesystem].[SHAKAlikeHierarchy] (
         [parent_code]          NVARCHAR(100)  NOT NULL,
         [child_code]           NVARCHAR(100)  NOT NULL,
-        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SHAKAlikeHierarchy_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SHAKAlikeHierarchy_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SHAKAlikeHierarchy_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2(0)   NOT NULL CONSTRAINT [DF_SHAKAlikeHierarchy_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_codesystem_SHAKAlikeHierarchy] PRIMARY KEY CLUSTERED ([parent_code], [child_code])
     );
 
