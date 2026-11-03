@@ -67,8 +67,8 @@ BEGIN
         [leverance_tidsstempel] DATETIME2(0) NOT NULL,
         [leverance_dato] DATE NOT NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_lpr3_adresse_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_adresse_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_adresse_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
+        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_adresse_dw_timestamp_insert] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_adresse_dw_timestamp_update] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
         CONSTRAINT [PK_arc_lpr3_adresse] PRIMARY KEY CLUSTERED ([adresse_noegle]) WITH (DATA_COMPRESSION=PAGE)
     );
 END
@@ -90,8 +90,8 @@ BEGIN
         [leverance_tidsstempel] DATETIME2(0) NOT NULL,
         [leverance_dato] DATE NOT NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_lpr3_alder_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_alder_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_alder_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
+        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_alder_dw_timestamp_insert] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_alder_dw_timestamp_update] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
         CONSTRAINT [PK_arc_lpr3_alder] PRIMARY KEY CLUSTERED ([alder_noegle]) WITH (DATA_COMPRESSION=PAGE)
     );
 END
@@ -124,8 +124,8 @@ BEGIN
         [leverance_tidsstempel] DATETIME2(0) NOT NULL,
         [leverance_dato] DATE NOT NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_lpr3_betalingegenskaber_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_betalingegenskaber_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_betalingegenskaber_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
+        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_betalingegenskaber_dw_timestamp_insert] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_betalingegenskaber_dw_timestamp_update] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
         CONSTRAINT [PK_arc_lpr3_betalingegenskaber] PRIMARY KEY CLUSTERED ([betalingegenskaber_noegle], [betalingegenskaber_gyldig_fra]) WITH (DATA_COMPRESSION=PAGE)
     );
 END
@@ -160,8 +160,8 @@ BEGIN
         [leverance_tidsstempel] DATETIME2(0) NOT NULL,
         [leverance_dato] DATE NOT NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_lpr3_betalingsoplysning_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_betalingsoplysning_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_betalingsoplysning_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
+        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_betalingsoplysning_dw_timestamp_insert] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_betalingsoplysning_dw_timestamp_update] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
         CONSTRAINT [PK_arc_lpr3_betalingsoplysning] PRIMARY KEY CLUSTERED ([betalingsoplysning_id]) WITH (DATA_COMPRESSION=PAGE)
     );
 END
@@ -225,8 +225,8 @@ BEGIN
         [leverance_tidsstempel] DATETIME2(0) NOT NULL,
         [leverance_dato] DATE NOT NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_lpr3_borger_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_borger_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_borger_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
+        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_borger_dw_timestamp_insert] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_borger_dw_timestamp_update] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
         CONSTRAINT [PK_arc_lpr3_borger] PRIMARY KEY CLUSTERED ([borger_noegle], [borger_gyldig_fra]) WITH (DATA_COMPRESSION=PAGE)
     );
 END
@@ -255,8 +255,8 @@ BEGIN
         [leverance_tidsstempel] DATETIME2(0) NOT NULL,
         [leverance_dato] DATE NOT NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_lpr3_borgerdemografi_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_borgerdemografi_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_borgerdemografi_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
+        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_borgerdemografi_dw_timestamp_insert] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_borgerdemografi_dw_timestamp_update] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
         CONSTRAINT [PK_arc_lpr3_borgerdemografi] PRIMARY KEY CLUSTERED ([borgerdemografi_noegle], [borgerdemografi_gyldig_fra]) WITH (DATA_COMPRESSION=PAGE)
     );
 END
@@ -284,8 +284,8 @@ BEGIN
         [leverance_tidsstempel] DATETIME2(0) NOT NULL,
         [leverance_dato] DATE NOT NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_lpr3_bridge_adressesundhedsklynge_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_bridge_adressesundhedsklynge_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_bridge_adressesundhedsklynge_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
+        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_bridge_adressesundhedsklynge_dw_timestamp_insert] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_bridge_adressesundhedsklynge_dw_timestamp_update] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
         CONSTRAINT [PK_arc_lpr3_bridge_adressesundhedsklynge] PRIMARY KEY CLUSTERED ([bridge_adressesundhedsklynge_noegle]) WITH (DATA_COMPRESSION=PAGE)
     );
 END
@@ -307,8 +307,8 @@ BEGIN
         [leverance_tidsstempel] DATETIME2(0) NOT NULL,
         [leverance_dato] DATE NOT NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_lpr3_bridge_borgersundhedsklynge_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_bridge_borgersundhedsklynge_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_bridge_borgersundhedsklynge_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
+        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_bridge_borgersundhedsklynge_dw_timestamp_insert] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_bridge_borgersundhedsklynge_dw_timestamp_update] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
         CONSTRAINT [PK_arc_lpr3_bridge_borgersundhedsklynge] PRIMARY KEY CLUSTERED ([bridge_borgersundhedsklynge_noegle]) WITH (DATA_COMPRESSION=PAGE)
     );
 END
@@ -332,8 +332,8 @@ BEGIN
         [leverance_tidsstempel] DATETIME2(0) NOT NULL,
         [leverance_dato] DATE NOT NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_lpr3_bridge_diagnose_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_bridge_diagnose_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_bridge_diagnose_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
+        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_bridge_diagnose_dw_timestamp_insert] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_bridge_diagnose_dw_timestamp_update] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
         CONSTRAINT [PK_arc_lpr3_bridge_diagnose] PRIMARY KEY CLUSTERED ([bridge_diagnose_noegle]) WITH (DATA_COMPRESSION=PAGE)
     );
 END
@@ -353,8 +353,8 @@ BEGIN
         [leverance_tidsstempel] DATETIME2(0) NOT NULL,
         [leverance_dato] DATE NOT NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_lpr3_bridge_forloeb_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_bridge_forloeb_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_bridge_forloeb_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
+        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_bridge_forloeb_dw_timestamp_insert] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_bridge_forloeb_dw_timestamp_update] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
         CONSTRAINT [PK_arc_lpr3_bridge_forloeb] PRIMARY KEY CLUSTERED ([bridge_forloeb_noegle]) WITH (DATA_COMPRESSION=PAGE)
     );
 END
@@ -377,8 +377,8 @@ BEGIN
         [leverance_tidsstempel] DATETIME2(0) NOT NULL,
         [leverance_dato] DATE NOT NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_lpr3_bridge_forloebsrelation_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_bridge_forloebsrelation_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_bridge_forloebsrelation_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
+        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_bridge_forloebsrelation_dw_timestamp_insert] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_bridge_forloebsrelation_dw_timestamp_update] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
         CONSTRAINT [PK_arc_lpr3_bridge_forloebsrelation] PRIMARY KEY CLUSTERED ([bridge_forloebsrelation_noegle]) WITH (DATA_COMPRESSION=PAGE)
     );
 END
@@ -402,8 +402,8 @@ BEGIN
         [leverance_tidsstempel] DATETIME2(0) NOT NULL,
         [leverance_dato] DATE NOT NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_lpr3_bridge_procedure_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_bridge_procedure_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_bridge_procedure_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
+        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_bridge_procedure_dw_timestamp_insert] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_bridge_procedure_dw_timestamp_update] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
         CONSTRAINT [PK_arc_lpr3_bridge_procedure] PRIMARY KEY CLUSTERED ([bridge_procedure_noegle]) WITH (DATA_COMPRESSION=PAGE)
     );
 END
@@ -425,8 +425,8 @@ BEGIN
         [leverance_tidsstempel] DATETIME2(0) NOT NULL,
         [leverance_dato] DATE NOT NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_lpr3_bridge_sygehusophold_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_bridge_sygehusophold_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_bridge_sygehusophold_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
+        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_bridge_sygehusophold_dw_timestamp_insert] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_bridge_sygehusophold_dw_timestamp_update] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
         CONSTRAINT [PK_arc_lpr3_bridge_sygehusophold] PRIMARY KEY CLUSTERED ([bridge_sygehusophold_noegle]) WITH (DATA_COMPRESSION=PAGE)
     );
 END
@@ -452,8 +452,8 @@ BEGIN
         [leverance_tidsstempel] DATETIME2(0) NOT NULL,
         [leverance_dato] DATE NOT NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_lpr3_datakilde_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_datakilde_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_datakilde_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
+        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_datakilde_dw_timestamp_insert] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_datakilde_dw_timestamp_update] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
         CONSTRAINT [PK_arc_lpr3_datakilde] PRIMARY KEY CLUSTERED ([datakilde_noegle], [datakilde_gyldig_fra]) WITH (DATA_COMPRESSION=PAGE)
     );
 END
@@ -531,8 +531,8 @@ BEGIN
         [leverance_tidsstempel] DATETIME2(0) NOT NULL,
         [leverance_dato] DATE NOT NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_lpr3_dato_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_dato_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_dato_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
+        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_dato_dw_timestamp_insert] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_dato_dw_timestamp_update] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
         CONSTRAINT [PK_arc_lpr3_dato] PRIMARY KEY CLUSTERED ([dato_dato]) WITH (DATA_COMPRESSION=PAGE)
     );
 END
@@ -595,8 +595,8 @@ BEGIN
         [leverance_tidsstempel] DATETIME2(0) NOT NULL,
         [leverance_dato] DATE NOT NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_lpr3_diagnose_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_diagnose_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_diagnose_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
+        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_diagnose_dw_timestamp_insert] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_diagnose_dw_timestamp_update] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
         CONSTRAINT [PK_arc_lpr3_diagnose] PRIMARY KEY CLUSTERED ([diagnose_noegle], [diagnose_gyldig_fra]) WITH (DATA_COMPRESSION=PAGE)
     );
 END
@@ -619,8 +619,8 @@ BEGIN
         [leverance_tidsstempel] DATETIME2(0) NOT NULL,
         [leverance_dato] DATE NOT NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_lpr3_diagnosegruppe_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_diagnosegruppe_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_diagnosegruppe_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
+        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_diagnosegruppe_dw_timestamp_insert] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_diagnosegruppe_dw_timestamp_update] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
         CONSTRAINT [PK_arc_lpr3_diagnosegruppe] PRIMARY KEY CLUSTERED ([diagnosegruppe_noegle]) WITH (DATA_COMPRESSION=PAGE)
     );
 END
@@ -678,8 +678,8 @@ BEGIN
         [leverance_tidsstempel] DATETIME2(0) NOT NULL,
         [leverance_dato] DATE NOT NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_lpr3_forloeb_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_forloeb_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_forloeb_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
+        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_forloeb_dw_timestamp_insert] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_forloeb_dw_timestamp_update] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
         CONSTRAINT [PK_arc_lpr3_forloeb] PRIMARY KEY CLUSTERED ([forloeb_uuid]) WITH (DATA_COMPRESSION=PAGE)
     );
 END
@@ -730,8 +730,8 @@ BEGIN
         [leverance_tidsstempel] DATETIME2(0) NOT NULL,
         [leverance_dato] DATE NOT NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_lpr3_forloebegenskaber_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_forloebegenskaber_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_forloebegenskaber_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
+        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_forloebegenskaber_dw_timestamp_insert] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_forloebegenskaber_dw_timestamp_update] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
         CONSTRAINT [PK_arc_lpr3_forloebegenskaber] PRIMARY KEY CLUSTERED ([forloebegenskaber_noegle], [forloebegenskaber_gyldig_fra]) WITH (DATA_COMPRESSION=PAGE)
     );
 END
@@ -756,8 +756,8 @@ BEGIN
         [leverance_tidsstempel] DATETIME2(0) NOT NULL,
         [leverance_dato] DATE NOT NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_lpr3_forloeblabel_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_forloeblabel_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_forloeblabel_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
+        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_forloeblabel_dw_timestamp_insert] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_forloeblabel_dw_timestamp_update] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
         CONSTRAINT [PK_arc_lpr3_forloeblabel] PRIMARY KEY CLUSTERED ([forloeblabel_noegle], [forloeblabel_gyldig_fra]) WITH (DATA_COMPRESSION=PAGE)
     );
 END
@@ -782,8 +782,8 @@ BEGIN
         [leverance_tidsstempel] DATETIME2(0) NOT NULL,
         [leverance_dato] DATE NOT NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_lpr3_fravaer_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_fravaer_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_fravaer_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
+        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_fravaer_dw_timestamp_insert] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_fravaer_dw_timestamp_update] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
         CONSTRAINT [PK_arc_lpr3_fravaer] PRIMARY KEY CLUSTERED ([fravaer_noegle], [fravaer_gyldig_fra]) WITH (DATA_COMPRESSION=PAGE)
     );
 END
@@ -819,8 +819,8 @@ BEGIN
         [leverance_tidsstempel] DATETIME2(0) NOT NULL,
         [leverance_dato] DATE NOT NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_lpr3_helbredsforloeb_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_helbredsforloeb_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_helbredsforloeb_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
+        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_helbredsforloeb_dw_timestamp_insert] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_helbredsforloeb_dw_timestamp_update] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
         CONSTRAINT [PK_arc_lpr3_helbredsforloeb] PRIMARY KEY CLUSTERED ([helbredsforloeb_noegle]) WITH (DATA_COMPRESSION=PAGE)
     );
 END
@@ -895,8 +895,8 @@ BEGIN
         [leverance_tidsstempel] DATETIME2(0) NOT NULL,
         [leverance_dato] DATE NOT NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_lpr3_kontakt_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_kontakt_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_kontakt_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
+        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_kontakt_dw_timestamp_insert] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_kontakt_dw_timestamp_update] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
         CONSTRAINT [PK_arc_lpr3_kontakt] PRIMARY KEY CLUSTERED ([kontakt_uuid]) WITH (DATA_COMPRESSION=PAGE)
     );
 END
@@ -943,8 +943,8 @@ BEGIN
         [leverance_tidsstempel] DATETIME2(0) NOT NULL,
         [leverance_dato] DATE NOT NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_lpr3_kontaktegenskaber_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_kontaktegenskaber_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_kontaktegenskaber_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
+        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_kontaktegenskaber_dw_timestamp_insert] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_kontaktegenskaber_dw_timestamp_update] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
         CONSTRAINT [PK_arc_lpr3_kontaktegenskaber] PRIMARY KEY CLUSTERED ([kontaktegenskaber_noegle], [kontaktegenskaber_gyldig_fra]) WITH (DATA_COMPRESSION=PAGE)
     );
 END
@@ -986,8 +986,8 @@ BEGIN
         [leverance_tidsstempel] DATETIME2(0) NOT NULL,
         [leverance_dato] DATE NOT NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_lpr3_kontaktlokation_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_kontaktlokation_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_kontaktlokation_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
+        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_kontaktlokation_dw_timestamp_insert] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_kontaktlokation_dw_timestamp_update] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
         CONSTRAINT [PK_arc_lpr3_kontaktlokation] PRIMARY KEY CLUSTERED ([kontaktlokation_id]) WITH (DATA_COMPRESSION=PAGE)
     );
 END
@@ -1012,8 +1012,8 @@ BEGIN
         [leverance_tidsstempel] DATETIME2(0) NOT NULL,
         [leverance_dato] DATE NOT NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_lpr3_markoer_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_markoer_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_markoer_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
+        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_markoer_dw_timestamp_insert] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_markoer_dw_timestamp_update] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
         CONSTRAINT [PK_arc_lpr3_markoer] PRIMARY KEY CLUSTERED ([markoer_noegle], [markoer_gyldig_fra]) WITH (DATA_COMPRESSION=PAGE)
     );
 END
@@ -1054,8 +1054,8 @@ BEGIN
         [leverance_tidsstempel] DATETIME2(0) NOT NULL,
         [leverance_dato] DATE NOT NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_lpr3_markoerregistrering_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_markoerregistrering_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_markoerregistrering_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
+        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_markoerregistrering_dw_timestamp_insert] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_markoerregistrering_dw_timestamp_update] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
         CONSTRAINT [PK_arc_lpr3_markoerregistrering] PRIMARY KEY CLUSTERED ([markoerregistrering_uuid]) WITH (DATA_COMPRESSION=PAGE)
     );
 END
@@ -1154,8 +1154,8 @@ BEGIN
         [leverance_tidsstempel] DATETIME2(0) NOT NULL,
         [leverance_dato] DATE NOT NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_lpr3_organisation_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_organisation_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_organisation_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
+        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_organisation_dw_timestamp_insert] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_organisation_dw_timestamp_update] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
         CONSTRAINT [PK_arc_lpr3_organisation] PRIMARY KEY CLUSTERED ([organisation_noegle], [organisation_gyldig_fra]) WITH (DATA_COMPRESSION=PAGE)
     );
 END
@@ -1214,8 +1214,8 @@ BEGIN
         [leverance_tidsstempel] DATETIME2(0) NOT NULL,
         [leverance_dato] DATE NOT NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_lpr3_procedure_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_procedure_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_procedure_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
+        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_procedure_dw_timestamp_insert] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_procedure_dw_timestamp_update] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
         CONSTRAINT [PK_arc_lpr3_procedure] PRIMARY KEY CLUSTERED ([procedure_noegle], [procedure_gyldig_fra]) WITH (DATA_COMPRESSION=PAGE)
     );
 END
@@ -1238,8 +1238,8 @@ BEGIN
         [leverance_tidsstempel] DATETIME2(0) NOT NULL,
         [leverance_dato] DATE NOT NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_lpr3_proceduregruppe_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_proceduregruppe_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_proceduregruppe_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
+        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_proceduregruppe_dw_timestamp_insert] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_proceduregruppe_dw_timestamp_update] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
         CONSTRAINT [PK_arc_lpr3_proceduregruppe] PRIMARY KEY CLUSTERED ([proceduregruppe_noegle]) WITH (DATA_COMPRESSION=PAGE)
     );
 END
@@ -1288,8 +1288,8 @@ BEGIN
         [leverance_tidsstempel] DATETIME2(0) NOT NULL,
         [leverance_dato] DATE NOT NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_lpr3_procedureregistrering_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_procedureregistrering_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_procedureregistrering_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
+        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_procedureregistrering_dw_timestamp_insert] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_procedureregistrering_dw_timestamp_update] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
         CONSTRAINT [PK_arc_lpr3_procedureregistrering] PRIMARY KEY CLUSTERED ([procedureregistrering_uuid]) WITH (DATA_COMPRESSION=PAGE)
     );
 END
@@ -1343,8 +1343,8 @@ BEGIN
         [leverance_tidsstempel] DATETIME2(0) NOT NULL,
         [leverance_dato] DATE NOT NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_lpr3_resultat_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_resultat_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_resultat_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
+        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_resultat_dw_timestamp_insert] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_resultat_dw_timestamp_update] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
         CONSTRAINT [PK_arc_lpr3_resultat] PRIMARY KEY CLUSTERED ([resultat_noegle]) WITH (DATA_COMPRESSION=PAGE)
     );
 END
@@ -1377,8 +1377,8 @@ BEGIN
         [leverance_tidsstempel] DATETIME2(0) NOT NULL,
         [leverance_dato] DATE NOT NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_lpr3_resultategenskaber_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_resultategenskaber_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_resultategenskaber_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
+        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_resultategenskaber_dw_timestamp_insert] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_resultategenskaber_dw_timestamp_update] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
         CONSTRAINT [PK_arc_lpr3_resultategenskaber] PRIMARY KEY CLUSTERED ([resultategenskaber_noegle], [resultategenskaber_gyldig_fra]) WITH (DATA_COMPRESSION=PAGE)
     );
 END
@@ -1403,8 +1403,8 @@ BEGIN
         [leverance_tidsstempel] DATETIME2(0) NOT NULL,
         [leverance_dato] DATE NOT NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_lpr3_resultatindberetning_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_resultatindberetning_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_resultatindberetning_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
+        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_resultatindberetning_dw_timestamp_insert] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_resultatindberetning_dw_timestamp_update] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
         CONSTRAINT [PK_arc_lpr3_resultatindberetning] PRIMARY KEY CLUSTERED ([resultatindberetning_uuid]) WITH (DATA_COMPRESSION=PAGE)
     );
 END
@@ -1425,8 +1425,8 @@ BEGIN
         [leverance_tidsstempel] DATETIME2(0) NOT NULL,
         [leverance_dato] DATE NOT NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_lpr3_sundhedsklynge_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_sundhedsklynge_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_sundhedsklynge_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
+        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_sundhedsklynge_dw_timestamp_insert] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_sundhedsklynge_dw_timestamp_update] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
         CONSTRAINT [PK_arc_lpr3_sundhedsklynge] PRIMARY KEY CLUSTERED ([sundhedsklynge_kode]) WITH (DATA_COMPRESSION=PAGE)
     );
 END
@@ -1488,8 +1488,8 @@ BEGIN
         [leverance_tidsstempel] DATETIME2(0) NOT NULL,
         [leverance_dato] DATE NOT NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_lpr3_sygehusophold_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_sygehusophold_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_sygehusophold_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
+        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_sygehusophold_dw_timestamp_insert] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_sygehusophold_dw_timestamp_update] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
         CONSTRAINT [PK_arc_lpr3_sygehusophold] PRIMARY KEY CLUSTERED ([sygehusophold_noegle]) WITH (DATA_COMPRESSION=PAGE)
     );
 END
@@ -1523,8 +1523,8 @@ BEGIN
         [leverance_tidsstempel] DATETIME2(0) NOT NULL,
         [leverance_dato] DATE NOT NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_lpr3_tidspunkt_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_tidspunkt_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_tidspunkt_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
+        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_tidspunkt_dw_timestamp_insert] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_tidspunkt_dw_timestamp_update] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
         CONSTRAINT [PK_arc_lpr3_tidspunkt] PRIMARY KEY CLUSTERED ([tidspunkt_minut_id]) WITH (DATA_COMPRESSION=PAGE)
     );
 END
@@ -1578,8 +1578,8 @@ BEGIN
         [leverance_tidsstempel] DATETIME2(0) NOT NULL,
         [leverance_dato] DATE NOT NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_lpr3_vaerdisks_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_vaerdisks_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_vaerdisks_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
+        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_vaerdisks_dw_timestamp_insert] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_lpr3_vaerdisks_dw_timestamp_update] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
         CONSTRAINT [PK_arc_lpr3_vaerdisks] PRIMARY KEY CLUSTERED ([vaerdisks_noegle], [vaerdisks_gyldig_fra]) WITH (DATA_COMPRESSION=PAGE)
     );
 END

@@ -14,6 +14,7 @@ from DSO.load.sync_utils import (
     compare_row_counts,
     sync_table_via_linked_server,
 )
+from utils.sql.write_timestamp import WRITE_TIMESTAMP_UTC
 
 
 def _materialize_sync_result(
@@ -215,7 +216,7 @@ def _build_sfi_search_document_refresh_sql() -> str:
     search_text changes, new concepts insert, and concepts that disappear
     from the sources soft-delete via is_active = 0 (NOT MATCHED BY SOURCE).
     """
-    return """
+    return f"""
         ;WITH props AS (
             SELECT
                 [code],
@@ -319,7 +320,7 @@ def _build_sfi_search_document_refresh_sql() -> str:
                 [search_text] = src.[search_text],
                 [search_source_hash] = src.[search_source_hash],
                 [is_active] = 1,
-                [dw_timestamp_update] = CAST(SYSDATETIME() AS datetime2(0))
+                [dw_timestamp_update] = {WRITE_TIMESTAMP_UTC}
         WHEN NOT MATCHED BY TARGET THEN
             INSERT (
                 [element_code],
@@ -344,13 +345,13 @@ def _build_sfi_search_document_refresh_sql() -> str:
                 src.[search_text],
                 src.[search_source_hash],
                 1,
-                CAST(SYSDATETIME() AS datetime2(0)),
-                CAST(SYSDATETIME() AS datetime2(0))
+                {WRITE_TIMESTAMP_UTC},
+                {WRITE_TIMESTAMP_UTC}
             )
         WHEN NOT MATCHED BY SOURCE AND tgt.[is_active] = 1 THEN
             UPDATE SET
                 [is_active] = 0,
-                [dw_timestamp_update] = CAST(SYSDATETIME() AS datetime2(0));
+                [dw_timestamp_update] = {WRITE_TIMESTAMP_UTC};
     """
 
 

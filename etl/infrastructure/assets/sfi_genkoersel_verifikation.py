@@ -25,6 +25,7 @@ Fjernes igen, når genkørselssporet er lukket — deraf «midlertidigt».
 from dataclasses import dataclass
 
 import dagster as dg
+from core.dfm_manager import DfmManager
 from utils.fhir.identifier_systems import (
     SYSTEM_IFDB_ADMINISTRATIVE_PROCEDURE,
     SYSTEM_IFDB_AKTIVITETSRESULTAT_CONDITION,
@@ -35,6 +36,7 @@ from utils.fhir.identifier_systems import (
     SYSTEM_IFDB_RIS_YDELSE,
     SYSTEM_IFDB_RIS_YDELSE_DIAGNOSE,
 )
+from utils.fhir.sfi_consumers import sfi_consumers_absent
 
 _PROC_KILDER = (
     SYSTEM_IFDB_AKTIVITETSRESULTAT_PROCEDURE,
@@ -374,11 +376,19 @@ def sfi_genkoersel_verifikation(context: dg.AssetExecutionContext) -> dg.Materia
             "(SELECT COUNT_BIG(*) FROM [fhir].[QuestionnaireResponse_item]))"
         )
         store_diff = int(cur.fetchone()[0] or 0)
-        status = "PASS" if store_diff == 0 else "FAIL"
-        context.log.info(f"KONTRAKT {status} sfi_store_korn: diff {store_diff} mod obs + QR-items")
         rapport["afstemning"]["SFI_datapoint_store_diff"] = store_diff
-        if store_diff != 0:
-            kontraktbrud.append(f"sfi_store_korn (diff {store_diff})")
+        if sfi_consumers_absent(context, DfmManager(res.mssql_target_staging, context)):
+            context.log.info(
+                f"MÅLING sfi_store_korn: diff {store_diff} mod obs + QR-items "
+                "(storens refresh står på pause)"
+            )
+        else:
+            status = "PASS" if store_diff == 0 else "FAIL"
+            context.log.info(
+                f"KONTRAKT {status} sfi_store_korn: diff {store_diff} mod obs + QR-items"
+            )
+            if store_diff != 0:
+                kontraktbrud.append(f"sfi_store_korn (diff {store_diff})")
 
     if kontraktbrud:
         raise dg.Failure(

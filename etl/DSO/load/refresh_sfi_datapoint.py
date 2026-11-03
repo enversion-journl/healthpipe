@@ -8,15 +8,14 @@
 Incremental refresh of materialized fhir.SFI_datapoint_store on DSO.
 
 Strategy:
-    1. Read last watermark from meta.SyncWatermarks (reuses existing state infrastructure).
-    2. Find changed resources (Observation + QuestionnaireResponse) since watermark
-       using dw_timestamp_update / dw_timestamp_insert on upstream FHIR tables.
+    1. Read the store's DFM checkpoint (meta.DFMState on staging, scope sfi_store).
+    2. Find changed resources (Observation + QuestionnaireResponse) from the checkpoint
+       using DSO's own dw_timestamp_update / dw_timestamp_insert on the upstream FHIR tables.
     3. Validate QR join-key health for only those resources.
     4. Apply via scoped DELETE + direct INSERT...SELECT within one transaction.
-    5. Advance watermark only after successful commit.
+    5. Advance the checkpoint only after successful commit.
 
-First run (NULL watermark) can process all resources, but large historical rebuilds
-should use the maintenance/reconciliation path rather than daily incremental.
+Without a checkpoint, or in full_load, the store is rebuilt by the batched reconciliation.
 
 Runs after FHIR flat-table sync and codesystem.sfi_* sync so consumer views
 (fhir.SFI_datapoint, vw_fhir.SFI_datapoint) serve pre-joined rows with indexes.
@@ -25,24 +24,33 @@ Runs after FHIR flat-table sync and codesystem.sfi_* sync so consumer views
 import os
 import re
 import time
-from datetime import datetime, timedelta
-from typing import Any, Literal
+from datetime import datetime
+from typing import Any, Literal, NamedTuple
 
 import dagster as dg
+from core.dfm_config import RunModeConfig
+from core.dfm_manager import DfmManager
 from core.resources import MSSQLResource
 from DSO.load import sfi_store_partitioning as _part
-from DSO.load.sync_state import SyncStateManager
+from DSO.load.sync_dfm import DSO_DFM_SCOPE
 from infrastructure.utils.ddl_loader import execute_sql_file
+from utils.fhir.sfi_consumers import sfi_consumers_absent
+from utils.sql.write_timestamp import WRITE_TIMESTAMP_UTC
 
 _STORE_TABLE = "[fhir].[SFI_datapoint_store]"
 _STORE_DDL_FILE = "tables/fhir/02_sfi_datapoint_store.sql"
 _BUILD_VIEW = "[fhir].[SFI_datapoint_build]"
 _REFRESH_LOCK_NAME = "fhir.SFI_datapoint_store.refresh"
 
-_WATERMARK_SCHEMA = "sfi_datapoint"
-_WATERMARK_TABLE_DAILY = "refresh_daily"
-_WATERMARK_TABLE_MONTHLY = "refresh_monthly"
-_WATERMARK_TABLE_RECONCILIATION = "refresh_reconciliation"
+STORE_DFM_SCOPE = "sfi_store"
+STORE_DFM_SCHEMA = "fhir"
+STORE_DFM_TABLE = "SFI_datapoint_store"
+# The DSO syncs that write the store's sources; a run still in flight holds the checkpoint back.
+_SOURCE_WRITERS = (
+    ("fhir", "Observation"),
+    ("fhir", "QuestionnaireResponse"),
+    ("fhir", "QuestionnaireResponse_item"),
+)
 _QR_PREFLIGHT_MODE_ENV = "SFI_DATAPOINT_QR_PREFLIGHT_MODE"
 _QR_PREFLIGHT_MODE_WARN = "warn"
 _QR_PREFLIGHT_MODE_FAIL = "fail"
@@ -192,50 +200,64 @@ def _refresh_columns() -> list[str]:
 
 
 def _build_source_high_water_sql() -> str:
-    """Newest dw_timestamp_effective per source of the store: SFI observations, QR and QR items."""
-    return """
+    """Newest dw_timestamp_effective per source of the store (SFI observations, QR and QR
+    items), then DSO's current write time."""
+    return f"""
         SELECT
             (SELECT MAX(o.[dw_timestamp_effective]) FROM [fhir].[Observation] o
              WHERE o.[element_system] = N'urn:dk:ifdb:sfi'),
             (SELECT MAX(qr.[dw_timestamp_effective]) FROM [fhir].[QuestionnaireResponse] qr),
-            (SELECT MAX(qri.[dw_timestamp_effective]) FROM [fhir].[QuestionnaireResponse_item] qri);
+            (SELECT MAX(qri.[dw_timestamp_effective]) FROM [fhir].[QuestionnaireResponse_item] qri),
+            {WRITE_TIMESTAMP_UTC};
     """
 
 
 def _source_high_water(cursor: Any) -> datetime | None:
-    """The run's upper bound and next watermark, in the sources' own clock; None when empty."""
+    """The newest DSO stamp among the sources, the run's upper bound; None when empty.
+
+    Capped at DSO's current write time: stamps written in Danish local time before DSO
+    stamped in UTC lie up to two hours ahead, and a checkpoint there would skip the UTC
+    stamps written in between.
+    """
     cursor.execute(_build_source_high_water_sql())
-    stamps = [stamp for stamp in cursor.fetchone() or () if stamp is not None]
-    return max(stamps).replace(microsecond=0) if stamps else None
+    *sources, now = cursor.fetchone()
+    stamps = [stamp for stamp in sources if stamp is not None]
+    return min(max(stamps), now).replace(microsecond=0) if stamps else None
 
 
-def _next_watermark(last: datetime | None, high_water: datetime | None) -> datetime | None:
-    """Never move the watermark backwards."""
-    if last is None or high_water is None:
-        return high_water or last
-    return max(last, high_water)
+def _format_stamp(value: datetime) -> str:
+    return value.strftime("%Y-%m-%d %H:%M:%S")
 
 
-# DSO stamps UPDATEs with its local clock, up to two hours ahead of staging's UTC stamps.
-_WATERMARK_OVERLAP = timedelta(hours=3)
+def _parse_checkpoint(value: str | None) -> datetime | None:
+    return datetime.fromisoformat(value.strip()[:19]) if value else None
 
 
-def _read_from(last: datetime | None) -> datetime | None:
-    """Lower bound of the change scan: the watermark minus the overlap; None on a first run."""
-    return last - _WATERMARK_OVERLAP if last is not None else None
+def _next_checkpoint(dfm: Any, high_water: datetime | None) -> datetime | None:
+    """The high-water mark, held back to the start of a source's DSO sync still in flight.
+
+    A DSO write is stamped when its statement starts but becomes visible at commit, so a
+    checkpoint past an uncommitted write would skip its rows for good.
+    """
+    if high_water is None:
+        return None
+    bound = _format_stamp(high_water)
+    held = [
+        dfm.safe_reader_checkpoint(bound, writer=writer, writer_scope=DSO_DFM_SCOPE)
+        for writer in _SOURCE_WRITERS
+    ]
+    return min(_parse_checkpoint(value) or high_water for value in held)
 
 
 def _build_changed_resources_sql(
-    last_watermark_str: str | None, upper_bound_str: str | None = None
+    last_watermark_str: str, upper_bound_str: str | None = None
 ) -> str:
-    """Build SQL that populates #changed_resources with resource IDs modified since watermark.
+    """Build SQL that populates #changed_resources with resource IDs changed from the checkpoint.
 
     The timestamp string must be in 'YYYY-MM-DD HH:MM:SS' format (same convention as
-    SyncStateManager / build_delta_merge_statement in the rest of DSO load).
+    build_delta_merge_statement in the rest of DSO load).
 
-    When last_watermark_str is None (first run), all resources are treated as changed
-    by omitting the WHERE timestamp filter. ``upper_bound_str`` caps the selection at the
-    high-water mark the run stores as its next watermark.
+    ``upper_bound_str`` caps the selection at the high-water mark captured before the scan.
 
     Change detection filters on the PERSISTED computed column
     ``dw_timestamp_effective`` (= ISNULL(dw_timestamp_update, dw_timestamp_insert),
@@ -243,9 +265,7 @@ def _build_changed_resources_sql(
     so the watermark predicate is sargable and served by an index seek instead
     of three full clustered scans per run.
     """
-    predicates = []
-    if last_watermark_str is not None:
-        predicates.append(f">= '{last_watermark_str}'")
+    predicates = [f">= '{last_watermark_str}'"]
     if upper_bound_str is not None:
         predicates.append(f"<= '{upper_bound_str}'")
     obs_where = "".join(f" AND o.[dw_timestamp_effective] {p}" for p in predicates)
@@ -680,19 +700,14 @@ def _inline_qr_build_leg(resources_table: str) -> str:
 
 
 def _build_number_changed_resources_sql() -> str:
-    """Add row_id to #changed_resources for batched iteration."""
-    return """
+    """Add row_id to #changed_resources for batched iteration, in source-date order."""
+    return f"""
         SET NOCOUNT ON;
 
         IF OBJECT_ID(N'tempdb..#changed_numbered') IS NOT NULL
             DROP TABLE #changed_numbered;
 
-        SELECT
-            ROW_NUMBER() OVER (ORDER BY source_resource, source_resource_id) AS row_id,
-            source_resource,
-            source_resource_id
-        INTO #changed_numbered
-        FROM #changed_resources;
+        {_part.changed_numbered_sql("#changed_resources", "#changed_numbered")}
 
         CREATE CLUSTERED INDEX [IX_changed_numbered_RowId]
             ON #changed_numbered ([row_id]);
@@ -1091,60 +1106,6 @@ def _build_reconciliation_setup_sql() -> str:
         SELECT COUNT_BIG(*) AS total_resources
         FROM #reconcile_resources;
     """
-
-
-def _seed_watermark_sql() -> str:
-    """Indsæt en manglende watermark-række (parametre: schema, table, timestamp, status).
-    Bruges efter en fuld afstemning, så den daglige/månedlige refresh starter inkrementelt
-    fra kildernes højeste tidsstempel i stedet for at genopbygge alt endnu en gang."""
-    return f"""
-        IF NOT EXISTS (
-            SELECT 1 FROM {SyncStateManager.WATERMARK_TABLE}
-            WHERE schema_name = ? AND table_name = ?
-        )
-        INSERT INTO {SyncStateManager.WATERMARK_TABLE}
-            (schema_name, table_name, last_sync_timestamp, last_sync_rows,
-             last_sync_duration_ms, last_sync_status)
-        VALUES (?, ?, ?, 0, NULL, ?);
-    """
-
-
-def _seed_missing_watermarks(
-    cursor: Any, conn: Any, log: Any, *, captured_at: Any, exclude: str
-) -> list[str]:
-    """Efter en fuld afstemning: de andre refresh-watermarks, der mangler (fx efter
-    migrationen, der droppede storen), sættes til kildernes højeste tidsstempel ved
-    afstemningens start. Ændringer efter det tages af næste delta; ændringer før er med i
-    genopbygningen."""
-    seeded: list[str] = []
-    for table in (
-        _WATERMARK_TABLE_DAILY,
-        _WATERMARK_TABLE_MONTHLY,
-        _WATERMARK_TABLE_RECONCILIATION,
-    ):
-        if table == exclude:
-            continue
-        cursor.execute(
-            _seed_watermark_sql(),
-            [
-                _WATERMARK_SCHEMA,
-                table,
-                _WATERMARK_SCHEMA,
-                table,
-                captured_at,
-                "seeded_by_reconciliation",
-            ],
-        )
-        if getattr(cursor, "rowcount", 0) and int(cursor.rowcount) > 0:
-            seeded.append(table)
-    conn.commit()
-    if seeded:
-        log.info(
-            "Watermarks %s sat til %s (kildernes højeste tidsstempel), så næste refresh er inkrementel.",
-            ", ".join(seeded),
-            captured_at,
-        )
-    return seeded
 
 
 def _build_reconciliation_batch_sql(
@@ -1803,9 +1764,8 @@ def _run_apply_loop(
         # so without this every batch would nest in one outer transaction and the
         # log would never relieve (and a late failure would roll back all prior
         # batches). The session-level applock acquired by the caller spans these
-        # commits. On failure the exception propagates before update_sync_state,
-        # so the watermark is not advanced and the next run reprocesses
-        # idempotently.
+        # commits. On failure the exception propagates before the DFM checkpoint
+        # is set, so the next run reprocesses idempotently.
         conn.commit()
 
         context.log.info(
@@ -1925,38 +1885,22 @@ def _apply_with_backfill_handling(
     return totals, metadata
 
 
+class _RefreshOutcome(NamedTuple):
+    result: dg.MaterializeResult
+    next_checkpoint: datetime | None
+    inserted_rows: int
+
+
 def _execute_incremental_refresh(
     context: dg.AssetExecutionContext,
     mssql_target_dso: MSSQLResource,
-    watermark_table: str,
-) -> dg.MaterializeResult:
-    """Execute watermark-driven incremental refresh."""
+    dfm: DfmManager,
+    checkpoint: datetime,
+) -> _RefreshOutcome:
+    """Refresh the resources changed from the checkpoint; returns the result and next checkpoint."""
     start_ms = time.monotonic_ns() // 1_000_000
-
-    state_mgr = SyncStateManager(mssql_target_dso, context)
-    last_watermark = state_mgr.get_last_sync_timestamp(_WATERMARK_SCHEMA, watermark_table)
-
-    is_first_run = last_watermark is None
-    read_from = _read_from(last_watermark)
-    # Use the same timestamp format as the rest of the DSO watermark logic (sync_utils.py)
-    # for safe embedding in generated SQL literals.
-    read_from_str = read_from.strftime("%Y-%m-%d %H:%M:%S") if read_from else None
-    # Human-friendly form for logs only
-    log_watermark = last_watermark.isoformat() if last_watermark else None
-
-    if is_first_run:
-        context.log.info(
-            "No watermark found for %s.%s — running full initial load.",
-            _WATERMARK_SCHEMA,
-            watermark_table,
-        )
-    else:
-        context.log.info(
-            "Incremental refresh since watermark %s for %s.%s",
-            log_watermark,
-            _WATERMARK_SCHEMA,
-            watermark_table,
-        )
+    read_from_str = _format_stamp(checkpoint)
+    context.log.info("Incremental refresh of %s from checkpoint %s", _STORE_TABLE, read_from_str)
 
     pivot_sql = _build_sfi_props_pivot_sql()
     number_sql = _build_number_changed_resources_sql()
@@ -1967,8 +1911,8 @@ def _execute_incremental_refresh(
         cursor = conn.cursor()
         try:
             high_water = _source_high_water(cursor)
-            next_watermark = _next_watermark(last_watermark, high_water)
-            upper_bound_str = high_water.strftime("%Y-%m-%d %H:%M:%S") if high_water else None
+            next_checkpoint = _next_checkpoint(dfm, high_water) or checkpoint
+            upper_bound_str = _format_stamp(high_water) if high_water else None
             context.log.info(
                 "Reading changes from %s to source high-water mark %s.",
                 read_from_str,
@@ -1979,26 +1923,17 @@ def _execute_incremental_refresh(
             cursor.execute("SELECT COUNT(*) FROM #changed_resources")
             changed_count = int(cursor.fetchone()[0])
 
-            if changed_count == 0 and not is_first_run:
+            if changed_count == 0:
                 cursor.execute(f"SELECT COUNT(*) FROM {_STORE_TABLE}")
                 row_count = int(cursor.fetchone()[0])
                 conn.commit()
 
-                duration_ms = (time.monotonic_ns() // 1_000_000) - start_ms
-                state_mgr.update_sync_state(
-                    _WATERMARK_SCHEMA,
-                    watermark_table,
-                    rows_affected=0,
-                    duration_ms=int(duration_ms),
-                    status="success_noop",
-                    watermark=next_watermark,
-                )
-
                 context.log.info(
-                    "No changed resources since watermark — skipping refresh. Store has %d rows.",
+                    "No changed resources since the checkpoint — skipping refresh. "
+                    "Store has %d rows.",
                     row_count,
                 )
-                return dg.MaterializeResult(
+                result: dg.MaterializeResult = dg.MaterializeResult(
                     metadata={
                         "target_table": dg.MetadataValue.text("fhir.SFI_datapoint_store"),
                         "row_count": dg.MetadataValue.int(row_count),
@@ -2009,6 +1944,7 @@ def _execute_incremental_refresh(
                         "inserted_rows": dg.MetadataValue.int(0),
                     }
                 )
+                return _RefreshOutcome(result, next_checkpoint, 0)
 
             context.log.info("Found %d changed resources to process.", changed_count)
 
@@ -2135,16 +2071,6 @@ def _execute_incremental_refresh(
                 )
 
             duration_ms = (time.monotonic_ns() // 1_000_000) - start_ms
-            state_mgr.update_sync_state(
-                _WATERMARK_SCHEMA,
-                watermark_table,
-                rows_affected=inserted_total,
-                duration_ms=int(duration_ms),
-                status="success",
-                watermark=next_watermark,
-            )
-
-            refresh_mode = "incremental_full_initial" if is_first_run else "incremental"
             context.log.info(
                 "Refreshed %s: %d changed resources, %d batches, %d deleted, "
                 "%d inserted, %d total rows (mode=%s, %dms)",
@@ -2154,16 +2080,16 @@ def _execute_incremental_refresh(
                 deleted_total,
                 inserted_total,
                 row_count,
-                refresh_mode,
+                "incremental",
                 duration_ms,
             )
 
-            return dg.MaterializeResult(
+            result = dg.MaterializeResult(
                 metadata={
                     "target_table": dg.MetadataValue.text("fhir.SFI_datapoint_store"),
                     "row_count": dg.MetadataValue.int(row_count),
                     "source_view": dg.MetadataValue.text("fhir.SFI_datapoint_build"),
-                    "refresh_mode": dg.MetadataValue.text(refresh_mode),
+                    "refresh_mode": dg.MetadataValue.text("incremental"),
                     "qr_preflight_mode": dg.MetadataValue.text(preflight_mode),
                     "qr_preflight_status": dg.MetadataValue.text(
                         "skipped"
@@ -2182,6 +2108,7 @@ def _execute_incremental_refresh(
                     **{key: dg.MetadataValue.int(value) for key, value in preflight_stats.items()},
                 }
             )
+            return _RefreshOutcome(result, next_checkpoint, inserted_total)
         except Exception as exc:
             if _is_store_missing_error(exc):
                 conn.rollback()
@@ -2191,7 +2118,7 @@ def _execute_incremental_refresh(
                     _STORE_TABLE,
                 )
                 _ensure_store_table_exists(context, mssql_target_dso)
-                return _execute_full_reconciliation(context, mssql_target_dso, watermark_table)
+                return _execute_full_reconciliation(context, mssql_target_dso, dfm)
             raise
         finally:
             cursor.close()
@@ -2200,9 +2127,9 @@ def _execute_incremental_refresh(
 def _execute_full_reconciliation(
     context: dg.AssetExecutionContext,
     mssql_target_dso: MSSQLResource,
-    watermark_table: str,
-) -> dg.MaterializeResult:
-    """Execute batched full reconciliation with per-batch progress logging."""
+    dfm: DfmManager,
+) -> _RefreshOutcome:
+    """Rebuild the whole store in batches; returns the result and next checkpoint."""
     start_ms = time.monotonic_ns() // 1_000_000
     batch_size = _reconciliation_batch_size(context)
 
@@ -2256,6 +2183,7 @@ def _execute_full_reconciliation(
                     )
 
             high_water = _source_high_water(cursor)
+            next_checkpoint = _next_checkpoint(dfm, high_water)
             setup_sql = _build_reconciliation_setup_sql()
             cursor.execute(setup_sql)
             setup_row = _fetch_single_row_result(cursor, result_name="reconciliation setup total")
@@ -2309,25 +2237,6 @@ def _execute_full_reconciliation(
 
             duration_ms = (time.monotonic_ns() // 1_000_000) - start_ms
 
-            state_mgr = SyncStateManager(mssql_target_dso, context)
-            state_mgr.update_sync_state(
-                _WATERMARK_SCHEMA,
-                watermark_table,
-                rows_affected=inserted_total,
-                duration_ms=int(duration_ms),
-                status="success_reconciliation",
-                watermark=high_water,
-            )
-            seeded_watermarks: list[str] = []
-            if high_water is not None:
-                seeded_watermarks = _seed_missing_watermarks(
-                    cursor,
-                    conn,
-                    context.log,
-                    captured_at=high_water,
-                    exclude=watermark_table,
-                )
-
             context.log.info(
                 "Batched reconciliation of %s completed: %d resources, %d batches, "
                 "%d deleted, %d inserted, %d total rows (%dms)",
@@ -2339,7 +2248,7 @@ def _execute_full_reconciliation(
                 row_count,
                 duration_ms,
             )
-            return dg.MaterializeResult(
+            result: dg.MaterializeResult = dg.MaterializeResult(
                 metadata={
                     "target_table": dg.MetadataValue.text("fhir.SFI_datapoint_store"),
                     "row_count": dg.MetadataValue.int(row_count),
@@ -2358,10 +2267,10 @@ def _execute_full_reconciliation(
                     "inserted_rows": dg.MetadataValue.int(inserted_total),
                     "batch_size": dg.MetadataValue.int(batch_size),
                     **_backfill_metadata_values(backfill_metadata),
-                    "seeded_watermarks": dg.MetadataValue.text(", ".join(seeded_watermarks) or "-"),
                     "duration_ms": dg.MetadataValue.int(int(duration_ms)),
                 }
             )
+            return _RefreshOutcome(result, next_checkpoint, inserted_total)
         finally:
             cursor.close()
 
@@ -2384,222 +2293,106 @@ def _backfill_metadata_values(values: dict[str, Any]) -> dict[str, Any]:
 def _refresh_sfi_datapoint_store(
     context: dg.AssetExecutionContext,
     mssql_target_dso: MSSQLResource,
-    watermark_table: str,
+    mssql_source_staging: MSSQLResource,
+    config: RunModeConfig,
 ) -> dg.MaterializeResult:
-    _ensure_store_table_exists(context, mssql_target_dso)
-
-    state_mgr = SyncStateManager(mssql_target_dso, context)
-    last_watermark = state_mgr.get_last_sync_timestamp(_WATERMARK_SCHEMA, watermark_table)
-
-    if last_watermark is None:
-        context.log.info(
-            "No watermark for %s.%s — using batched reconciliation for initial load.",
-            _WATERMARK_SCHEMA,
-            watermark_table,
+    """Refresh the store under its DFM run; full_load or a missing checkpoint rebuilds it."""
+    if config.mode not in ("delta", "full_load"):
+        raise ValueError(f"mode {config.mode!r} is not supported; use 'delta' or 'full_load'")
+    dfm = DfmManager(mssql_source_staging, context)
+    # Uden aftagere står storen stille; afstemningen (full_load) genopbygger den bagefter.
+    if config.mode == "delta" and sfi_consumers_absent(context, dfm):
+        context.log.warning(
+            "%s: the refresh is paused while the SFI chain runs without consumers; "
+            "the store and its checkpoint are untouched.",
+            _STORE_TABLE,
         )
-        return _execute_full_reconciliation(context, mssql_target_dso, watermark_table)
-
-    return _execute_incremental_refresh(context, mssql_target_dso, watermark_table)
-
-
-def _reconcile_sfi_datapoint_store(
-    context: dg.AssetExecutionContext,
-    mssql_target_dso: MSSQLResource,
-    watermark_table: str,
-) -> dg.MaterializeResult:
+        return dg.MaterializeResult(metadata={"paused": dg.MetadataValue.bool(True)})
     _ensure_store_table_exists(context, mssql_target_dso)
-    return _execute_full_reconciliation(context, mssql_target_dso, watermark_table)
 
-
-def _create_refresh_asset(
-    *,
-    name: str,
-    group_name: str,
-    upstream_deps: list[str],
-    description: str,
-    watermark_table: str,
-) -> dg.AssetsDefinition:
-    @dg.asset(
-        name=name,
-        group_name=group_name,
-        compute_kind="mssql",
-        deps=upstream_deps,
-        tags={"domain": "fhir", "layer": "dso_sync", "type": "sfi_datapoint_refresh"},
-        description=description,
+    run_ctx = dfm.start_dfm_run(
+        STORE_DFM_SCHEMA,
+        STORE_DFM_TABLE,
+        dagster_run_id=context.run_id,
+        mode=config.mode,
+        scope=STORE_DFM_SCOPE,
     )
-    def _asset(
-        context: dg.AssetExecutionContext,
-        mssql_target_dso: MSSQLResource,
-    ) -> dg.MaterializeResult:
-        return _refresh_sfi_datapoint_store(context, mssql_target_dso, watermark_table)
-
-    return _asset
-
-
-def _create_reconciliation_asset(
-    *,
-    name: str,
-    group_name: str,
-    upstream_deps: list[str],
-    description: str,
-    watermark_table: str,
-) -> dg.AssetsDefinition:
-    @dg.asset(
-        name=name,
-        group_name=group_name,
-        compute_kind="mssql",
-        deps=upstream_deps,
-        tags={"domain": "fhir", "layer": "dso_sync", "type": "sfi_datapoint_reconciliation"},
-        description=description,
-    )
-    def _asset(
-        context: dg.AssetExecutionContext,
-        mssql_target_dso: MSSQLResource,
-    ) -> dg.MaterializeResult:
-        return _reconcile_sfi_datapoint_store(context, mssql_target_dso, watermark_table)
-
-    return _asset
+    try:
+        checkpoint = _parse_checkpoint(run_ctx.checkpoint)
+        if config.mode == "full_load" or checkpoint is None:
+            context.log.info(
+                "%s: batched reconciliation (%s).",
+                _STORE_TABLE,
+                "full_load" if config.mode == "full_load" else "no checkpoint",
+            )
+            outcome = _execute_full_reconciliation(context, mssql_target_dso, dfm)
+        else:
+            outcome = _execute_incremental_refresh(context, mssql_target_dso, dfm, checkpoint)
+        next_value = _format_stamp(outcome.next_checkpoint) if outcome.next_checkpoint else None
+        if next_value and config.should_advance_checkpoint:
+            dfm.set_checkpoint(
+                STORE_DFM_SCHEMA,
+                STORE_DFM_TABLE,
+                value=next_value,
+                mode=config.mode,
+                scope=STORE_DFM_SCOPE,
+            )
+        dfm.complete_dfm_run(
+            run_ctx.log_id, checkpoint_after=next_value, rows_affected=outcome.inserted_rows
+        )
+        return outcome.result
+    except BaseException as exc:
+        dfm.fail_dfm_run(run_ctx.log_id, error_message=str(exc))
+        raise
 
 
-dso_refresh_sfi_datapoint_daily = _create_refresh_asset(
-    name="dso_refresh_sfi_datapoint_daily",
-    group_name="fhir_dso_sync_dfm",
-    upstream_deps=_SFI_UPSTREAM_DEPS,
-    watermark_table=_WATERMARK_TABLE_DAILY,
-    description=(
-        "Incremental refresh of fhir.SFI_datapoint_store on DSO — "
-        "processes only resources changed since last watermark. Runs in "
-        "ifdb_dfm_daily_job after Observation/QR DSO sync."
-    ),
-)
-
-dso_refresh_sfi_datapoint_monthly = _create_refresh_asset(
-    name="dso_refresh_sfi_datapoint_monthly",
-    group_name="fhir_dso_sync_maintenance",
-    upstream_deps=_SFI_UPSTREAM_DEPS,
-    watermark_table=_WATERMARK_TABLE_MONTHLY,
-    description=(
-        "Ad-hoc incremental refresh of fhir.SFI_datapoint_store (monthly watermark). "
-        "Not scheduled — DFM SFI has no monthly cadence; nightly delta covers it."
-    ),
-)
-
-dso_reconcile_sfi_datapoint_store = _create_reconciliation_asset(
-    name="dso_reconcile_sfi_datapoint_store",
-    group_name="fhir_dso_sync_maintenance",
-    upstream_deps=_SFI_UPSTREAM_DEPS,
-    watermark_table=_WATERMARK_TABLE_RECONCILIATION,
-    description=(
-        "Manual/periodic batched reconciliation of fhir.SFI_datapoint_store on DSO "
-        "to rebuild historical SFI datapoints outside daily/monthly incremental scope"
-    ),
-)
-
-
-class SfiDatapointWatermarkResetConfig(dg.Config):
-    """Operatørværktøj: sæt storens watermark (meta.SyncWatermarks på DSO) til et
-    givet tidspunkt, så et allerede synkroniseret delta kan genkøres (replay til
-    måling eller reparation). Rækken skal findes; intet oprettes."""
-
-    watermark_table: str = _WATERMARK_TABLE_DAILY
-    new_value: str  # 'YYYY-MM-DD HH:MM:SS'
-    reason: str
-    # Opret rækken, hvis den mangler (fx efter migrationen, der droppede storen og dens
-    # watermarks). Standard er at fejle, så en tastefejl i tabelnavnet ikke opretter noget.
-    create_if_missing: bool = False
+_REFRESH_TAGS = {"domain": "fhir", "layer": "dso_sync", "type": "sfi_datapoint_refresh"}
 
 
 @dg.asset(
-    name="dso_sfi_datapoint_watermark_reset",
-    group_name="fhir_dso_sync_maintenance",
+    name="dso_refresh_sfi_datapoint_daily",
+    group_name="fhir_dso_sync_dfm",
+    compute_kind="mssql",
+    deps=_SFI_UPSTREAM_DEPS,
+    tags=_REFRESH_TAGS,
     description=(
-        "Sætter watermark for storens refresh (meta.SyncWatermarks, schema sfi_datapoint) "
-        "til et angivet tidspunkt. Bruges til replay af et kendt delta; kræver reason."
+        "Incremental refresh of fhir.SFI_datapoint_store on DSO from its DFM checkpoint "
+        "(scope sfi_store): processes only resources DSO wrote since then. full_load, or a "
+        "missing checkpoint, rebuilds the store. Runs in ifdb_dfm_daily_job after the "
+        "Observation/QR DSO sync."
     ),
 )
-def dso_sfi_datapoint_watermark_reset(
+def dso_refresh_sfi_datapoint_daily(
     context: dg.AssetExecutionContext,
-    config: SfiDatapointWatermarkResetConfig,
+    config: RunModeConfig,
     mssql_target_dso: MSSQLResource,
+    mssql_source_staging: MSSQLResource,
 ) -> dg.MaterializeResult:
-    return _reset_sfi_datapoint_watermark(context.log, config, mssql_target_dso)
+    return _refresh_sfi_datapoint_store(context, mssql_target_dso, mssql_source_staging, config)
 
 
-def _reset_sfi_datapoint_watermark(
-    log: Any, config: SfiDatapointWatermarkResetConfig, mssql_target_dso: Any
+@dg.asset(
+    name="dso_reconcile_sfi_datapoint_store",
+    group_name="fhir_dso_sync_maintenance",
+    compute_kind="mssql",
+    deps=_SFI_UPSTREAM_DEPS,
+    tags={**_REFRESH_TAGS, "type": "sfi_datapoint_reconciliation"},
+    description=(
+        "Batched rebuild of fhir.SFI_datapoint_store on DSO: the daily refresh in full_load, "
+        "on the same DFM checkpoint. Use after full-load/backfill upstream runs."
+    ),
+)
+def dso_reconcile_sfi_datapoint_store(
+    context: dg.AssetExecutionContext,
+    mssql_target_dso: MSSQLResource,
+    mssql_source_staging: MSSQLResource,
 ) -> dg.MaterializeResult:
-    """Selve resettet (testbar uden Dagster-kontekst)."""
-    from datetime import datetime as _dt
-
-    if config.watermark_table not in (
-        _WATERMARK_TABLE_DAILY,
-        _WATERMARK_TABLE_MONTHLY,
-        _WATERMARK_TABLE_RECONCILIATION,
-    ):
-        raise ValueError(f"Ukendt watermark_table: {config.watermark_table!r}")
-    ny = _dt.strptime(config.new_value.strip(), "%Y-%m-%d %H:%M:%S")
-    if not config.reason.strip():
-        raise ValueError("reason er påkrævet")
-    with mssql_target_dso.get_connection() as conn:
-        cursor = conn.cursor()
-        try:
-            cursor.execute(
-                f"SELECT last_sync_timestamp, last_sync_status FROM {SyncStateManager.WATERMARK_TABLE} "
-                "WHERE schema_name = ? AND table_name = ?",
-                [_WATERMARK_SCHEMA, config.watermark_table],
-            )
-            row = cursor.fetchone()
-            status = f"reset: {config.reason.strip()[:40]}"
-            if row is None and not config.create_if_missing:
-                raise RuntimeError(
-                    f"Ingen watermark-række for {_WATERMARK_SCHEMA}.{config.watermark_table}"
-                )
-            if row is None:
-                gammel = None
-                cursor.execute(
-                    _seed_watermark_sql(),
-                    [
-                        _WATERMARK_SCHEMA,
-                        config.watermark_table,
-                        _WATERMARK_SCHEMA,
-                        config.watermark_table,
-                        ny,
-                        status,
-                    ],
-                )
-            else:
-                gammel = row[0]
-                cursor.execute(
-                    f"UPDATE {SyncStateManager.WATERMARK_TABLE} "
-                    "SET last_sync_timestamp = ?, last_sync_status = ?, "
-                    "updated_at = CAST(SYSDATETIME() AS datetime2(0)) "
-                    "WHERE schema_name = ? AND table_name = ?",
-                    [ny, status, _WATERMARK_SCHEMA, config.watermark_table],
-                )
-            conn.commit()
-        finally:
-            cursor.close()
-    log.info(
-        "Watermark %s.%s: %s -> %s (%s)",
-        _WATERMARK_SCHEMA,
-        config.watermark_table,
-        gammel,
-        ny,
-        config.reason,
-    )
-    return dg.MaterializeResult(
-        metadata={
-            "watermark_table": dg.MetadataValue.text(config.watermark_table),
-            "old_value": dg.MetadataValue.text(str(gammel)),
-            "new_value": dg.MetadataValue.text(str(ny)),
-            "reason": dg.MetadataValue.text(config.reason),
-        }
+    return _refresh_sfi_datapoint_store(
+        context, mssql_target_dso, mssql_source_staging, RunModeConfig(mode="full_load")
     )
 
 
 all_sfi_datapoint_refresh_assets = [
     dso_refresh_sfi_datapoint_daily,
-    dso_refresh_sfi_datapoint_monthly,
     dso_reconcile_sfi_datapoint_store,
-    dso_sfi_datapoint_watermark_reset,
 ]

@@ -376,20 +376,13 @@ def probe_empty_share_sql(numbered_table: str, total_resources: int) -> str:
     samme TRY_CONVERT-kæde), så partitionsnummeret er det samme, som rækkerne får.
     """
     stride = max(1, int(total_resources) // PROBE_SAMPLE_SIZE)
-    dt = source_date_expr()
     return f"""
         SET NOCOUNT ON;
         SELECT
             COUNT_BIG(*) AS sampled,
             SUM(CASE WHEN e.[partition_number] IS NOT NULL THEN 1 ELSE 0 END) AS in_empty
         FROM {numbered_table} AS c
-        LEFT JOIN [fhir].[QuestionnaireResponse] AS qr
-            ON c.[source_resource] = N'QuestionnaireResponse'
-           AND qr.[qr_id] = c.[source_resource_id]
-        LEFT JOIN [fhir].[Observation] AS o
-            ON c.[source_resource] = N'Observation'
-           AND o.[observation_id] = c.[source_resource_id]
-        CROSS APPLY (SELECT {dt} AS dt) AS d
+        {source_date_join_sql("c")}
         LEFT JOIN {EMPTY_PARTITIONS_TEMP} AS e
             ON e.[partition_number] = {partition_number_expr("d.dt")}
         WHERE c.[row_id] % {stride} = 0;
@@ -409,6 +402,18 @@ def source_date_expr(qr_alias: str = "qr", obs_alias: str = "o") -> str:
     )
 
 
+def source_date_join_sql(resources_alias: str) -> str:
+    """Joins, der giver hver ressource i ``resources_alias`` sin nuværende kildedato som
+    ``d.dt``."""
+    return f"""LEFT JOIN [fhir].[QuestionnaireResponse] AS qr
+            ON {resources_alias}.[source_resource] = N'QuestionnaireResponse'
+           AND qr.[qr_id] = {resources_alias}.[source_resource_id]
+        LEFT JOIN [fhir].[Observation] AS o
+            ON {resources_alias}.[source_resource] = N'Observation'
+           AND o.[observation_id] = {resources_alias}.[source_resource_id]
+        CROSS APPLY (SELECT {source_date_expr()} AS dt) AS d"""
+
+
 def batch_date_window_sql(batch_table: str) -> str:
     """Portionens datointerval (og om den har ressourcer uden dato) som variabler.
 
@@ -416,6 +421,8 @@ def batch_date_window_sql(batch_table: str) -> str:
     columnstoren; et join på datoen fra en temp-tabel giver ingen eliminering, fordi
     optimizeren ikke kender datoerne før joinet. Et interval i variabler gør: både
     partitions- og rækkegruppe-eliminering rammer, så kun portionens måneder læses.
+    Intervallet er kun smalt, når portionerne er dannet i datoorden
+    (``changed_numbered_sql``); én gammel dato i portionen åbner ellers hele historikken.
     """
     return f"""
         DECLARE @dt_lo DATETIME2(0), @dt_hi DATETIME2(0), @dt_null_count INT;
@@ -424,13 +431,27 @@ def batch_date_window_sql(batch_table: str) -> str:
             @dt_hi = MAX(d.dt),
             @dt_null_count = SUM(CASE WHEN d.dt IS NULL THEN 1 ELSE 0 END)
         FROM {batch_table} AS br
-        LEFT JOIN [fhir].[QuestionnaireResponse] AS qr
-            ON br.[source_resource] = N'QuestionnaireResponse'
-           AND qr.[qr_id] = br.[source_resource_id]
-        LEFT JOIN [fhir].[Observation] AS o
-            ON br.[source_resource] = N'Observation'
-           AND o.[observation_id] = br.[source_resource_id]
-        CROSS APPLY (SELECT {source_date_expr()} AS dt) AS d;
+        {source_date_join_sql("br")};
+    """
+
+
+def changed_numbered_sql(changed_table: str, numbered_table: str) -> str:
+    """Nummerér de ændrede ressourcer i kildedatoens orden (uden dato til sidst), så hver
+    portion dækker et smalt datointerval, og sletningen kun læser portionens måneder."""
+    return f"""
+        SELECT
+            ROW_NUMBER() OVER (
+                ORDER BY
+                    CASE WHEN d.dt IS NULL THEN 1 ELSE 0 END,
+                    d.dt,
+                    c.[source_resource],
+                    c.[source_resource_id]
+            ) AS row_id,
+            c.[source_resource],
+            c.[source_resource_id]
+        INTO {numbered_table}
+        FROM {changed_table} AS c
+        {source_date_join_sql("c")};
     """
 
 

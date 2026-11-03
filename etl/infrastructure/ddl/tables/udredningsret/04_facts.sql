@@ -59,8 +59,8 @@ BEGIN
         [antal_afbrydelser] INT NULL,
         [dw_haendelsestidspunkt] DATETIME2 NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_Udredningsforloeb_dw_is_deleted] DEFAULT 0,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Udredningsforloeb_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Udredningsforloeb_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Udredningsforloeb_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Udredningsforloeb_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_Fct_Udredningsforloeb] PRIMARY KEY CLUSTERED ([dw_ek_Udredningsforloeb] ASC)
     ) ON [PRIMARY];
 
@@ -138,8 +138,8 @@ BEGIN
         [antal_kilderaekker] INT NOT NULL CONSTRAINT [DF_UdredningsretMarkoer_antal_kilderaekker] DEFAULT 1,
         [dw_haendelsestidspunkt] DATETIME2 NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_UdredningsretMarkoer_dw_is_deleted] DEFAULT 0,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_UdredningsretMarkoer_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_UdredningsretMarkoer_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_UdredningsretMarkoer_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_UdredningsretMarkoer_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_Fct_UdredningsretMarkoer] PRIMARY KEY CLUSTERED ([dw_ek_UdredningsretMarkoer] ASC)
     ) ON [PRIMARY];
 

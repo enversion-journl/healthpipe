@@ -23,6 +23,8 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
+from utils.sql.write_timestamp import WRITE_TIMESTAMP_UTC
+
 METADATA_HEADER = (
     "column_ordinal",
     "column_name",
@@ -524,8 +526,8 @@ def archive_ddl() -> str:
             "        [leverance_tidsstempel] DATETIME2(0) NOT NULL",
             "        [leverance_dato] DATE NOT NULL",
             f"        [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_{table}_dw_is_deleted] DEFAULT (0)",
-            f"        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_{table}_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0)))",
-            f"        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_{table}_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0)))",
+            f"        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_{table}_dw_timestamp_insert] DEFAULT ({WRITE_TIMESTAMP_UTC})",
+            f"        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_{table}_dw_timestamp_update] DEFAULT ({WRITE_TIMESTAMP_UTC})",
             f"        CONSTRAINT [PK_arc_{table}] PRIMARY KEY CLUSTERED ("
             + ", ".join(f"[{key}]" for key in dataset.merge_keys)
             + ") WITH (DATA_COMPRESSION=PAGE)",

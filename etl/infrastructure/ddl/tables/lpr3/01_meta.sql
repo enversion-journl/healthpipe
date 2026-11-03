@@ -40,9 +40,9 @@ BEGIN
         [genindlaesning_alarm]     BIT NOT NULL,
         [sekunder]                 DECIMAL(18,3) NULL,
         [dw_timestamp_insert]      DATETIME2(0) NOT NULL
-            CONSTRAINT [DF_LPR3Leverance_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
+            CONSTRAINT [DF_LPR3Leverance_dw_timestamp_insert] DEFAULT (CAST(SYSUTCDATETIME() AS DATETIME2(0))),
         [dw_timestamp_update]      DATETIME2(0) NOT NULL
-            CONSTRAINT [DF_LPR3Leverance_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
+            CONSTRAINT [DF_LPR3Leverance_dw_timestamp_update] DEFAULT (CAST(SYSUTCDATETIME() AS DATETIME2(0))),
         CONSTRAINT [PK_lpr3_meta_leverance] PRIMARY KEY CLUSTERED (
             [kildetabel], [leverance_tidsstempel]
         ),

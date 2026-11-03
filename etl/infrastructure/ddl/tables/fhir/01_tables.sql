@@ -96,8 +96,8 @@ CREATE TABLE [fhir].[Patient] (
     [cpr_updated] DATE NULL,
     [last_updated] DATETIME2 NULL,
     [created_at] DATETIME2 NULL,
-    [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Patient_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-    [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Patient_dw_timestamp_update] DEFAULT SYSDATETIME(),
+    [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Patient_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+    [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Patient_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
     CONSTRAINT [PK_FHIR_Patient] PRIMARY KEY CLUSTERED ([patient_id])
 ) ON [PRIMARY];
 
@@ -156,8 +156,8 @@ CREATE TABLE [fhir].[Patient_Address] (
     -- flag on match (resurrect_soft_deleted) so a restored address is not
     -- left marked deleted.
     [dw_is_deleted] INT NOT NULL CONSTRAINT [DF_Patient_Address_dw_is_deleted] DEFAULT 0,
-    [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Patient_Address_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-    [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Patient_Address_dw_timestamp_update] DEFAULT SYSDATETIME(),
+    [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Patient_Address_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+    [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Patient_Address_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
     CONSTRAINT [PK_FHIR_Patient_Address] PRIMARY KEY CLUSTERED ([patient_id], [address_period_start])
 ) ON [PRIMARY];
 
@@ -190,8 +190,12 @@ BEGIN
         [dw_is_deleted] INT NOT NULL CONSTRAINT [DF_Encounter_dw_is_deleted] DEFAULT 0,
         [last_updated] DATETIME2 NULL,
         [created_at] DATETIME2 NULL,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Encounter_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Encounter_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Encounter_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Encounter_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
+        -- Set by fhir_dw_keys_encounter, not by SoF. Last, as on a migrated table.
+        [dw_ek_Borger] INT NOT NULL CONSTRAINT [DF_Encounter_dw_ek_Borger] DEFAULT -1,
+        [dw_sk_Borger] INT NOT NULL CONSTRAINT [DF_Encounter_dw_sk_Borger] DEFAULT -1,
+        [dw_ek_Organisation] INT NOT NULL CONSTRAINT [DF_Encounter_dw_ek_Organisation] DEFAULT -1,
         CONSTRAINT [PK_FHIR_Encounter] PRIMARY KEY CLUSTERED ([encounter_id])
     ) ON [PRIMARY];
 
@@ -252,8 +256,8 @@ CREATE TABLE [fhir].[Encounter_Location] (
     -- Aidbox, stays at 0. Child-grain reconcile (see Patient_Address) is not
     -- enabled here.
     [dw_is_deleted] INT NOT NULL CONSTRAINT [DF_Encounter_Location_dw_is_deleted] DEFAULT 0,
-    [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Encounter_Location_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-    [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Encounter_Location_dw_timestamp_update] DEFAULT SYSDATETIME(),
+    [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Encounter_Location_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+    [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Encounter_Location_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
     PRIMARY KEY CLUSTERED (
         [encounter_id],
         [location_id],
@@ -301,8 +305,12 @@ BEGIN
         [dw_is_deleted] INT NOT NULL CONSTRAINT [DF_DocumentReference_dw_is_deleted] DEFAULT 0,
         [last_updated] DATETIME2 NULL,
         [created_at] DATETIME2 NULL,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_DocumentReference_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_DocumentReference_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_DocumentReference_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_DocumentReference_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
+        -- Set by fhir_dw_keys_documentreference, not by SoF. Last, as on a migrated table.
+        [dw_ek_Borger] INT NOT NULL CONSTRAINT [DF_DocumentReference_dw_ek_Borger] DEFAULT -1,
+        [dw_sk_Borger] INT NOT NULL CONSTRAINT [DF_DocumentReference_dw_sk_Borger] DEFAULT -1,
+        [dw_ek_Organisation] INT NOT NULL CONSTRAINT [DF_DocumentReference_dw_ek_Organisation] DEFAULT -1,
         CONSTRAINT [PK_FHIR_DocumentReference] PRIMARY KEY CLUSTERED ([documentreference_id])
     ) ON [PRIMARY];
 
@@ -353,8 +361,8 @@ BEGIN
         -- Aidbox, stays at 0. Child-grain reconcile (see Patient_Address) is not
         -- enabled here.
         [dw_is_deleted] INT NOT NULL CONSTRAINT [DF_DocumentReference_Recipient_dw_is_deleted] DEFAULT 0,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_DocumentReference_Recipient_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_DocumentReference_Recipient_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_DocumentReference_Recipient_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_DocumentReference_Recipient_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_FHIR_DocumentReference_Recipient]
             PRIMARY KEY CLUSTERED ([documentreference_id], [recipient_key])
     ) ON [PRIMARY];
@@ -410,8 +418,8 @@ BEGIN
         [dw_is_deleted] INT NOT NULL CONSTRAINT [DF_Condition_dw_is_deleted] DEFAULT 0,
         [last_updated] DATETIME2 NULL,
         [created_at] DATETIME2 NULL,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Condition_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Condition_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Condition_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Condition_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_FHIR_Condition] PRIMARY KEY CLUSTERED ([condition_id])
     ) ON [PRIMARY] WITH (DATA_COMPRESSION = PAGE);
 
@@ -460,8 +468,8 @@ BEGIN
         -- on the view config), so a row that disappears from a still-live parent
         -- is also marked here -- unlike the grains where only cleanup writes it.
         [dw_is_deleted] INT NOT NULL CONSTRAINT [DF_Condition_SupplementaryCode_dw_is_deleted] DEFAULT 0,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Condition_SupplementaryCode_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Condition_SupplementaryCode_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Condition_SupplementaryCode_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Condition_SupplementaryCode_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_FHIR_Condition_SupplementaryCode]
             PRIMARY KEY CLUSTERED ([condition_id], [supplementary_code], [supplementary_code_system])
     ) ON [PRIMARY];
@@ -493,8 +501,8 @@ BEGIN
         [created_at] DATETIME2 NULL,
         -- Soft-delete flag (0 = live, 1 = deleted). Warehouse-managed; see Condition_tillaegskode.
         [dw_is_deleted] INT NOT NULL CONSTRAINT [DF_Condition_henvisning_dw_is_deleted] DEFAULT 0,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Condition_henvisning_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Condition_henvisning_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Condition_henvisning_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Condition_henvisning_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_FHIR_Condition_henvisning]
             PRIMARY KEY CLUSTERED ([condition_id], [henvisning_id])
     ) ON [PRIMARY];
@@ -528,8 +536,8 @@ BEGIN
         [created_at] DATETIME2 NULL,
         -- Soft-delete flag (0 = live, 1 = deleted). Warehouse-managed; see Condition_henvisning.
         [dw_is_deleted] INT NOT NULL CONSTRAINT [DF_Observation_Speciale_dw_is_deleted] DEFAULT 0,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Observation_Speciale_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Observation_Speciale_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Observation_Speciale_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Observation_Speciale_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_FHIR_Observation_Speciale]
             PRIMARY KEY CLUSTERED ([observation_id], [speciale_kode])
     ) ON [PRIMARY];
@@ -598,8 +606,8 @@ CREATE TABLE [fhir].[Observation] (
     -- NOT NULL DEFAULT 0; a missing extension coalesces to 0 at load
     -- (boolean_false_default_columns in sof_utils.py).
     [dw_is_deleted] INT NOT NULL CONSTRAINT [DF_Observation_dw_is_deleted] DEFAULT 0,
-    [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Observation_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-    [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Observation_dw_timestamp_update] DEFAULT SYSDATETIME(),
+    [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Observation_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+    [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Observation_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
     -- Sargable change-detection column for SFI delta discovery
     -- (kept in sync with migrations/08_delta_discovery_effective_timestamp.sql)
     [dw_timestamp_effective] AS ISNULL([dw_timestamp_update], [dw_timestamp_insert]) PERSISTED,
@@ -776,8 +784,8 @@ BEGIN
         [dw_is_deleted] INT NOT NULL CONSTRAINT [DF_EpisodeOfCare_dw_is_deleted] DEFAULT 0,
         [last_updated] DATETIME2 NULL,
         [created_at] DATETIME2 NULL,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_EpisodeOfCare_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_EpisodeOfCare_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_EpisodeOfCare_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_EpisodeOfCare_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         -- Set by fhir_dw_keys_episode_of_care, not by SoF. Last, as on a migrated table.
         [dw_ek_Borger] INT NOT NULL CONSTRAINT [DF_EpisodeOfCare_dw_ek_Borger] DEFAULT -1,
         [dw_sk_Borger] INT NOT NULL CONSTRAINT [DF_EpisodeOfCare_dw_sk_Borger] DEFAULT -1,
@@ -835,8 +843,8 @@ CREATE TABLE [fhir].[Location] (
     [dw_is_deleted] INT NOT NULL CONSTRAINT [DF_Location_dw_is_deleted] DEFAULT 0,
     [last_updated] DATETIME2 NULL,
     [created_at] DATETIME2 NULL,
-    [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Location_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-    [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Location_dw_timestamp_update] DEFAULT SYSDATETIME(),
+    [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Location_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+    [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Location_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
     -- Set by fhir_dw_keys_location, not by SoF. Last, as on a migrated table.
     [dw_ek_Organisation] INT NOT NULL CONSTRAINT [DF_Location_dw_ek_Organisation] DEFAULT -1,
     CONSTRAINT [PK_FHIR_Location] PRIMARY KEY CLUSTERED ([location_id])
@@ -876,8 +884,8 @@ BEGIN
         [dw_is_deleted] INT NOT NULL CONSTRAINT [DF_Organization_dw_is_deleted] DEFAULT 0,
         [last_updated] DATETIME2 NULL,
         [created_at] DATETIME2 NULL,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Organization_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Organization_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Organization_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Organization_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_FHIR_Organization] PRIMARY KEY CLUSTERED ([organization_id])
     ) ON [PRIMARY];
 
@@ -928,8 +936,12 @@ CREATE TABLE [fhir].[CarePlan] (
     -- MERGE match (resurrect_soft_deleted). NOT NULL DEFAULT 0 so consumers
     -- can write `= 0` uniformly across fhir.* tables.
     [dw_is_deleted] INT NOT NULL CONSTRAINT [DF_CarePlan_dw_is_deleted] DEFAULT 0,
-    [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_CarePlan_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-    [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_CarePlan_dw_timestamp_update] DEFAULT SYSDATETIME(),
+    [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_CarePlan_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+    [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_CarePlan_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
+    -- Set by fhir_dw_keys_careplan, not by SoF. Last, as on a migrated table.
+    [dw_ek_Borger] INT NOT NULL CONSTRAINT [DF_CarePlan_dw_ek_Borger] DEFAULT -1,
+    [dw_sk_Borger] INT NOT NULL CONSTRAINT [DF_CarePlan_dw_sk_Borger] DEFAULT -1,
+    [dw_ek_Organisation] INT NOT NULL CONSTRAINT [DF_CarePlan_dw_ek_Organisation] DEFAULT -1,
     CONSTRAINT [PK_FHIR_CarePlan] PRIMARY KEY CLUSTERED ([careplan_id])
 ) ON [PRIMARY];
 
@@ -969,8 +981,12 @@ BEGIN
         -- (resurrect_soft_deleted). NOT NULL DEFAULT 0, so `= 0` means "still
         -- present under the parent".
         [dw_is_deleted] INT NOT NULL CONSTRAINT [DF_CarePlan_Activity_dw_is_deleted] DEFAULT 0,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_CarePlan_Activity_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_CarePlan_Activity_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_CarePlan_Activity_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_CarePlan_Activity_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
+        -- Set by fhir_dw_keys_careplan_activity, not by SoF. Last, as on a migrated table.
+        [dw_ek_Borger] INT NOT NULL CONSTRAINT [DF_CarePlan_Activity_dw_ek_Borger] DEFAULT -1,
+        [dw_sk_Borger] INT NOT NULL CONSTRAINT [DF_CarePlan_Activity_dw_sk_Borger] DEFAULT -1,
+        [dw_ek_Organisation] INT NOT NULL CONSTRAINT [DF_CarePlan_Activity_dw_ek_Organisation] DEFAULT -1,
         CONSTRAINT [PK_FHIR_CarePlan_Activity] PRIMARY KEY CLUSTERED ([ifdb_eventmarker_id])
     ) ON [PRIMARY];
 
@@ -1067,8 +1083,13 @@ CREATE TABLE [fhir].[ServiceRequest] (
     [dw_is_deleted] INT NOT NULL CONSTRAINT [DF_ServiceRequest_dw_is_deleted] DEFAULT 0,
     [last_updated] DATETIME2 NULL,
     [created_at] DATETIME2 NULL,
-    [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_ServiceRequest_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-    [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_ServiceRequest_dw_timestamp_update] DEFAULT SYSDATETIME(),
+    [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_ServiceRequest_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+    [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_ServiceRequest_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
+    -- Set by fhir_dw_keys_service_request, not by SoF. Last, as on a migrated table.
+    [dw_ek_Borger] INT NOT NULL CONSTRAINT [DF_ServiceRequest_dw_ek_Borger] DEFAULT -1,
+    [dw_sk_Borger] INT NOT NULL CONSTRAINT [DF_ServiceRequest_dw_sk_Borger] DEFAULT -1,
+    [dw_ek_Organisation_henvist_til] INT NOT NULL CONSTRAINT [DF_ServiceRequest_dw_ek_Organisation_henvist_til] DEFAULT -1,
+    [dw_ek_Organisation_henvist_fra] INT NOT NULL CONSTRAINT [DF_ServiceRequest_dw_ek_Organisation_henvist_fra] DEFAULT -1,
     CONSTRAINT [PK_FHIR_ServiceRequest] PRIMARY KEY CLUSTERED ([service_request_id])
 ) ON [PRIMARY];
 
@@ -1117,8 +1138,8 @@ BEGIN
         -- on the view config), so a row that disappears from a still-live parent
         -- is also marked here -- unlike the grains where only cleanup writes it.
         [dw_is_deleted] INT NOT NULL CONSTRAINT [DF_ServiceRequest_SupplementaryCode_dw_is_deleted] DEFAULT 0,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_ServiceRequest_SupplementaryCode_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_ServiceRequest_SupplementaryCode_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_ServiceRequest_SupplementaryCode_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_ServiceRequest_SupplementaryCode_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_FHIR_ServiceRequest_SupplementaryCode]
             PRIMARY KEY CLUSTERED ([service_request_id], [supplementary_code], [supplementary_code_system])
     ) ON [PRIMARY];
@@ -1170,8 +1191,8 @@ BEGIN
         -- Aidbox, stays at 0. Child-grain reconcile (see Patient_Address) is not
         -- enabled here.
         [dw_is_deleted] INT NOT NULL CONSTRAINT [DF_ServiceRequest_Recipient_dw_is_deleted] DEFAULT 0,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_ServiceRequest_Recipient_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_ServiceRequest_Recipient_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_ServiceRequest_Recipient_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_ServiceRequest_Recipient_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_FHIR_ServiceRequest_Recipient]
             PRIMARY KEY CLUSTERED ([service_request_id], [recipient_key])
     ) ON [PRIMARY];
@@ -1276,8 +1297,8 @@ CREATE TABLE [fhir].[Procedure] (
     -- NOT NULL DEFAULT 0; a missing extension coalesces to 0 at load
     -- (boolean_false_default_columns in sof_utils.py).
     [dw_is_deleted] INT NOT NULL CONSTRAINT [DF_Procedure_dw_is_deleted] DEFAULT 0,
-    [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Procedure_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-    [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Procedure_dw_timestamp_update] DEFAULT SYSDATETIME(),
+    [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Procedure_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+    [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Procedure_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
     CONSTRAINT [PK_FHIR_Procedure] PRIMARY KEY CLUSTERED ([procedure_id])
 ) ON [PRIMARY] WITH (DATA_COMPRESSION = PAGE);
 
@@ -1331,8 +1352,8 @@ BEGIN
         -- on the view config), so a row that disappears from a still-live parent
         -- is also marked here -- unlike the grains where only cleanup writes it.
         [dw_is_deleted] INT NOT NULL CONSTRAINT [DF_Procedure_SupplementaryCode_dw_is_deleted] DEFAULT 0,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Procedure_SupplementaryCode_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Procedure_SupplementaryCode_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Procedure_SupplementaryCode_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Procedure_SupplementaryCode_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_FHIR_Procedure_SupplementaryCode]
             PRIMARY KEY CLUSTERED ([procedure_id], [supplementary_code], [supplementary_code_system])
     ) ON [PRIMARY];
@@ -1438,8 +1459,8 @@ CREATE TABLE [fhir].[Questionnaire] (
     -- MERGE match (resurrect_soft_deleted). NOT NULL DEFAULT 0 so consumers
     -- can write `= 0` uniformly across fhir.* tables.
     [dw_is_deleted] INT NOT NULL CONSTRAINT [DF_Questionnaire_dw_is_deleted] DEFAULT 0,
-    [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Questionnaire_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-    [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Questionnaire_dw_timestamp_update] DEFAULT SYSDATETIME(),
+    [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Questionnaire_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+    [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Questionnaire_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
     CONSTRAINT [PK_FHIR_Questionnaire] PRIMARY KEY CLUSTERED ([questionnaire_id])
 ) ON [PRIMARY];
 
@@ -1493,8 +1514,8 @@ CREATE TABLE [fhir].[Questionnaire_item] (
     -- that disappears from a still-live parent stays at 0. Child-grain
     -- reconcile (see Patient_Address) is not enabled here.
     [dw_is_deleted] INT NOT NULL CONSTRAINT [DF_Questionnaire_item_dw_is_deleted] DEFAULT 0,
-    [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Questionnaire_item_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-    [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Questionnaire_item_dw_timestamp_update] DEFAULT SYSDATETIME(),
+    [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Questionnaire_item_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+    [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Questionnaire_item_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
     [link_id_exact] AS ([link_id] COLLATE Latin1_General_BIN2) PERSISTED NOT NULL,
     CONSTRAINT [PK_FHIR_Questionnaire_item]
         PRIMARY KEY CLUSTERED ([questionnaire_id], [link_id_exact], [item_key])
@@ -1550,8 +1571,8 @@ CREATE TABLE [fhir].[QuestionnaireResponse] (
     -- nulstilles paa MERGE-match (resurrect_soft_deleted). NOT NULL DEFAULT 0
     -- saa aftagere kan skrive `= 0` ensartet paa tvaers af fhir.*-tabellerne.
     [dw_is_deleted] INT NOT NULL CONSTRAINT [DF_QuestionnaireResponse_dw_is_deleted] DEFAULT 0,
-    [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_QuestionnaireResponse_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-    [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_QuestionnaireResponse_dw_timestamp_update] DEFAULT SYSDATETIME(),
+    [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_QuestionnaireResponse_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+    [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_QuestionnaireResponse_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
     -- Sargable change-detection column for SFI delta discovery
     -- (kept in sync with migrations/08_delta_discovery_effective_timestamp.sql)
     [dw_timestamp_effective] AS ISNULL([dw_timestamp_update], [dw_timestamp_insert]) PERSISTED,
@@ -1714,8 +1735,8 @@ CREATE TABLE [fhir].[QuestionnaireResponse_item] (
         -- on the view config), so a row that disappears from a still-live parent
         -- is also marked here -- unlike the grains where only cleanup writes it.
     [dw_is_deleted] INT NOT NULL CONSTRAINT [DF_QuestionnaireResponse_item_dw_is_deleted] DEFAULT 0,
-    [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_QuestionnaireResponse_item_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-    [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_QuestionnaireResponse_item_dw_timestamp_update] DEFAULT SYSDATETIME(),
+    [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_QuestionnaireResponse_item_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+    [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_QuestionnaireResponse_item_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
     -- Sargable change-detection column for SFI delta discovery
     -- (kept in sync with migrations/08_delta_discovery_effective_timestamp.sql)
     [dw_timestamp_effective] AS ISNULL([dw_timestamp_update], [dw_timestamp_insert]) PERSISTED,
@@ -1910,8 +1931,12 @@ BEGIN
         [dw_is_deleted] INT NOT NULL CONSTRAINT [DF_Appointment_dw_is_deleted] DEFAULT 0,
         [last_updated] DATETIME2 NULL,
         [created_at] DATETIME2 NULL,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Appointment_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Appointment_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Appointment_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Appointment_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
+        -- Set by fhir_dw_keys_appointment, not by SoF. Last, as on a migrated table.
+        [dw_ek_Borger] INT NOT NULL CONSTRAINT [DF_Appointment_dw_ek_Borger] DEFAULT -1,
+        [dw_sk_Borger] INT NOT NULL CONSTRAINT [DF_Appointment_dw_sk_Borger] DEFAULT -1,
+        [dw_ek_Organisation] INT NOT NULL CONSTRAINT [DF_Appointment_dw_ek_Organisation] DEFAULT -1,
         CONSTRAINT [PK_FHIR_Appointment] PRIMARY KEY CLUSTERED ([appointment_id])
     ) ON [PRIMARY];
 
@@ -1964,8 +1989,10 @@ BEGIN
         [dw_is_deleted] INT NOT NULL CONSTRAINT [DF_WardUnit_dw_is_deleted] DEFAULT 0,
         [last_updated] DATETIME2 NULL,
         [created_at] DATETIME2 NULL,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_WardUnit_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_WardUnit_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_WardUnit_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_WardUnit_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
+        -- Set by fhir_dw_keys_ward_unit, not by SoF. Last, as on a migrated table.
+        [dw_ek_Organisation] INT NOT NULL CONSTRAINT [DF_WardUnit_dw_ek_Organisation] DEFAULT -1,
         CONSTRAINT [PK_FHIR_WardUnit] PRIMARY KEY CLUSTERED ([ward_unit_id])
     ) ON [PRIMARY];
 
@@ -2011,8 +2038,8 @@ BEGIN
         [dw_is_deleted] INT NOT NULL CONSTRAINT [DF_WardUnit_Capacity_dw_is_deleted] DEFAULT 0,
         [last_updated] DATETIME2 NULL,
         [created_at] DATETIME2 NULL,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_WardUnit_Capacity_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_WardUnit_Capacity_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_WardUnit_Capacity_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_WardUnit_Capacity_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_FHIR_WardUnit_Capacity] PRIMARY KEY CLUSTERED ([observation_id])
     ) ON [PRIMARY];
 
@@ -2050,8 +2077,8 @@ BEGIN
         [dw_is_deleted] INT NOT NULL CONSTRAINT [DF_Bed_dw_is_deleted] DEFAULT 0,
         [last_updated] DATETIME2 NULL,
         [created_at] DATETIME2 NULL,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Bed_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Bed_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Bed_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Bed_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_FHIR_Bed] PRIMARY KEY CLUSTERED ([bed_id])
     ) ON [PRIMARY];
 
@@ -2087,8 +2114,8 @@ BEGIN
         [dw_is_deleted] INT NOT NULL CONSTRAINT [DF_Encounter_BedSpace_dw_is_deleted] DEFAULT 0,
         [last_updated] DATETIME2 NULL,
         [created_at] DATETIME2 NULL,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Encounter_BedSpace_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Encounter_BedSpace_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Encounter_BedSpace_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Encounter_BedSpace_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         PRIMARY KEY CLUSTERED (
             [encounter_id],
             [location_id],
@@ -2127,8 +2154,8 @@ BEGIN
         [dw_is_deleted] INT NOT NULL CONSTRAINT [DF_Encounter_Absence_dw_is_deleted] DEFAULT 0,
         [last_updated] DATETIME2 NULL,
         [created_at] DATETIME2 NULL,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Encounter_Absence_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Encounter_Absence_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Encounter_Absence_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Encounter_Absence_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         PRIMARY KEY CLUSTERED ([encounter_id], [period_start])
     ) ON [PRIMARY];
 
@@ -2189,8 +2216,8 @@ BEGIN
         [dw_is_deleted] INT NOT NULL CONSTRAINT [DF_Practitioner_dw_is_deleted] DEFAULT 0,
         [last_updated] DATETIME2 NULL,
         [created_at] DATETIME2 NULL,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Practitioner_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Practitioner_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Practitioner_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Practitioner_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_FHIR_Practitioner] PRIMARY KEY CLUSTERED ([practitioner_id])
     ) ON [PRIMARY];
 
@@ -2271,8 +2298,8 @@ BEGIN
         [dw_is_deleted] INT NOT NULL CONSTRAINT [DF_PractitionerRole_dw_is_deleted] DEFAULT 0,
         [last_updated] DATETIME2 NULL,
         [created_at] DATETIME2 NULL,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_PractitionerRole_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_PractitionerRole_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_PractitionerRole_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_PractitionerRole_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_FHIR_PractitionerRole] PRIMARY KEY CLUSTERED ([practitioner_role_id])
     ) ON [PRIMARY];
 

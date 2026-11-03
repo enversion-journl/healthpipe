@@ -60,8 +60,8 @@ SOR_SPEC = CodesystemExportSpec(
     from_property="openingDate",
     to_property="closingDate",
     type_property="entityType",
-    active_property="activeOwnOrganization",
-    active_value="true",
+    scope_property="rsdOrganization",
+    scope_value="true",
     status_active_property="activeOwnOrganization",
     root_code=SOR_ROOT,
 )
@@ -103,7 +103,7 @@ def _generic(row: dict[str, str]) -> dict[str, str]:
     }
     out["gyldig_fra"] = _phase1_date_to_iso(row["FromDate"])
     out["gyldig_til"] = _phase1_date_to_iso(row["ToDate"])
-    # Not in the phase-1 file. Every delivered SOR unit is active; SOR has no
+    # Not in the phase-1 file. Every unit in the fixture is active; SOR has no
     # deleted flag, and the fixture carries no warehouse timestamps.
     out["aktiv"] = "true"
     out["dw_is_deleted"] = ""
@@ -128,7 +128,7 @@ def _sor_source_rows() -> list[dict[str, str]]:
             "type": row["Type"],
             "valid_from": _csv_date_to_codesystem(row["FromDate"]),
             "valid_to": "",
-            "active": "true",
+            "scope": "true",
             "status_active": "true",
         }
         for row in _fixture_rows()
@@ -184,33 +184,45 @@ class TestOrdering:
 
 
 class TestSorSelection:
-    def test_inactive_units_are_excluded(self):
+    def test_units_out_of_scope_are_excluded(self):
         source = _sor_source_rows()
         for row in source:
             if row["code"] != SOR_ROOT:
-                row["active"] = "false"
+                row["scope"] = "false"
         assert [row["kode"] for row in build_export_rows(SOR_SPEC, source)] == [SOR_ROOT]
 
-    def test_children_of_an_inactive_parent_are_unreachable(self):
+    def test_children_of_a_parent_out_of_scope_are_unreachable(self):
         source = _sor_source_rows()
         for row in source:
             if row["code"] == "8081000016006":  # Psykiatrien — the level-2 branch
-                row["active"] = "false"
+                row["scope"] = "false"
 
         codes = {row["kode"] for row in build_export_rows(SOR_SPEC, source)}
         assert "8081000016006" not in codes
         assert "243221000016006" not in codes
         assert "372211000016002" in codes
 
+    def test_a_closed_unit_in_scope_is_delivered_inactive_with_its_children(self):
+        source = _sor_source_rows()
+        for row in source:
+            if row["code"] == "8081000016006":  # Psykiatrien — the level-2 branch
+                row["status_active"] = "false"
+                row["valid_to"] = "2023-06-30 00:00:00"
+
+        built = {row["kode"]: row for row in build_export_rows(SOR_SPEC, source)}
+        assert built["8081000016006"]["aktiv"] == "false"
+        assert built["8081000016006"]["gyldig_til"] == "2023-06-30"
+        assert "243221000016006" in built
+
     def test_missing_root_refuses_to_build_a_delivery(self):
         source = [row for row in _sor_source_rows() if row["code"] != SOR_ROOT]
         with pytest.raises(ValueError, match=SOR_ROOT):
             build_export_rows(SOR_SPEC, source)
 
-    def test_boolean_active_flag_is_accepted(self):
+    def test_boolean_scope_flag_is_accepted(self):
         source = _sor_source_rows()
         for row in source:
-            row["active"] = True
+            row["scope"] = True
         assert len(build_export_rows(SOR_SPEC, source)) == len(source)
 
 

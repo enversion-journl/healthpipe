@@ -51,8 +51,8 @@ BEGIN
     CREATE TABLE [map].[HAIBA_AggInfektion] (
         [dw_ek_HAIBA_AggInfektion] INT IDENTITY(1, 1) NOT NULL,
         [clean_code]                NVARCHAR(500) NOT NULL,
-        [dw_timestamp_insert]       DATETIME2(0)  NOT NULL CONSTRAINT [DF_HAIBA_Agg_Infektion_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update]       DATETIME2(0)  NOT NULL CONSTRAINT [DF_HAIBA_Agg_Infektion_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert]       DATETIME2(0)  NOT NULL CONSTRAINT [DF_HAIBA_Agg_Infektion_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update]       DATETIME2(0)  NOT NULL CONSTRAINT [DF_HAIBA_Agg_Infektion_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_map_HAIBA_Agg_Infektion]
             PRIMARY KEY CLUSTERED ([dw_ek_HAIBA_AggInfektion]),
         CONSTRAINT [UQ_map_HAIBA_Agg_Infektion_CleanCode] UNIQUE ([clean_code])
@@ -73,8 +73,8 @@ BEGIN
     CREATE TABLE [map].[HAIBA_AggOrtopaedi] (
         [dw_ek_HAIBA_AggOrtopaedi] INT IDENTITY(1, 1) NOT NULL,
         [clean_code]                NVARCHAR(500) NOT NULL,
-        [dw_timestamp_insert]       DATETIME2(0)  NOT NULL CONSTRAINT [DF_HAIBA_Agg_Ortopaedi_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update]       DATETIME2(0)  NOT NULL CONSTRAINT [DF_HAIBA_Agg_Ortopaedi_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert]       DATETIME2(0)  NOT NULL CONSTRAINT [DF_HAIBA_Agg_Ortopaedi_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update]       DATETIME2(0)  NOT NULL CONSTRAINT [DF_HAIBA_Agg_Ortopaedi_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_map_HAIBA_Agg_Ortopaedi]
             PRIMARY KEY CLUSTERED ([dw_ek_HAIBA_AggOrtopaedi]),
         CONSTRAINT [UQ_map_HAIBA_Agg_Ortopaedi_CleanCode] UNIQUE ([clean_code])
@@ -95,8 +95,8 @@ BEGIN
     CREATE TABLE [map].[HAIBA_CasesInfektion] (
         [dw_ek_HAIBA_CasesInfektion] INT IDENTITY(1, 1) NOT NULL,
         [clean_code]                  NVARCHAR(500) NOT NULL,
-        [dw_timestamp_insert]         DATETIME2(0)  NOT NULL CONSTRAINT [DF_HAIBA_Cases_Infektion_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update]         DATETIME2(0)  NOT NULL CONSTRAINT [DF_HAIBA_Cases_Infektion_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert]         DATETIME2(0)  NOT NULL CONSTRAINT [DF_HAIBA_Cases_Infektion_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update]         DATETIME2(0)  NOT NULL CONSTRAINT [DF_HAIBA_Cases_Infektion_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_map_HAIBA_Cases_Infektion]
             PRIMARY KEY CLUSTERED ([dw_ek_HAIBA_CasesInfektion]),
         CONSTRAINT [UQ_map_HAIBA_Cases_Infektion_CleanCode] UNIQUE ([clean_code])
@@ -117,8 +117,8 @@ BEGIN
     CREATE TABLE [map].[HAIBA_CasesSSI] (
         [dw_ek_HAIBA_CasesSSI] INT IDENTITY(1, 1) NOT NULL,
         [clean_code]            NVARCHAR(500) NOT NULL,
-        [dw_timestamp_insert]   DATETIME2(0)  NOT NULL CONSTRAINT [DF_HAIBA_Cases_SSI_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update]   DATETIME2(0)  NOT NULL CONSTRAINT [DF_HAIBA_Cases_SSI_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert]   DATETIME2(0)  NOT NULL CONSTRAINT [DF_HAIBA_Cases_SSI_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update]   DATETIME2(0)  NOT NULL CONSTRAINT [DF_HAIBA_Cases_SSI_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_map_HAIBA_Cases_SSI]
             PRIMARY KEY CLUSTERED ([dw_ek_HAIBA_CasesSSI]),
         CONSTRAINT [UQ_map_HAIBA_Cases_SSI_CleanCode] UNIQUE ([clean_code])

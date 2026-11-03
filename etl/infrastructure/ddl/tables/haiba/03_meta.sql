@@ -64,9 +64,9 @@ BEGIN
         [raekker_opdateret]     BIGINT        NULL,
         [raekker_soft_slettet]  BIGINT        NULL,
         [dw_timestamp_insert]   DATETIME2(0)  NOT NULL
-            CONSTRAINT [DF_HAIBALeverance_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS datetime2(0))),
+            CONSTRAINT [DF_HAIBALeverance_dw_timestamp_insert] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
         [dw_timestamp_update]   DATETIME2(0)  NOT NULL
-            CONSTRAINT [DF_HAIBALeverance_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS datetime2(0))),
+            CONSTRAINT [DF_HAIBALeverance_dw_timestamp_update] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
         CONSTRAINT [PK_haiba_leverance]
             PRIMARY KEY CLUSTERED ([kildetabel], [hai_type], [leverance_dato])
     );

@@ -42,9 +42,9 @@ BEGIN
         -- Set by arc_cpr when the table is archived for the delivery.
         [arkiveret_tidspunkt]     DATETIME2(0)  NULL,
         [dw_timestamp_insert]     DATETIME2(0)  NOT NULL
-            CONSTRAINT [DF_CPRLeverance_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS datetime2(0))),
+            CONSTRAINT [DF_CPRLeverance_dw_timestamp_insert] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
         [dw_timestamp_update]     DATETIME2(0)  NOT NULL
-            CONSTRAINT [DF_CPRLeverance_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS datetime2(0))),
+            CONSTRAINT [DF_CPRLeverance_dw_timestamp_update] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
         CONSTRAINT [PK_cpr_leverance]
             PRIMARY KEY CLUSTERED ([kildetabel], [leverance_dato])
     );
@@ -79,8 +79,8 @@ BEGIN
         [tilmeldt_dato]           DATE          NULL,
         -- The date the person was later seen in the extract.
         [set_i_udtraek_dato]      DATE          NULL,
-        [dw_timestamp_insert]     DATETIME2(0)  NOT NULL CONSTRAINT [DF_CPRAbonnementKandidat_ins] DEFAULT (SYSDATETIME()),
-        [dw_timestamp_update]     DATETIME2(0)  NOT NULL CONSTRAINT [DF_CPRAbonnementKandidat_upd] DEFAULT (SYSDATETIME()),
+        [dw_timestamp_insert]     DATETIME2(0)  NOT NULL CONSTRAINT [DF_CPRAbonnementKandidat_ins] DEFAULT (SYSUTCDATETIME()),
+        [dw_timestamp_update]     DATETIME2(0)  NOT NULL CONSTRAINT [DF_CPRAbonnementKandidat_upd] DEFAULT (SYSUTCDATETIME()),
         CONSTRAINT [PK_meta_CPRAbonnementKandidat] PRIMARY KEY CLUSTERED ([pnr])
     );
 

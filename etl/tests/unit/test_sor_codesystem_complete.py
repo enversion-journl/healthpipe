@@ -13,6 +13,7 @@ SOR-specific property definitions and CodeSystem structure.
 """
 
 import pytest
+from DSA.CodeSystem.sor.sor import KNOWN_PROPERTY_KEYS
 from infrastructure.assets.fhir_codesystem_sks_complete import (
     _build_concept_lookup,
     _build_concept_tree,
@@ -23,9 +24,6 @@ pytestmark = pytest.mark.unit
 
 
 class TestSorPropertyDefinitions:
-    def test_has_16_properties(self):
-        assert len(SOR_PROPERTY_DEFINITIONS) == 16
-
     def test_all_have_required_fields(self):
         for prop in SOR_PROPERTY_DEFINITIONS:
             assert "code" in prop
@@ -41,38 +39,22 @@ class TestSorPropertyDefinitions:
             assert prop["type"] == "dateTime"
 
     def test_boolean_properties_use_boolean_type(self):
-        bool_props = [p for p in SOR_PROPERTY_DEFINITIONS if p["code"] == "activeOwnOrganization"]
-        assert len(bool_props) == 1
-        assert bool_props[0]["type"] == "boolean"
+        bool_codes = ("rsdOrganization", "activeOwnOrganization")
+        bool_props = [p for p in SOR_PROPERTY_DEFINITIONS if p["code"] in bool_codes]
+        assert len(bool_props) == 2
+        for prop in bool_props:
+            assert prop["type"] == "boolean"
 
     def test_remaining_properties_use_string_type(self):
-        non_string = ("openingDate", "closingDate", "activeOwnOrganization")
+        non_string = ("openingDate", "closingDate", "rsdOrganization", "activeOwnOrganization")
         string_props = [p for p in SOR_PROPERTY_DEFINITIONS if p["code"] not in non_string]
         assert len(string_props) == 13
         for prop in string_props:
             assert prop["type"] == "string"
 
-    def test_expected_property_codes(self):
-        codes = {p["code"] for p in SOR_PROPERTY_DEFINITIONS}
-        expected = {
-            "entityType",
-            "entityTypeId",
-            "municipality",
-            "region",
-            "owner",
-            "ownerId",
-            "cvrNumber",
-            "website",
-            "email",
-            "phone",
-            "address",
-            "postalCode",
-            "city",
-            "openingDate",
-            "closingDate",
-            "activeOwnOrganization",
-        }
-        assert codes == expected
+    def test_every_codesystem_property_is_defined(self):
+        codes = [p["code"] for p in SOR_PROPERTY_DEFINITIONS]
+        assert sorted(codes) == sorted(KNOWN_PROPERTY_KEYS)
 
 
 class TestSorFullCodesystemDict:
@@ -102,7 +84,6 @@ class TestSorFullCodesystemDict:
         assert cs["content"] == "complete"
         assert cs["url"] == "https://sundhedsdatastyrelsen.dk/sor"
         assert cs["name"] == "SOR"
-        assert len(cs["property"]) == 16
         assert isinstance(cs["concept"], list)
 
     def test_count_matches_total_concepts(self):

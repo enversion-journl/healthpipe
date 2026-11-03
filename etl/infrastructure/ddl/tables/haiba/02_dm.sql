@@ -83,8 +83,8 @@ BEGIN
         [risikodoegn]               DECIMAL(18,2) NULL,
         [leverance_dato]            DATE          NOT NULL,
         [dw_is_deleted]             BIT           NOT NULL CONSTRAINT [DF_HAIBA_Agg_Infektion_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert]       DATETIME2(0)  NOT NULL CONSTRAINT [DF_HAIBA_Agg_Infektion_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update]       DATETIME2(0)  NOT NULL CONSTRAINT [DF_HAIBA_Agg_Infektion_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert]       DATETIME2(0)  NOT NULL CONSTRAINT [DF_HAIBA_Agg_Infektion_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update]       DATETIME2(0)  NOT NULL CONSTRAINT [DF_HAIBA_Agg_Infektion_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_dm_HAIBA_Agg_Infektion]
             PRIMARY KEY CLUSTERED ([dw_ek_HAIBA_AggInfektion])
     );
@@ -119,8 +119,8 @@ BEGIN
         [SORIdentifier]             NVARCHAR(30)  NOT NULL,
         [leverance_dato]            DATE          NOT NULL,
         [dw_is_deleted]             BIT           NOT NULL CONSTRAINT [DF_HAIBA_Agg_Infektion_Egenskaber_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert]       DATETIME2(0)  NOT NULL CONSTRAINT [DF_HAIBA_Agg_Infektion_Egenskaber_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update]       DATETIME2(0)  NOT NULL CONSTRAINT [DF_HAIBA_Agg_Infektion_Egenskaber_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert]       DATETIME2(0)  NOT NULL CONSTRAINT [DF_HAIBA_Agg_Infektion_Egenskaber_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update]       DATETIME2(0)  NOT NULL CONSTRAINT [DF_HAIBA_Agg_Infektion_Egenskaber_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_dm_HAIBA_Agg_Infektion_Egenskaber]
             PRIMARY KEY CLUSTERED ([dw_ek_HAIBA_AggInfektion])
     );
@@ -145,8 +145,8 @@ BEGIN
         [operationer]               INT           NULL,
         [leverance_dato]            DATE          NOT NULL,
         [dw_is_deleted]             BIT           NOT NULL CONSTRAINT [DF_HAIBA_Agg_Ortopaedi_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert]       DATETIME2(0)  NOT NULL CONSTRAINT [DF_HAIBA_Agg_Ortopaedi_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update]       DATETIME2(0)  NOT NULL CONSTRAINT [DF_HAIBA_Agg_Ortopaedi_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert]       DATETIME2(0)  NOT NULL CONSTRAINT [DF_HAIBA_Agg_Ortopaedi_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update]       DATETIME2(0)  NOT NULL CONSTRAINT [DF_HAIBA_Agg_Ortopaedi_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_dm_HAIBA_Agg_Ortopaedi]
             PRIMARY KEY CLUSTERED ([dw_ek_HAIBA_AggOrtopaedi])
     );
@@ -178,8 +178,8 @@ BEGIN
         [SORIdentifier]             NVARCHAR(30)  NOT NULL,
         [leverance_dato]            DATE          NOT NULL,
         [dw_is_deleted]             BIT           NOT NULL CONSTRAINT [DF_HAIBA_Agg_Ortopaedi_Egenskaber_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert]       DATETIME2(0)  NOT NULL CONSTRAINT [DF_HAIBA_Agg_Ortopaedi_Egenskaber_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update]       DATETIME2(0)  NOT NULL CONSTRAINT [DF_HAIBA_Agg_Ortopaedi_Egenskaber_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert]       DATETIME2(0)  NOT NULL CONSTRAINT [DF_HAIBA_Agg_Ortopaedi_Egenskaber_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update]       DATETIME2(0)  NOT NULL CONSTRAINT [DF_HAIBA_Agg_Ortopaedi_Egenskaber_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_dm_HAIBA_Agg_Ortopaedi_Egenskaber]
             PRIMARY KEY CLUSTERED ([dw_ek_HAIBA_AggOrtopaedi])
     );
@@ -211,8 +211,8 @@ BEGIN
         [location_id_opholdsadresse]        NVARCHAR(255) NULL,
         [leverance_dato]                    DATE          NOT NULL,
         [dw_is_deleted]                     BIT           NOT NULL CONSTRAINT [DF_HAIBA_Cases_Infektion_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert]               DATETIME2(0)  NOT NULL CONSTRAINT [DF_HAIBA_Cases_Infektion_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update]               DATETIME2(0)  NOT NULL CONSTRAINT [DF_HAIBA_Cases_Infektion_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert]               DATETIME2(0)  NOT NULL CONSTRAINT [DF_HAIBA_Cases_Infektion_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update]               DATETIME2(0)  NOT NULL CONSTRAINT [DF_HAIBA_Cases_Infektion_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_dm_HAIBA_Cases_Infektion]
             PRIMARY KEY CLUSTERED ([dw_ek_HAIBA_CasesInfektion])
     );
@@ -268,8 +268,8 @@ BEGIN
         [match_dage_opholdsadresse]     INT           NULL,
         [leverance_dato]                DATE          NOT NULL,
         [dw_is_deleted]                 BIT           NOT NULL CONSTRAINT [DF_HAIBA_Cases_Infektion_Egenskaber_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert]           DATETIME2(0)  NOT NULL CONSTRAINT [DF_HAIBA_Cases_Infektion_Egenskaber_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update]           DATETIME2(0)  NOT NULL CONSTRAINT [DF_HAIBA_Cases_Infektion_Egenskaber_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert]           DATETIME2(0)  NOT NULL CONSTRAINT [DF_HAIBA_Cases_Infektion_Egenskaber_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update]           DATETIME2(0)  NOT NULL CONSTRAINT [DF_HAIBA_Cases_Infektion_Egenskaber_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_dm_HAIBA_Cases_Infektion_Egenskaber]
             PRIMARY KEY CLUSTERED ([dw_ek_HAIBA_CasesInfektion])
     );
@@ -314,8 +314,8 @@ BEGIN
         [encounter_id_reo_kontaktansvarlig]       NVARCHAR(255) NULL,
         [leverance_dato]                          DATE          NOT NULL,
         [dw_is_deleted]                           BIT          NOT NULL CONSTRAINT [DF_HAIBA_Cases_SSI_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert]                     DATETIME2(0) NOT NULL CONSTRAINT [DF_HAIBA_Cases_SSI_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update]                     DATETIME2(0) NOT NULL CONSTRAINT [DF_HAIBA_Cases_SSI_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert]                     DATETIME2(0) NOT NULL CONSTRAINT [DF_HAIBA_Cases_SSI_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update]                     DATETIME2(0) NOT NULL CONSTRAINT [DF_HAIBA_Cases_SSI_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_dm_HAIBA_Cases_SSI]
             PRIMARY KEY CLUSTERED ([dw_ek_HAIBA_CasesSSI])
     );
@@ -381,8 +381,8 @@ BEGIN
         [match_dage_reo_kontaktansvarlig]     INT           NULL,
         [leverance_dato]                      DATE          NOT NULL,
         [dw_is_deleted]                       BIT           NOT NULL CONSTRAINT [DF_HAIBA_Cases_SSI_Egenskaber_dw_is_deleted] DEFAULT (0),
-        [dw_timestamp_insert]                 DATETIME2(0)  NOT NULL CONSTRAINT [DF_HAIBA_Cases_SSI_Egenskaber_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update]                 DATETIME2(0)  NOT NULL CONSTRAINT [DF_HAIBA_Cases_SSI_Egenskaber_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert]                 DATETIME2(0)  NOT NULL CONSTRAINT [DF_HAIBA_Cases_SSI_Egenskaber_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update]                 DATETIME2(0)  NOT NULL CONSTRAINT [DF_HAIBA_Cases_SSI_Egenskaber_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_dm_HAIBA_Cases_SSI_Egenskaber]
             PRIMARY KEY CLUSTERED ([dw_ek_HAIBA_CasesSSI])
     );

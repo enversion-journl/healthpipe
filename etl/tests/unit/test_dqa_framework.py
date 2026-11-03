@@ -115,6 +115,19 @@ class TestProcedureAfstemning:
         ris = next(c for c in subject.checks if c.name_suffix == "daekning_ris")
         assert "FINAL_REPORT" in ris.params["sql"] and "MODIFIED_REPORT" in ris.params["sql"]
 
+    def test_ris_daekning_matcher_underydelsernes_foraeldrenoegle(self):
+        # RIS-procedurer har noeglen OBJEKT_ID:ElementNummer, aldrig OBJEKT_ID alene.
+        subject = self._procedure_subject()
+        ris = next(c for c in subject.checks if c.name_suffix == "daekning_ris")
+        key = "CAST(a.[OBJEKT_ID] AS NVARCHAR(255))"
+        for sql in (ris.params["sql"], ris.params["examples_sql"]):
+            parent = (
+                "LEFT(p.[source_identifier_value], CHARINDEX(N':', "
+                "p.[source_identifier_value] + N':') - 1)"
+            )
+            assert f"{parent} = {key}" in sql
+            assert f"p.[source_identifier_value] = {key}" not in sql
+
     def test_sfi_daekning_afgraenses_via_kodereglerne(self):
         # Afgraensningen genereres af de repo-styrede koderegler -- samme kilde
         # som pipelinens klassifikation -- og maa ALDRIG laese revisionstabellen,

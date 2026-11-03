@@ -114,8 +114,8 @@ BEGIN
         [dw_valid_to]                    DATETIME2(0) NOT NULL,
         [dw_is_current]                  BIT NOT NULL CONSTRAINT [DF_Borger_dw_is_current] DEFAULT 1,
         [dw_is_deleted]                  BIT NOT NULL CONSTRAINT [DF_Borger_dw_is_deleted] DEFAULT 0,
-        [dw_timestamp_insert]           DATETIME2(0) NOT NULL CONSTRAINT [DF_Borger_dw_timestamp_insert] DEFAULT CAST(SYSDATETIME() AS datetime2(0)),
-        [dw_timestamp_update]           DATETIME2(0) NOT NULL CONSTRAINT [DF_Borger_dw_timestamp_update] DEFAULT CAST(SYSDATETIME() AS datetime2(0)),
+        [dw_timestamp_insert]           DATETIME2(0) NOT NULL CONSTRAINT [DF_Borger_dw_timestamp_insert] DEFAULT CAST(SYSUTCDATETIME() AS datetime2(0)),
+        [dw_timestamp_update]           DATETIME2(0) NOT NULL CONSTRAINT [DF_Borger_dw_timestamp_update] DEFAULT CAST(SYSUTCDATETIME() AS datetime2(0)),
 
         -- Hospital with population responsibility for the current municipality
         -- (Type 1, from ref.KommuneToPopulationsansvar). Last, as on a migrated table.
@@ -301,8 +301,8 @@ BEGIN
         [beredskabshelligdag]     NVARCHAR(50) NULL,
 
         -- Audit
-        [dw_timestamp_insert]     DATETIME2(0) NOT NULL CONSTRAINT [DF_Dato_dw_timestamp_insert] DEFAULT CAST(SYSDATETIME() AS datetime2(0)),
-        [dw_timestamp_update]     DATETIME2(0) NOT NULL CONSTRAINT [DF_Dato_dw_timestamp_update] DEFAULT CAST(SYSDATETIME() AS datetime2(0)),
+        [dw_timestamp_insert]     DATETIME2(0) NOT NULL CONSTRAINT [DF_Dato_dw_timestamp_insert] DEFAULT CAST(SYSUTCDATETIME() AS datetime2(0)),
+        [dw_timestamp_update]     DATETIME2(0) NOT NULL CONSTRAINT [DF_Dato_dw_timestamp_update] DEFAULT CAST(SYSUTCDATETIME() AS datetime2(0)),
         CONSTRAINT [PK_Dim_Dato] PRIMARY KEY CLUSTERED ([dw_ek_Dato] ASC) WITH(DATA_COMPRESSION=PAGE)
     ) ON [PRIMARY];
 

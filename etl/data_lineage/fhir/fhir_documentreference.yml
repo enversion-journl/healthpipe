@@ -40,3 +40,6 @@ dso_lineage:
     dw_is_deleted:             { DataType: INT, FhirPath: "extension.where(url='urn:fhir:isDeleted').valueInteger.first()", Source: [ifdb_epikrise.IFDB.EPIKRISE.SLETTET, ifdb_care_discharge_report.IFDB.CARE_DISCHARGE_REPORT.DELETED] }
     last_updated:              { DataType: DATETIME2, FhirPath: "r.ts" }
     created_at:                { DataType: DATETIME2, FhirPath: "r.cts" }
+    dw_ek_Borger:              { Type: FK, DataType: INT, Expr: "dim.Borger.dw_ek_Borger hvor fhir_Patient_id = patient_id", Description: "Borgeren dokumentet handler om. -1 når patienten ikke findes i dim.Borger. Findes borgeren kun som slettet, peger nøglen stadig på den." }
+    dw_sk_Borger:              { Type: FK, DataType: INT, Expr: "dim.Borger.dw_sk_Borger for den levende version, hvor dw_valid_from <= doc_date < dw_valid_to; doc_date læses som det klokkeslæt, IFDB leverer", Description: "Den version af borgeren (adresse m.m.), der gjaldt på dokumentets dato. -1 når borgeren eller en gældende version ikke findes, eller når doc_date mangler." }
+    dw_ek_Organisation:        { Type: FK, DataType: INT, Expr: "dim.Organisation.dw_ek_Organisation hvor fhir_Organization_id = author_org_ref", Description: "Den afsendende afdeling. -1 når dokumentet ikke har en afsender, eller organisationen ikke findes i dim.Organisation." }

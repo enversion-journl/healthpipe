@@ -38,8 +38,8 @@ BEGIN
         [dw_valid_to] DATETIME2(0) NOT NULL CONSTRAINT [DF_RolleDomaeneHistorik_dw_valid_to] DEFAULT '9999-12-31 23:59:59',
         [dw_run_id_from] NVARCHAR(64) NOT NULL,
         [dw_run_id_to] NVARCHAR(64) NULL,
-        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_RolleDomaeneHistorik_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_RolleDomaeneHistorik_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_RolleDomaeneHistorik_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_RolleDomaeneHistorik_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_RolleDomaeneHistorik] PRIMARY KEY CLUSTERED ([bruger] ASC, [Sikkerhedsdomaene] ASC, [dw_valid_from] ASC)
     );
 
@@ -58,8 +58,8 @@ BEGIN
         [dw_valid_to] DATETIME2(0) NOT NULL CONSTRAINT [DF_SORTildelingHistorik_dw_valid_to] DEFAULT '9999-12-31 23:59:59',
         [dw_run_id_from] NVARCHAR(64) NOT NULL,
         [dw_run_id_to] NVARCHAR(64) NULL,
-        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_SORTildelingHistorik_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_SORTildelingHistorik_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_SORTildelingHistorik_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_SORTildelingHistorik_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_SORTildelingHistorik] PRIMARY KEY CLUSTERED ([bruger] ASC, [SOR_kode] ASC, [dw_valid_from] ASC)
     );
 

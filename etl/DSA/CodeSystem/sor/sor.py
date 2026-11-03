@@ -23,11 +23,13 @@ usable as its delta signal.
 """
 
 from collections.abc import Iterator
-from datetime import datetime
+from datetime import date, datetime
 
 import dagster as dg
 from core.resources import MSSQLResource
 from DSA.CodeSystem.utils import merge_codesystem_tables, touch_concepts
+from DSA.FHIR.utils.sql_on_fhir.period_keys import DW_TIMEZONE
+from utils.sor_codes import parse_sor_date
 
 __all__ = [
     "build_sor_codesystem",
@@ -35,6 +37,7 @@ __all__ = [
     "cs_sor",
     "KNOWN_PROPERTY_KEYS",
     "SOR_ROOT",
+    "RSD_PROPERTY_KEY",
     "ACTIVE_OWN_PROPERTY_KEY",
 ]
 
@@ -54,6 +57,7 @@ KNOWN_PROPERTY_KEYS = [
     "city",
     "openingDate",
     "closingDate",
+    "rsdOrganization",
     "activeOwnOrganization",
 ]
 
@@ -63,6 +67,7 @@ SKIP_COLUMNS = {"code", "display", "parent_code", "dw_timestamp_insert", "dw_tim
 # (ean_to_sor._SOR_ROOT, rekvirent_to_sor/lager_to_sor/okosted_to_sor sor_root).
 SOR_ROOT = "6101000016001"
 
+RSD_PROPERTY_KEY = "rsdOrganization"
 ACTIVE_OWN_PROPERTY_KEY = "activeOwnOrganization"
 
 
@@ -92,61 +97,80 @@ def build_sor_codesystem(
     else:
         concepts, properties, hierarchy = _build_from_wide(sor_data)
 
-    _append_active_rsd_property(concepts, properties, hierarchy)
+    _append_rsd_properties(concepts, properties, hierarchy)
     return concepts, properties, hierarchy
 
 
-def _append_active_rsd_property(
+def _append_rsd_properties(
     concepts: list[dict],
     properties: list[dict],
     hierarchy: list[dict],
     now: datetime | None = None,
 ) -> None:
-    """Append an ``activeOwnOrganization`` Boolean property to every concept.
+    """Append the ``rsdOrganization`` and ``activeOwnOrganization`` Boolean properties.
 
-    True when the entity is part of Example Region's egen, aktuelle
-    organisation: den er åben (ingen closingDate), er trådt i kraft
-    (openingDate <= nu) og kan nås fra rod-enheden ``SOR_ROOT`` gennem en
-    kæde af ligeledes åbne enheder. Praksissektoren, kommuner og andre
-    aktører i regionen hænger aldrig under rod-enheden og bliver false.
-
-    Emitted som true/false for ALLE koder — ikke kun true — så værdien
-    flipper på plads under MERGE'ens Code+PropertyCode-nøgle, når en enhed
-    lukker eller flyttes (cs_sor kører uden delete_stale, så en kun-true
-    property ville efterlade forældede true-rækker).
+    ``rsdOrganization`` er true for enheder, der kan nås fra ``SOR_ROOT`` — åbne,
+    lukkede og endnu ikke åbnede. ``activeOwnOrganization`` er true for de af dem,
+    der er i kraft i dag og kan nås fra ``SOR_ROOT`` gennem enheder, der også er i
+    kraft. Begge emittes som true/false for alle koder.
     """
-    now_str = (now or datetime.now()).strftime("%Y-%m-%d %H:%M:%S")
+    today = (now or datetime.now(DW_TIMEZONE)).date()
 
-    inactive: set[str] = set()
+    opening: dict[str, str] = {}
+    closing: dict[str, str] = {}
     for prop in properties:
-        if prop["KEY"] == "closingDate" and prop["VALUE"]:
-            inactive.add(prop["CODE"])
-        elif prop["KEY"] == "openingDate" and prop["VALUE"] > now_str:
-            # ISO-formaterede datoer (YYYY-MM-DD ...) sammenlignes leksikografisk.
-            inactive.add(prop["CODE"])
+        if prop["KEY"] == "openingDate":
+            opening[prop["CODE"]] = prop["VALUE"]
+        elif prop["KEY"] == "closingDate":
+            closing[prop["CODE"]] = prop["VALUE"]
+    inactive = {
+        code
+        for code in opening.keys() | closing.keys()
+        if _out_of_effect(opening.get(code, ""), closing.get(code, ""), today)
+    }
 
     children: dict[str, list[str]] = {}
     for h in hierarchy:
         children.setdefault(h["PARENT_CODE"], []).append(h["CODE"])
 
     all_codes = {c["CODE"] for c in concepts}
+    members = _compute_reachable(all_codes, children, set())
     reachable = _compute_reachable(all_codes, children, inactive)
 
     for concept in concepts:
-        properties.append(
-            {
-                "CODE": concept["CODE"],
-                "KEY": ACTIVE_OWN_PROPERTY_KEY,
-                "VALUE": "true" if concept["CODE"] in reachable else "false",
-                "TYPE": "Boolean",
-            }
-        )
+        properties.extend(_rsd_properties(concept["CODE"], members, reachable))
+
+
+def _out_of_effect(opening: str, closing: str, today: date) -> bool:
+    """True when the entity closed on or before ``today``, or opens after it."""
+    closed = parse_sor_date(closing)
+    opened = parse_sor_date(opening)
+    return (closed is not None and closed.date() <= today) or (
+        opened is not None and opened.date() > today
+    )
+
+
+def _rsd_properties(code: str, members: set[str], reachable: set[str]) -> list[dict]:
+    return [
+        {
+            "CODE": code,
+            "KEY": RSD_PROPERTY_KEY,
+            "VALUE": "true" if code in members else "false",
+            "TYPE": "Boolean",
+        },
+        {
+            "CODE": code,
+            "KEY": ACTIVE_OWN_PROPERTY_KEY,
+            "VALUE": "true" if code in reachable else "false",
+            "TYPE": "Boolean",
+        },
+    ]
 
 
 def _compute_reachable(
     all_codes: set[str], children: dict[str, list[str]], inactive: set[str]
 ) -> set[str]:
-    """Codes reachable from SOR_ROOT through a chain of open (non-inactive) units."""
+    """Codes reachable from SOR_ROOT through a chain of units not in ``inactive``."""
     reachable: set[str] = set()
     if SOR_ROOT in all_codes and SOR_ROOT not in inactive:
         stack = [SOR_ROOT]
@@ -259,7 +283,7 @@ def build_sor_codesystem_streaming(
     """
     col = {name: idx for idx, name in enumerate(sor_columns)}
     property_columns = [c for c in sor_columns if c not in SKIP_COLUMNS]
-    now_str = (now or datetime.now()).strftime("%Y-%m-%d %H:%M:%S")
+    today = (now or datetime.now(DW_TIMEZONE)).date()
 
     def _cell(row, name: str) -> str:
         value = row[col[name]]
@@ -282,14 +306,11 @@ def build_sor_codesystem_streaming(
             hierarchy.append({"CODE": code, "PARENT_CODE": parent_code})
             children.setdefault(parent_code, []).append(code)
 
-        # Same inactive rules as _append_active_rsd_property: any closingDate,
-        # or an openingDate still in the future (ISO strings compare lexically).
-        if _cell(row, "closingDate"):
-            inactive.add(code)
-        elif _cell(row, "openingDate") > now_str:
+        if _out_of_effect(_cell(row, "openingDate"), _cell(row, "closingDate"), today):
             inactive.add(code)
 
     all_codes = {c["CODE"] for c in concepts}
+    members = _compute_reachable(all_codes, children, set())
     reachable = _compute_reachable(all_codes, children, inactive)
 
     def _properties() -> Iterator[dict]:
@@ -302,12 +323,7 @@ def build_sor_codesystem_streaming(
                 if value:
                     prop_type = "Date" if prop_key in ("openingDate", "closingDate") else "String"
                     yield {"CODE": code, "KEY": prop_key, "VALUE": value, "TYPE": prop_type}
-            yield {
-                "CODE": code,
-                "KEY": ACTIVE_OWN_PROPERTY_KEY,
-                "VALUE": "true" if code in reachable else "false",
-                "TYPE": "Boolean",
-            }
+            yield from _rsd_properties(code, members, reachable)
 
     return concepts, _properties(), hierarchy
 

@@ -12,12 +12,11 @@ DFM-checkpoints, så næste kørsel genopbygger alt fra arkivet:
     1. Aidbox (Postgres):  condition/observation/procedure/questionnaire/
                            questionnaireresponse + deres _history-tvillinger.
     2. Staging (MSSQL):    de flade fhir.*-familietabeller + SFI-lageret.
-    3. DSO (MSSQL):        samme fhir.*-kopier + SFI-lageret + SFI-lagerets
-                           SyncWatermarks (de øvrige DSO-vandmærker bor i
-                           stagings meta.DFMState, se 4).
+    3. DSO (MSSQL):        samme fhir.*-kopier + SFI-lageret.
     4. Checkpoints:        meta.DFMState-rækkerne (staging) for de seks
-                           fhir_server-poster, de ni SOF-loads og DSO-syncens
-                           ni rækker (scope 'dso') SLETTES ("aldrig kørt").
+                           fhir_server-poster, de ni SOF-loads, DSO-syncens
+                           ni rækker (scope 'dso') og SFI-lagerets række
+                           (scope 'sfi_store') SLETTES ("aldrig kørt").
                            Kapacitets-checkpointet slettes altid, fordi
                            observation-tabellen tømmes med, se nedenfor.
 
@@ -71,9 +70,8 @@ AIDBOX_RESSOURCETABELLER = (
     "questionnaireresponse",
 )
 
-# De flade familietabeller. Navnene er samtidig SOF-checkpointernes table_name
-# i meta.DFMState (schema_name='fhir') og DSO-syncens vandmærkenavne
-# (SyncWatermarks schema_name='fhir').
+# De flade familietabeller. Navnene er samtidig SOF-checkpointernes og
+# DSO-syncens table_name i meta.DFMState (schema_name='fhir').
 FLADE_FAMILIETABELLER = (
     "Condition",
     "Condition_SupplementaryCode",
@@ -86,8 +84,9 @@ FLADE_FAMILIETABELLER = (
     "QuestionnaireResponse_item",
 )
 
-# Afledt forbrugerlager — materialiseret, intet eget DFM-checkpoint. Tømmes
-# hvor tabellen findes (DDL'en er rullet ud i både staging og DSO).
+# Afledt forbrugerlager — materialiseret, med eget DFM-checkpoint (scope
+# 'sfi_store'). Tømmes hvor tabellen findes (DDL'en er rullet ud i både staging
+# og DSO).
 SFI_STORE_TABEL = "SFI_datapoint_store"
 
 # fhir_server-DFM-posterne (arc -> Aidbox), præcis som de hedder i
@@ -213,7 +212,8 @@ def dfmstate_where(kun_sof=False):
 
     Altid med: de ni SOF-rækker (scope 'staging'), DSO-syncens ni rækker for de
     samme tabeller (scope 'dso' — vandmærkerne bor i stagings meta.DFMState
-    siden DSO-unificeringen) og de fhir_server-poster, der aldrig seedes.
+    siden DSO-unificeringen), SFI-lagerets række (scope 'sfi_store') og de
+    fhir_server-poster, der aldrig seedes.
 
     ``kun_sof`` bruges ved seeding: de seedbare fhir_server-rækker slettes så
     ikke, men MERGE'S til seed-værdien, så der aldrig findes et vindue, hvor et
@@ -222,31 +222,21 @@ def dfmstate_where(kun_sof=False):
     familie = mssql_navneliste(FLADE_FAMILIETABELLER)
     sof = f"([scope] = N'staging' AND [schema_name] = N'fhir' AND [table_name] IN ({familie}))"
     dso = f"([scope] = N'dso' AND [schema_name] = N'fhir' AND [table_name] IN ({familie}))"
+    lager = (
+        f"([scope] = N'sfi_store' AND [schema_name] = N'fhir' "
+        f"AND [table_name] = N'{SFI_STORE_TABEL}')"
+    )
     uden_seed = (
         "([scope] = N'staging' AND [schema_name] = N'fhir_server' AND [table_name] IN "
         f"({mssql_navneliste(FHIR_SERVER_CHECKPOINTS_UDEN_SEED)}))"
     )
     if kun_sof:
-        return f"WHERE {sof} OR {dso} OR {uden_seed}"
+        return f"WHERE {sof} OR {dso} OR {lager} OR {uden_seed}"
     fhir_server = (
         "([scope] = N'staging' AND [schema_name] = N'fhir_server' AND [table_name] IN "
         f"({mssql_navneliste(FHIR_SERVER_CHECKPOINTS)}))"
     )
-    return f"WHERE {fhir_server} OR {sof} OR {dso} OR {uden_seed}"
-
-
-def vandmaerke_where():
-    """WHERE-klausul for DSO's meta.SyncWatermarks: SFI-lageret + evt. ældre fhir-rækker.
-
-    De nuværende DSO-vandmærker for fhir-tabellerne ligger i stagings
-    meta.DFMState (scope 'dso') og rammes af dfmstate_where(); rækkerne her er
-    SFI-lagerets egne plus eventuelle rester fra før flytningen.
-    """
-    return (
-        "WHERE ([schema_name] = N'fhir' AND [table_name] IN "
-        f"({mssql_navneliste(FLADE_FAMILIETABELLER + (SFI_STORE_TABEL,))}))"
-        " OR [schema_name] = N'sfi_datapoint'"
-    )
+    return f"WHERE {fhir_server} OR {sof} OR {dso} OR {lager} OR {uden_seed}"
 
 
 def _mssql_identitet(cursor):
@@ -592,21 +582,6 @@ def sfi_genkoersel_nulstilling(
         for t, n in rapport["dso_raekker_foer"].items():
             context.log.info(f"DSO fhir.{t}: {n} rækker")
         _mssql_toem(context, cur, dso_tabeller, dry_run, "DSO")
-
-        cur.execute(
-            "SELECT [schema_name], [table_name], [last_sync_timestamp] "
-            f"FROM [meta].[SyncWatermarks] {vandmaerke_where()} ORDER BY [schema_name], [table_name]"
-        )
-        vandmaerker = [f"{r[0]}.{r[1]} = {r[2]}" for r in cur.fetchall()]
-        for linje in vandmaerker:
-            context.log.info(f"SyncWatermarks: {linje}")
-        rapport["dso_vandmaerker_foer"] = vandmaerker
-        if dry_run:
-            context.log.info(f"[dry run] DELETE FROM [meta].[SyncWatermarks] {vandmaerke_where()}")
-        else:
-            cur.execute(f"DELETE FROM [meta].[SyncWatermarks] {vandmaerke_where()}")
-            context.log.info(f"SyncWatermarks: {cur.rowcount} vandmærker slettet")
-            conn.commit()
 
     context.log.info(
         "Nulstilling %s. Næste skridt: fhir_sof_infrastructure, derefter de seks "

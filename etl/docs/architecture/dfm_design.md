@@ -608,9 +608,17 @@ As archive tables are built out, FHIR assets that currently read from `ext.*` or
 
 ## 8. DSO Sync Layer
 
-DSO sync checkpointing uses `DfmManager` on **staging** with `scope='dso'`. Legacy
-`SyncStateManager` + `[meta].[SyncWatermarks]` on DSO is deprecated for table sync;
-SFI datapoint refresh still uses SyncWatermarks until a follow-up US.
+DSO sync checkpointing uses `DfmManager` on **staging** with `scope='dso'`. The SFI
+datapoint store on DSO keeps its checkpoint the same way, with `scope='sfi_store'`
+(`fhir.SFI_datapoint_store`). No sync or refresh reads `[meta].[SyncWatermarks]` on DSO.
+
+DSO stamps its own writes: every sync path sets `dw_timestamp_insert` and
+`dw_timestamp_update` to `SYSUTCDATETIME()` on INSERT and UPDATE, so a DSO stamp is
+when DSO wrote the row, in one UTC clock. A reader of DSO, such as the SFI store, reads
+from its checkpoint on those stamps and moves it to the newest stamp it saw, held back
+to the start of a DSO sync of its sources that is still running
+(`DfmManager.safe_reader_checkpoint` with `writer_scope='dso'`): a DSO write is stamped
+when its statement starts but becomes visible at commit.
 
 ### 8.1 Unification with DFM
 

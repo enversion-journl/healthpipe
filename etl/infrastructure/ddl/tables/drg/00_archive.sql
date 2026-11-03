@@ -826,7 +826,7 @@ BEGIN
         [vaerdi_foer]         NVARCHAR(500) NULL,
         [vaerdi_efter]        NVARCHAR(500) NULL,
         [leverance_dato]      DATE          NOT NULL,
-        [dw_timestamp_insert] DATETIME2(0)  NOT NULL CONSTRAINT [DF_drg_pris_revision_dw_timestamp_insert] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2(0)  NOT NULL CONSTRAINT [DF_drg_pris_revision_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_arc_drg_pris_revision] PRIMARY KEY CLUSTERED ([revision_id])
     );
 

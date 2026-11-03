@@ -12,9 +12,10 @@ Every codesystem in the warehouse has the same three tables —
 one pivot, parameterised by a :class:`CodesystemExportSpec`, reads them all.
 
 Always a full read. The delivery is a full load by contract, so there is no
-DFM checkpoint and no delta window here. When a spec filters on an active flag,
-the filter is applied in SQL rather than in Python: for SOR the inactive codes
-are ~96% of the national register, and the builder never looks at them.
+DFM checkpoint and no delta window here. When a spec has a scope, the scope is
+applied in SQL rather than in Python: for SOR the codes outside the region's
+tree are the bulk of the national register, and the builder never
+looks at them.
 
 export.CodesystemToOs2mo mirrors the file column for column, so a query reads
 like the CSV. Three of the file's columns — ``dw_is_deleted``,
@@ -49,7 +50,7 @@ _SOURCE_COLUMNS = (
     "valid_from",
     "valid_to",
     "type",
-    "active",
+    "scope",
     "status_active",
     "status_deleted",
     "created",
@@ -83,16 +84,16 @@ def build_source_query(spec: CodesystemExportSpec) -> str:
     parent edge; ``TOP 1`` only keeps a second edge from duplicating the row.
 
     Identifiers come from the spec, which only accepts plain identifiers, and
-    the active value is a code constant — nothing here comes from run config.
+    the scope value is a code constant — nothing here comes from run config.
     """
-    active_join = ""
-    if spec.active_property is not None:
-        active_join = (
-            _property_join("p_active", spec.active_property, inner=True).rstrip("\n")
-            + f"\n          AND p_active.[value] = '{spec.active_value}'\n"
+    scope_join = ""
+    if spec.scope_property is not None:
+        scope_join = (
+            _property_join("p_scope", spec.scope_property, inner=True).rstrip("\n")
+            + f"\n          AND p_scope.[value] = '{spec.scope_value}'\n"
         )
     type_select = "p_type.[value]" if spec.type_property else "CAST(NULL AS NVARCHAR(500))"
-    active_select = "p_active.[value]" if spec.active_property else "CAST(NULL AS NVARCHAR(500))"
+    scope_select = "p_scope.[value]" if spec.scope_property else "CAST(NULL AS NVARCHAR(500))"
     status_active_select = (
         "p_sact.[value]" if spec.status_active_property else "CAST(NULL AS NVARCHAR(500))"
     )
@@ -107,7 +108,7 @@ def build_source_query(spec: CodesystemExportSpec) -> str:
         "           p_from.[value]    AS [valid_from],\n"
         "           p_to.[value]      AS [valid_to],\n"
         f"           {type_select} AS [type],\n"
-        f"           {active_select} AS [active],\n"
+        f"           {scope_select} AS [scope],\n"
         f"           {status_active_select} AS [status_active],\n"
         f"           {status_deleted_select} AS [status_deleted],\n"
         "           c.[dw_timestamp_insert] AS [created],\n"
@@ -115,7 +116,7 @@ def build_source_query(spec: CodesystemExportSpec) -> str:
         "                                        (h.[dw_timestamp_update]),\n"
         "                                        (p_all.[last_update])) AS v(ts)) AS [updated],\n"
         "           CASE WHEN p_all.[last_update] IS NULL THEN 0 ELSE 1 END AS [has_properties]\n"
-        "    FROM [codesystem].[{name}Concept] c\n" + active_join + "    OUTER APPLY (\n"
+        "    FROM [codesystem].[{name}Concept] c\n" + scope_join + "    OUTER APPLY (\n"
         "        SELECT TOP 1 hh.[parent_code], hh.[dw_timestamp_update]\n"
         "        FROM [codesystem].[{name}Hierarchy] hh\n"
         "        WHERE hh.[child_code] = c.[code]\n"

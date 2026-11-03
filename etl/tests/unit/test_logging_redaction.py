@@ -6,12 +6,14 @@
 
 import logging
 
+import dagster as dg
 import pytest
-from core.logging_redaction import CprRedactingFilter
+from core.logging_redaction import CprRedactingFilter, install_pii_redaction
 
 pytestmark = pytest.mark.unit
 
 DASHLESS_CPR = "0102031234"  # gitleaks:allow
+SYNTHETIC_CPR = "999999-9999"
 
 
 def _record(msg, *args):
@@ -37,3 +39,52 @@ class TestCprRedactingFilter:
         assert "2026" in out
         assert "4321" in out
         assert "1433" in out
+
+
+def _context_log(context):
+    context.log.info(f"patient {SYNTHETIC_CPR}")
+
+
+def _named_logger(context):
+    logging.getLogger("DSA.FHIR.redaction_test").warning(f"patient {SYNTHETIC_CPR}")
+
+
+def _exception(context):
+    raise ValueError(f"patient {SYNTHETIC_CPR}")
+
+
+def _failure(context):
+    raise dg.Failure(description=f"patient {SYNTHETIC_CPR}")
+
+
+def _metadata(context):
+    return dg.MaterializeResult(metadata={"patient": SYNTHETIC_CPR})
+
+
+@pytest.mark.parametrize(
+    "emit",
+    [
+        _context_log,
+        pytest.param(
+            _named_logger,
+            marks=pytest.mark.xfail(strict=True, reason="managed Python loggers are not masked"),
+        ),
+        _exception,
+        _failure,
+        pytest.param(
+            _metadata, marks=pytest.mark.xfail(strict=True, reason="metadata is not masked")
+        ),
+    ],
+)
+def test_event_log_masks_cpr(emit):
+    install_pii_redaction()
+
+    @dg.asset
+    def leaky(context):
+        return emit(context)
+
+    instance = dg.DagsterInstance.ephemeral(
+        settings={"python_logs": {"managed_python_loggers": ["DSA"]}}
+    )
+    result = dg.materialize([leaky], instance=instance, raise_on_error=False)
+    assert SYNTHETIC_CPR not in repr(instance.all_logs(result.run_id))

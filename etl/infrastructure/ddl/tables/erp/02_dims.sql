@@ -53,8 +53,8 @@ BEGIN
         [tekst_d1] NVARCHAR(255) NULL,
         [omkostningsstednummer] NVARCHAR(50) NULL,
         [omkostningssted_niveau] INT NULL,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Kontoplan_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Kontoplan_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Kontoplan_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Kontoplan_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_Dim_Kontoplan] PRIMARY KEY CLUSTERED ([dw_ek_Kontoplan] ASC)
     ) ON [PRIMARY];
 END
@@ -100,8 +100,8 @@ BEGIN
         [dw_source_sydax] BIT NOT NULL CONSTRAINT [DF_Kreditor_dw_source_sydax] DEFAULT 0,
         [dw_source_ils] BIT NOT NULL CONSTRAINT [DF_Kreditor_dw_source_ils] DEFAULT 0,
         [dw_source_mysupply] BIT NOT NULL CONSTRAINT [DF_Kreditor_dw_source_mysupply] DEFAULT 0,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Kreditor_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Kreditor_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Kreditor_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Kreditor_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_Dim_Kreditor] PRIMARY KEY CLUSTERED ([dw_ek_Kreditor] ASC)
     ) ON [PRIMARY];
 END
@@ -132,8 +132,8 @@ BEGIN
         [varenavn_mysupply] NVARCHAR(MAX) NULL,
         [dw_source_mysupply] BIT NOT NULL CONSTRAINT [DF_Leverandoervare_dw_source_mysupply] DEFAULT 0,
         [dw_source_ils] BIT NOT NULL CONSTRAINT [DF_Leverandoervare_dw_source_ils] DEFAULT 0,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Leverandoervare_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Leverandoervare_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Leverandoervare_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Leverandoervare_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_Dim_Leverandoervare] PRIMARY KEY CLUSTERED ([dw_ek_Leverandoervare] ASC)
     ) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY];
 END
@@ -189,8 +189,8 @@ BEGIN
         [sw_gebyr] BIT NULL,
         [graense_beloeb] DECIMAL(17,2) NULL,
         [fragt_graense_beloeb] DECIMAL(17,2) NULL,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Aftale_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Aftale_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Aftale_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Aftale_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_Dim_Aftale] PRIMARY KEY CLUSTERED ([dw_ek_Aftale] ASC)
     ) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY];
 END
@@ -252,8 +252,8 @@ BEGIN
         [dw_ek_Dato_ajourfoert] INT NOT NULL CONSTRAINT [DF_ILSLeverandoer_dw_ek_Dato_ajourfoert] DEFAULT -1,
         [dato_tid_ajourfoert] DATETIME2 NULL,
         [ajourfoert_bruger] NVARCHAR(50) NULL,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_ILSLeverandoer_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_ILSLeverandoer_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_ILSLeverandoer_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_ILSLeverandoer_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_Dim_ILSLeverandoer] PRIMARY KEY CLUSTERED ([dw_ek_ILSLeverandoer] ASC)
     ) ON [PRIMARY];
 END
@@ -374,8 +374,8 @@ BEGIN
         -- joining the volatile stg.dim_faktura_mysupply at bridge build time.
         [statistic_invoice_header_id] BIGINT NULL,
         [header_dw_timestamp_update] DATETIME2 NULL,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Faktura_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Faktura_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Faktura_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Faktura_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_Dim_Faktura] PRIMARY KEY CLUSTERED ([dw_ek_Faktura] ASC)
     ) ON [PRIMARY];
 END
@@ -433,8 +433,8 @@ BEGIN
         [faktura_udsteder_gebyr_tillaeg_aarsag] NVARCHAR(MAX) NULL,
         [faktura_udsteder_gebyr_tillaeg_kategori] NVARCHAR(MAX) NULL,
         [faktura_udsteder_gebyr_tillaeg_finanskonto] NVARCHAR(MAX) NULL,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Fakturalinje_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Fakturalinje_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Fakturalinje_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Fakturalinje_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_Dim_Fakturalinje] PRIMARY KEY CLUSTERED ([dw_ek_Fakturalinje] ASC)
     ) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY];
 END
@@ -474,8 +474,8 @@ BEGIN
         [valutakode_postering] NVARCHAR(10) NULL,
         [transaktionstekst] NVARCHAR(100) NULL,
         [posteringstekst] NVARCHAR(100) NULL,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Postering_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Postering_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Postering_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Postering_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_Dim_Postering] PRIMARY KEY CLUSTERED ([dw_ek_Postering] ASC)
     ) ON [PRIMARY];
 
@@ -542,8 +542,8 @@ BEGIN
         [ekspeditionsnummer] INT NULL,
         [lager_varetype] NVARCHAR(12) NULL,
         [lager_varetype_navn] NVARCHAR(80) NULL,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Vareudlevering_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Vareudlevering_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Vareudlevering_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Vareudlevering_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_Dim_Vareudlevering] PRIMARY KEY CLUSTERED ([dw_ek_Vareudlevering] ASC)
     ) ON [PRIMARY];
 
@@ -601,8 +601,8 @@ BEGIN
         [dw_ek_Rekvirent_svind] [int] NOT NULL CONSTRAINT [DF_Lager_dw_ek_Rekvirent_svind] DEFAULT -1,
         [dw_ek_Organisation] [int] NOT NULL CONSTRAINT [DF_Lager_dw_ek_Organisation] DEFAULT -1,
         [dw_ek_Lager_parent] [int] CONSTRAINT [DF_Lager_dw_ek_Lager_parent] DEFAULT -1,
-        [dw_timestamp_insert] [datetime2](7) NOT NULL CONSTRAINT [DF_Lager_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] [datetime2](7) NOT NULL CONSTRAINT [DF_Lager_dw_timestamp_update] DEFAULT SYSDATETIME()
+        [dw_timestamp_insert] [datetime2](7) NOT NULL CONSTRAINT [DF_Lager_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] [datetime2](7) NOT NULL CONSTRAINT [DF_Lager_dw_timestamp_update] DEFAULT SYSUTCDATETIME()
     ) ON [PRIMARY];
 END
 GO
@@ -680,8 +680,8 @@ BEGIN
         [dw_ek_Organisation] [int] NOT NULL CONSTRAINT [DF_Rekvirent_dw_ek_Organisation] DEFAULT -1,
         [dw_ek_Rekvirent_parent] [int] CONSTRAINT [DF_Rekvirent_dw_ek_Rekvirent_parent] DEFAULT -1,
         [er_undtaget] [bit] NOT NULL CONSTRAINT [DF_Rekvirent_er_undtaget] DEFAULT 0,
-        [dw_timestamp_insert] [datetime2](7) NOT NULL CONSTRAINT [DF_Rekvirent_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] [datetime2](7) NOT NULL CONSTRAINT [DF_Rekvirent_dw_timestamp_update] DEFAULT SYSDATETIME()
+        [dw_timestamp_insert] [datetime2](7) NOT NULL CONSTRAINT [DF_Rekvirent_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] [datetime2](7) NOT NULL CONSTRAINT [DF_Rekvirent_dw_timestamp_update] DEFAULT SYSUTCDATETIME()
     ) ON [PRIMARY];
 
     CREATE INDEX IX_dim_Rekvirent_code
@@ -730,8 +730,8 @@ BEGIN
         [udlevenh] NVARCHAR(80) NULL,
         [sw_erstat] BIT NULL,
         [lgrbeh_prio] INT NULL,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_LagerbeholdningEgenskaber_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_LagerbeholdningEgenskaber_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_LagerbeholdningEgenskaber_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_LagerbeholdningEgenskaber_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_Dim_LagerbeholdningEgenskaber] PRIMARY KEY CLUSTERED
             ([dw_ek_LagerbeholdningEgenskaber] ASC)
     ) ON [PRIMARY];
@@ -770,8 +770,8 @@ BEGIN
         [clean_code_AfdelingLagerbeholdningEgenskaber] NVARCHAR(500) NULL,
         [lnr] NVARCHAR(32) NULL,
         [brik] INT NULL,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_AfdelingLagerbeholdningEgenskaber_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_AfdelingLagerbeholdningEgenskaber_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_AfdelingLagerbeholdningEgenskaber_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_AfdelingLagerbeholdningEgenskaber_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_Dim_AfdelingLagerbeholdningEgenskaber] PRIMARY KEY CLUSTERED
             ([dw_ek_AfdelingLagerbeholdningEgenskaber] ASC)
     ) ON [PRIMARY];
@@ -816,8 +816,8 @@ BEGIN
         [dw_ek_EAN] [int] PRIMARY KEY,
         [ean] [nvarchar](50) NOT NULL,
         [navn_nemhandelsregister] [nvarchar](512),
-        [dw_timestamp_insert] [datetime2](7) NOT NULL CONSTRAINT [DF_ean_dw_timestamp_insert] DEFAULT GETDATE(),
-        [dw_timestamp_update] [datetime2](7) NOT NULL CONSTRAINT [DF_ean_dw_timestamp_update] DEFAULT GETDATE()
+        [dw_timestamp_insert] [datetime2](7) NOT NULL CONSTRAINT [DF_ean_dw_timestamp_insert] DEFAULT GETUTCDATE(),
+        [dw_timestamp_update] [datetime2](7) NOT NULL CONSTRAINT [DF_ean_dw_timestamp_update] DEFAULT GETUTCDATE()
     ) ON [PRIMARY];
 END
 GO
@@ -883,8 +883,8 @@ CREATE TABLE [dim].[ILSVare] (
     [weblink]               NVARCHAR(140)  NULL,
     [maa_ikke_lukkes]         NVARCHAR(50)   NULL,
     [hygiejne]              NVARCHAR(50)   NULL,
-    [dw_timestamp_insert]   DATETIME2      NOT NULL CONSTRAINT [DF_ILSVare_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-    [dw_timestamp_update]   DATETIME2      NOT NULL CONSTRAINT [DF_ILSVare_dw_timestamp_update] DEFAULT SYSDATETIME(),
+    [dw_timestamp_insert]   DATETIME2      NOT NULL CONSTRAINT [DF_ILSVare_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+    [dw_timestamp_update]   DATETIME2      NOT NULL CONSTRAINT [DF_ILSVare_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
     CONSTRAINT [PK_Dim_ILSVare] PRIMARY KEY CLUSTERED ([dw_ek_ILSVare] ASC)
 ) ON [PRIMARY];
 END
@@ -952,8 +952,8 @@ CREATE TABLE [dim].[ILSBruger] (
     [primaer_sygehus]       NVARCHAR(16)   NULL,
     [primaer_sygehus_navn]  NVARCHAR(80)   NULL,
     [source_table]          NVARCHAR(100)  NULL,
-    [dw_timestamp_insert]   DATETIME2      NOT NULL CONSTRAINT [DF_ILSBruger_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-    [dw_timestamp_update]   DATETIME2      NOT NULL CONSTRAINT [DF_ILSBruger_dw_timestamp_update] DEFAULT SYSDATETIME(),
+    [dw_timestamp_insert]   DATETIME2      NOT NULL CONSTRAINT [DF_ILSBruger_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+    [dw_timestamp_update]   DATETIME2      NOT NULL CONSTRAINT [DF_ILSBruger_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
     CONSTRAINT [PK_Dim_ILSBruger] PRIMARY KEY CLUSTERED ([dw_ek_ILSBruger] ASC)
 ) ON [PRIMARY];
 END
@@ -1014,8 +1014,8 @@ BEGIN
         [dato_tid_oprettet] DATETIME2 NULL,
         [dw_ek_Dato_aendret] INT NOT NULL CONSTRAINT [DF_Finanskladde_dw_ek_Dato_aendret] DEFAULT -1,
         [dato_tid_aendret] DATETIME2 NULL,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Finanskladde_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Finanskladde_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Finanskladde_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Finanskladde_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_Dim_Finanskladde] PRIMARY KEY CLUSTERED ([dw_ek_Finanskladde] ASC)
     ) ON [PRIMARY];
 END
@@ -1049,8 +1049,8 @@ BEGIN
         [transaktionstypenummer] INT NULL,
         [transaktionstypetekst] NVARCHAR(1000) NULL,
         [maskinnummer] NVARCHAR(20) NULL,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Finanskladdelinje_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Finanskladdelinje_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Finanskladdelinje_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Finanskladdelinje_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_Dim_Finanskladdelinje] PRIMARY KEY CLUSTERED ([dw_ek_Finanskladdelinje] ASC)
     ) ON [PRIMARY];
 END
@@ -1093,8 +1093,8 @@ BEGIN
         [budgetpost_status_id] NVARCHAR(50) NULL,
         [budgetpost_status_tekst] NVARCHAR(255) NULL,
         [omkostningsstednummer] NVARCHAR(50) NULL,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_BudgetEgenskaber_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_BudgetEgenskaber_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_BudgetEgenskaber_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_BudgetEgenskaber_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_Dim_BudgetEgenskaber] PRIMARY KEY CLUSTERED ([dw_ek_BudgetEgenskaber] ASC)
     ) ON [PRIMARY];
 END
@@ -1139,8 +1139,8 @@ BEGIN
         [unspsc_level_3_beskrivelse_kmd]     NVARCHAR(400) NULL,
         [unspsc_level_4_kode_kmd]            NVARCHAR(50)  NULL,
         [unspsc_level_4_beskrivelse_kmd]     NVARCHAR(400) NULL,
-        [dw_timestamp_insert]                DATETIME2     NOT NULL CONSTRAINT [DF_UNSPSC_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update]                DATETIME2     NOT NULL CONSTRAINT [DF_UNSPSC_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert]                DATETIME2     NOT NULL CONSTRAINT [DF_UNSPSC_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update]                DATETIME2     NOT NULL CONSTRAINT [DF_UNSPSC_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_Dim_UNSPSC] PRIMARY KEY CLUSTERED ([dw_ek_UNSPSC] ASC)
     ) ON [PRIMARY];
 END
@@ -1178,8 +1178,8 @@ BEGIN
         [dw_ek_Okosted_parent] [int],
         [parent_code] [varchar](120),
         [active] [bit] CONSTRAINT [DF_Okosted_active] DEFAULT 1,
-        [dw_timestamp_insert] [datetime2](7) NOT NULL CONSTRAINT [DF_Okosted_dw_timestamp_insert] DEFAULT GETDATE(),
-        [dw_timestamp_update] [datetime2](7) NOT NULL CONSTRAINT [DF_Okosted_dw_timestamp_update] DEFAULT GETDATE()
+        [dw_timestamp_insert] [datetime2](7) NOT NULL CONSTRAINT [DF_Okosted_dw_timestamp_insert] DEFAULT GETUTCDATE(),
+        [dw_timestamp_update] [datetime2](7) NOT NULL CONSTRAINT [DF_Okosted_dw_timestamp_update] DEFAULT GETUTCDATE()
     ) ON [PRIMARY];
 
     CREATE INDEX IX_dim_Okosted_code_okosted
@@ -1225,8 +1225,8 @@ BEGIN
         [dw_ek_SHAK_parent] [int],
         [parent_code] [varchar](50),
         [active] [bit] CONSTRAINT [DF_SHAK_active] DEFAULT 1,
-        [dw_timestamp_insert] [datetime2](7) NOT NULL CONSTRAINT [DF_SHAK_dw_timestamp_insert] DEFAULT GETDATE(),
-        [dw_timestamp_update] [datetime2](7) NOT NULL CONSTRAINT [DF_SHAK_dw_timestamp_update] DEFAULT GETDATE()
+        [dw_timestamp_insert] [datetime2](7) NOT NULL CONSTRAINT [DF_SHAK_dw_timestamp_insert] DEFAULT GETUTCDATE(),
+        [dw_timestamp_update] [datetime2](7) NOT NULL CONSTRAINT [DF_SHAK_dw_timestamp_update] DEFAULT GETUTCDATE()
     ) ON [PRIMARY];
 
     CREATE INDEX IX_dim_SHAK_code_shak
@@ -1271,8 +1271,8 @@ BEGIN
         [dw_ek_SHAKAlike_parent] [int],
         [parent_code] [varchar](50),
         [active] [bit] CONSTRAINT [DF_SHAKAlike_active] DEFAULT 1,
-        [dw_timestamp_insert] [datetime2](7) NOT NULL CONSTRAINT [DF_SHAKAlike_dw_timestamp_insert] DEFAULT GETDATE(),
-        [dw_timestamp_update] [datetime2](7) NOT NULL CONSTRAINT [DF_SHAKAlike_dw_timestamp_update] DEFAULT GETDATE()
+        [dw_timestamp_insert] [datetime2](7) NOT NULL CONSTRAINT [DF_SHAKAlike_dw_timestamp_insert] DEFAULT GETUTCDATE(),
+        [dw_timestamp_update] [datetime2](7) NOT NULL CONSTRAINT [DF_SHAKAlike_dw_timestamp_update] DEFAULT GETUTCDATE()
     ) ON [PRIMARY];
 
     CREATE INDEX IX_dim_SHAKAlike_code_shakalike

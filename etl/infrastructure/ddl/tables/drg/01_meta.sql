@@ -56,9 +56,9 @@ BEGIN
         [raekker_opdateret]    INT           NULL,
         [raekker_soft_slettet] INT           NULL,
         [dw_timestamp_insert]  DATETIME2(0)  NOT NULL
-            CONSTRAINT [DF_DRGLeverance_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
+            CONSTRAINT [DF_DRGLeverance_dw_timestamp_insert] DEFAULT (CAST(SYSUTCDATETIME() AS DATETIME2(0))),
         [dw_timestamp_update]  DATETIME2(0)  NOT NULL
-            CONSTRAINT [DF_DRGLeverance_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS DATETIME2(0))),
+            CONSTRAINT [DF_DRGLeverance_dw_timestamp_update] DEFAULT (CAST(SYSUTCDATETIME() AS DATETIME2(0))),
         CONSTRAINT [PK_drg_meta_leverance] PRIMARY KEY CLUSTERED (
             [kildetabel], [takstsystem], [aktivitetsaar], [leverance_ts]
         )

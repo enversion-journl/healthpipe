@@ -242,6 +242,9 @@ class _FakeCursor:
     def execute(self, sql: str) -> None:
         self._log.append(("execute", sql.strip().split()[0].upper()))
 
+    def setinputsizes(self, sizes: list[tuple[int, int, int]]) -> None:
+        pass
+
     def executemany(self, sql: str, rows: list[tuple]) -> None:
         self._log.append(("executemany", len(rows)))
 

@@ -9,7 +9,7 @@
 # dw-nøgler på de flade fhir-tabeller: valg af løsning for trin 2
 
 **Status:** Besluttet: mulighed B
-**Dato:** 2026-10-09, opdateret 2026-10-15
+**Dato:** 2026-10-09
 
 ## Beslutning
 
@@ -18,8 +18,24 @@ direkte på de flade `fhir.*`-tabeller. Én factory laver ét asset pr. tabel, s
 op i `dim.Borger` (via `fhir_Patient_id` og rækkens tidspunkt) og i `dim.Organisation` (via
 `fhir_Organization_id`). Det opdaterer kun rækker, hvor en nøgle ændres.
 
-Nøglerne findes i dag på `fhir.EpisodeOfCare` (borger og organisation) og `fhir.Location`
-(kun organisation). Andre tabeller får dem ved at blive tilføjet til `DW_KEYS_CONFIG`.
+Nøglerne findes i dag på disse tabeller. En ny tabel får dem ved at blive tilføjet til
+`DW_KEYS_CONFIG`, få kolonnerne ved en migration (staging og DSO) og blive registreret som
+asset.
+
+| Tabel | Tidspunkt til `dw_sk_Borger` | Organisation |
+|---|---|---|
+| `fhir.EpisodeOfCare` | `period_start` (DATETIME2(0)) | `managing_organization_id` |
+| `fhir.Appointment` | `start` | arvet fra `fhir.Location` via `performing_location_id` |
+| `fhir.CarePlan` | `period_start` (patientens første markør) | `organization_id` |
+| `fhir.CarePlan_Activity` | `activity_timestamp` | `organization_id` |
+| `fhir.DocumentReference` | `doc_date` | `author_org_ref` |
+| `fhir.Encounter` | `period_start` | `service_provider_id` |
+| `fhir.Location` | – (kun organisation) | `managing_organization_id` |
+| `fhir.ServiceRequest` | `authored_on` | `performer_id` → `dw_ek_Organisation_henvist_til`, `requester_id` → `dw_ek_Organisation_henvist_fra` |
+| `fhir.WardUnit` | – (kun organisation) | `managing_organization_id` |
+
+`fhir.CarePlan` er patientens ene "alle markører"-plan. En markør er en række i
+`IFDB.EVENTMARKER`, og hver markør er en række i `fhir.CarePlan_Activity`.
 
 Begrebet **trin 2** betyder her det nye skridt mellem SoF-indlæsningen (trin 1) og DSO-sync
 (trin 3), der sætter dw-nøglerne på de flade tabeller.
@@ -62,15 +78,30 @@ OUTER APPLY (
 ) AS borger_version
 ```
 
-`<tidspunkt>` er rækkens hændelsestidspunkt som DATETIME2(0), for EpisodeOfCare
-`period_start`. Det er klokkeslættet, som IFDB leverer det (dansk lokaltid); et eventuelt
-offset fjernes ved SoF-indlæsningen uden omregning. Det er ikke `dw_timestamp_update`.
+`<tidspunkt>` er rækkens hændelsestidspunkt som DATETIME2(0), fx `period_start`. Det er
+klokkeslættet, som IFDB leverer det (dansk lokaltid); et eventuelt offset fjernes uden
+omregning, og YYYY / YYYY-MM udfyldes til første dag. For EpisodeOfCare sker det ved
+SoF-indlæsningen, hvor kolonnen er DATETIME2(0). På de øvrige tabeller er kolonnen den rå
+FHIR-tekst (`time_column_is_text`), og opslaget læser klokkeslættet med samme regel; et
+tidspunkt, der ikke kan læses, tælles og logges. Det er ikke `dw_timestamp_update`.
 
 Versionsopslagets sortering og filter på `dw_is_deleted` følger `dbo.GetBorgerSK_TVF`. Det er
 nødvendigt, fordi soft-deletede versioner i `dim.Borger` kan overlappe en levende version.
 
 `dw_ek_Organisation` er `dim.Organisation.dw_ek_Organisation`, hvor `fhir_Organization_id`
-svarer til rækkens organisationsreference.
+svarer til rækkens organisationsreference. En tabel med flere organisationsreferencer får én
+nøgle pr. rolle, `dw_ek_Organisation_<rolle>`, med samme opslag. Rollerne deler tabellens
+organisations-checkpoint (se "Checkpoints: tre pr. tabel" nedenfor).
+
+En tabel, hvis eneste organisationskobling er en reference til en anden tabel med
+dw-nøgler, **arver** den tabels `dw_ek_Organisation` (Appointment fra Location). Opslaget
+læser nøglen på den refererede række, og rækken genberegnes, når den refererede rækkes
+`dw_timestamp_update` flytter sig. Det sker, når SoF indlæser Location-rækken igen, og når
+Location-rækkens egen nøgle ændres; en fuld indlæsning af Location gør derfor alle aftaler til
+kandidater.
+Organisations-checkpointet gælder da den refererede tabel i stedet for `dim.Organisation`, og
+assettet kører efter den refererede tabels dw-nøgleasset i stedet for at afhænge af
+`dim_Organisation`.
 
 **-1 betyder "ingen nøgle":** referencen mangler, den findes ikke i dimensionen, eller (kun
 `dw_sk_Borger`) rækken har intet tidspunkt eller ingen levende version på tidspunktet.
@@ -106,8 +137,8 @@ DW_KEYS_CONFIG = {
 }
 ```
 
-Hvert asset afhænger af sit SoF-asset og af `dim_Organisation`, og af `dim_Borger`, når tabellen
-har borger-nøgler. `fhir_dw_keys_episode_of_care` afhænger fx af `sof_episode_of_care_dfm`,
+Hvert asset afhænger af sit SoF-asset og af `dim_Organisation` (ved arvet organisation af den
+refererede tabels dw-nøgleasset), og af `dim_Borger`, når tabellen har borger-nøgler. `fhir_dw_keys_episode_of_care` afhænger fx af `sof_episode_of_care_dfm`,
 `dim_Borger` og `dim_Organisation`, og `dso_sync_fhir_episode_of_care_dfm` afhænger af det.
 Hver tabel har altså sit eget asset, sin egen kørsel og sine egne checkpoints, så en fejl på
 én tabel ikke stopper de andre.
@@ -122,7 +153,7 @@ borger-checkpointet.
 |---|---|---|
 | `<R>_DWKeys` | `fhir.<R>.dw_timestamp_update` | `MAX(dw_timestamp_update)` i tabellen efter assettets egne skrivninger |
 | `<R>_DWKeys_Borger` | `dim.Borger.dw_timestamp_update` | Kørslens start, holdt tilbage til starten af en `dim_Borger`-kørsel, der stadig er i gang (`DfmManager.safe_reader_checkpoint`) |
-| `<R>_DWKeys_Organisation` | `dim.Organisation.dw_timestamp_update` | Kørslens start minus én time |
+| `<R>_DWKeys_Organisation` | `dim.Organisation.dw_timestamp_update`, ved arvet organisation den refererede tabels `dw_timestamp_update` | Kørslens start minus én time |
 
 Mangler et af checkpointene, eller kører assettet i `full_load`, gennemgås hele tabellen.
 
@@ -154,8 +185,9 @@ uændrede.
 
 En række **genberegnes**, når fhir-rækken er ændret siden fhir-checkpointet, når dens borger
 er ændret i `dim.Borger` siden borger-checkpointet, eller når dens organisation er ændret i
-`dim.Organisation` siden organisations-checkpointet. Den **skrives** kun, hvis mindst én
-af `dw_ek_Borger`, `dw_sk_Borger` eller `dw_ek_Organisation` får en ny værdi. Kun skrevne
+`dim.Organisation` (ved arvet organisation: den refererede række) siden
+organisations-checkpointet. Den **skrives** kun, hvis mindst én
+af `dw_ek_Borger`, `dw_sk_Borger` eller en organisationsnøgle får en ny værdi. Kun skrevne
 rækker får `dw_timestamp_update` flyttet, og kun de kommer med i næste DSO-delta.
 
 Eksempel: En borger har 14 forløb. CPR-registret leverer en flytning pr. 1. marts 2026, så
@@ -200,6 +232,8 @@ primærnøglen. Nøglekolonner i INCLUDE ville bare skulle opdateres ved hver sk
 **Genopbygning efter første fulde gennemgang.** Kolonnerne tilføjes med en standardværdi, og
 den første gennemgang skriver nøglerne ind i hver række, så siderne deler sig, og tabellen
 vokser markant. Det sker kun én gang pr. tabel; bagefter opdateres nøglerne på stedet.
-`fhir_dw_keys_index_maintenance` kører efter DSO-synken i samme job og genopbygger
-de indeks på dw-nøgletabellerne på staging og DSO, der har mindst 1.000 sider og mere end
-30 % fragmentering, med fill factor 90.
+`fhir_dw_keys_index_maintenance` kører efter DSO-synken i samme job og genopbygger, offline,
+de indeks på dw-nøgletabellerne på staging og DSO, der har mindst 1.000 sider og enten er mere
+end 30 % fragmenteret, under 75 % tætte, eller allerede har en fill factor og er mere end 5 %
+fragmenteret. Genopbygningen sætter fill factor 90, eller 100 for et indeks med dato/tid
+forrest. Bagefter opdateres ændrede statistikker.

@@ -26,7 +26,7 @@ BEGIN
         [Sikkerhedsdomaene]   NVARCHAR(50)  NOT NULL,
         [Rolle]               CHAR(1)       NOT NULL,
         [Populationsansvar]   NVARCHAR(50)  NOT NULL,
-        [dw_timestamp_update] DATETIME2     NOT NULL CONSTRAINT [DF_RolleDomaene_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_update] DATETIME2     NOT NULL CONSTRAINT [DF_RolleDomaene_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         [dw_is_deleted]        INT           NOT NULL,
 
         CONSTRAINT [PK_RolleDomaene]

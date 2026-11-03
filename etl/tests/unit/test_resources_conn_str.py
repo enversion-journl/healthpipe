@@ -52,6 +52,36 @@ def test_get_raw_connection_uses_canonical_path(monkeypatch):
 
 
 @pytest.mark.unit
+def test_connect_mssql_python_sets_query_timeout_on_connection(monkeypatch):
+    """The driver reads connect(timeout=) as a login timeout, so the query
+    timeout must land on Connection.timeout."""
+    from types import SimpleNamespace
+
+    import core.resources as resources
+
+    captured = {}
+
+    class _Conn:
+        timeout = 0
+
+    def _fake_connect(conn_str, timeout=None, attrs_before=None):
+        captured["login_timeout"] = timeout
+        captured["attrs_before"] = attrs_before
+        return _Conn()
+
+    monkeypatch.setattr(
+        resources,
+        "mssql_python",
+        SimpleNamespace(connect=_fake_connect, SQL_ATTR_LOGIN_TIMEOUT=103),
+    )
+
+    conn = resources._connect_mssql_python("cs", timeout=6000)
+
+    assert conn.timeout == 6000
+    assert captured == {"login_timeout": None, "attrs_before": {103: 60}}
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     ("user", "expected"),
     [

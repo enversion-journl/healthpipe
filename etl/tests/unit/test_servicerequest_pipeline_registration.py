@@ -102,12 +102,15 @@ class TestServiceRequestPipelineRegistration:
             dso_name = f"dso_sync_fhir_{sof_name}_dfm"
             assert dso_name in by_name, f"Missing DFM DSO sync asset: {dso_name}"
             key = AssetKey.from_user_string(dso_name)
-            assert by_name[dso_name].asset_deps[key] == {
+            expected = {
                 AssetKey.from_user_string(f"sof_{sof_name}_dfm"),
                 # Gates the MERGE on the DSO fhir.* tables + their migrations, so
                 # it never runs against a stale target schema/PK.
                 AssetKey.from_user_string("dso_infra_fhir"),
             }
+            if sof_name == "service_request":
+                expected.add(AssetKey.from_user_string("fhir_dw_keys_service_request"))
+            assert by_name[dso_name].asset_deps[key] == expected
 
     def test_service_request_assets_are_materializable(self):
         graph = defs.resolve_asset_graph()

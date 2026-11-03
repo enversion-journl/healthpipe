@@ -32,9 +32,9 @@ BEGIN
         [active_from]           DATE            NOT NULL,
         [active_to]             DATE            NULL,
         [dw_timestamp_insert]   DATETIME2       NOT NULL
-            CONSTRAINT [DF_IFDBAktivitetstypeRouting_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS datetime2(0))),
+            CONSTRAINT [DF_IFDBAktivitetstypeRouting_dw_timestamp_insert] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
         [dw_timestamp_update]   DATETIME2       NOT NULL
-            CONSTRAINT [DF_IFDBAktivitetstypeRouting_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS datetime2(0))),
+            CONSTRAINT [DF_IFDBAktivitetstypeRouting_dw_timestamp_update] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
 
         CONSTRAINT [PK_IFDBAktivitetstypeRouting]
             PRIMARY KEY CLUSTERED ([aktivitetstype_kode], [active_from]),
@@ -72,9 +72,9 @@ BEGIN
         [decided_at]            DATETIME2     NOT NULL
             CONSTRAINT [DF_IFDBAktivitetsresultatRoutingDecision_decided_at] DEFAULT (CAST(SYSDATETIME() AS datetime2(0))),
         [dw_timestamp_insert]   DATETIME2     NOT NULL
-            CONSTRAINT [DF_IFDBAktivitetsresultatRoutingDecision_dw_timestamp_insert] DEFAULT (CAST(SYSDATETIME() AS datetime2(0))),
+            CONSTRAINT [DF_IFDBAktivitetsresultatRoutingDecision_dw_timestamp_insert] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
         [dw_timestamp_update]   DATETIME2     NOT NULL
-            CONSTRAINT [DF_IFDBAktivitetsresultatRoutingDecision_dw_timestamp_update] DEFAULT (CAST(SYSDATETIME() AS datetime2(0))),
+            CONSTRAINT [DF_IFDBAktivitetsresultatRoutingDecision_dw_timestamp_update] DEFAULT (CAST(SYSUTCDATETIME() AS datetime2(0))),
 
         CONSTRAINT [PK_IFDBAktivitetsresultatRoutingDecision]
             PRIMARY KEY CLUSTERED ([ifdb_aktivitet_id]),

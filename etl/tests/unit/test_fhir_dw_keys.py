@@ -15,6 +15,9 @@ from definitions import defs
 from DSA.FHIR.SqlOnFhir.DWKeys_dfm import DW_KEYS_CONFIG
 from DSA.FHIR.utils.sql_on_fhir.dw_keys import (
     DWKeysConfig,
+    OrganisationKey,
+    candidates_sql,
+    key_columns,
     lookup_sql,
     organisation_read_bound,
     resolve_scope,
@@ -69,14 +72,55 @@ class TestLookupContract:
         assert not live_only.search(entity)
         assert live_only.search(version)
 
-    def test_patient_column_without_time_column_is_refused(self) -> None:
-        with pytest.raises(ValueError, match="together"):
+    def test_an_inherited_organisation_is_read_and_followed_on_the_referenced_table(self) -> None:
+        """Read from dim.Organisation, the Location id never matches; unfollowed, it goes stale."""
+        cfg = DW_KEYS_CONFIG["appointment"]
+        _, applies = lookup_sql(cfg)
+        assert "[dim].[Organisation]" not in applies
+        assert re.search(r"FROM\s+\[fhir\]\.\[Location\]", applies, re.IGNORECASE)
+        organisation_part = candidates_sql(cfg).split("UNION")[-1]
+        follows_location = re.compile(
+            r"\[performing_location_id\]\s+IN\s*\(\s*SELECT\s+\w+\.\[location_id\]\s+"
+            r"FROM\s+\[fhir\]\.\[Location\]",
+            re.IGNORECASE,
+        )
+        assert follows_location.search(organisation_part)
+
+    def test_each_organisation_role_is_looked_up_from_its_own_column(self) -> None:
+        """Swapped roles would put the referring organisation on the referred-to key."""
+        expressions, applies = lookup_sql(DW_KEYS_CONFIG["service_request"])
+        for role, column in [("henvist_til", "performer_id"), ("henvist_fra", "requester_id")]:
+            own_alias = rf"organisation_{role}\.dw_ek_Organisation\s*,\s*-1\s*\)\s*AS\s+"
+            assert re.search(rf"{own_alias}dw_ek_Organisation_{role}\b", expressions)
+            block = applies.split(f") AS organisation_{role}")[0].rsplit("OUTER APPLY", 1)[1]
+            assert f"f.[{column}]" in block
+
+    @pytest.mark.parametrize(
+        ("columns", "message"),
+        [
+            ({"patient_column": "patient_id"}, "together"),
+            ({"time_column_is_text": True}, "needs a time_column"),
+            ({"organisations": ()}, "at least one organisation"),
+            (
+                {"organisations": (OrganisationKey("a_id"), OrganisationKey("b_id", "b"))},
+                "a role each",
+            ),
+            (
+                {"organisations": (OrganisationKey("a_id", "x"), OrganisationKey("b_id", "x"))},
+                "distinct",
+            ),
+        ],
+    )
+    def test_an_incomplete_config_is_refused(self, columns, message) -> None:
+        with pytest.raises(ValueError, match=message):
             DWKeysConfig(
-                asset_suffix="x",
-                table="X",
-                primary_key="x_id",
-                organisation_column="organization_id",
-                patient_column="patient_id",
+                **{
+                    "asset_suffix": "x",
+                    "table": "X",
+                    "primary_key": "x_id",
+                    "organisations": (OrganisationKey("organization_id"),),
+                    **columns,
+                }
             )
 
 
@@ -112,6 +156,8 @@ class _RecordingCursor:
     [
         ("episode_of_care", ["fhir", "borger", "organisation"]),
         ("location", ["fhir", "organisation"]),
+        ("service_request", ["fhir", "borger", "organisation", "organisation"]),
+        ("appointment", ["fhir", "borger", "organisation"]),
     ],
 )
 def test_delta_binds_one_checkpoint_per_candidate_source_in_query_order(
@@ -128,19 +174,62 @@ def test_delta_binds_one_checkpoint_per_candidate_source_in_query_order(
     run_dw_keys(cursor, MagicMock(), cfg, full=False, checkpoints=checkpoints, log=MagicMock())
     sql, params = next(call for call in cursor.calls if "INSERT INTO #candidates" in call[0])
     assert list(params) == expected
-    assert sql.count("?") == len(expected)
-    assert sql.find("[dim].[Borger]") < sql.index("[dim].[Organisation]")
+    parts = sql.split("UNION")
+    assert [part.count("?") for part in parts] == [1] * len(expected)
+    reads_source = {
+        "fhir": lambda part: not re.search(r"\bIN\s*\(", part),
+        "borger": lambda part: "[dim].[Borger]" in part,
+        "organisation": lambda part: re.search(r"\[dim\]\.\[Organisation\]|\[fhir\]\.\[", part),
+    }
+    for part, source in zip(parts, expected, strict=True):
+        assert reads_source[source](part), f"{source} checkpoint bound to: {part.strip()[:80]}"
+
+
+def _distribution(name: str, **counts: int) -> dict[str, int]:
+    """A key distribution for one config: every key found once, then ``counts`` on top."""
+    cfg = DW_KEYS_CONFIG[name]
+    distribution = {
+        f"{c}_{kind}": 1 if kind == "found" else 0
+        for c in key_columns(cfg)
+        for kind in ("found", "minus1")
+    }
+    if cfg.time_column_is_text:
+        distribution["time_unparseable"] = 0
+    return {**distribution, **counts}
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(("minus1", "warned"), [(0, False), (3, True)])
-def test_a_reference_the_dimensions_lack_is_logged(minus1: int, warned: bool) -> None:
-    """A -1 is a source value the dimensions do not have; unlogged it is silent drift."""
-    cfg = DW_KEYS_CONFIG["location"]
-    checkpoints = {cfg.checkpoint_fhir: "fhir", cfg.checkpoint_organisation: "organisation"}
-    distribution = {
-        "dw_ek_Organisation_found": 10,
-        "dw_ek_Organisation_minus1": minus1,
+@pytest.mark.parametrize(
+    ("name", "distribution", "warning"),
+    [
+        ("location", _distribution("location"), None),
+        (
+            "location",
+            _distribution("location", dw_ek_Organisation_minus1=3),
+            "dw_ek_Organisation=3 (dim.Organisation)",
+        ),
+        (
+            "appointment",
+            _distribution("appointment", dw_ek_Organisation_minus1=2),
+            "dw_ek_Organisation=2 (fhir.Location)",
+        ),
+        ("service_request", _distribution("service_request"), None),
+        (
+            "service_request",
+            _distribution("service_request", time_unparseable=2),
+            "2 rows evaluated with a authored_on that cannot be parsed",
+        ),
+    ],
+)
+def test_a_value_the_lookup_cannot_use_is_logged(
+    name: str, distribution: dict[str, int], warning: str | None
+) -> None:
+    """A -1 or an unparseable time is a source value the lookup cannot use; unlogged it is drift."""
+    cfg = DW_KEYS_CONFIG[name]
+    checkpoints = {
+        cfg.checkpoint_fhir: "fhir",
+        cfg.checkpoint_borger: "borger",
+        cfg.checkpoint_organisation: "organisation",
     }
     log = MagicMock()
     result = run_dw_keys(
@@ -152,9 +241,11 @@ def test_a_reference_the_dimensions_lack_is_logged(minus1: int, warned: bool) ->
         log=log,
     )
     assert result["distribution"] == distribution
-    assert log.warning.called is warned
-    if warned:
-        assert "dw_ek_Organisation=3" in log.warning.call_args.args[-1]
+    messages = [call.args[0] % call.args[1:] for call in log.warning.call_args_list]
+    if warning is None:
+        assert not messages
+    else:
+        assert any(warning in message for message in messages)
 
 
 @pytest.mark.unit
@@ -167,3 +258,17 @@ def test_dso_sync_waits_for_the_dw_keys_and_index_maintenance_for_the_sync(sof_n
     maintenance = AssetKey.from_user_string("fhir_dw_keys_index_maintenance")
     assert keys in graph.get(sync).parent_keys
     assert sync in graph.get(maintenance).parent_keys
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "name", sorted(n for n, c in DW_KEYS_CONFIG.items() if any(o.via for o in c.organisations))
+)
+def test_an_inherited_organisation_waits_for_the_referenced_tables_dw_keys(name: str) -> None:
+    """Run before it, the inherited key is the referenced row's key from the previous night."""
+    graph = defs.resolve_asset_graph()
+    cfg = DW_KEYS_CONFIG[name]
+    parents = graph.get(AssetKey.from_user_string(cfg.asset_name)).parent_keys
+    for organisation in cfg.organisations:
+        if organisation.via is not None:
+            assert AssetKey.from_user_string(organisation.via.asset_name) in parents

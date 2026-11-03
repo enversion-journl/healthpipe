@@ -4,7 +4,7 @@
 # This file is part of Healthpipe. See the LICENSE file in the project
 # root for the full AGPL-3.0 license text.
 
-"""One-shot cutover asset: DSO SyncWatermarks → staging DFMState (scope='dso')."""
+"""Cutover asset: DSO SyncWatermarks → staging DFMState (scope 'dso' and 'sfi_store')."""
 
 import dagster as dg
 from core.resources import MSSQLResource
@@ -22,10 +22,11 @@ from core.resources import MSSQLResource
         "domain": "dso",
     },
     description=(
-        "One-shot cutover: copy DSO [meta].[SyncWatermarks] into staging "
-        "[meta].[DFMState] with scope='dso' (skips sfi_datapoint). "
-        "Fills NULL auto-seeded checkpoints; leaves non-NULL untouched. "
-        "Prefer once per env before first watermark DSO sync on DFM code."
+        "Cutover: copy DSO [meta].[SyncWatermarks] into staging [meta].[DFMState] with "
+        "scope='dso', and the SFI datapoint store's refresh_daily watermark minus three "
+        "hours as its checkpoint under scope='sfi_store'. Fills NULL auto-seeded "
+        "checkpoints; leaves non-NULL untouched, so it runs with every "
+        "full_infrastructure_setup."
     ),
 )
 def migrate_dso_sync_watermarks_to_dfm(
@@ -47,8 +48,7 @@ def migrate_dso_sync_watermarks_to_dfm(
             "rows_inserted": dg.MetadataValue.int(stats.inserted),
             "rows_updated_null": dg.MetadataValue.int(stats.updated),
             "rows_skipped_existing": dg.MetadataValue.int(stats.skipped),
-            "scope": "dso",
-            "skips": "sfi_datapoint.*",
+            "scope": "dso, sfi_store",
             "idempotent": True,
         }
     )

@@ -21,8 +21,20 @@ from __future__ import annotations
 
 from dqa.model import Cadence, CheckSpecification, DqaSubject, ReplaySpec, Severity, Track
 from dqa.references import referential_specs
+from DSA.FHIR.utils.ifdb.xml_child_reconcile import FAMILY_RIS_PROCEDURE
+from DSA.SQL.ref.patient_identity import TABEL as PATIENT_IDENTITY_TABLE
+from utils.fhir.identifier_systems import SYSTEM_CPR
 
 _RES = "mssql_target_staging"  # DSA
+
+
+def _not_old_cpr(column: str) -> str:
+    """SQL predicate: ``column`` is not a CPR that ref.PatientIdentity marks as not current."""
+    return (
+        f"NOT EXISTS (SELECT 1 FROM {PATIENT_IDENTITY_TABLE} i "
+        f"WHERE i.[identity_system] = '{SYSTEM_CPR}' "
+        f"AND i.[identity_value] = [{column}] AND i.[is_current] = 0)"
+    )
 
 
 def _fhir(
@@ -133,34 +145,38 @@ def _procedure_slice_coverage(
     source_key: str,
     source_scope: str,
     system: str,
+    child_infix: str | None = None,
 ) -> CheckSpecification:
     """Daekning for en af proceduretabellens tre kildeskiver: hver levende
     kilderaekke i arkivet skal findes som raekke i den flade tabel.
 
     ENVEJS med vilje: arkivtabellerne paa delte miljoeer holder et vindue, ikke
     fuld historik, saa "ekstra i maal" ville stoeje. Noeglen er source_key +
-    source_system (samme raekkefoelge i view og tabel), og boern (deloperationer
-    og RIS-underydelser) rammes aldrig: deres noegle er sammensat og matcher
-    ikke kildens."""
+    source_system (samme raekkefoelge i view og tabel). Med ``child_infix``
+    daekkes kilderaekken af et barn med noeglen source_key + infix + loebenummer
+    (RIS-underydelser); delen foer infix sammenlignes med lighed."""
+    key = f"CAST(a.[{source_key}] AS NVARCHAR(255))"
+    if child_infix:
+        match = (
+            f"LEFT(p.[source_identifier_value], CHARINDEX(N'{child_infix}', "
+            f"p.[source_identifier_value] + N'{child_infix}') - 1) = {key}"
+        )
+    else:
+        match = f"p.[source_identifier_value] = {key}"
+    not_found = (
+        f"NOT EXISTS (SELECT 1 FROM [fhir].[Procedure] p "
+        f"WHERE {match} AND p.[source_system] = '{system}')"
+    )
     return CheckSpecification(
         "custom_sql",
         Severity.WARN,
         Cadence.WEEKLY,
         {
-            "sql": (
-                f"SELECT COUNT(*) FROM {source_table} a "
-                f"WHERE {source_scope} "
-                f"AND NOT EXISTS (SELECT 1 FROM [fhir].[Procedure] p "
-                f"WHERE p.[source_identifier_value] = CAST(a.[{source_key}] AS NVARCHAR(255)) "
-                f"AND p.[source_system] = '{system}')"
-            ),
+            "sql": f"SELECT COUNT(*) FROM {source_table} a WHERE {source_scope} AND {not_found}",
             "checked_sql": f"SELECT COUNT(*) FROM {source_table} a WHERE {source_scope}",
             "examples_sql": (
-                f"SELECT TOP 20 CAST(a.[{source_key}] AS NVARCHAR(255)) FROM {source_table} a "
-                f"WHERE {source_scope} "
-                f"AND NOT EXISTS (SELECT 1 FROM [fhir].[Procedure] p "
-                f"WHERE p.[source_identifier_value] = CAST(a.[{source_key}] AS NVARCHAR(255)) "
-                f"AND p.[source_system] = '{system}')"
+                f"SELECT TOP 20 {key} FROM {source_table} a "
+                f"WHERE {source_scope} AND {not_found}"
             ),
         },
         name_suffix=f"daekning_{slice_name}",
@@ -279,14 +295,16 @@ FHIR_SUBJECTS: list[DqaSubject] = [
             ),
         ],
         extra_weekly=[
-            # Person-level: every CPR in arc reached fhir. Clean 1:1 (arc.CPR ==
-            # fhir.patient_ssn); key-set only -- at CPR grain a single delete flag
-            # isn't well-defined (the ETL dedups to one row per CPR).
+            # Person-level: every current CPR in arc reached fhir.patient_ssn; old CPRs
+            # are skipped on both sides. Key-set only -- at CPR grain a single delete
+            # flag isn't well-defined (the ETL dedups to one row per CPR).
             _reconcile_vs_archive(
                 "arc.ifdb_patient",
                 source_key="CPR",
                 target_key="patient_ssn",
                 source_deleted=None,
+                source_filter=_not_old_cpr("CPR"),
+                target_filter=f"ISNULL([source_ifdb], 1) = 1 AND {_not_old_cpr('patient_ssn')}",
                 name_suffix="vs_arc_cpr",
             ),
             # patient_id-level: dedup-aware. A deleted PATIENT_ID dropped per CPR is
@@ -378,6 +396,12 @@ FHIR_SUBJECTS: list[DqaSubject] = [
                 source_deleted=None,
                 target_deleted=None,
                 source_filter="[dw_is_deleted] = 0",
+                target_filter=(
+                    "[identifier_value_sor] NOT IN (SELECT CAST([SORKODE] AS NVARCHAR(255)) "
+                    "FROM [arc].[bom_ifdb_orgenhed_sor] WHERE [SORKODE] IS NOT NULL) "
+                    "OR [identifier_value_sor] IN (SELECT [LOCATION_SORCODE] "
+                    "FROM [arc].[ifdb_location] WHERE [dw_is_deleted] = 0)"
+                ),
             ),
             _reconcile_vs_fhir_server("location"),
         ],
@@ -710,6 +734,7 @@ FHIR_SUBJECTS: list[DqaSubject] = [
                     "[SLETTET] <> '1' AND [STATE] IN ('FINAL_REPORT', 'MODIFIED_REPORT')"
                 ),
                 system="urn:source:ifdb:ris_ydelse",
+                child_infix=FAMILY_RIS_PROCEDURE.infix,
             ),
             # Kanttilfaelde: hovedkode-kolonnen tom, men aktive tillaegskoder
             # findes -- signaturen paa en raekke bygget foer valgt-markeringen.

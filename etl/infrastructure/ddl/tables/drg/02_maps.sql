@@ -28,8 +28,8 @@ BEGIN
     CREATE TABLE [map].[DRGKontakt](
         [dw_ek_DRGKontakt] INT IDENTITY(1,1) NOT NULL,
         [clean_code_DRGKontakt] VARCHAR(255) NOT NULL,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_DRGKontakt_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_DRGKontakt_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_DRGKontakt_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_DRGKontakt_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_Map_DRGKontakt] PRIMARY KEY CLUSTERED ([clean_code_DRGKontakt] ASC)
     ) ON [PRIMARY];
 END
@@ -55,8 +55,8 @@ BEGIN
     CREATE TABLE [map].[DRGKontaktKlassifikation](
         [dw_ek_DRGKontaktKlassifikation] INT IDENTITY(1,1) NOT NULL,
         [clean_code_DRGKontaktKlassifikation] NVARCHAR(100) NOT NULL,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_DRGKontaktKlassifikation_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_DRGKontaktKlassifikation_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_DRGKontaktKlassifikation_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_DRGKontaktKlassifikation_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_Map_DRGKontaktKlassifikation] PRIMARY KEY CLUSTERED ([clean_code_DRGKontaktKlassifikation] ASC)
     ) ON [PRIMARY];
 END
@@ -80,8 +80,8 @@ BEGIN
     CREATE TABLE [map].[DRGDiagnose](
         [dw_ek_DRGDiagnose] INT IDENTITY(1,1) NOT NULL,
         [clean_code_DRGDiagnose] NVARCHAR(100) NOT NULL,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_DRGDiagnose_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_DRGDiagnose_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_DRGDiagnose_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_DRGDiagnose_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_Map_DRGDiagnose] PRIMARY KEY CLUSTERED ([clean_code_DRGDiagnose] ASC)
     ) ON [PRIMARY];
 END
@@ -107,8 +107,8 @@ BEGIN
     CREATE TABLE [map].[DRGProcedure](
         [dw_ek_DRGProcedure] INT IDENTITY(1,1) NOT NULL,
         [clean_code_DRGProcedure] NVARCHAR(100) NOT NULL,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_DRGProcedure_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_DRGProcedure_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_DRGProcedure_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_DRGProcedure_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_Map_DRGProcedure] PRIMARY KEY CLUSTERED ([clean_code_DRGProcedure] ASC)
     ) ON [PRIMARY];
 END
@@ -134,8 +134,8 @@ BEGIN
     CREATE TABLE [map].[DRGDiagnoseGruppe](
         [dw_ek_DRGDiagnoseGruppe] INT IDENTITY(1,1) NOT NULL,
         [clean_code_DRGDiagnoseGruppe] NVARCHAR(100) NOT NULL,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_DRGDiagnoseGruppe_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_DRGDiagnoseGruppe_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_DRGDiagnoseGruppe_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_DRGDiagnoseGruppe_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_Map_DRGDiagnoseGruppe] PRIMARY KEY CLUSTERED ([clean_code_DRGDiagnoseGruppe] ASC)
     ) ON [PRIMARY];
 END
@@ -161,8 +161,8 @@ BEGIN
     CREATE TABLE [map].[DRGProcedureGruppe](
         [dw_ek_DRGProcedureGruppe] INT IDENTITY(1,1) NOT NULL,
         [clean_code_DRGProcedureGruppe] NVARCHAR(100) NOT NULL,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_DRGProcedureGruppe_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_DRGProcedureGruppe_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_DRGProcedureGruppe_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_DRGProcedureGruppe_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_Map_DRGProcedureGruppe] PRIMARY KEY CLUSTERED ([clean_code_DRGProcedureGruppe] ASC)
     ) ON [PRIMARY];
 END

@@ -311,6 +311,16 @@ def test_probe_and_delete_window_share_the_source_date_expression():
     assert "LEFT JOIN [fhir].[Observation] AS o" in window
 
 
+def test_batches_are_numbered_in_the_delete_windows_source_date_order():
+    from DSO.load.refresh_sfi_datapoint import _build_number_changed_resources_sql
+
+    sql = _norm(_build_number_changed_resources_sql())
+    order = sql[sql.index("ORDER BY") : sql.index(") AS row_id")]
+    assert order.index("d.dt") < order.index("[source_resource_id]"), order
+    assert _norm(p.source_date_expr()) in sql
+    assert "LEFT JOIN [fhir].[QuestionnaireResponse] AS qr" in sql
+
+
 def test_scoped_delete_limits_to_the_window_and_handles_null_dates():
     sql = _norm(p.scoped_delete_sql(p.STORE_TABLE, "#batch_resources"))
     assert sql.count("DELETE tgt FROM [fhir].[SFI_datapoint_store] AS tgt") == 2

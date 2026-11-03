@@ -29,8 +29,8 @@ BEGIN
     CREATE TABLE [map].[Helbredsforloeb](
         [dw_ek_Helbredsforloeb] INT IDENTITY(1,1) NOT NULL,
         [clean_code_Helbredsforloeb] VARCHAR(80) NOT NULL,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Helbredsforloeb_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Helbredsforloeb_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Helbredsforloeb_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Helbredsforloeb_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_Map_Helbredsforloeb] PRIMARY KEY CLUSTERED ([clean_code_Helbredsforloeb] ASC)
     ) ON [PRIMARY];
 END
@@ -58,8 +58,8 @@ BEGIN
     CREATE TABLE [map].[Udredningsforloeb](
         [dw_ek_Udredningsforloeb] INT IDENTITY(1,1) NOT NULL,
         [clean_code_Udredningsforloeb] VARCHAR(100) NOT NULL,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Udredningsforloeb_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Udredningsforloeb_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Udredningsforloeb_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Udredningsforloeb_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_Map_Udredningsforloeb] PRIMARY KEY CLUSTERED ([clean_code_Udredningsforloeb] ASC)
     ) ON [PRIMARY];
 END
@@ -88,8 +88,8 @@ BEGIN
     CREATE TABLE [map].[UdredningsretKlassifikation](
         [dw_ek_UdredningsretKlassifikation] INT IDENTITY(1,1) NOT NULL,
         [clean_code_UdredningsretKlassifikation] NVARCHAR(100) NOT NULL,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_UdredningsretKlassifikation_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_UdredningsretKlassifikation_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_UdredningsretKlassifikation_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_UdredningsretKlassifikation_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_Map_UdredningsretKlassifikation] PRIMARY KEY CLUSTERED ([clean_code_UdredningsretKlassifikation] ASC)
     ) ON [PRIMARY];
 END
@@ -116,8 +116,8 @@ BEGIN
     CREATE TABLE [map].[Forloebsmarkoer](
         [dw_ek_Forloebsmarkoer] INT IDENTITY(1,1) NOT NULL,
         [clean_code_Forloebsmarkoer] VARCHAR(50) NOT NULL,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Forloebsmarkoer_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Forloebsmarkoer_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Forloebsmarkoer_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Forloebsmarkoer_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_Map_Forloebsmarkoer] PRIMARY KEY CLUSTERED ([clean_code_Forloebsmarkoer] ASC)
     ) ON [PRIMARY];
 END
@@ -148,8 +148,8 @@ BEGIN
     CREATE TABLE [map].[UdredningsretMarkoer](
         [dw_ek_UdredningsretMarkoer] INT IDENTITY(1,1) NOT NULL,
         [clean_code_UdredningsretMarkoer] VARCHAR(100) NOT NULL,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_UdredningsretMarkoer_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_UdredningsretMarkoer_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_UdredningsretMarkoer_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_UdredningsretMarkoer_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_Map_UdredningsretMarkoer] PRIMARY KEY CLUSTERED ([clean_code_UdredningsretMarkoer] ASC)
     ) ON [PRIMARY];
 END

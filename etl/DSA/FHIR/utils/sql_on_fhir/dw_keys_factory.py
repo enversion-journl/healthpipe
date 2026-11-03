@@ -4,13 +4,12 @@
 # This file is part of Healthpipe. See the LICENSE file in the project
 # root for the full AGPL-3.0 license text.
 
-"""Factory for the assets that put dw_ek_Borger, dw_sk_Borger and dw_ek_Organisation on fhir.*."""
+"""Factory for the assets that put the borger and organisation dw-keys on fhir.*."""
 
 # NOTE: no ``from __future__ import annotations`` here: Dagster resolves the asset's
 # ``config: RunModeConfig`` parameter from its runtime annotation.
 
 import time
-from collections.abc import Sequence
 
 import dagster as dg
 from core.dfm_config import RunModeConfig
@@ -39,22 +38,30 @@ def create_dw_keys_asset(cfg: DWKeysConfig, *, sof_asset: str) -> dg.AssetsDefin
     ``dw_timestamp_update`` after the asset's own writes, ``<table>_DWKeys_Borger`` (only for
     a table with borger keys) and ``<table>_DWKeys_Organisation`` the read bound on the
     dimension it reads: held back to a dim_Borger run in flight, and one hour before the run
-    start for dim.Organisation.
+    start for dim.Organisation and for the table an inherited organisation is read from.
     """
-    deps: Sequence[str] = [sof_asset, "dim_Organisation"]
-    dimensions = "dim.Organisation"
+    deps = [sof_asset]
+    sources = []
     if cfg.has_borger:
-        deps = [sof_asset, "dim_Borger", "dim_Organisation"]
-        dimensions = "dim.Borger, dim.Organisation"
+        deps.append("dim_Borger")
+        sources.append("dim.Borger")
+    if any(organisation.via is None for organisation in cfg.organisations):
+        deps.append("dim_Organisation")
+        sources.append("dim.Organisation")
+    for organisation in cfg.organisations:
+        if organisation.via is not None:
+            deps.append(organisation.via.asset_name)
+            sources.append(f"fhir.{organisation.via.table}")
+    source_tables = ", ".join(sources)
 
     @dg.asset(
         name=cfg.asset_name,
         group_name=GROUP_NAME,
         compute_kind="mssql",
-        deps=list(deps),
+        deps=deps,
         tags={"domain": "fhir", "layer": "dsa"},
         description=(
-            f"Sets {', '.join(key_columns(cfg))} on fhir.{cfg.table} from {dimensions} and "
+            f"Sets {', '.join(key_columns(cfg))} on fhir.{cfg.table} from {source_tables} and "
             "writes only the rows where a key changes."
         ),
     )
@@ -149,7 +156,7 @@ def create_dw_keys_asset(cfg: DWKeysConfig, *, sof_asset: str) -> dg.AssetsDefin
                 "checkpoints_used": dg.MetadataValue.json(checkpoints),
                 "distribution": dg.MetadataValue.json(result["distribution"] or {}),
                 "seconds": round(time.monotonic() - started, 1),
-                "source_table": dimensions,
+                "source_table": source_tables,
                 "target_table": f"fhir.{cfg.table}",
             }
         )

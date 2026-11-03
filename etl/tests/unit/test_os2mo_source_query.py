@@ -52,7 +52,7 @@ def _spec(**overrides):
 OKOSTED_SPEC = _spec()
 
 # A local stand-in for the production SOR spec (DSO.export.os2mo.codesystems):
-# same property names, so test_sor_reads_only_the_active_set exercises the
+# same property names, so test_sor_reads_only_the_scoped_set exercises the
 # same shape of spec without depending on that consumer module.
 SOR_SPEC = _spec(
     name="SOR",
@@ -61,8 +61,8 @@ SOR_SPEC = _spec(
     from_property="openingDate",
     to_property="closingDate",
     type_property="entityType",
-    active_property="activeOwnOrganization",
-    active_value="true",
+    scope_property="rsdOrganization",
+    scope_value="true",
     status_active_property="activeOwnOrganization",
     status_deleted_property=None,
     root_code="6101000016001",
@@ -94,10 +94,11 @@ def _mock_mssql(rows=None):
 
 
 class TestSourceQuery:
-    def test_sor_reads_only_the_active_set(self):
+    def test_sor_reads_only_the_scoped_set(self):
         sql = build_source_query(SOR_SPEC)
-        assert "INNER JOIN [codesystem].[SORProperties] p_active" in sql
-        assert "p_active.[value] = 'true'" in sql
+        assert "INNER JOIN [codesystem].[SORProperties] p_scope" in sql
+        assert "p_scope.[property_code] = 'rsdOrganization'" in sql
+        assert "p_scope.[value] = 'true'" in sql
         assert "[codesystem].[SORConcept] c" in sql
 
     def test_no_placeholder_survives_formatting(self):

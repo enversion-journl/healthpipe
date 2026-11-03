@@ -27,6 +27,7 @@ dso_lineage:
     dw_is_deleted:             { DataType: INT, FhirPath: "extension.where(url='urn:fhir:isDeleted').valueInteger", Source: [ifdb_sengeenhed.IFDB.SENGEENHED.SLETTET] }
     last_updated:              { DataType: DATETIME2, FhirPath: "r.ts" }
     created_at:                { DataType: DATETIME2, FhirPath: "r.cts" }
+    dw_ek_Organisation:        { Type: FK, DataType: INT, Expr: "dim.Organisation.dw_ek_Organisation hvor fhir_Organization_id = managing_organization_id", Description: "Organisationen, der administrerer sengeenheden. -1 når sengeenheden ikke har en organisation, eller organisationen ikke findes i dim.Organisation." }
 
   Notes:
     - "managing_organization_id er en UDLEDT kobling, ikke en autoritativ. Den høstes fra arc.ifdb_encounter_bed_space_history, hvor kilden selv bærer LOCATION_CODE (samme kodeområde som ADMENHED_KODE, målt til 100 % direkte match) og LOCATION_SORCODE på samme række — samme SOR-kolonne, der sætter fhir.Bed.partOf, så sengeenhedens organisation og sengens afdeling stammer fra samme kilde og ikke kan pege hver sin vej. Kildens egen ADMENHED_ORGKODE er et levn (270/279 mangler den) og bruges ikke."

@@ -53,8 +53,8 @@ BEGIN
         [kode_niveau9] [varchar](50) NULL,
         [navn_niveau9] [nvarchar](500) NULL,
         [dw_is_deleted] [bit] NOT NULL CONSTRAINT [DF_Organisation_dw_is_deleted] DEFAULT 0,
-        [dw_timestamp_insert] [datetime2](7) NOT NULL CONSTRAINT [DF_Organisation_dw_timestamp_insert] DEFAULT GETDATE(),
-        [dw_timestamp_update] [datetime2](7) NOT NULL CONSTRAINT [DF_Organisation_dw_timestamp_update] DEFAULT GETDATE(),
+        [dw_timestamp_insert] [datetime2](7) NOT NULL CONSTRAINT [DF_Organisation_dw_timestamp_insert] DEFAULT GETUTCDATE(),
+        [dw_timestamp_update] [datetime2](7) NOT NULL CONSTRAINT [DF_Organisation_dw_timestamp_update] DEFAULT GETUTCDATE(),
         CONSTRAINT [CK_Dim_Organisation_hierarki_niveau] CHECK (
             [hierarki_niveau] IS NULL
             OR ([hierarki_niveau] >= 1 AND [hierarki_niveau] <= 9)

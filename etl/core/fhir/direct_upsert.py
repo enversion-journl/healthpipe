@@ -113,7 +113,7 @@ def _resolve_existing_id_for_identifier_collision(
     idempotent success only when the database can prove that exactly one existing
     row has one of the incoming FHIR identifiers. Otherwise (including when the
     lookup itself errors) the original insert remains a real failure. Runs in its
-    own subtransaction so a failing lookup cannot abort the batch's transaction.
+    own transaction block so a failing lookup leaves the connection usable.
     """
     try:
         with conn.transaction():
@@ -400,6 +400,7 @@ def batch_upsert_resources(
             # Get the next available txid
             cur.execute(f"SELECT COALESCE(MAX(txid), 0) + 1 FROM {table_name};")
             next_txid = cur.fetchone()[0]
+            conn.commit()
 
             # Process in batches using executemany for better performance
             # executemany is 4-7x faster than individual execute() calls
@@ -429,12 +430,14 @@ def batch_upsert_resources(
                 batch_err = None
                 for attempt in range(1 + _BATCH_MAX_RETRIES):
                     try:
-                        cur.executemany(upsert_sql, params)
+                        with conn.transaction():
+                            cur.executemany(upsert_sql, params)
                         successes += len(batch)
                         batch_err = None
                         break
                     except _resources_module().BATCH_UPSERT_FALLBACK_ERROR as e:
-                        conn.rollback()
+                        if conn.broken:
+                            raise
                         batch_err = e
                         if attempt < _BATCH_MAX_RETRIES:
                             delay = _BATCH_RETRY_BACKOFFS[attempt]
@@ -453,10 +456,9 @@ def batch_upsert_resources(
                     )
                     for i, (resource_id, resource_json, resource) in enumerate(batch):
                         try:
-                            # Per-row subtransaction (SAVEPOINT): one failing row
-                            # must not poison the connection transaction and
-                            # cascade "current transaction is aborted" onto every
-                            # subsequent row in the batch.
+                            # Per-row transaction block: one failing row
+                            # must not cascade "current transaction is aborted"
+                            # onto every subsequent row in the batch.
                             with conn.transaction():
                                 cur.execute(
                                     upsert_sql,
@@ -541,7 +543,7 @@ def batch_upsert_resource_dicts(
     speedup on Aidbox-style workloads dominated by per-row server work
     (constraint checks, search-param triggers, WAL).
 
-    Each shard runs in its own transaction and commits independently —
+    Each shard runs on its own connection and commits every batch independently —
     there is no global atomicity across shards. The asset is idempotent
     (``ON CONFLICT (id) DO UPDATE``) so a partial failure is safely
     recovered by re-running with the same input.
@@ -557,8 +559,7 @@ def batch_upsert_resource_dicts(
       shard fixed costs are amortised.
 
     When the effective worker count resolves to 1 we fall back to a
-    single connection holding one transaction across all batches —
-    identical semantics to the pre-sharded implementation.
+    single connection that, like a shard, commits every batch independently.
 
     Returns ``UpsertResult`` — unpacks as (successes, failures, failed_ids)
     and carries ``recovered`` (rows re-upserted after a unique-violation).
@@ -708,12 +709,11 @@ def _upsert_dicts_single_connection(
     resource_type: str,
     batch_size: int,
 ) -> UpsertResult:
-    """Single-connection, single-transaction path used when sharding is off.
+    """Single-connection path used when sharding is off; every batch commits independently.
 
-    Behaviour matches the pre-sharded implementation byte-for-byte: one
-    ``SELECT MAX(txid)``, one batched insert loop, one commit. The
+    One ``SELECT MAX(txid)``, then one batched insert loop. The
     existing fallback unit tests exercise this path exclusively (they
-    pass two rows, which never crosses the sharding threshold).
+    pass at most four rows, which never crosses the sharding threshold).
     """
     table_name = resource_type.lower()
     total_start = perf_counter()
@@ -725,6 +725,7 @@ def _upsert_dicts_single_connection(
             txid_start = perf_counter()
             cur.execute(f"SELECT COALESCE(MAX(txid), 0) + 1 FROM {table_name};")
             txid_base = cur.fetchone()[0]
+            conn.commit()
             txid_seconds = perf_counter() - txid_start
             write_start = perf_counter()
             written = self._run_dict_upsert_batches(
@@ -946,15 +947,16 @@ def _run_dict_upsert_batches(
         for attempt in range(1 + _BATCH_MAX_RETRIES):
             try:
                 exec_start = perf_counter()
-                with conn.pipeline():
+                with conn.transaction(), conn.pipeline():
                     cur.executemany(upsert_sql, params)
                 executemany_seconds += perf_counter() - exec_start
                 successes += len(batch)
                 batch_err = None
                 break
             except _resources_module().BATCH_UPSERT_FALLBACK_ERROR as e:
+                if conn.broken:
+                    raise
                 fallback_start = perf_counter()
-                conn.rollback()
                 batch_err = e
                 if attempt < _BATCH_MAX_RETRIES:
                     delay = _BATCH_RETRY_BACKOFFS[attempt]
@@ -973,10 +975,9 @@ def _run_dict_upsert_batches(
             )
             for i, (rid, rjson) in enumerate(batch):
                 try:
-                    # Per-row subtransaction (SAVEPOINT): one failing row must
-                    # not poison the connection transaction and cascade
-                    # "current transaction is aborted" onto every subsequent
-                    # row in the batch.
+                    # Per-row transaction block: one failing row must
+                    # not cascade "current transaction is aborted" onto every
+                    # subsequent row in the batch.
                     with conn.transaction():
                         cur.execute(
                             upsert_sql,

@@ -32,7 +32,17 @@ from .DocumentReference_dfm import sof_documentreference_dfm
 from .DocumentReference_Recipient_dfm import sof_documentreference_recipient_dfm
 from .Encounter_dfm import sof_encounter_dfm
 from .Encounter_Location_dfm import sof_encounter_location_dfm
-from .DWKeys_dfm import fhir_dw_keys_episode_of_care, fhir_dw_keys_location
+from .DWKeys_dfm import (
+    fhir_dw_keys_appointment,
+    fhir_dw_keys_careplan,
+    fhir_dw_keys_careplan_activity,
+    fhir_dw_keys_documentreference,
+    fhir_dw_keys_encounter,
+    fhir_dw_keys_episode_of_care,
+    fhir_dw_keys_location,
+    fhir_dw_keys_service_request,
+    fhir_dw_keys_ward_unit,
+)
 from .EpisodeOfCare_dfm import sof_episode_of_care_dfm
 from .Location_dfm import sof_location_dfm
 from .Observation_dfm import sof_observation_dfm, sof_observation_speciale_dfm
@@ -89,6 +99,13 @@ all_assets = [
     sof_location_dfm,
     fhir_dw_keys_episode_of_care,
     fhir_dw_keys_location,
+    fhir_dw_keys_appointment,
+    fhir_dw_keys_careplan,
+    fhir_dw_keys_careplan_activity,
+    fhir_dw_keys_documentreference,
+    fhir_dw_keys_encounter,
+    fhir_dw_keys_service_request,
+    fhir_dw_keys_ward_unit,
     sof_questionnaire_dfm,
     sof_questionnaire_item_dfm,
     sof_questionnaire_response_dfm,
@@ -127,6 +144,13 @@ __all__ = [
     "sof_location_dfm",
     "fhir_dw_keys_episode_of_care",
     "fhir_dw_keys_location",
+    "fhir_dw_keys_appointment",
+    "fhir_dw_keys_careplan",
+    "fhir_dw_keys_careplan_activity",
+    "fhir_dw_keys_documentreference",
+    "fhir_dw_keys_encounter",
+    "fhir_dw_keys_service_request",
+    "fhir_dw_keys_ward_unit",
     "sof_questionnaire_dfm",
     "sof_questionnaire_item_dfm",
     "sof_questionnaire_response_dfm",

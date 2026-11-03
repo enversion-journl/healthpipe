@@ -203,16 +203,32 @@ allerede er kolonner, står i lineage. *Aftager:* **sig til, hvilke opgørelser
 der skal kunne køre uden at læse JSON.**
 
 **dw-nøgler på de flade tabeller.** `dw_ek_Borger`, `dw_sk_Borger` og `dw_ek_Organisation`
-lægges direkte på de flade tabeller (i dag `fhir.EpisodeOfCare` og `fhir.Location`) og slås op
-i `dim.Borger` og `dim.Organisation` på FHIR-id. Begrundelse og mekanik står i
+lægges direkte på de flade tabeller (i dag `fhir.EpisodeOfCare`, `fhir.Appointment`,
+`fhir.CarePlan`, `fhir.CarePlan_Activity`, `fhir.DocumentReference`, `fhir.Encounter`, og kun
+organisation på `fhir.Location` og `fhir.WardUnit`) og slås op i `dim.Borger` og
+`dim.Organisation` på FHIR-id. `fhir.ServiceRequest` får borgernøglerne og én
+organisationsnøgle pr. rolle (se nedenfor). Begrundelse og mekanik står i
 `etl/docs/architecture/fhir_dw_keys_trin2.md`.
 
 - **`dw_ek_Borger` findes også for en borger, der kun findes som slettet.** Entitetsnøglen er
   borgerens identitet, ikke en gyldig version. *Aftager:* en nøgle her siger ikke, at borgeren
   er aktiv.
-- **`dw_sk_Borger` er den levende version, der gælder på rækkens tidspunkt** (for
-  EpisodeOfCare `period_start`), med samme regel som `dbo.GetBorgerSK_TVF`. Soft-deletede
-  versioner tæller ikke.
+- **`dw_sk_Borger` er den levende version, der gælder på rækkens tidspunkt**, med samme
+  regel som `dbo.GetBorgerSK_TVF`. Soft-deletede versioner tæller ikke. Tidspunktet er
+  EpisodeOfCare og Encounter `period_start`, CarePlan `period_start` (patientens første
+  markør; CarePlan er patientens ene "alle markører"-plan, og en markør er en række i
+  `IFDB.EVENTMARKER`), CarePlan_Activity `activity_timestamp`, DocumentReference `doc_date`,
+  ServiceRequest `authored_on` og Appointment `start`, læst som det klokkeslæt, IFDB leverer.
+  *Aftager:* på CarePlan er versionen den, der gjaldt ved planens start, ikke ved den
+  enkelte markør; brug CarePlan_Activity for versionen pr. markør. På DocumentReference er
+  `doc_date` epikrisens første afsendelse, men udskrivningsrapportens seneste ændring.
+- **ServiceRequest har to organisationsnøgler:** `dw_ek_Organisation_henvist_til` (modtageren,
+  `performer_id`) og `dw_ek_Organisation_henvist_fra` (afsenderen, `requester_id`). Der er ingen
+  `dw_ek_Organisation` på tabellen. *Aftager:* vælg rollen efter opgørelsen.
+- **Appointment arver organisationen fra sin lokation.** Aftalen har ingen
+  organisationsreference, kun den udførende lokation (`performing_location_id`, fra aftalens
+  udførende SOR-kode). `dw_ek_Organisation` er lokationens `dw_ek_Organisation`, dvs.
+  organisationen med samme SOR-kode, og følger med, når lokationens nøgle ændres.
 - **-1 betyder "ingen nøgle"** — referencen mangler, findes ikke i dimensionen, eller (kun
   `dw_sk_Borger`) rækken har intet tidspunkt eller ingen levende version på tidspunktet. -2
   bruges ikke. *Aftager:* et join til dimensionen rammer UNKNOWN-rækken; filtrér på -1 for at

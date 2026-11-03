@@ -28,7 +28,7 @@ BEGIN
         [bruger] NVARCHAR(50) NOT NULL,
         [DW_EK_RBOrganisation] INT NOT NULL,
         [SOR_kode] VARCHAR(50) NOT NULL,
-        [dw_timestamp_update] DATETIME2(7) NOT NULL CONSTRAINT [DF_RBOrganisation_dw_timestamp_update] DEFAULT GETDATE(),
+        [dw_timestamp_update] DATETIME2(7) NOT NULL CONSTRAINT [DF_RBOrganisation_dw_timestamp_update] DEFAULT GETUTCDATE(),
         CONSTRAINT [PK_RBOrganisation] PRIMARY KEY CLUSTERED ([bruger] ASC, [DW_EK_RBOrganisation] ASC)
     );
 
@@ -43,7 +43,7 @@ BEGIN
         [bruger] NVARCHAR(50) NOT NULL,
         [DW_EK_RBOrganisation] INT NOT NULL,
         [SOR_kode] VARCHAR(50) NOT NULL,
-        [dw_timestamp_update] DATETIME2(7) NOT NULL CONSTRAINT [DF_RBOrganisation_New_dw_timestamp_update] DEFAULT GETDATE(),
+        [dw_timestamp_update] DATETIME2(7) NOT NULL CONSTRAINT [DF_RBOrganisation_New_dw_timestamp_update] DEFAULT GETUTCDATE(),
         CONSTRAINT [PK_RBOrganisation_New] PRIMARY KEY CLUSTERED ([bruger] ASC, [DW_EK_RBOrganisation] ASC)
     );
 
@@ -57,7 +57,7 @@ BEGIN
         [bruger] NVARCHAR(50) NOT NULL,
         [DW_EK_RBOrganisation] INT NOT NULL,
         [SOR_kode] VARCHAR(50) NOT NULL,
-        [dw_timestamp_update] DATETIME2(7) NOT NULL CONSTRAINT [DF_RBOrganisation_Old_dw_timestamp_update] DEFAULT GETDATE(),
+        [dw_timestamp_update] DATETIME2(7) NOT NULL CONSTRAINT [DF_RBOrganisation_Old_dw_timestamp_update] DEFAULT GETUTCDATE(),
         CONSTRAINT [PK_RBOrganisation_Old] PRIMARY KEY CLUSTERED ([bruger] ASC, [DW_EK_RBOrganisation] ASC)
     );
 

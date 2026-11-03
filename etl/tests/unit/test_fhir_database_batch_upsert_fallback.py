@@ -9,14 +9,15 @@ Unit tests for FHIRDatabaseResource batch upsert fallback behavior.
 
 Focus:
 - Batch-level retry with backoff before falling back to per-row inserts.
-- conn.rollback() resets the aborted PostgreSQL transaction before retries and fallback.
+- Each batch attempt runs in its own transaction block, so a retry keeps the earlier batches.
+- A connection lost in a batch attempt raises at once, without retry or fallback.
 - Fallback to per-resource inserts only for configured database errors.
 - Surface non-database errors immediately (no silent fallback, no retry).
 - Driver/serializer error text never reaches failed_ids or logs — it can
   embed resource content (for Patient the CPR in a unique-violation DETAIL).
 """
 
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from unittest.mock import MagicMock, call, patch
 
 import pytest
@@ -45,6 +46,7 @@ def _build_connection_and_cursor() -> tuple[MagicMock, MagicMock]:
     cursor_cm.__enter__.return_value = cursor
     cursor_cm.__exit__.return_value = False
     connection.cursor.return_value = cursor_cm
+    connection.broken = False
 
     cursor.fetchone.return_value = [100]
     return connection, cursor
@@ -53,6 +55,77 @@ def _build_connection_and_cursor() -> tuple[MagicMock, MagicMock]:
 @contextmanager
 def _connection_ctx(connection: MagicMock):
     yield connection
+
+
+class _TransactionalConnection:
+    """Fake connection with psycopg transaction-block semantics; one id fails once."""
+
+    def __init__(self, fail_once_on: str) -> None:
+        self.broken = False
+        self.committed: list[str] = []
+        self.savepoints = 0
+        self._pending: list[str] = []
+        self._in_transaction = False
+        self._aborted = False
+        self._fail_once_on: str | None = fail_once_on
+        self._cursor = MagicMock()
+        self._cursor.fetchone.return_value = [100]
+        self._cursor.execute.side_effect = lambda sql, params=None: self._write(
+            params[:1] if params else ()
+        )
+        self._cursor.executemany.side_effect = lambda sql, params: self._write(
+            [row[0] for row in params]
+        )
+
+    def _write(self, ids) -> None:
+        if self._aborted:
+            raise RuntimeError("current transaction is aborted")
+        self._in_transaction = True
+        for resource_id in ids:
+            if resource_id == self._fail_once_on:
+                self._fail_once_on = None
+                self._aborted = True
+                raise RuntimeError("deadlock detected")
+            self._pending.append(resource_id)
+
+    def cursor(self):
+        return nullcontext(self._cursor)
+
+    def pipeline(self):
+        return nullcontext()
+
+    @contextmanager
+    def transaction(self):
+        if self._aborted:
+            raise RuntimeError("current transaction is aborted")
+        outer = not self._in_transaction
+        if not outer:
+            self.savepoints += 1
+        savepoint = len(self._pending)
+        self._in_transaction = True
+        try:
+            yield
+        except BaseException:
+            if outer:
+                self.rollback()
+            else:
+                del self._pending[savepoint:]
+                self._aborted = False
+            raise
+        if outer:
+            self.commit()
+
+    def rollback(self) -> None:
+        self._pending.clear()
+        self._in_transaction = False
+        self._aborted = False
+
+    def commit(self) -> None:
+        if not self._aborted:
+            self.committed.extend(self._pending)
+        self._pending.clear()
+        self._in_transaction = False
+        self._aborted = False
 
 
 def _sample_patients() -> list[Patient]:
@@ -79,6 +152,22 @@ def _sample_dict_resources() -> list[tuple[str, dict]]:
         ("obs-1", {"resourceType": "Observation", "id": "obs-1", "status": "final"}),
         ("obs-2", {"resourceType": "Observation", "id": "obs-2", "status": "final"}),
     ]
+
+
+def _upsert(resource: FHIRDatabaseResource, writer: str, ids: list[str], batch_size: int):
+    if writer == "resources":
+        return resource.batch_upsert_resources(
+            resources=[Patient(id=resource_id) for resource_id in ids],
+            resource_type="Patient",
+            batch_size=batch_size,
+        )
+    return resource.batch_upsert_resource_dicts(
+        resource_dicts=[
+            (resource_id, {"resourceType": "Observation", "id": resource_id}) for resource_id in ids
+        ],
+        resource_type="Observation",
+        batch_size=batch_size,
+    )
 
 
 class TestBatchUpsertResourcesFallback:
@@ -108,11 +197,11 @@ class TestBatchUpsertResourcesFallback:
         assert failures == 0
         assert failed_ids == []
         assert cursor.executemany.call_count == 1 + _BATCH_MAX_RETRIES
-        assert connection.rollback.call_count == 1 + _BATCH_MAX_RETRIES
+        connection.rollback.assert_not_called()
         assert mock_sleep.call_count == _BATCH_MAX_RETRIES
         # 1 x SELECT max(txid) + 2 x fallback inserts
         assert cursor.execute.call_count == 3
-        connection.commit.assert_called_once()
+        assert connection.commit.call_count == 2
 
     def test_transient_error_succeeds_on_retry_without_fallback(self) -> None:
         resource = _build_resource()
@@ -143,22 +232,17 @@ class TestBatchUpsertResourcesFallback:
         assert failures == 0
         assert failed_ids == []
         assert cursor.executemany.call_count == 2
-        connection.rollback.assert_called_once()
+        connection.rollback.assert_not_called()
         mock_sleep.assert_called_once()
         # Only SELECT max(txid), no per-row fallback inserts
         assert cursor.execute.call_count == 1
-        connection.commit.assert_called_once()
+        assert connection.commit.call_count == 2
 
-    def test_rollback_called_before_each_retry_and_before_fallback(self) -> None:
+    @pytest.mark.parametrize("writer", ["resources", "dicts"])
+    def test_retry_keeps_earlier_inner_batches(self, writer: str) -> None:
         resource = _build_resource()
-        connection, cursor = _build_connection_and_cursor()
-
-        cursor.executemany.side_effect = RuntimeError("persistent failure")
-
-        call_order: list[str] = []
-        connection.rollback.side_effect = lambda: call_order.append("rollback")
-        cursor.execute.side_effect = lambda *a, **kw: call_order.append("execute")
-        cursor.fetchone.return_value = [100]
+        ids = ["res-1", "res-2", "res-3", "res-4"]
+        connection = _TransactionalConnection(fail_once_on="res-4")
 
         with (
             patch("core.resources.BATCH_UPSERT_FALLBACK_ERROR", RuntimeError),
@@ -170,19 +254,38 @@ class TestBatchUpsertResourcesFallback:
             patch("core.resources.dg.get_dagster_logger", return_value=MagicMock()),
             patch("core.fhir.direct_upsert.time.sleep"),
         ):
-            resource.batch_upsert_resources(
-                resources=_sample_patients(),
-                resource_type="Patient",
-                batch_size=500,
-            )
+            result = _upsert(resource, writer, ids, batch_size=2)
 
-        # First call is SELECT max(txid), then rollback/retry/rollback/retry/rollback/fallback
-        assert call_order[0] == "execute"  # SELECT max(txid)
-        rollback_positions = [i for i, c in enumerate(call_order) if c == "rollback"]
-        execute_positions = [i for i, c in enumerate(call_order) if c == "execute"]
-        fallback_execute_positions = execute_positions[1:]  # skip SELECT max(txid)
-        # All rollbacks happen before any fallback inserts
-        assert all(r < min(fallback_execute_positions) for r in rollback_positions)
+        assert tuple(result) == (4, 0, [])
+        assert connection.committed == ids
+        assert connection.savepoints == 0
+
+    @pytest.mark.parametrize("writer", ["resources", "dicts"])
+    def test_broken_connection_raises_without_retry_or_fallback(self, writer: str) -> None:
+        resource = _build_resource()
+        connection, cursor = _build_connection_and_cursor()
+        connection.broken = True
+
+        cursor.executemany.side_effect = RuntimeError("server closed the connection")
+
+        with (
+            patch("core.resources.BATCH_UPSERT_FALLBACK_ERROR", RuntimeError),
+            patch.object(
+                FHIRDatabaseResource,
+                "get_connection",
+                return_value=_connection_ctx(connection),
+            ),
+            patch("core.resources.dg.get_dagster_logger", return_value=MagicMock()),
+            patch("core.fhir.direct_upsert.time.sleep") as mock_sleep,
+            pytest.raises(RuntimeError, match="server closed the connection"),
+        ):
+            _upsert(resource, writer, ["res-1", "res-2"], batch_size=500)
+
+        assert cursor.executemany.call_count == 1
+        mock_sleep.assert_not_called()
+        # Only SELECT max(txid), no per-row fallback inserts
+        assert cursor.execute.call_count == 1
+        connection.commit.assert_called_once()
 
     def test_raises_non_database_error_without_fallback(self) -> None:
         resource = _build_resource()
@@ -210,7 +313,7 @@ class TestBatchUpsertResourcesFallback:
         # Only SELECT max(txid) should have been executed before the exception bubbles.
         assert cursor.execute.call_count == 1
         connection.rollback.assert_not_called()
-        connection.commit.assert_not_called()
+        connection.commit.assert_called_once()
 
     def test_unique_identifier_collision_counts_as_success_when_resolved(self) -> None:
         """Concurrent create under another id is idempotent if identifier re-resolves."""
@@ -264,7 +367,7 @@ class TestBatchUpsertResourcesFallback:
         assert "ON CONFLICT (id) DO UPDATE" in retry_call.args[0]
         assert retry_call.args[1][0] == "existing-pat"
         assert '"existing-pat"' in retry_call.args[1][2]
-        connection.commit.assert_called_once()
+        assert connection.commit.call_count == 2
 
     def test_unique_identifier_collision_lookup_error_counts_as_failure(self) -> None:
         """A failing re-resolve lookup must not crash or poison the batch."""
@@ -305,7 +408,7 @@ class TestBatchUpsertResourcesFallback:
         assert successes == 0
         assert failures == 1
         assert len(failed_ids) == 1
-        connection.commit.assert_called_once()
+        assert connection.commit.call_count == 2
 
 
 class TestBatchUpsertResourceDictsFallback:
@@ -335,11 +438,11 @@ class TestBatchUpsertResourceDictsFallback:
         assert failures == 0
         assert failed_ids == []
         assert cursor.executemany.call_count == 1 + _BATCH_MAX_RETRIES
-        assert connection.rollback.call_count == 1 + _BATCH_MAX_RETRIES
+        connection.rollback.assert_not_called()
         assert mock_sleep.call_count == _BATCH_MAX_RETRIES
         # 1 x SELECT max(txid) + 2 x fallback inserts
         assert cursor.execute.call_count == 3
-        connection.commit.assert_called_once()
+        assert connection.commit.call_count == 2
 
     def test_transient_error_succeeds_on_retry_without_fallback(self) -> None:
         resource = _build_resource()
@@ -370,11 +473,11 @@ class TestBatchUpsertResourceDictsFallback:
         assert failures == 0
         assert failed_ids == []
         assert cursor.executemany.call_count == 2
-        connection.rollback.assert_called_once()
+        connection.rollback.assert_not_called()
         mock_sleep.assert_called_once()
         # Only SELECT max(txid), no per-row fallback inserts
         assert cursor.execute.call_count == 1
-        connection.commit.assert_called_once()
+        assert connection.commit.call_count == 2
 
     def test_dict_path_raises_non_database_error_without_fallback(self) -> None:
         resource = _build_resource()
@@ -402,10 +505,10 @@ class TestBatchUpsertResourceDictsFallback:
         # Only SELECT max(txid) should run before propagation.
         assert cursor.execute.call_count == 1
         connection.rollback.assert_not_called()
-        connection.commit.assert_not_called()
+        connection.commit.assert_called_once()
 
     def test_unique_violation_on_one_row_does_not_poison_remaining_rows(self) -> None:
-        """Savepoint isolation: one duplicate-key row must not abort the batch.
+        """Transaction-block isolation: one duplicate-key row must not abort the batch.
 
         Regression test for the 2026-06-09 Encounter incident: a concurrent
         asset had already created the resource under a different id, the
@@ -459,10 +562,10 @@ class TestBatchUpsertResourceDictsFallback:
         assert failures == 1
         assert len(failed_ids) == 1
         assert failed_ids[0].startswith("obs-1")
-        # Each fallback row runs in its own subtransaction (SAVEPOINT), and the
-        # colliding row's identifier re-resolve lookup adds one more.
-        assert connection.transaction.call_count == 4
-        connection.commit.assert_called_once()
+        # Each batch attempt and each fallback row runs in its own transaction block,
+        # and the colliding row's identifier re-resolve lookup adds one more.
+        assert connection.transaction.call_count == 1 + _BATCH_MAX_RETRIES + 4
+        assert connection.commit.call_count == 2
 
     def test_dict_unique_identifier_collision_counts_as_success_when_resolved(self) -> None:
         """Dict upserts use the same duplicate-identifier idempotency guard."""
@@ -530,7 +633,7 @@ class TestBatchUpsertResourceDictsFallback:
         assert "ON CONFLICT (id) DO UPDATE" in retry_call.args[0]
         assert retry_call.args[1][0] == "existing-obs"
         assert '"existing-obs"' in retry_call.args[1][2]
-        connection.commit.assert_called_once()
+        assert connection.commit.call_count == 2
 
     def test_backoff_delays_match_configured_values(self) -> None:
         resource = _build_resource()

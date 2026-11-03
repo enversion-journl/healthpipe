@@ -103,6 +103,18 @@ class TestSafeReaderCheckpoint:
         assert params == expected
         assert sql.count("?") == len(params)
 
+    @pytest.mark.unit
+    def test_writer_scope_skips_the_same_table_written_under_another_scope(self) -> None:
+        """The SFI store waits for the DSO sync of fhir.Observation, not for its SoF load."""
+        manager, seen = self._manager_capturing_sql()
+        manager.safe_reader_checkpoint(
+            "2026-09-29 06:00:00", writer=("fhir", "Observation"), writer_scope="dso"
+        )
+        sql, params = seen[0]
+        assert params == ("2026-09-29 06:00:00", "fhir_table", "fhir", "Observation", "dso")
+        assert "AND [scope] = ?" in sql
+        assert sql.count("?") == len(params)
+
 
 class TestNoBuilderMovesItsCheckpointToTheFinishTime:
     def test_builders_use_the_shared_advance(self) -> None:

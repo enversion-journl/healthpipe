@@ -14,8 +14,6 @@ Checkpoint semantics (Strategy B, pinned window):
      the MERGE (avoids advancing past rows that landed mid-sync and were not read).
 
 Exclusive ``>`` on the lower bound is unchanged (see dfm_design.md §8).
-
-SFI datapoint refresh still uses SyncStateManager — see refresh_sfi_datapoint.py.
 """
 
 from __future__ import annotations

@@ -78,8 +78,8 @@ class TestMigrateSyncWatermarksToDfm:
         dso_conn = MagicMock()
         dso_cursor = MagicMock()
         dso_cursor.fetchall.return_value = [
-            ("dim", "Kreditor", "2025-01-01 00:00:00.000"),
-            ("fhir", "Patient", "2025-02-01 00:00:00.000"),
+            ("dso", "dim", "Kreditor", "2025-01-01 00:00:00.000"),
+            ("dso", "fhir", "Patient", "2025-02-01 00:00:00.000"),
         ]
         dso_conn.cursor.return_value = dso_cursor
         dso.get_connection.return_value.__enter__.return_value = dso_conn
@@ -112,9 +112,9 @@ class TestMigrateSyncWatermarksToDfm:
         dso_conn = MagicMock()
         dso_cursor = MagicMock()
         dso_cursor.fetchall.return_value = [
-            ("dim", "Kreditor", "2025-01-01 00:00:00.000"),
-            ("fhir", "Patient", "2025-02-01 00:00:00.000"),
-            ("fct", "Faktura", "2025-03-01 00:00:00.000"),
+            ("dso", "dim", "Kreditor", "2025-01-01 00:00:00.000"),
+            ("dso", "fhir", "Patient", "2025-02-01 00:00:00.000"),
+            ("dso", "fct", "Faktura", "2025-03-01 00:00:00.000"),
         ]
         dso_conn.cursor.return_value = dso_cursor
         dso.get_connection.return_value.__enter__.return_value = dso_conn
@@ -128,6 +128,41 @@ class TestMigrateSyncWatermarksToDfm:
 
         stats = migrate_sync_watermarks_to_dfm(dso, staging)
         assert stats == MigrationStats(inserted=1, updated=1, skipped=1)
+
+    def test_sfi_store_watermark_becomes_the_store_checkpoint_three_hours_back(self):
+        """Without it the store's first refresh after deploy rebuilds the whole store."""
+        dso = MagicMock()
+        staging = MagicMock()
+        dso_conn = MagicMock()
+        dso_cursor = MagicMock()
+        dso_cursor.fetchall.return_value = [
+            ("sfi_store", "fhir", "SFI_datapoint_store", "2026-10-23 03:48:57.000"),
+        ]
+        dso_conn.cursor.return_value = dso_cursor
+        dso.get_connection.return_value.__enter__.return_value = dso_conn
+        stg_conn = MagicMock()
+        stg_cursor = MagicMock()
+        stg_cursor.fetchall.side_effect = [[("INSERT",)]]
+        stg_conn.cursor.return_value = stg_cursor
+        staging.get_connection.return_value.__enter__.return_value = stg_conn
+
+        stats = migrate_sync_watermarks_to_dfm(dso, staging)
+
+        assert stats == MigrationStats(inserted=1, updated=0, skipped=0)
+        select_sql, select_params = dso_cursor.execute.call_args[0]
+        store_leg = select_sql.split("UNION ALL")[1]
+        assert "N'sfi_store'" in store_leg
+        assert "DATEADD(HOUR, -3, [last_sync_timestamp])" in store_leg
+        assert "[schema_name] = ? AND [table_name] = ?" in store_leg
+        assert select_params == ("sfi_datapoint", "sfi_datapoint", "refresh_daily")
+        # The store's own run reads this row: scope, target type, schema and table must match.
+        assert stg_cursor.execute.call_args[0][1] == (
+            "sfi_store",
+            "fhir_table",
+            "fhir",
+            "SFI_datapoint_store",
+            "2026-10-23 03:48:57.000",
+        )
 
 
 class TestMainEntry:

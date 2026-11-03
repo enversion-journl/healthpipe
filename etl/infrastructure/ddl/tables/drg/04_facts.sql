@@ -75,8 +75,8 @@ BEGIN
         [udfaldsgivende_kontakt] NVARCHAR(6) NULL,
         [dw_haendelsestidspunkt] DATETIME2 NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_DRGKontakt_dw_is_deleted] DEFAULT 0,
-        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_DRGKontakt_dw_timestamp_insert] DEFAULT SYSDATETIME(),
-        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_DRGKontakt_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_DRGKontakt_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_DRGKontakt_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_Fct_DRGKontakt] PRIMARY KEY CLUSTERED ([dw_ek_DRGKontakt] ASC)
     ) ON [PRIMARY];
 

@@ -50,8 +50,8 @@ BEGIN
         [x_ecpr] NVARCHAR(50) NULL,
         [d_ecpr] NVARCHAR(50) NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_PatientToBorger_dw_is_deleted] DEFAULT 0,
-        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_PatientToBorger_dw_timestamp_insert] DEFAULT CAST(SYSDATETIME() AS datetime2(0)),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_PatientToBorger_dw_timestamp_update] DEFAULT CAST(SYSDATETIME() AS datetime2(0)),
+        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_PatientToBorger_dw_timestamp_insert] DEFAULT CAST(SYSUTCDATETIME() AS datetime2(0)),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_PatientToBorger_dw_timestamp_update] DEFAULT CAST(SYSUTCDATETIME() AS datetime2(0)),
         CONSTRAINT [PK_Ref_PatientToBorger] PRIMARY KEY CLUSTERED ([dw_ek_Borger], [patient_id]),
         CONSTRAINT [UQ_Ref_PatientToBorger_PatientId] UNIQUE ([patient_id]),
         CONSTRAINT [CK_Ref_Patient_Borger_HasIdentifier] CHECK (
@@ -98,8 +98,8 @@ BEGIN
         [dw_valid_to] DATETIME2(0) NOT NULL,
         [dw_is_current] BIT NOT NULL CONSTRAINT [DF_Patient_Address_To_Borger_dw_is_current] DEFAULT 1,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_Patient_Address_To_Borger_dw_is_deleted] DEFAULT 0,
-        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_Patient_Address_To_Borger_dw_timestamp_insert] DEFAULT CAST(SYSDATETIME() AS datetime2(0)),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_Patient_Address_To_Borger_dw_timestamp_update] DEFAULT CAST(SYSDATETIME() AS datetime2(0)),
+        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_Patient_Address_To_Borger_dw_timestamp_insert] DEFAULT CAST(SYSUTCDATETIME() AS datetime2(0)),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_Patient_Address_To_Borger_dw_timestamp_update] DEFAULT CAST(SYSUTCDATETIME() AS datetime2(0)),
         CONSTRAINT [PK_Ref_Patient_Address_To_Borger] PRIMARY KEY CLUSTERED ([dw_sk_Borger], [patient_id]),
         CONSTRAINT [CK_Ref_Patient_Address_Borger_HasIdentifier] CHECK (
             [dw_is_deleted] = 1
@@ -183,8 +183,8 @@ BEGIN
         [is_newest_postering_for_faktura] BIT NOT NULL CONSTRAINT [DF_FakturaToPostering_is_newest_postering_for_faktura] DEFAULT 0,
         [is_newest_faktura_for_postering] BIT NOT NULL CONSTRAINT [DF_FakturaToPostering_is_newest_faktura_for_postering] DEFAULT 0,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_FakturaToPostering_dw_is_deleted] DEFAULT 0,
-        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_FakturaToPostering_dw_timestamp_insert] DEFAULT CAST(SYSDATETIME() AS datetime2(0)),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_FakturaToPostering_dw_timestamp_update] DEFAULT CAST(SYSDATETIME() AS datetime2(0)),
+        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_FakturaToPostering_dw_timestamp_insert] DEFAULT CAST(SYSUTCDATETIME() AS datetime2(0)),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_FakturaToPostering_dw_timestamp_update] DEFAULT CAST(SYSUTCDATETIME() AS datetime2(0)),
         CONSTRAINT [PK_Ref_FakturaToPostering] PRIMARY KEY CLUSTERED ([dw_ek_Faktura] ASC, [dw_ek_Postering] ASC)
     ) ON [PRIMARY];
 END
@@ -221,8 +221,8 @@ BEGIN
         [dw_is_deleted]       BIT            NOT NULL
             CONSTRAINT [DF_KMDFakturalinjeUNSPSCMatch_dw_is_deleted] DEFAULT 0,
         [dw_timestamp_insert] DATETIME2(0) NOT NULL
-            CONSTRAINT [DF_KMDFakturalinjeUNSPSCMatch_dw_timestamp_insert] DEFAULT CAST(SYSDATETIME() AS datetime2(0)),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_KMDFakturalinjeUNSPSCMatch_dw_timestamp_update] DEFAULT SYSDATETIME(),
+            CONSTRAINT [DF_KMDFakturalinjeUNSPSCMatch_dw_timestamp_insert] DEFAULT CAST(SYSUTCDATETIME() AS datetime2(0)),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_KMDFakturalinjeUNSPSCMatch_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_Ref_KmdFakturalinjeUnspscMatch]
             PRIMARY KEY CLUSTERED ([dw_sk_KMDFakturalinjeUNSPSCMatch] ASC)
     ) ON [PRIMARY];
@@ -324,8 +324,8 @@ BEGIN
         [dw_ek_Dato_faktura]         INT            NOT NULL
             CONSTRAINT [DF_FakturalinjeMatchKeys_dw_ek_Dato_faktura] DEFAULT -1,
         [dw_timestamp_insert] DATETIME2(0) NOT NULL
-            CONSTRAINT [DF_FakturalinjeMatchKeys_dw_timestamp_insert] DEFAULT CAST(SYSDATETIME() AS datetime2(0)),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_FakturalinjeMatchKeys_dw_timestamp_update] DEFAULT SYSDATETIME(),
+            CONSTRAINT [DF_FakturalinjeMatchKeys_dw_timestamp_insert] DEFAULT CAST(SYSUTCDATETIME() AS datetime2(0)),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_FakturalinjeMatchKeys_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_Ref_FakturalinjeMatchKeys]
             PRIMARY KEY CLUSTERED ([dw_ek_Fakturalinje] ASC)
     ) ON [PRIMARY];
@@ -407,8 +407,8 @@ BEGIN
         [organization_id] NVARCHAR(255) NOT NULL,
         [sor_code] VARCHAR(50) NULL,
         [dw_is_deleted] BIT NOT NULL CONSTRAINT [DF_Organisation_dw_is_deleted] DEFAULT 0,
-        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_Organisation_dw_timestamp_insert] DEFAULT CAST(SYSDATETIME() AS datetime2(0)),
-        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_Organisation_dw_timestamp_update] DEFAULT CAST(SYSDATETIME() AS datetime2(0)),
+        [dw_timestamp_insert] DATETIME2(0) NOT NULL CONSTRAINT [DF_Organisation_dw_timestamp_insert] DEFAULT CAST(SYSUTCDATETIME() AS datetime2(0)),
+        [dw_timestamp_update] DATETIME2(0) NOT NULL CONSTRAINT [DF_Organisation_dw_timestamp_update] DEFAULT CAST(SYSUTCDATETIME() AS datetime2(0)),
         CONSTRAINT [PK_Ref_Organisation] PRIMARY KEY CLUSTERED ([dw_ek_Organisation], [organization_id]),
         CONSTRAINT [UQ_Ref_Organisation_OrganizationId] UNIQUE ([organization_id]),
         CONSTRAINT [CK_Ref_Organisation_HasIdentifier] CHECK (
@@ -458,10 +458,10 @@ BEGIN
         [dw_ek_Rekvirent]      INT           NULL,
         [dw_timestamp_insert]  DATETIME2(0)  NOT NULL
             CONSTRAINT [DF_RekvirentUndtagelse_dw_timestamp_insert]
-            DEFAULT CAST(SYSDATETIME() AS datetime2(0)),
+            DEFAULT CAST(SYSUTCDATETIME() AS datetime2(0)),
         [dw_timestamp_update]  DATETIME2(0)  NOT NULL
             CONSTRAINT [DF_RekvirentUndtagelse_dw_timestamp_update]
-            DEFAULT CAST(SYSDATETIME() AS datetime2(0)),
+            DEFAULT CAST(SYSUTCDATETIME() AS datetime2(0)),
         CONSTRAINT [PK_Ref_RekvirentUndtagelse]
             PRIMARY KEY CLUSTERED ([clean_code_Rekvirent] ASC),
         CONSTRAINT [UQ_Ref_RekvirentUndtagelse_SghRnr]
@@ -509,8 +509,8 @@ BEGIN
         [is_current]           BIT           NOT NULL,
         -- 'epj' (archive row) or 'cpr_022'.
         [source]               NVARCHAR(16)  NOT NULL,
-        [dw_timestamp_insert]  DATETIME2(0)  NOT NULL CONSTRAINT [DF_PatientIdentity_dw_timestamp_insert] DEFAULT CAST(SYSDATETIME() AS datetime2(0)),
-        [dw_timestamp_update]  DATETIME2(0)  NOT NULL CONSTRAINT [DF_PatientIdentity_dw_timestamp_update] DEFAULT CAST(SYSDATETIME() AS datetime2(0)),
+        [dw_timestamp_insert]  DATETIME2(0)  NOT NULL CONSTRAINT [DF_PatientIdentity_dw_timestamp_insert] DEFAULT CAST(SYSUTCDATETIME() AS datetime2(0)),
+        [dw_timestamp_update]  DATETIME2(0)  NOT NULL CONSTRAINT [DF_PatientIdentity_dw_timestamp_update] DEFAULT CAST(SYSUTCDATETIME() AS datetime2(0)),
         CONSTRAINT [PK_Ref_PatientIdentity] PRIMARY KEY CLUSTERED ([identity_system], [identity_value])
     ) ON [PRIMARY];
     -- Lookups run both ways: identity to person and person to identities.
@@ -538,8 +538,8 @@ BEGIN
     CREATE TABLE [ref].[KommuneToPopulationsansvar] (
         [kommunekode]          VARCHAR(4)    NOT NULL,
         [populationsansvar]    NVARCHAR(50)  NOT NULL,
-        [dw_timestamp_insert]  DATETIME2(0)  NOT NULL CONSTRAINT [DF_KommuneToPopulationsansvar_dw_timestamp_insert] DEFAULT CAST(SYSDATETIME() AS datetime2(0)),
-        [dw_timestamp_update]  DATETIME2(0)  NOT NULL CONSTRAINT [DF_KommuneToPopulationsansvar_dw_timestamp_update] DEFAULT CAST(SYSDATETIME() AS datetime2(0)),
+        [dw_timestamp_insert]  DATETIME2(0)  NOT NULL CONSTRAINT [DF_KommuneToPopulationsansvar_dw_timestamp_insert] DEFAULT CAST(SYSUTCDATETIME() AS datetime2(0)),
+        [dw_timestamp_update]  DATETIME2(0)  NOT NULL CONSTRAINT [DF_KommuneToPopulationsansvar_dw_timestamp_update] DEFAULT CAST(SYSUTCDATETIME() AS datetime2(0)),
         CONSTRAINT [PK_Ref_KommuneToPopulationsansvar] PRIMARY KEY CLUSTERED ([kommunekode] ASC)
     ) ON [PRIMARY];
 END
@@ -575,10 +575,10 @@ BEGIN
         [tidspunkt]            CHAR(8)       NULL,
         [dw_timestamp_insert]  DATETIME2(0)  NOT NULL
             CONSTRAINT [DF_ILSAendringslog_dw_timestamp_insert]
-            DEFAULT CAST(SYSDATETIME() AS datetime2(0)),
+            DEFAULT CAST(SYSUTCDATETIME() AS datetime2(0)),
         [dw_timestamp_update]  DATETIME2(0)  NOT NULL
             CONSTRAINT [DF_ILSAendringslog_dw_timestamp_update]
-            DEFAULT CAST(SYSDATETIME() AS datetime2(0)),
+            DEFAULT CAST(SYSUTCDATETIME() AS datetime2(0)),
         CONSTRAINT [PK_Ref_ILSAendringslog]
             PRIMARY KEY CLUSTERED ([prrowid] ASC)
     ) ON [PRIMARY];

@@ -157,7 +157,7 @@ ON tgt.dw_ek_Kreditor = src.dw_ek_Kreditor
 WHEN MATCHED THEN UPDATE SET
     ...,
     tgt.[dw_is_deleted] = src.[dw_is_deleted],  -- Flag propagated naturally
-    tgt.[dw_timestamp_update] = CAST(SYSDATETIME() AS datetime2(0))
+    tgt.[dw_timestamp_update] = CAST(SYSUTCDATETIME() AS datetime2(0))  -- DSO stamps its own write time
 WHEN NOT MATCHED BY TARGET THEN INSERT ...;
 -- No special DSO-side delete logic required
 ```

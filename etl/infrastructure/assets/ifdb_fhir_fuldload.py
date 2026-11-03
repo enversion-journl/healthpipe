@@ -52,8 +52,12 @@ Det, asset'et ved, og som man ellers skal huske:
   * SOF-projektionernes tidsbudget er slået fra i vinduets kørsler. Budgettet er
     lavet til den daglige kæde; med det ville vinduet slutte grønt og lade resten
     af månedens spørgeskemasvar vente til næste morgens kæde.
-  * Kørslens egne dso_sync/*-tags gives videre til trinnene, så indeksporten kan
-    styres for én fuldindlæsning uden at ændre miljøet.
+  * SOF læser vinduet i én skive, og dens backfill-port ser kun på antal rækker,
+    ikke på andelen af måltabellen. Med skiver på en million ressourcer og kravet
+    om en tiendedel af tabellen åbner porten aldrig, når tabellen er vokset, og
+    MERGE'n i QR-tabellerne kører med alle indeks på.
+  * Kørslens egne dso_sync/*- og sfi_datapoint/*-tags gives videre til trinnene, så
+    indeksporten og storens pause kan styres for én fuldindlæsning uden at ændre miljøet.
 """
 
 # Ingen ``from __future__ import annotations``: dg.Config-klasser kan ikke opløses
@@ -74,7 +78,11 @@ from core.dfm_manager import DfmManager
 from core.resources import MSSQLResource
 from dagster._core.definitions.reconstruct import ReconstructableJob, ReconstructableRepository
 from dagster._core.execution.api import execute_run
-from DSA.FHIR.utils.sql_on_fhir.sof_utils import SOF_SLICE_TIME_BUDGET_MINUTES_TAG
+from DSA.FHIR.utils.sql_on_fhir.sof_utils import (
+    SOF_BACKFILL_MIN_RATIO_TAG,
+    SOF_SLICE_MAX_RESOURCES_TAG,
+    SOF_SLICE_TIME_BUDGET_MINUTES_TAG,
+)
 from DSA.SQL.dfm.period_orchestrator import DatePartition, build_period_run_config
 
 # Markøren: hvor langt fuldindlæsningen er nået. Scope 'backfill' holder den fri af
@@ -87,7 +95,7 @@ MARKOER_TABEL = "ifdb_fuldload"
 HISTORIK_START = date(2021, 10, 1)
 
 _VERIFIKATION_ASSET = "sfi_genkoersel_verifikation"
-_VIDERESENDTE_TAG_PRAEFIKSER = ("dso_sync/",)
+_VIDERESENDTE_TAG_PRAEFIKSER = ("dso_sync/", "sfi_datapoint/")
 _WINDOW_RECONCILIATION = "ifdb_backfill_window_reconciliation"
 
 # Anden halvdel af kæden: SOF med sin infrastruktur, dw-nøglerne, DSO-synken,
@@ -327,7 +335,7 @@ class TrinResultat(NamedTuple):
 
 
 def _videresendte_tags(context: Any) -> dict[str, str]:
-    """Kørslens tags, som trinnene skal arve: indeksportens dso_sync/*-indstillinger."""
+    """Kørslens tags, som trinnene skal arve: indeksportens og storens indstillinger."""
     tags = getattr(getattr(context, "run", None), "tags", None) or {}
     return {k: v for k, v in tags.items() if k.startswith(_VIDERESENDTE_TAG_PRAEFIKSER)}
 
@@ -394,6 +402,8 @@ def _koer_trin(
             "fuldload/vindue": str(vindue),
             "dagster/parent_run_id": context.run_id,
             SOF_SLICE_TIME_BUDGET_MINUTES_TAG: "0",
+            SOF_SLICE_MAX_RESOURCES_TAG: "0",
+            SOF_BACKFILL_MIN_RATIO_TAG: "0",
         },
     )
     startet = time.monotonic()
