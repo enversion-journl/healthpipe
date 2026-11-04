@@ -120,7 +120,6 @@ extend-exclude = '''
   | build
   | dist
   | nomad_stack
-  | daniel
   | output
   | nomad_data
   | notebooks

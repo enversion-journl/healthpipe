@@ -119,9 +119,6 @@ Thumbs.db
 !.devcontainer/.env.template
 # End Generation Here
 
-# User files
-daniel/**
-
 # Output files
 output/**
 storage/**

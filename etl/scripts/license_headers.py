@@ -66,7 +66,6 @@ EXCLUDE_GLOBS = [
     "*/tests/fixtures/*",
     "*/__snapshots__/*",
     "notebooks/*",
-    "Daniel/*",
 ]
 
 PRECOMMIT_CONFIG = ".pre-commit-config.yaml"
