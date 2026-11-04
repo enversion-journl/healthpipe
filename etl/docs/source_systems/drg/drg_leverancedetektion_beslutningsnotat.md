@@ -8,10 +8,9 @@
 
 # DRG-leverancedetektion: beslutningsnotat
 
-Status: BESLUTTET 2026-09-11. Hører til [internal ticket].
+Status: BESLUTTET 2026-09-11.
 Ingen kode i denne task — notatet fastlægger mekanisme, watermark-placering
-og detektionsnøgle, så [internal ticket] (DFM), [internal ticket] (extract), [internal ticket]
-(schedule) og [internal ticket] (HAIBA) kan implementeres deterministisk.
+og detektionsnøgle, så DFM, extract, schedule og HAIBA kan implementeres deterministisk.
 Grundlag: koden på `development` pr. 2026-09-11, leveranceinventaret på
 `/mnt/ftproot/SDS_NGC_Sundhedsdata_DRG_GrupperetLPR/Fra-SDS/` samt
 målingerne i `drg_noegler_beslutningsnotat.md` og
@@ -140,7 +139,7 @@ tredje kadencebogstav, bliver filen uparsebar og dermed usynlig for
 (beslutning 4) vil alarmere, fordi de kontrollerede takstsystemer så mangler
 en frisk fil — men regexet er stedet at opdatere.
 
-Valget af config-form er [internal ticket]'s at effektuere; filtret ovenfor er
+Valget af config-form er at effektuere; filtret ovenfor er
 et krav, ikke en mulighed.
 
 ### Én kørsel pr. (leverancetype, takstsystem)
@@ -369,9 +368,9 @@ genlæses næste gang. Ext understøtter samme semantik — ét
 grunden til at en no-op-kørsel skal springe DDL'en over (jf.
 manifest-afsnittet). Bemærk at `_ExtWriter.close()` kalder `flush()` i et
 `finally`, så en fejl der kan maskere den oprindelige undtagelse — værd at
-rette, når extracten alligevel røres i [internal ticket].
+rette, når extracten alligevel røres.
 
-**Rettet i [internal ticket].** Skriveren bor nu i `DSI/csv_files/_sds_tar.py` (fælles med
+**Rettet.** Skriveren bor nu i `DSI/csv_files/_sds_tar.py` (fælles med
 udredningsret og den kommende LPR3-kilde) og har en `discard()`, som udredningsret
 allerede havde. `run_writers()` kasserer alle buffere på enhver undtagelse, før
 `close()` kaldes, så den oprindelige årsag — mojibake, eksportlog-afvigelse,
@@ -384,14 +383,14 @@ fuldstændighedsforespørgsel mod `meta.DRGLeverance` ("har alle
 leverancetypens kildetabeller en række for denne fil?"). Selvhelende uden et
 nyt asset, men
 hardkoder det forventede tabelantal og blander revisionslog med
-styringstilstand. Bekræft eller omstød i [internal ticket].
+styringstilstand. Bekræft eller omstød.
 
 **Pin må aldrig rykke checkpointet.** `delivery_on_or_before` indlæser bevidst
 en ældre leverance og følger samme konvention som RunModeConfigs
 `period`/`ids`: `advance_checkpoint` = False. Ud over pin og et eksplicit
 checkpoint-reset må ingen fil læses mere end én gang.
 
-**`backfill_historical` er fjernet for DRG** (implementering, [internal ticket]).
+**`backfill_historical` er fjernet for DRG** (implementering).
 Værktøjet merger en ældre leverance ind over en nyere med delete-detection og
 revisionslog slået fra, og dets egen instruks er "kør nyeste leverance
 bagefter". Den instruks kan ikke opfyldes med niveau 2: registret står stadig
@@ -668,7 +667,7 @@ Værdierne er reelt 4-cifrede år, så en indsnævring til `NVARCHAR(4)`/`INT` e
 mekanisk mulig (PK'erne har rigelig budget: `PK_arc_drg_diagnose` bruger ~138
 af 900 bytes), men det kræver en migration over op til 25,6 mio. rækker og
 gør en værdikolonne til nøglekolonne — imod reglen om, at kun nøglekolonner
-er snævre ([internal ticket]-læren), så extracten også skulle længdevalidere den.
+er snævre, så extracten også skulle længdevalidere den.
 Løsbar, men ikke gratis.
 
 **2. En kontakts aktivitetsår revideres — derfor er året ikke i
@@ -885,7 +884,7 @@ arkivet må merge. Det er provenance, ikke forretningslogik, og hører i ext
    `build_delete_scope_predicate()` udleder i dag delete-scopet fra *hvad
    der ligger i ext*. Filtrerer niveau 2 en skive ud af kilden, mens
    delete-scopet stadig dækker den, soft-sletter `WHEN NOT MATCHED BY SOURCE`
-   hele skiven i arkivet — samme fejlklasse som [internal ticket].
+   hele skiven i arkivet — samme fejlklasse.
    `ArchiveMergeConfig` har i dag kun `delete_scope_predicate` og skal have
    et tilsvarende `source_scope_predicate`; begge skal komme fra manifestet.
 4. **Tomt manifest = erklæret no-op.** Er intet nyt fundet, lades ext urørt
@@ -918,17 +917,17 @@ alt — hvilket er den rigtige opførsel, når arkivet alligevel genindlæses.
 
 ## Konsekvenser for de øvrige tasks
 
-**[internal ticket] (DFM):** **tasken er i praksis tom som formuleret.** Designet endte
+**DFM:** **tasken er i praksis tom som formuleret.** Designet endte
 med udelukkende at bruge eksisterende DFM-funktionalitet —
 `get_checkpoint`/`set_checkpoint` mod `("dfm", "<enhed>")` — så der er hverken
 ny tabel, ny kolonne eller nyt API at bygge. Det eneste, der manglede, var en
 aftalt nøgle- og værdiformat, og det hører hos den extraction-maskineri, der
 bruger det (`DSI/connectors/delivery_detection.py`), ikke i
 checkpoint-frameworket. Taskens DDL/migration-krav angår i stedet
-`meta.DRGLeverance`s udvidede grain, som er leveret under [internal ticket].
+`meta.DRGLeverance`s udvidede grain, som er leveret.
 Gate-asset-valget skal fortsat bekræftes.
 
-**[internal ticket] (extract):** `kadence` i `DrgExtractConfig` og kadencefilteret
+**extract:** `kadence` i `DrgExtractConfig` og kadencefilteret
 (`("M", None)` hhv. `"U"`); niveau 1 efter `select_newest`; manifestet;
 `source_scope_predicate` + justeret delete-scope; cap-baseret retningsværn i
 stedet for pakkedato-sammenligning; asset-metadata pr. enhed med
@@ -939,7 +938,7 @@ takstsystem-scoping af `drg_borger`s CPR-opslag. Arkiv-invarianten fra
 [internal ticket] er den farlige kant: en enhed må kun springes over, når INTET nyt
 skal merges for den.
 
-**[internal ticket] (schedule): LEVERET.** Tre ingest-jobs
+**schedule: LEVERET.** Tre ingest-jobs
 (`drg_ingest_somatik_maaned_job`, `drg_ingest_somatik_uge_job`,
 `drg_ingest_psyk_maaned_job`), to daglige kø-schedules kl. 20:00 (ét pr.
 leverancetype) der hver bygger køen fra sharet og udsteder ÉN `RunRequest` på
@@ -1020,7 +1019,7 @@ rapporterer i øjeblikket** — transporten skal porteres til GitLab-API'et
 efter migreringen — og at den kun rapporterer runs med automation-lineage.
 Fejl-alarmen skal verificeres, ikke antages.
 
-**[internal ticket] (HAIBA):** genbrug niveau 1 og det generiske
+**HAIBA:** genbrug niveau 1 og det generiske
 forældelses-check-asset; alt-eller-intet-kortslutning pga. arkiv-invarianten.
 
 ## Åbne punkter
@@ -1044,5 +1043,5 @@ forældelses-check-asset; alt-eller-intet-kortslutning pga. arkiv-invarianten.
    bevidst, men det bør verificeres, at de to familier ikke tilsammen
    overskrider `max_concurrent_runs`.
 5. **`enable_bulk_insert_on_first_load`** for DRG-arkivet: verificeret sikker
-   (beslutning 5), men egen opgave uden for [internal ticket] — og recovery-modellen
+   (beslutning 5), men egen opgave — og recovery-modellen
    på staging bør slås op, inden gevinsten estimeres.

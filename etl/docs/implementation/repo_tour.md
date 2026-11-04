@@ -14,7 +14,7 @@ the [Dagster Development Guide](dagster_development.md) then covers the day-to-d
 run loop.
 
 The data flow itself — DSI → DSA (FHIR and DWH tracks) → DSO → datamarts — is
-drawn in the [root README](../../../README.md#data-flow-at-a-glance). This document
+drawn in [00 — Overblik](../basismodel/00_overblik.md#de-tre-lag). This document
 maps that flow onto directories.
 
 ## Project structure

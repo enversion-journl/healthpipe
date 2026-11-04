@@ -8,7 +8,7 @@
 
 # Profileringsrapport: DRG-grupperet LPR fra SDS
 
-[internal ticket] ([internal ticket] "SDS DRG-grupperet LPR (SDSDRG) version 1.0").
+"SDS DRG-grupperet LPR (SDSDRG) version 1.0".
 Første version 2026-08-26. Alle tal er målt med [`drg_snapshot_profiler.py`](drg_snapshot_profiler.py)
 i samme mappe og kan genskabes — se §Metode. Merge-nøgle-konklusionerne er
 samlet i [beslutningsnotatet](drg_noegler_beslutningsnotat.md).
@@ -46,7 +46,7 @@ python3 drg_snapshot_profiler.py compare --a /tmp/dumps/u17 --b /tmp/dumps/u24
 ```
 
 Kørt på `dagster-code-server-development` (mount `/mnt/ftproot/...`, se
-KONTEKST-blokken på [internal ticket]). OBS: allokeringens `/tmp` ryddes ved
+KONTEKST-blokken). OBS: allokeringens `/tmp` ryddes ved
 redeploy — gem outputs løbende.
 
 ## 3. Leverancerne
@@ -105,7 +105,7 @@ Vigtige observationer:
 
 Eksportlog-verifikation: alle 9 datafiler matcher SDP_ExportLog EKSAKT
 (CSV-bevidst gennemtælling). Kontroltotalerne er dermed anvendelige som
-hårdt indlæsningsværn i [internal ticket].
+hårdt indlæsningsværn.
 
 | Måling | Resultat |
 |---|---|
@@ -378,7 +378,7 @@ mintes i map-laget på clean_code = alle attributværdier.
 `dim.DRGKontaktKlassifikation`** (parallelt med `dim.DRGKontaktEgenskaber`,
 som beholder lav-frekvens- og fritekst-attributterne). Facten bærer
 `dw_ek_DRGKontaktKlassifikation`; nøglen mintes i
-`map.DRGKontaktKlassifikation`. Implementeres i [internal ticket].
+`map.DRGKontaktKlassifikation`. Implementeres.
 
 ## 12. Leverancedefekter og -observationer
 
@@ -389,7 +389,7 @@ som beholder lav-frekvens- og fritekst-attributterne). Facten bærer
   ca. 2,7× det normale M-niveau** og er den eneste af sin slags. Alle tre
   takstsystemer fik en M-fil netop 17/3 (T24's sidste). Årsagen er ukendt
   (mulig dobbelt-/tripel-pakning); den er aldrig "nyeste gældende" længere,
-  men rækkeantal-drift-værnet i [internal ticket] skal fange den slags.
+  men rækkeantal-drift-værnet skal fange den slags.
 - U-filen 2026-08-17 (T26) er ikke en defekt: indholdet er identisk med
   M 2026-08-18 (se §8).
 - Identiske gentagelses-leverancer forekommer (samme indhold pakket flere

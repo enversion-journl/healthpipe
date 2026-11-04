@@ -94,7 +94,7 @@ så en lukket enhed arkiveres som lukket i stedet for at blive soft-deleted.
 
 ## Konfiguration
 
-Credentials håndteres som databaseforbindelserne: **Nomad-variabler** i produktion,
+Credentials håndteres som databaseforbindelserne: **variabler i deploymentet** i produktion,
 `.env` i devcontaineren. Ingen secrets i repoet.
 
 | Variabel | Kode-mønster | Beskrivelse |
@@ -113,9 +113,8 @@ Tre steder skal holdes i sync:
 1. `.env.template` — tomme defaults, `OS2MO_ENABLED=false`.
 2. `.gitlab-ci.yml` (`.prod-db-env`) — `placeholder`-værdier, så
    `dagster definitions validate` kan indlæse code location'en.
-3. **`healthpipe-infrastructure`** (søster-repo) — nøglerne i Nomad-jobbets env-blok, og
-   værdierne seedet som Nomad-variabler (samme flow som `seed-watcher-nomad-var.sh`).
-   Secrets kommer fra Bitwarden.
+3. **Deploymentet** — nøglerne i deploymentets environment, og værdierne som
+   variabler i deploymentet. Secrets kommer fra jeres secret store.
 
 En manglende variabel giver en `OS2moConfigurationError`, der navngiver variablen —
 ikke et uforklarligt 401.

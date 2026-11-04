@@ -16,7 +16,7 @@ import hashlib
 import os
 import re
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 import requests
 
@@ -97,7 +97,7 @@ class ReportsBranchClient:
         response.raise_for_status()
         for ref in response.json().get("value", []):
             if ref.get("name") == f"refs/heads/{branch}":
-                return ref["objectId"]
+                return cast(str, ref["objectId"])
         return None
 
     def create_branch(self, branch: str, from_branch: str) -> str:
@@ -140,7 +140,7 @@ class ReportsBranchClient:
         if response.status_code == 404:
             return None
         response.raise_for_status()
-        return response.json().get("content")
+        return cast(str | None, response.json().get("content"))
 
     def push_file(
         self, branch: str, head: str, path: str, content: str, comment: str, new_file: bool
@@ -169,7 +169,7 @@ class ReportsBranchClient:
             timeout=_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
-        return response.json()["refUpdates"][0]["newObjectId"]
+        return cast(str, response.json()["refUpdates"][0]["newObjectId"])
 
     def upsert_json_file(
         self,

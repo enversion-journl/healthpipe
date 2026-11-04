@@ -9,7 +9,7 @@
 SDS drops full snapshots per (leverancetype, takstsystem) on the NGC share:
 `Region_1083_<DRG|DRGPSYK>_<T24|T25|T26>[_<M|U>]_<timestamp>.tar.bz2`. Files
 accumulate; the NEWEST file per (leverancetype, takstsystem) is authoritative
-regardless of cadence (decision on [internal ticket] — M and U are packaging
+regardless of cadence (decision — M and U are packaging
 cadences of the same LPR update track, but M covers THREE activity years and
 U only two, which the archive handles with year-scoped delete detection, see
 drg_archive.py).
@@ -28,11 +28,11 @@ each archive: a mismatch is a delivery defect and fails the run.
 ext is a 1:1 mirror of the source INCLUDING the per-delivery integer IDs —
 they are needed for the intra-delivery UUID resolution views in
 drg_archive.py, and ext is the debugging surface for the latest delivery.
-The archive layer deliberately excludes them (review decision on [internal ticket]).
+The archive layer deliberately excludes them (review decision).
 
 Key columns are validated against their declared max width so the narrow
 archive keys can never abort a MERGE with a truncation error (the HAIBA
-lesson from [internal ticket]). GDPR: the files carry raw CPR — row contents are never
+lesson). GDPR: the files carry raw CPR — row contents are never
 logged or reported, only file names, counts and delivery dates.
 """
 
@@ -1003,7 +1003,7 @@ def _run_extract(
 
         # run_writers discards the buffers on any exception, so a designed
         # (GDPR-safe) failure mid-load is the error that surfaces instead of a
-        # driver error from the doomed final INSERT (review F19, [internal ticket]).
+        # driver error from the doomed final INSERT (review F19).
         per_takst = run_writers(writers, _load_selected)
         conn.commit()
 

@@ -34,18 +34,11 @@ fhir_aktivitetsresultat_daily_ifdb
 
 ## Getting one
 
-Push a `feature/*`, `fix/*` or `bugfix/*` branch. The pipeline builds the branch's
-image on the first push — when the push touches `etl/**`, `pyproject.toml` or the
-code-server Dockerfiles — the deployment watcher starts a Dagster code server on Dev,
-and later pushes are picked up by the running server without a rebuild. The postfix is set by that deployment — you never set it by hand. See
-[Getting started](../../../docs/onboarding.md).
+Start a Dagster code server for the branch, and set `DAGSTER_BRANCH_POSTFIX` in its
+environment to a value that starts with `feature`. For example, in the deployment:
 
-In the Nomad job the deployment sets:
-
-```hcl
-env {
-  DAGSTER_BRANCH_POSTFIX = "feature-branch-name"
-}
+```
+DAGSTER_BRANCH_POSTFIX=feature-branch-name
 ```
 
 ## Postfix sanitization
@@ -94,7 +87,5 @@ if is_feature_branch_deployment():
 
 ## Cleanup
 
-Delete the branch when it is merged or abandoned. Its image is then pruned from the
-registry — immediately on the next merge to `development`, otherwise within seven
-days — and the watcher stops the corresponding code server. Deployments left
-standing hold resources and clutter the asset graph for everyone.
+Stop the code server of the branch when the branch is merged or abandoned. Deployments
+left standing hold resources and clutter the asset graph for everyone.

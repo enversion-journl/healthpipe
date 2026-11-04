@@ -32,14 +32,14 @@
 
 ## How has this been tested?
 
-- [ ] `cd etl && pytest`
+- [ ] `just test`
 - [ ] Other (describe below)
 
-## Checklist
+## Definition of done
 
-- [ ] **Scope** — this PR is focused on one logical change
-- [ ] **Tests** — new functionality has tests; existing tests still pass
-- [ ] **Formatting** — code is formatted with Black (line-length=100) and passes Ruff
-- [ ] **Imports** — absolute imports only (`core.*`, `DSA.*`, `DSI.*`, `DSO.*`, `utils.*`); no relative imports
-- [ ] **Documentation** — updated relevant guides in `etl/docs/` for any architecture or flow changes
-- [ ] **DCO sign-off** — every commit is signed off with `git commit -s` (see `CONTRIBUTING.md`)
+- [ ] **Scope**: this PR contains one logical change
+- [ ] **Tests**: new functionality has tests, and `just test` passes
+- [ ] **Lint**: `just lint` passes (Black and Ruff)
+- [ ] **Docs**: the guides in `etl/docs/` agree with the changed architecture or flows
+- [ ] **CHANGELOG**: `CHANGELOG.md` has an entry under `[Unreleased]`, with `**Breaking:**` for a breaking change
+- [ ] **DCO sign-off**: each commit has a sign-off (`git commit -s`)

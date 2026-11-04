@@ -22,6 +22,7 @@ def test_comment_style_uppercase_and_filenames():
     assert lh.comment_style_for(Path("README.MD")).block == ("<!--", "  ", "-->")
     assert lh.comment_style_for(Path("a/.gitignore")).line_prefix == "#"
     assert lh.comment_style_for(Path("a/Dockerfile")).line_prefix == "#"
+    assert lh.comment_style_for(Path("justfile")).line_prefix == "#"
     assert lh.comment_style_for(Path("a/.env.template")).line_prefix == "#"
 
 

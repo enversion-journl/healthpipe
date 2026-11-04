@@ -12,8 +12,8 @@ Her er alle navngivningsregler for basismodellen samlet ét sted — fra branch-
 og filer i repoet til Dagster-assets, tabeller, views, kolonner, indekser og
 FHIR-URI'er.
 
-Standarden gælder repoet `healthpipe-basismodel`. Datamart-teamets regler for repoet
-`datamarter` står i [navngivningsstandard.md](navngivningsstandard.md). De to
+Standarden gælder repoet `healthpipe-basismodel`. Reglerne for
+datamart-repositoriet står i [navngivningsstandard.md](navngivningsstandard.md). De to
 standarder bygger på de samme principper, men de to repositories har forskellig
 struktur, så enkelte regler er forskellige.
 
@@ -69,7 +69,7 @@ hedder dimensionen `dim.Aftale`, dens asset `dim_Aftale` og dens entity key
 
 | Element | Regel | Eksempel | Tjekkes af |
 | :--- | :--- | :--- | :--- |
-| **Branch** | `feature/` for nyt arbejde og `bugfix/` for fejlrettelser, efterfulgt af et kort, beskrivende navn i kebab-case. Præfikserne, og hvad de betyder for din code location på Dev, står i [docs/onboarding.md](../../../docs/onboarding.md), afsnit 3 | `feature/dim-ilsvare-kolonner` | GitLab afviser andre præfikser end `feature/`, `bugfix/`, `hotfix/` og `release/` |
+| **Branch** | `feature/` for nyt arbejde og `bugfix/` for fejlrettelser, efterfulgt af et kort, beskrivende navn i kebab-case. | `feature/dim-ilsvare-kolonner` | GitLab afviser andre præfikser end `feature/`, `bugfix/`, `hotfix/` og `release/` |
 | **Commit-besked** | Dansk. Starter med en conventional commit-type og evt. et scope. Hører ændringen til et work item i Azure DevOps, står `AB#<nummer>` først | `AB#<nummer> fix(security): registrér sec.*-DDL i security_daily_job` | |
 | **Merge request-titel** | Indeholder `AB#<nummer>`, når der merges til `development`, så pipelinen kan koble MR'en til work item'et i Azure Boards. Styres opgaven i ServiceNow, kan du skrive ServiceNow-id'et i titlen på samme måde | `AB#<nummer> docs: ret DSO-kapitlet` | |
 

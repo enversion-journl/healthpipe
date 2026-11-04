@@ -6,7 +6,7 @@
 
 """AKTIVITETSUDFOERELSE metadata lookups for AKTIVITETSRESULTAT.
 
-DSI/DSA boundary ([internal ticket] review F8 — classification, not a move):
+DSI/DSA boundary (review F8 — classification, not a move):
 This module mixes two concerns that intentionally stay co-located for now:
   * DSI-flavoured: source-row fetching (``arc_lookup.chunked_in_fetch*``
     against arc.ifdb_aktivitetsudfoerelse) — source extraction.

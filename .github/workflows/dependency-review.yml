@@ -25,6 +25,7 @@ permissions:
 jobs:
   dependency-review:
     name: dependency review
+    if: vars.CODE_SCANNING_ENABLED == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

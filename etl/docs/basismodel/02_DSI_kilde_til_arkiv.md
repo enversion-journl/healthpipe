@@ -95,23 +95,23 @@ Tabellerne kommer i del 2.
 
 En ny datakilde kan ikke kobles på fra repoet alene. Selve forbindelsen —
 MSSQL-connector, Oracle-database, filleverance eller hvad kilden kræver — sættes op
-i **Nomad** — det system, der kører Dagster-deploymentet, og hvor dets environment
+i deploymentet — det system, der kører Dagster, og hvor dets environment
 variables ligger. Første skridt
 er derfor en aftale, ikke kode:
 
 1. **Skaf oplysningerne hos systemejeren:** host, port, database, en **read-only**
    servicekonto, og bekræftelse på at der er netværksvej fra Dagster-miljøet. Noter
    hvilken type kildesystem det er — det afgør bibliotek i trin 3.
-2. **En kollega med Nomad-skriveadgang kobler kilden på:** forbindelsen og dens
-   credentials lægges ind som Nomad-variabler på Dagster-deploymentet, og du får
-   besked om, **hvilke environment variables** resourcen skal læse.
+2. **Kobl kilden på i deploymentet:** forbindelsen og dens credentials lægges ind
+   som environment variables på Dagster-deploymentet, og du noterer,
+   **hvilke environment variables** resourcen skal læse.
 3. **Du bruger de variabelnavne** i resourcen i trin 3 — hver værdi hentes med
    `dg.EnvVar("VARIABEL_NAVN")`.
 
 Læg til sidst de samme variabelnavne i [`.env.template`](../../../.env.template) med
 pladsholderværdier, grupperet under en kommentarhoved som de eksisterende kilder.
 Filen er repoets dokumentation af, *hvilke* variabler kilden kræver — de rigtige
-værdier findes kun i Nomad og bliver aldrig checket ind. **Commit aldrig rigtige
+værdier findes kun i deploymentet og bliver aldrig checket ind. **Commit aldrig rigtige
 credentials**; pipelinen scanner historikken for hemmeligheder og persondata.
 
 ### 2. Beskriv kildens skema
@@ -137,7 +137,7 @@ forbindelsen:
 | CSV / fildrop | `DSI/connectors/csv_files/` | — |
 
 Adgangskoden skal blive ved med at være en `dg.EnvVar` (hentes først ved kørsel og
-maskeres i logs); værdien kommer fra Nomad-variablen, ikke fra repoet. Synapse har
+maskeres i logs); værdien kommer fra deploymentets variabel, ikke fra repoet. Synapse har
 opstartsforsinkelse — giv assets en retry policy, som KMD gør.
 
 Registrér derefter klassen i `resources`-dict'en i `etl/definitions.py`. Nøglen i
@@ -238,7 +238,7 @@ efter mønstret `mock_ils_mssql_resource` / `real_ils_mssql_resource`.
 
 ### Tjekliste — ny kilde
 
-- [ ] Kilden er koblet på i Nomad, og variabelnavnene er modtaget fra en kollega med Nomad-skriveadgang
+- [ ] Kilden er koblet på i deploymentet, og variabelnavnene er noteret
 - [ ] `.env.template` opdateret med pladsholdere for de variabler, resourcen kræver
 - [ ] `docs/source_systems/{kilde}/` oprettet
 - [ ] Resource-klasse tilføjet i `core/resources.py` og registreret i `definitions.py`

@@ -17,7 +17,7 @@
 --
 -- Alle vaerdikolonner er NVARCHAR — arkivet typer ikke. Vaerdikolonner har
 -- SAMME bredde som ext (min. 500) saa en for lang vaerdi aldrig kan afbryde
--- mergen med truncation (HAIBA-laere, [internal ticket]); kun noeglekolonner er
+-- mergen med truncation (HAIBA-laere); kun noeglekolonner er
 -- snaevre, og extract validerer deres laengde med tydelig fejl.
 --
 -- Merge-noegler (verificeret i drg_noegler_beslutningsnotat.md): takstsystem +

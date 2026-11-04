@@ -22,17 +22,17 @@ kildesystemerne, gør data ensartede og sporbare, og stiller resultatet til råd
 som tabeller i DSO-databasen på datamartserveren.
 
 Basismodellen laver **ikke** rapporter og **ikke** datamarter. Datamarterne bygges
-ovenpå i et separat repository (`datamarter`) ud fra basismodellens tabeller.
+ovenpå i et separat repository ud fra basismodellens tabeller.
 Basismodellen laver selv et view oven på en tabel, når der er en grund til det —
 ikke som standard for alle tabeller.
 
 Grænsen er lettest at huske som en opdeling af logikken. Basismodellen ejer
 **modelleringslogikken**: hvordan kildens data fortolkes, standardiseres og
-modelleres til fælles, genbrugelige tabeller. `datamarter` ejer den
+modelleres til fælles, genbrugelige tabeller. Datamarterne ejer den
 **rapportspecifikke forretningslogik**: opgørelsesregler, populationer og
 afgrænsninger, der gælder én rapport eller ét fagområde. Er en regel fælles for
 alle aftagere, hører den til her; gælder den kun én opgørelse, hører den til i
-`datamarter`.
+datamarterne.
 
 ## De tre lag
 
@@ -65,7 +65,7 @@ flowchart LR
         T["dim.* · fct.* · dm.* · fhir.*<br/><i>færdige tabeller</i>"]
     end
 
-    DMR["repo: datamarter"]
+    DMR["Datamart-repository"]
 
     K --> EXT
     ARC --> F

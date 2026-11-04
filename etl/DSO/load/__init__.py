@@ -228,7 +228,7 @@ __all__ = [
     "dso_sync_conceptmap_okosted_to_sor",
     "dso_sync_conceptmap_shak_to_sor",
     "dso_sync_conceptmap_shakalike_to_sor",
-    # Security sync assets (DPA model, [internal ticket])
+    # Security sync assets (DPA model)
     "all_dso_sync_sec_assets",
     "dso_sync_sec_rolledomaene",
     "dso_sync_sec_rborganisation",

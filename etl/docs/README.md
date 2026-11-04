@@ -28,8 +28,8 @@ mostly in English, linked from the chapters above where relevant.
 ## Reference documentation
 
 Read in this order for environment and orientation: root
-[README](../../README.md) → [Getting started](../../docs/onboarding.md)
-(VS Code server, feature-branch code location on Dev, dbcode) → the
+[README](../../README.md) → [Development Setup](../../CONTRIBUTING.md#development-setup)
+(devcontainer or local venv) → the
 [glossary](#glossary) below → [Repository Tour](implementation/repo_tour.md)
 (structure and terminology) → [Dagster Development
 Guide](implementation/dagster_development.md) (the development loop).
@@ -52,7 +52,7 @@ for history — do not rely on them for current behavior).
 | [dagster_development.md](implementation/dagster_development.md) | The local development loop: prerequisites, validate/materialize, troubleshooting |
 | [dsi_etl_guide.md](implementation/dsi_etl_guide.md) | DSI: onboarding a new source system, and adding an archive table (`ext` → `arc`) |
 | [navngivningsstandard_basismodel.md](implementation/navngivningsstandard_basismodel.md) | The naming standard for this repository — every naming rule in one place, from branches and files to assets, tables, columns and indexes |
-| [navngivningsstandard.md](implementation/navngivningsstandard.md) | The naming standard for the `datamarter` repository |
+| [navngivningsstandard.md](implementation/navngivningsstandard.md) | The naming standard for the data mart repository |
 | [sql_etl_guide.md](implementation/sql_etl_guide.md) | DWH architecture and SQL ETL patterns: `ext` → `arc` → `pre_stg`/`stg` → `map`/`dim`/`fct` |
 | [kpi_aggregat_data_guide.md](implementation/kpi_aggregat_data_guide.md) | Externally delivered KPI/aggregate data as a source shape: revision strategy, ingestion guards, the dm path, and the five pitfalls |
 | [fhir_etl_guide.md](implementation/fhir_etl_guide.md) | FHIR pipeline patterns and IFDB extraction |
@@ -81,6 +81,7 @@ for history — do not rely on them for current behavior).
 
 | Document | What it covers |
 |---|---|
+| [operations.md](operations.md) | Operations: the log format and the CPR masking, the health checks, the DSO sync retries and failure rules, the backup of the Dagster database |
 | [qr_sfi_datapoint_runbook.md](guides/qr_sfi_datapoint_runbook.md) | QR → SFI datapoint chain: preflight, reconciliation, verification, rollback |
 | [sfi_datapoint_brugervejledning.md](guides/sfi_datapoint_brugervejledning.md) | SFI datapoint user guide |
 | [ifdb_relationer_og_felter.md](guides/ifdb_relationer_og_felter.md) | IFDB tables, columns and joins on the consumer surface |
@@ -89,6 +90,7 @@ for history — do not rely on them for current behavior).
 
 | Document | What it covers |
 |---|---|
+| [configuration.md](configuration.md) | Every variable in `.env.template`: group, default and description |
 | [shared_dimensions.md](shared_dimensions.md) | Shared dimensions across domains |
 | [source_systems/](source_systems/) | Per-source schema references (IFDB, BOM_IFDB, ILS, SydAX, MySupply, KMD, Cosmic, DRG, Udredningsret) |
 | [source_systems/udredningsret/udredningsret_model.md](source_systems/udredningsret/udredningsret_model.md) | SDS Udredningsret: målmodel, staging-regler og beslutninger U1–U18 (US-3 → US-6); kilden og arkivet i [udredningsret_kilde.md](source_systems/udredningsret/udredningsret_kilde.md) |

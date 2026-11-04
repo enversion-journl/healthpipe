@@ -266,7 +266,7 @@ SELECT * FROM sec.HentRBOrganisation('DPA_Medicin', SUSER_SNAME(), 4)
 
 ## Sikkerhed på datamarterne
 
-Sikkerheden på datamarterne bygges ud fra to skabeloner i `datamarter`-repoet.
+Sikkerheden på datamarterne bygges ud fra to skabeloner i datamart-repositoriet.
 Kopiér skabelonen, og udfyld pladsholderne. Skabelonerne indeholder også
 testvejledningen med testbrugere for rollerne `U`, `K` og `P`.
 
@@ -324,7 +324,7 @@ infrastructure/ddl/
 ├── tables/security/
 │   ├── 01_tables.sql          # sec.RBOrganisation
 │   ├── 02_functions.sql       # sec.BeskytDimLeverandoervare_v1 (fritekst-maskering, @Rolle)
-│   ├── 04_dpa_tables.sql      # sec.RolleDomaene (kanonisk, fra [internal ticket])
+│   ├── 04_dpa_tables.sql      # sec.RolleDomaene (kanonisk)
 │   └── 05_dpa_functions.sql   # sec.HentDPASikkerhed, HentBrugerRolleDomaene,
 │                              #   HentRBOrganisation
 ├── tables/security_historik/
@@ -343,7 +343,7 @@ For at tilføje sikkerhed på et nyt domæne (fx `DPA_HR`):
    (`LSSAPP_HP_Domaenerolle_DPA_HR_U` / `..._K` / `..._<sygehus>_P`) — rolle-tildelingerne
    indlæses derefter automatisk af det natlige AD-load
 2. Opret datamart-databasen med domænets navn (`DPA_HR`)
-3. Byg DimBorger-viewet og datamart-viewene i `datamarter`-repoet ud fra
+3. Byg DimBorger-viewet og datamart-viewene i datamart-repositoriet ud fra
    skabelonerne (se [Sikkerhed på datamarterne](#sikkerhed-på-datamarterne))
 
 ---
@@ -500,7 +500,7 @@ permanente.
 ## Åbne punkter
 
 - Fritekst-maskeringen på `vw_dim.Leverandoervare` og `vw_dim.Fakturalinje` er nu RolleDomaene-baseret
-  ([internal ticket], reconciled ind i denne branch): viewsene `CROSS JOIN`'er
+  (reconciled ind i denne branch): viewsene `CROSS JOIN`'er
   `sec.HentBrugerRolleDomaene(SUSER_SNAME(), 'DPA_ERP')` og viser fritekst-kolonner
   kun for `Rolle = 'U'` (ellers `[MASKERET]`). Den gamle `sec.BrugerRoller.Fritekst` /
   `sec.HentFritekstAdgang_v1`-vej er fjernet. En bruger uden en `DPA_ERP`-rolle i

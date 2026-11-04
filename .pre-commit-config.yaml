@@ -71,7 +71,7 @@ repos:
       - id: black
         language_version: python3.12
         # No args needed; uses pyproject.toml
-        exclude: ^(\.eggs/|\.git/|\.hg/|\.mypy_cache/|\.tox/|\.venv/|build/|dist/|nomad_stack/|daniel/|output/|nomad_data/|notebooks/)
+        exclude: ^(\.eggs/|\.git/|\.hg/|\.mypy_cache/|\.tox/|\.venv/|build/|dist/)
 
   # Ruff for linting with auto-fixes
   - repo: https://github.com/astral-sh/ruff-pre-commit
@@ -82,19 +82,7 @@ repos:
       - id: ruff-check
         args: [--fix]
         language_version: python3.12
-        exclude: ^(\.eggs/|\.git/|\.hg/|\.mypy_cache/|\.tox/|\.venv/|build/|dist/|nomad_stack/|daniel/|output/|nomad_data/|notebooks/)
-
-  # Pytest for running tests
-  # - repo: local # Skip for now
-  #   hooks:
-  #     - id: pytest
-  #       name: pytest
-  #       entry: pytest
-  #       language: system
-  #       types: [python]
-  #       pass_filenames: false
-  #       always_run: true
-  #       args: [tests/, -v, --tb=short]
+        exclude: ^(\.eggs/|\.git/|\.hg/|\.mypy_cache/|\.tox/|\.venv/|build/|dist/)
 
   # Security checks (fast mode - only check changed files)
   - repo: https://github.com/PyCQA/bandit
@@ -102,16 +90,7 @@ repos:
     hooks:
       - id: bandit
         args: [-c, pyproject.toml, --severity-level, high, --confidence-level, high]
-        exclude: ^(tests|nomad_stack|daniel|output|nomad_data)/
         files: \.py$
-
-  # # Import sorting and unused imports (conservative - only imports)
-  # - repo: https://github.com/pycqa/autoflake
-  #   rev: v2.3.1
-  #   hooks:
-  #     - id: autoflake
-  #       args: [--remove-all-unused-imports, --in-place, --check]
-  #       exclude: ^(nomad_stack|daniel|output|nomad_data)/
 
 # Global configuration
 default_stages: [pre-commit]

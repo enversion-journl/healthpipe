@@ -7,7 +7,7 @@
 -- ============================================================================
 -- dw_ek_Borger på dm's HAIBA-case-tabeller
 --
--- Tabellerne er oprettet uden kolonnen af [internal ticket]. Landes både her og i
+-- Tabellerne er oprettet uden kolonnen. Landes både her og i
 -- tables/haiba/01_dm.sql: migrationen
 -- retter eksisterende databaser, base-DDL'en er alt en frisk database får.
 --

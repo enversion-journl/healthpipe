@@ -1,0 +1,38 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Dagster",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "dagster",
+            "python": "/usr/bin/python",
+            "args": [
+                "dev",
+                "-m",
+                "definitions"
+            ],
+            "cwd": "${workspaceFolder}/etl",
+            "env": {
+                "PYTHONWARNINGS": "ignore:.*observable_source_asset.*",
+                "DAGSTER_ETL_SUPPRESS_BETA_WARNINGS": "1",
+                "PYTHONPATH": "${workspaceFolder}/etl",
+                "DAGSTER_HOME": "${workspaceFolder}/.devcontainer/dagster_home"
+            },
+            "serverReadyAction": {
+                "pattern": "Serving dagster-webserver",
+                "uriFormat": "http://127.0.0.1:3000",
+                "action": "openExternally"
+            },
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "Python Debugger: Current File",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal"
+        }
+    ]
+}

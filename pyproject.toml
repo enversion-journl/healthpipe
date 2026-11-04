@@ -18,7 +18,6 @@ dependencies = [
     "pandas==2.3.2",
     "sqlalchemy==2.0.43",
     "pymssql==2.3.7",
-    # "psycopg2-binary",
     "psycopg[binary]>=3.1,<4",
     # Dagster core
     "dagster==1.13.18",
@@ -119,11 +118,6 @@ extend-exclude = '''
   | \.venv
   | build
   | dist
-  | nomad_stack
-  | daniel
-  | output
-  | nomad_data
-  | notebooks
 )/
 '''
 
@@ -140,9 +134,6 @@ exclude = [
     ".venv",
     "build",
     "dist",
-    "nomad_stack",
-    "nomad_data",
-    "notebooks",
 ]
 
 [tool.ruff.format]
@@ -222,20 +213,3 @@ exclude = [
 [[tool.mypy.overrides]]
 module = "fhir.resources.*"
 follow_imports = "skip"
-
-# Pytest configuration
-# Note: Tests should be run from etl/ directory which has pytest.ini
-# This configuration is disabled at root level to prevent duplicate test discovery
-# Remove or comment out to allow root-level test discovery
-# [tool.pytest.ini_options]
-# testpaths = ["etl/tests"]
-# python_files = ["test_*.py", "*_test.py"]
-# python_classes = ["Test*"]
-# python_functions = ["test_*"]
-# addopts = "-v --tb=short --strict-markers"
-# pythonpath = ["etl"]
-# filterwarnings = [
-#     "ignore::UserWarning",
-#     "ignore::pydantic.warnings.PydanticDeprecatedSince20",
-#     "ignore:.*PydanticDeprecatedSince20.*:pydantic.warnings.PydanticDeprecatedSince20",
-# ]

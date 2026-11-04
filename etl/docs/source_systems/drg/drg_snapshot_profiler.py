@@ -9,7 +9,7 @@
 """DRG snapshot profiler — stdlib-only profiling of DRG-grupperet LPR deliveries from SDS.
 
 Profiles the tar.bz2 deliveries on the NGC share without
-loading anything into a database. Built for the key questions behind [internal ticket]:
+loading anything into a database. Built for the key questions:
 which columns are stable natural keys, how deliveries differ across cadence (M/U)
 and takstsystem, and whether the SDS export log's control totals hold.
 

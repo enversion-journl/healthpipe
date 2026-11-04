@@ -2,8 +2,10 @@
 
 All notable changes to this project are documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
-project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). While
+the major number is 1, a release with a **Breaking:** entry increases the minor number,
+for example from 1.0.8 to 1.1.0. All other releases increase the patch number, for
+example from 1.0.8 to 1.0.9.
 
 ## [Unreleased]
 
@@ -17,7 +19,6 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   has `dw_ek_Borger`, `dw_sk_Borger`, `dw_ek_Organisation_henvist_fra` and
   `dw_ek_Organisation_henvist_til`. `fhir.WardUnit` has `dw_ek_Organisation`. The value
   is `-1` when the platform cannot find the citizen or the organisation.
-- The deploy to QA and production runs `full_infrastructure_setup` automatically.
 
 ### Changed
 
@@ -292,8 +293,7 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   more storage locations and requesters. A row without a storage location or a
   requester links to its hospital. A migration resets the load checkpoints, so the next
   run loads the ILS history again.
-- The daily `dim.Dato` schedule starts automatically in the development, production and
-  release deployments.
+- The daily `dim.Dato` schedule starts automatically in a deployed environment.
 
 ## [1.0.2] - 2026-10-07
 

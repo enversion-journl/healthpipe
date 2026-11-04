@@ -135,7 +135,7 @@ class TestIsAutomationRun:
         assert is_automation_run({"dagster/triggered_by": "dfm_base_job_success_sensor"})
 
     def test_adhoc_run_not_reported(self):
-        assert not is_automation_run({"user": "daniel"})
+        assert not is_automation_run({"user": "analyst"})
         assert not is_automation_run(None)
 
 

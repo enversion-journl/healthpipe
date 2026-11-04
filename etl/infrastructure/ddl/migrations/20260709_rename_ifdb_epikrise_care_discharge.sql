@@ -5,7 +5,7 @@
 -- root for the full AGPL-3.0 license text.
 
 -- Hand-authored to match scripts/naming_overhaul/gen_migrations.py output.
--- Converges the 5 IFDB epikrise/udskrivningsrapport arc tables (merged via [internal ticket]
+-- Converges the 5 IFDB epikrise/udskrivningsrapport arc tables (merged
 -- AFTER this branch's rename baseline) to the naming convention: table names
 -- <source>_<table> prefix (matching the 4 sibling ifdb_* tables) + lowercase DWH
 -- audit columns. Source columns stay verbatim; PK/IX names keep the <entity>_ifdb

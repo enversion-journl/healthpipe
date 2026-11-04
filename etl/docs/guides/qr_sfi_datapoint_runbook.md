@@ -11,8 +11,7 @@
 Operationel runbook for QR → SFI-datapunkt-kæden (`fhir.QuestionnaireResponse`
 → `fhir.SFI_datapoint_build` → `fhir.SFI_datapoint_store`): DQ preflight,
 reconciliation efter schema-/view-/key-ændringer, verifikationsqueries og
-rollback. Designbaggrunden ligger i den arkiverede plan
-[qr_sfi_join_key_hardening_plan.md](../archive/qr_sfi_join_key_hardening_plan.md)
+rollback. Designbaggrunden ligger i en arkiveret plan, som ikke er offentlig
 (migration `20260608_qr_sfi_join_key_hardening.sql` + preflight i
 `refresh_sfi_datapoint.py`); dette dokument er det autoritative sted for
 driftsprocedurerne.

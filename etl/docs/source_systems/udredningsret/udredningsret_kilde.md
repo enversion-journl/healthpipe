@@ -8,13 +8,13 @@
 
 # SDS Udredningsret (LPR_Udredningsret) — kildebeskrivelse og nøglebeslutning
 
-Feature [internal ticket] (SDSUDRED), [internal ticket] (ingestion) og [internal ticket] (leverancedetektion).
+Feature SDSUDRED, ingestion og leverancedetektion.
 Ingestion: `etl/DSI/csv_files/udredningsret*.py` (tar-streamingen deles med DRG og LPR3 via
-`etl/DSI/csv_files/_sds_tar.py`, [internal ticket]), DDL: `etl/infrastructure/ddl/tables/udredningsret/`,
+`etl/DSI/csv_files/_sds_tar.py`), DDL: `etl/infrastructure/ddl/tables/udredningsret/`,
 job: `udredningsret_ingest_job`, schedule: `udredningsret_ingest_daily_schedule`.
 
 Tallene nedenfor er målt på healthpipe-dev 2026-09-07/09 mod leverancerne 2026-08-31 og 2026-09-07
-(detaljer og tællinger som kommentarer på [internal ticket] og [internal ticket]–29788).
+(detaljer og tællinger som kommentarer).
 
 ## Leverancen
 
@@ -159,8 +159,7 @@ Merge-nøgle: (`markoer_noegle`, `loebenummer`). PK `PK_arc_udredningsret_mont`.
 
 ## Leverancedetektion (niveau 1) og manifest
 
-Følger DRG's beslutningsnotat (`etl/docs/source_systems/drg/drg_leverancedetektion_beslutningsnotat.md`,
-[internal ticket]): **en kørsel uden ny fil læser intet.** Udredningsret har ét spor (U og M er samme
+Følger DRG's beslutningsnotat (`etl/docs/source_systems/drg/drg_leverancedetektion_beslutningsnotat.md`): **en kørsel uden ny fil læser intet.** Udredningsret har ét spor (U og M er samme
 snapshot), så der er én checkpoint-enhed og ingen niveau 2 pr. skive — retningsguarden på
 `LPROPDATERINGSDATO` udfylder rollen som værn mod at merge ældre oven i nyere.
 
@@ -188,7 +187,7 @@ dagligt kl. 02:00 CET via `udredningsret_ingest_daily_schedule` (auto-enabled p�
 development/prod/release-*, ellers STOPPED som repoets øvrige schedules). Dagligt frem for ugentligt,
 fordi en dag uden ny fil er en no-op med kun en mappelistning og et checkpoint-opslag, mens en
 forsinket kadence risikerer sharets ~3 måneders retention. Forudsætning på miljøerne:
-`UDREDNINGSRET_BASE_DIR` i jobbets miljø (T2.5 [internal ticket] hos DDK); indtil da fejler jobbet i
+`UDREDNINGSRET_BASE_DIR` i jobbets miljø (T2.5 hos DDK); indtil da fejler jobbet i
 `udredningsret_dir()` med en tydelig besked. Til manuelle kørsler på en branch-allokering, hvor variablen endnu ikke er
 registreret, findes run-config-overriden `base_dir` (på `ext_udredningsret` og `udredningsret_leverance_alder`): eksplicit
 pr. kørsel, valideres som en mappe, logges som WARNING, aldrig en default. Ingen DQA-subjects i ingest (fil-kilde, som

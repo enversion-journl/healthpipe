@@ -4,7 +4,7 @@
 # This file is part of Healthpipe. See the LICENSE file in the project
 # root for the full AGPL-3.0 license text.
 
-"""Contract tests for [internal ticket] dim.Vareudlevering SAS Forbrug parity fields.
+"""Contract tests for dim.Vareudlevering SAS Forbrug parity fields.
 
 This tests that the SAS parity fields are correctly added to the dim.Vareudlevering table.
 """

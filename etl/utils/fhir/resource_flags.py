@@ -26,6 +26,8 @@ værdi i kilde-metadata-udvidelsen.
 
 from __future__ import annotations
 
+from typing import Any
+
 from fhir.resources.R4B.coding import Coding
 from fhir.resources.R4B.meta import Meta
 
@@ -39,12 +41,12 @@ _DISPLAYS = {
 }
 
 
-def build_flag_tag_dict(code: str) -> dict:
+def build_flag_tag_dict(code: str) -> dict[str, Any]:
     """Byg et driftsflag som meta.tag-coding til dict-baserede pipelines."""
     return {"system": SYSTEM_RESOURCE_FLAG, "code": code, "display": _DISPLAYS[code]}
 
 
-def add_flag_tags_dict(resource: dict, codes: list[str]) -> None:
+def add_flag_tags_dict(resource: dict[str, Any], codes: list[str]) -> None:
     """Læg driftsflag i ressourcens meta.tag uden at fjerne mærker, der allerede står der."""
     if not codes:
         return

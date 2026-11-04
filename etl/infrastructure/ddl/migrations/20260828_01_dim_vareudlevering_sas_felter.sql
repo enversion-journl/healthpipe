@@ -158,7 +158,7 @@ IF OBJECT_ID(N'[meta].[DFMState]', 'U') IS NULL
     PRINT 'No meta.DFMState on this database (expected on DSO) - no checkpoints to reset.';
 ELSE
     EXEC sp_executesql N'
-        DECLARE @reason NVARCHAR(200) = N''NULL dim/fct.Vareudlevering checkpoints so the next scheduled run backfills [internal ticket] SAS parity columns (true full reconstruction via pre_stg).'';
+        DECLARE @reason NVARCHAR(200) = N''NULL dim/fct.Vareudlevering checkpoints so the next scheduled run backfills SAS parity columns (true full reconstruction via pre_stg).'';
         DECLARE @reset INT = 0;
 
         IF EXISTS (SELECT 1 FROM [meta].[DFMState] WHERE [scope] = ''staging''

@@ -9,8 +9,6 @@
 # SDS LPR3 Grunddata — kilde og ingestion
 
 Beskriver SDS' regionsleverance LPR3 Grunddata, og hvordan den indlæses i ext og arc.
-Den styrende specifikation er [[internal ticket]](https://enversion.visualstudio.com/healthpipe/_workitems/edit/27627);
-ingestion er [user story [internal ticket]](https://enversion.visualstudio.com/healthpipe/_workitems/edit/29891).
 Nøglevalg og deres begrundelse står i [nøglekontrakten](../../contracts/lpr3_ingest_noegler.md).
 
 ## Begreber
@@ -24,7 +22,7 @@ Nøglevalg og deres begrundelse står i [nøglekontrakten](../../contracts/lpr3_
 | `LPR_Entity_ID` | LPR3-indberetningens UUID, tildelt af det indberettende system |
 | Dim/fct-par | SDS fordeler ni entiteters identitet (Dim) og attributter (fct) på to tabeller med samme rækkeantal |
 | Funktionel afhængighed | Målingen af, at et sæt kolonner entydigt bestemmer en række; grundlaget for hver arkivnøgle |
-| Featurebeslutninger B1–B16 | Truffet på [internal ticket] den 2026-09-20. Dette dokument henviser til B2 (merge-nøglen er `LPR_Entity_ID`), B3 (afledte entiteter nøgles på UUID-relationer), B4 (et Dim/fct-par bliver én arkivtabel) og B6 (DimBorger og DimAdresse arkiveres komplet) |
+| Featurebeslutninger B1–B16 | Truffet den 2026-09-20. Dette dokument henviser til B2 (merge-nøglen er `LPR_Entity_ID`), B3 (afledte entiteter nøgles på UUID-relationer), B4 (et Dim/fct-par bliver én arkivtabel) og B6 (DimBorger og DimAdresse arkiveres komplet) |
 | Nøglebeslutninger D1–D6 | De målte undtagelser fra B2/B3; se [nøglekontrakten](../../contracts/lpr3_ingest_noegler.md) |
 
 ## Leverance

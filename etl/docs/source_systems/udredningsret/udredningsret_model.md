@@ -8,9 +8,8 @@
 
 # SDS Udredningsret — målmodel, staging-regler og beslutninger (US-3 → US-6)
 
-Feature [internal ticket] (SDSUDRED v1.0). Dette notat er den autoritative specifikation for lagene
-efter arkivet: `pre_stg` → `stg` → `map` → `dim`/`fct` → DSO/DQA ([internal ticket], [internal ticket],
-[internal ticket], [internal ticket]). Kilden og arkivet (US-2/US-7) er beskrevet i
+Feature SDSUDRED v1.0. Dette notat er den autoritative specifikation for lagene
+efter arkivet: `pre_stg` → `stg` → `map` → `dim`/`fct` → DSO/DQA. Kilden og arkivet (US-2/US-7) er beskrevet i
 [udredningsret_kilde.md](udredningsret_kilde.md); beslutningerne B1–B10 står på featuren og på
 review-siden "Udredningsret i basismodellen".
 

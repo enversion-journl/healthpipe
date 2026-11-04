@@ -6,7 +6,7 @@
 
 -- ============================================================================
 -- Archive: SDS' datamart for monitoring of the udredningsret
--- (LPR_Udredningsret, [internal ticket], [internal ticket])
+-- (LPR_Udredningsret)
 --
 -- 1:1 mirror of the delivery file UdredningsretMont_1083_<dato>.csv (28
 -- columns) PLUS four computed keys in front, because the source's own ids do
@@ -28,7 +28,7 @@
 --
 -- Every value column is NVARCHAR(500) — the archive does not type, and the
 -- width equals ext, so an over-long value can never abort the merge with a
--- truncation error (HAIBA lesson [internal ticket]). The key columns are NOT NULL.
+-- truncation error (HAIBA lesson). The key columns are NOT NULL.
 --
 -- Merge: ext.udredningsret_mont_noegler (physical source table with the keys,
 -- built and dropped again by DSI/csv_files/udredningsret_archive.py) -> arc on

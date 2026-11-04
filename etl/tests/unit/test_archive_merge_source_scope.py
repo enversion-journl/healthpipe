@@ -4,13 +4,13 @@
 # This file is part of Healthpipe. See the LICENSE file in the project
 # root for the full AGPL-3.0 license text.
 
-"""Unit tests for ArchiveMergeConfig.source_scope_predicate ([internal ticket] groundwork).
+"""Unit tests for ArchiveMergeConfig.source_scope_predicate (groundwork).
 
 The archive merge could always narrow what it soft-DELETES
 (delete_scope_predicate); nothing narrowed what it MERGES IN. DRG's tier-2
 decision needs both, derived from the same slice set — narrowing the source
 while delete detection still covers a slice makes WHEN NOT MATCHED BY SOURCE
-soft-delete that entire slice (the [internal ticket] failure class).
+soft-delete that entire slice (the failure class).
 """
 
 import pytest

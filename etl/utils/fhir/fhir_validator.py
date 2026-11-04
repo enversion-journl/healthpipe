@@ -12,7 +12,7 @@ Validates FHIR specifications against official profiles and standards
 
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import requests
 import yaml
@@ -29,7 +29,7 @@ class FHIRValidator:
         """Load FHIR reference configuration"""
         try:
             with open(path, encoding="utf-8") as f:
-                return yaml.safe_load(f)
+                return cast(dict[str, Any], yaml.safe_load(f))
         except FileNotFoundError:
             print(f"Warning: Configuration file {path} not found. Using defaults.")
             return {
@@ -358,7 +358,7 @@ class FHIRValidator:
 
 
 # CLI interface
-def main():
+def main() -> None:
     validator = FHIRValidator()
 
     if len(sys.argv) < 2:

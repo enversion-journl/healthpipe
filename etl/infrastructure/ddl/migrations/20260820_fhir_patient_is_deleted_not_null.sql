@@ -7,7 +7,7 @@
 -- ============================================================================
 -- fhir.Patient.dw_is_deleted: NULL -> 0, og herefter NOT NULL DEFAULT 0
 --
--- Fundet under [internal ticket]. fhir.Patient havde 1.991.600 raekker med 0 og 898 med
+-- fhir.Patient havde 1.991.600 raekker med 0 og 898 med
 -- NULL. De 898 er praecis de stub-patienter [internal ticket] oprettede: SQL-on-FHIR-
 -- mergens INSERT naevner ikke kolonnen, og uden default lander den som NULL.
 --

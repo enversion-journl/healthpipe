@@ -36,7 +36,7 @@ GDPR: nothing here ever puts a row value, a CPR or any field content into an
 exception, a log line or a return value. Column names, file names and counts
 only.
 
-BEHAVIOUR NOTE (the one deliberate change of the extraction, [internal ticket]): DRG's
+BEHAVIOUR NOTE (the one deliberate change of the extraction): DRG's
 load path now runs through :func:`run_writers`, so a designed failure mid-load
 DISCARDS the buffered rows instead of flushing them on the way out. Flushing
 them issued one more INSERT, and when that INSERT failed the driver's error

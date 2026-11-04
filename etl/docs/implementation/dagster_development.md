@@ -11,8 +11,8 @@
 The development loop: making a change, getting it running on the Dev environment,
 verifying it, and finding out why it does not work.
 
-For *how to get set up at all* — VS Code server, cloning, feature branches, the Dev
-code location, dbcode — read [Getting started](../../../docs/onboarding.md) first.
+For *how to get set up at all* — the devcontainer or a local venv — read
+[Development Setup](../../../CONTRIBUTING.md#development-setup) first.
 For *where things live* and *what the words mean*, read the
 [Repository Tour](repo_tour.md).
 
@@ -172,8 +172,8 @@ thing to inspect, not partitions. See
 
 ## Related documentation
 
-- [Getting started](../../../docs/onboarding.md) — VS Code server, feature-branch
-  code locations, dbcode
+- [Development Setup](../../../CONTRIBUTING.md#development-setup) — devcontainer or
+  local venv
 - [Repository Tour](repo_tour.md) — structure, terminology, asset groups
 - [Docs index & glossary](../README.md)
 - [DSI ETL Guide](dsi_etl_guide.md) — source system → archive table

@@ -65,7 +65,7 @@ from utils.sql_safety import safe_bracket_quote
 LEVERANCE_TABLE = "DRGLeverance"
 # meta.DRGLeverance.aktivitetsaar is NVARCHAR(4) — a key column, deliberately
 # narrow. ext's year column is NVARCHAR(500) and validated by nothing, so the
-# width is checked before anything is merged (the [internal ticket] lesson).
+# width is checked before anything is merged (the lesson).
 MAX_AKTIVITETSAAR_WIDTH = 4
 REVISION_TABLE = "drg_pris_revision"
 
@@ -415,7 +415,7 @@ def build_slice_predicate(
 
 
 # ---------------------------------------------------------------------------
-# Delivery manifest and the slice-level cap decision ([internal ticket] tier 2)
+# Delivery manifest and the slice-level cap decision (tier 2)
 # ---------------------------------------------------------------------------
 
 
