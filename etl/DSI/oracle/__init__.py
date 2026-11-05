@@ -11,13 +11,13 @@ All IFDB extraction runs through the DFM pipeline (``ifdb_extract`` +
 ``TableExtractionConfig`` definitions used for on-demand Oracle lookups.
 """
 
-from DSI.oracle.epji_archive import arc_epji_shakalike  # noqa: F401
-from DSI.oracle.epji_extract import epji_location_extract_assets  # noqa: F401
-from DSI.oracle.ifdb import (  # noqa: F401
-    ENCOUNTER_CONFIG,
-    EPISODE_OF_CARE_CONFIG,
-    LOCATION_CONFIG,
-    PATIENT_CONFIG,
+from DSI.oracle.epji_archive import (
+    arc_epji_shakalike,
+    epji_practitioner_archive_assets,
+)
+from DSI.oracle.epji_extract import (
+    epji_location_extract_assets,
+    epji_practitioner_extract_assets,
 )
 from DSI.oracle.ifdb_archive import (
     ifdb_archive_assets,
@@ -28,4 +28,9 @@ from DSI.oracle.ifdb_extract import (
 
 all_ifdb_archive_assets = [*ifdb_archive_extract_assets, *ifdb_archive_assets]
 
-all_epji_archive_assets = [*epji_location_extract_assets, arc_epji_shakalike]
+all_epji_archive_assets = [
+    *epji_location_extract_assets,
+    arc_epji_shakalike,
+    *epji_practitioner_extract_assets,
+    *epji_practitioner_archive_assets,
+]

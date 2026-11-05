@@ -379,20 +379,6 @@ def _archive_columns() -> tuple[str, ...]:
     return PATIENT_COLUMNS
 
 
-def dedupe_rows(rows: Iterable[dict]) -> list[dict]:
-    """One row per EPJ id; rows without an id are kept."""
-    seen: set[str] = set()
-    ud: list[dict] = []
-    for row in rows:
-        pid = row_patient_id(row)
-        if pid and pid in seen:
-            continue
-        if pid:
-            seen.add(pid)
-        ud.append(row)
-    return ud
-
-
 def fetch_fhir_ids(
     fhir_database: FHIRDatabaseResource, system: str, values: Iterable[str]
 ) -> dict[str, str]:
@@ -464,21 +450,20 @@ def _maal(regnskab: dict[str, float], navn: str):
         regnskab[navn] = regnskab.get(navn, 0.0) + (time.perf_counter() - start)
 
 
-def _log_opslag(regnskab: dict[str, float], runder: int, personer: int) -> None:
+def _log_opslag(regnskab: dict[str, float], personer: int) -> None:
     """Where the time went in the resolution."""
     if not regnskab:
         return
     dg.get_dagster_logger().info(
-        "Patient identity: %d numbers in %d round(s) — %s (%.1f s in total)",
+        "Patient identity: %d numbers — %s (%.1f s in total)",
         personer,
-        runder,
         ", ".join(f"{navn} {sek:.1f} s" for navn, sek in sorted(regnskab.items())),
         sum(regnskab.values()),
     )
 
 
 # ---------------------------------------------------------------------------
-# The union, looked up instead of computed
+# The union, looked up in ref.PatientIdentity
 # ---------------------------------------------------------------------------
 
 IDENTITY_TABLE = "[ref].[PatientIdentity]"
@@ -507,10 +492,7 @@ def fetch_union(mssql: MSSQLResource, epj_ids: Iterable[str], cprs: Iterable[str
                 "WHERE TABLE_SCHEMA = 'ref' AND TABLE_NAME = 'PatientIdentity'"
             )
             if not cursor.fetchone()[0]:
-                raise IdentityConflict(
-                    "ref.PatientIdentity is missing; run ref_patient_identity, or ask "
-                    "explicitly for the old path (union=False)"
-                )
+                raise IdentityConflict("ref.PatientIdentity is missing; run ref_patient_identity")
             cursor.execute(
                 "CREATE TABLE #Identiteter (identity_system NVARCHAR(128) NOT NULL, "
                 "identity_value NVARCHAR(64) NOT NULL, "
@@ -557,7 +539,6 @@ def fetch_identity_inputs(
     fhir_database: FHIRDatabaseResource,
     rows: Iterable[dict] = (),
     members: Callable[[set[str]], set[str]] | None = None,
-    union: bool = True,
 ) -> IdentityInputs:
     """Fetch the union, the archive rows and the server's ids for the rules.
 
@@ -571,110 +552,39 @@ def fetch_identity_inputs(
     fhir_by_epj: dict[str, str] = {}
     fhir_by_cpr: dict[str, str] = {}
     regnskab: dict[str, float] = {}
-    runder = 0
 
-    if union:
-        with _maal(regnskab, "forening"):
-            history, flere_epj, flere_cpr = fetch_union(mssql, epj_ids, cprs)
-        epj_ids |= flere_epj
-        cprs |= flere_cpr
-        # The rows for the person's other patient ids, except the caller's own.
-        mangler = epj_ids - set(rows_by_id)
-        if mangler:
-            with _maal(regnskab, "arkiv"):
-                for r in _fetch_archive(mssql, "PATIENT_ID", mangler):
-                    rows_by_id.setdefault(row_patient_id(r), r)
-            cprs |= {row_cpr(r) for r in rows_by_id.values() if row_cpr(r)}
-        with _maal(regnskab, "server"):
-            _merge_fhir_ids(
-                fhir_by_epj, fetch_fhir_ids(fhir_database, SYSTEM_IFDB_PATIENT_ID, epj_ids)
-            )
-            _merge_fhir_ids(fhir_by_cpr, fetch_fhir_ids(fhir_database, SYSTEM_CPR, cprs))
-        # Identities on the resource that the union does not know are read without a new round.
-        ressourcer = set(fhir_by_epj.values()) | set(fhir_by_cpr.values())
-        if ressourcer:
-            with _maal(regnskab, "aliaser"):
-                aliases_epj, aliases_cpr = fetch_fhir_aliases(fhir_database, ressourcer)
-            _merge_fhir_ids(fhir_by_epj, aliases_epj)
-            _merge_fhir_ids(fhir_by_cpr, aliases_cpr)
-        _log_opslag(regnskab, 1, len(cprs))
-        return IdentityInputs(
-            archive_rows=list(rows_by_id.values()),
-            current_by_historical=history,
-            fhir_ids_by_epj_id=fhir_by_epj,
-            fhir_ids_by_cpr=fhir_by_cpr,
-            register_cprs=(
-                set(members(set(cprs) | set(fhir_by_cpr)))
-                if members is not None and (cprs or fhir_by_cpr)
-                else set()
-            ),
-        )
-
-    done_epj: set[str] = set(rows_by_id)  # the caller's rows are not fetched again
-    done_cpr: set[str] = set()
-    done_fhir_epj: set[str] = set()
-    done_fhir_cpr: set[str] = set()
-    expanded_resources: set[str] = set()
-
-    while True:
-        runder += 1
-        new_epj = epj_ids - done_epj
-        new_cpr = cprs - done_cpr
-        new_fhir_epj = epj_ids - done_fhir_epj
-        new_fhir_cpr = cprs - done_fhir_cpr
-        if not (new_epj or new_cpr or new_fhir_epj or new_fhir_cpr):
-            break
+    with _maal(regnskab, "forening"):
+        history, flere_epj, flere_cpr = fetch_union(mssql, epj_ids, cprs)
+    epj_ids |= flere_epj
+    cprs |= flere_cpr
+    # The rows for the person's other patient ids, except the caller's own.
+    mangler = epj_ids - set(rows_by_id)
+    if mangler:
         with _maal(regnskab, "arkiv"):
-            arkivraekker = _fetch_archive(mssql, "PATIENT_ID", new_epj) + _fetch_archive(
-                mssql, "CPR", new_cpr
-            )
-        for r in arkivraekker:
-            rows_by_id.setdefault(row_patient_id(r), r)
-        done_epj |= new_epj
-        done_cpr |= new_cpr
-        if new_cpr:
-            with _maal(regnskab, "historik"):
-                for where in ("pnr", "pnrgaeld"):
-                    for r in chunked_in_fetch(
-                        sorted(new_cpr),
-                        table=HISTORY_TABLE,
-                        columns=("pnr", "pnrgaeld"),
-                        where_column=where,
-                        mssql=mssql,
-                    ):
-                        add_history(history, r.get("pnr"), r.get("pnrgaeld"))
-        with _maal(regnskab, "server"):
-            if new_fhir_epj:
-                _merge_fhir_ids(
-                    fhir_by_epj, fetch_fhir_ids(fhir_database, SYSTEM_IFDB_PATIENT_ID, new_fhir_epj)
-                )
-                done_fhir_epj |= new_fhir_epj
-            if new_fhir_cpr:
-                _merge_fhir_ids(
-                    fhir_by_cpr, fetch_fhir_ids(fhir_database, SYSTEM_CPR, new_fhir_cpr)
-                )
-                done_fhir_cpr |= new_fhir_cpr
-        new_resources = (set(fhir_by_epj.values()) | set(fhir_by_cpr.values())) - expanded_resources
-        if new_resources:
-            with _maal(regnskab, "aliaser"):
-                aliases_epj, aliases_cpr = fetch_fhir_aliases(fhir_database, new_resources)
-            _merge_fhir_ids(fhir_by_epj, aliases_epj)
-            _merge_fhir_ids(fhir_by_cpr, aliases_cpr)
-            epj_ids.update(aliases_epj)
-            cprs.update(aliases_cpr)
-            expanded_resources.update(new_resources)
-        # What the round found must itself be looked up in the next round.
-        epj_ids |= {row_patient_id(r) for r in rows_by_id.values() if row_patient_id(r)}
+            for r in _fetch_archive(mssql, "PATIENT_ID", mangler):
+                rows_by_id.setdefault(row_patient_id(r), r)
         cprs |= {row_cpr(r) for r in rows_by_id.values() if row_cpr(r)}
-        cprs |= set(history) | set(history.values())
-
-    _log_opslag(regnskab, runder, len(cprs))
+    with _maal(regnskab, "server"):
+        _merge_fhir_ids(fhir_by_epj, fetch_fhir_ids(fhir_database, SYSTEM_IFDB_PATIENT_ID, epj_ids))
+        _merge_fhir_ids(fhir_by_cpr, fetch_fhir_ids(fhir_database, SYSTEM_CPR, cprs))
+    # Identities on the resource that the union does not know are read without a new round.
+    ressourcer = set(fhir_by_epj.values()) | set(fhir_by_cpr.values())
+    if ressourcer:
+        with _maal(regnskab, "aliaser"):
+            aliases_epj, aliases_cpr = fetch_fhir_aliases(fhir_database, ressourcer)
+        _merge_fhir_ids(fhir_by_epj, aliases_epj)
+        _merge_fhir_ids(fhir_by_cpr, aliases_cpr)
+    _log_opslag(regnskab, len(cprs))
     return IdentityInputs(
-        archive_rows=dedupe_rows(rows_by_id.values()),
+        archive_rows=list(rows_by_id.values()),
         current_by_historical=history,
         fhir_ids_by_epj_id=fhir_by_epj,
         fhir_ids_by_cpr=fhir_by_cpr,
-        register_cprs=set(members(set(cprs))) if members is not None and cprs else set(),
+        register_cprs=(
+            set(members(set(cprs) | set(fhir_by_cpr)))
+            if members is not None and (cprs or fhir_by_cpr)
+            else set()
+        ),
     )
 
 
@@ -684,11 +594,10 @@ def resolve(
     fhir_database: FHIRDatabaseResource,
     rows: Iterable[dict] = (),
     members: Callable[[set[str]], set[str]] | None = None,
-    union: bool = True,
 ) -> IdentityResolution:
-    """Fetch and resolve in one call. ``union`` looks the union up instead of closing it."""
+    """Fetch and resolve in one call."""
     return resolve_identities(
-        request, fetch_identity_inputs(request, mssql, fhir_database, rows, members, union)
+        request, fetch_identity_inputs(request, mssql, fhir_database, rows, members)
     )
 
 
@@ -702,7 +611,6 @@ __all__ = [
     "Person",
     "add_history",
     "canonical_history",
-    "dedupe_rows",
     "fetch_fhir_ids",
     "fetch_identity_inputs",
     "fetch_union",

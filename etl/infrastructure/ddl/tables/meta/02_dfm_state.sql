@@ -14,17 +14,6 @@
 --
 -- checkpoint_value is NVARCHAR(50) so it can hold a stringified int
 -- (audit-MAX delta) or an ISO datetime (timestamp delta).
---
--- Rækken fhir_server/Encounter_ChildBackfill bruger kolonnen til noget tredje:
--- en engangs-fremskridtsmarkør for efterslæbet på Encounter-berigelsen. Der
--- betyder NULL «armeret, intet gjort», en OBJECT_ID «nået hertil», og
--- sentinelen 'DONE' «afviklet». Kolonnen bærer altså tre betydninger — et
--- tidsstempel, en nøgle og en sentinel — afhængigt af rækken. Kode, der læser
--- checkpoint_value bredt, skal hegne på target_type/table_name eller på
--- TRY_CONVERT, som 20260623_normalize_dfm_state_iso_checkpoints gør. En
--- markør nulstilles til NULL med DfmManager.clear_checkpoint — set_checkpoint
--- uden værdi skriver SYSDATETIME(), fordi «ingen værdi» for et delta-checkpoint
--- betyder «nu».
 -- ============================================================================
 
 IF NOT EXISTS (

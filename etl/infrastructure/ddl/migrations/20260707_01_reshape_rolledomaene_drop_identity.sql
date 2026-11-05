@@ -10,7 +10,7 @@
 --
 -- Existing QA/prod environments deployed sec.RolleDomaene from the earlier
 -- 01_tables.sql shape: 7 columns incl. a RolleDomaeneId INT IDENTITY surrogate
--- PK. [internal ticket] redefined the table in tables/security/04_dpa_tables.sql as a
+-- PK. An earlier change redefined the table in tables/security/04_dpa_tables.sql as a
 -- 6-column composite (PK = Bruger, Sikkerhedsdomaene, no IDENTITY), but the
 -- base DDL create is guarded by IF NOT EXISTS, so redeploying never reshaped
 -- the already-existing table. The DSO sync (dso_sync_sec_rolledomaene) then

@@ -136,16 +136,14 @@ class ExportSet(NamedTuple):
     codes_gone: int
     # Present but unreadable dates and flags, per source field.
     unreadable: dict[str, int]
+    # Built rows with an empty ``type`` — a codesystem property gap. Always 0
+    # for a codesystem with no type property: it has no type to miss.
+    codes_without_type: int = 0
 
     @property
     def codes_unreachable(self) -> int:
         """Codes read but not in the set: they sit in a parent cycle."""
         return self.codes_read - self.codes_gone - len(self.rows)
-
-    @property
-    def codes_without_type(self) -> int:
-        """Built rows with an empty ``type`` — a codesystem property gap."""
-        return sum(1 for row in self.rows if not row["type"])
 
 
 def read_export_set(mssql: MSSQLResource, spec: CodesystemExportSpec) -> ExportSet:
@@ -159,11 +157,13 @@ def read_export_set(mssql: MSSQLResource, spec: CodesystemExportSpec) -> ExportS
     # properties and parent edge, the concept row stays. Delivered, it would
     # be an open-ended root with no dates and no status.
     present = [row for row in source_rows if row.get("has_properties", 1)]
+    rows = build_export_rows(spec, present)
     return ExportSet(
-        rows=build_export_rows(spec, present),
+        rows=rows,
         codes_read=len(source_rows),
         codes_gone=len(source_rows) - len(present),
         unreadable=unreadable_values(present),
+        codes_without_type=(sum(1 for row in rows if not row["type"]) if spec.type_property else 0),
     )
 
 
@@ -201,8 +201,8 @@ def _build_delivery(
                 )
             if export_set.unreadable:
                 context.log.warning(
-                    f"{spec.name} values the file renders as empty because they could not "
-                    f"be read: {export_set.unreadable}"
+                    f"{spec.name} values the file cannot carry because they could not be "
+                    f"read — dates get the default, flags are empty: {export_set.unreadable}"
                 )
             unreachable = export_set.codes_unreachable
             if unreachable:
@@ -300,6 +300,14 @@ def _upload_delivery(
     return dg.MaterializeResult(metadata=metadata)
 
 
+def _describe_source(spec: CodesystemExportSpec) -> str:
+    """Where the spec's codes come from, for the asset description."""
+    source = spec.code_source
+    if source is None:
+        return f"codesystem.{spec.name}*"
+    return f"{source.schema}.{source.table}.{source.column}, named from codesystem.{spec.name}*"
+
+
 def build_codesystem_assets(spec: CodesystemExportSpec) -> list[dg.AssetsDefinition]:
     """The export and upload asset for one codesystem."""
     export_name = export_asset_name(spec)
@@ -311,7 +319,7 @@ def build_codesystem_assets(spec: CodesystemExportSpec) -> list[dg.AssetsDefinit
         deps=[*spec.source_deps, "staging_infra_export"],
         tags={"domain": "codesystem", "layer": "export", "source": spec.asset_prefix},
         description=(
-            f"Build the {spec.name} delivery set from codesystem.{spec.name}* into "
+            f"Build the {spec.name} delivery set from {_describe_source(spec)} into "
             f"export.CodesystemToOs2mo and render {spec.filename_pattern}."
         ),
     )

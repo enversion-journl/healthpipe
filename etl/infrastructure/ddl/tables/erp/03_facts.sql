@@ -281,6 +281,42 @@ BEGIN
 END
 GO
 
+-- fct.Ordre
+-- Source: ILS dbo.ordh -- order headers.
+-- Grain: one row per order (sgh, lgr, ordre). Carries the header-level amounts
+-- (freight, fee), which would be counted once per line on the order lines.
+-- Transaction dimension: dw_ek_Ordre is the shared PK with dim.Ordre, resolved
+-- from map.Ordre. No separate FK column to dim.Ordre.
+IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[fct].[Ordre]') AND type = 'U')
+BEGIN
+    CREATE TABLE [fct].[Ordre](
+        [dw_ek_Ordre] INT NOT NULL,
+        [clean_code_Ordre] NVARCHAR(100) NOT NULL,
+        [bk_prrowid] NVARCHAR(100) NULL,
+        [dw_ek_Lager] BIGINT NOT NULL CONSTRAINT [DF_Ordre_dw_ek_Lager] DEFAULT -1,
+        [dw_ek_ILSLeverandoer] INT NOT NULL CONSTRAINT [DF_Ordre_dw_ek_ILSLeverandoer] DEFAULT -1,
+        [dw_ek_Dato_ordre] INT NOT NULL CONSTRAINT [DF_Ordre_dw_ek_Dato_ordre] DEFAULT -1,
+        [dato_tid_ordre] DATETIME2 NULL,
+        [fragt_beloeb] DECIMAL(17,2) NULL,
+        [gebyr_beloeb] DECIMAL(17,2) NULL,
+        [dw_haendelsestidspunkt] DATETIME2 NULL,
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Ordre_dw_timestamp_insert] DEFAULT SYSDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Ordre_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        CONSTRAINT [PK_Fct_Ordre] PRIMARY KEY CLUSTERED ([dw_ek_Ordre] ASC)
+    ) ON [PRIMARY];
+
+    -- Slicing by warehouse, supplier and order date.
+    CREATE NONCLUSTERED INDEX [IX_Fct_Ordre_Lager] ON [fct].[Ordre]
+    ([dw_ek_Lager] ASC) ON [PRIMARY];
+
+    CREATE NONCLUSTERED INDEX [IX_Fct_Ordre_ILSLeverandoer] ON [fct].[Ordre]
+    ([dw_ek_ILSLeverandoer] ASC) ON [PRIMARY];
+
+    CREATE NONCLUSTERED INDEX [IX_Fct_Ordre_Dato_Ordre] ON [fct].[Ordre]
+    ([dw_ek_Dato_ordre] ASC) ON [PRIMARY];
+END
+GO
+
 -- fct.Lagerbeholdning (Periodic Snapshot — Warehouse Stock)
 -- Source: ILS dbo.lgrbeh — daily full-load inventory snapshot
 -- Grain: one row per (snapshot date, sgh, lgr, vnr, lgrlok)

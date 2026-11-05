@@ -92,7 +92,9 @@ def render(mssql: MSSQLResource, codesystems: list[str], out_dir: Path) -> list[
             if count
         ]
         if export_set.unreadable:
-            notes.append(f"unreadable values rendered empty: {export_set.unreadable}")
+            notes.append(
+                f"unreadable values (dates defaulted, flags empty): {export_set.unreadable}"
+            )
         print(
             f"{spec.name}: {len(export_set.rows)} rows -> {path}"
             + (f"  ({'; '.join(notes)})" if notes else "")

@@ -4,12 +4,14 @@
 # This file is part of Healthpipe. See the LICENSE file in the project
 # root for the full AGPL-3.0 license text.
 
-"""Unit tests for the shared SDS tar.bz2 machinery (DSI/csv_files/_sds_tar.py).
+"""Unit tests for the shared SDS tar.bz2 machinery (DSI/csv_files/_sds_tar.py and
+core/file_delivery.py).
 
-The module holds what DRG, udredningsret and (next) LPR3 Grunddata genuinely
-have in common: the forward-only tar walk, the non-seekable stream adapter, the
-chunked ext writer with its discard-on-error path, the export-log parser, the
-ext DDL shape, the environment lookups and the comparisons that feed each
+The two modules hold what DRG, udredningsret and (next) LPR3 Grunddata genuinely
+have in common. core/file_delivery.py holds the forward-only tar walk and the
+non-seekable stream adapter; FileShareResource.root() checks the folder.
+_sds_tar.py holds the chunked ext writer with its discard-on-error path, the
+export-log parser, the ext DDL shape and the comparisons that feed each
 source's own guards. The per-source messages are NOT here — they stay pinned by
 tests/unit/test_drg_extract.py and tests/unit/test_udredningsret_extract.py.
 
@@ -25,6 +27,8 @@ import tarfile
 from pathlib import Path
 
 import pytest
+from core import file_delivery
+from core.resources import FileShareResource
 from DSI.csv_files import _sds_tar
 
 pytestmark = pytest.mark.unit
@@ -333,7 +337,7 @@ def test_non_seekable_reader_returnerer_antal_laeste_bytes_og_nul_ved_eof():
     would loop forever on garbage. That is a hung job rather than a red test, so
     the contract is asserted directly here and not only end to end below.
     """
-    reader = _sds_tar.NonSeekableReader(_StreamHandle(b"abc"))
+    reader = file_delivery.NonSeekableReader(_StreamHandle(b"abc"))
     buffer = bytearray(10)
 
     assert reader.readinto(buffer) == 3
@@ -351,7 +355,7 @@ def test_non_seekable_reader_laeser_hele_stroemmen_gennem_textiowrapper():
         handle.seek(0)
 
     wrapper = io.TextIOWrapper(
-        io.BufferedReader(_sds_tar.NonSeekableReader(handle)), encoding="cp1252", newline=""
+        io.BufferedReader(file_delivery.NonSeekableReader(handle)), encoding="cp1252", newline=""
     )
     # Bounded reads on purpose: an unbounded read() against a readinto() that
     # never reports EOF loops forever, which hangs CI instead of failing it.
@@ -361,14 +365,14 @@ def test_non_seekable_reader_laeser_hele_stroemmen_gennem_textiowrapper():
 
 def test_open_member_csv_deler_paa_semikolon_og_dekoder():
     data = '"DRG";"BESKRIVELSE"\r\n"01MA01";"Æblegrød"\r\n'.encode("cp1252")
-    reader = _sds_tar.open_member_csv(_StreamHandle(data), "cp1252")
+    reader = file_delivery.open_member_csv(_StreamHandle(data), "cp1252")
     assert list(reader) == [["DRG", "BESKRIVELSE"], ["01MA01", "Æblegrød"]]
 
 
 def test_open_member_csv_taeller_linjer_til_fejlbeskeder():
     """The sources quote reader.line_num in their field-count messages."""
     data = b'"A";"B"\n"1";"2"\n"3";"4"\n'
-    reader = _sds_tar.open_member_csv(_StreamHandle(data), "cp1252")
+    reader = file_delivery.open_member_csv(_StreamHandle(data), "cp1252")
     next(reader)
     next(reader)
     assert reader.line_num == 2
@@ -416,7 +420,7 @@ def test_iter_members_giver_kun_filer_med_basenavn_i_tar_orden(tmp_path):
         symlinks=(("1083/latest.csv", "UdredningsretMont_1083_20260906.csv"),),
     )
 
-    seen = [(name, handle.read()) for name, handle in _sds_tar.iter_members(str(path))]
+    seen = [(name, handle.read()) for name, handle in file_delivery.iter_members(str(path))]
 
     assert [name for name, _ in seen] == [
         "Metadata_UdredningsretMont_1083_20260906.csv",
@@ -442,7 +446,7 @@ def test_iter_members_lukker_arkivet_naar_forbrugeren_stopper(tmp_path, monkeypa
         tarfile, "open", lambda *a, **k: opened.append(real_open(*a, **k)) or opened[-1]
     )
 
-    members = _sds_tar.iter_members(str(path))
+    members = file_delivery.iter_members(str(path))
     next(members)
     assert opened and opened[0].closed is False
     members.close()
@@ -466,7 +470,7 @@ def test_iter_members_haenger_ikke_naar_forbrugeren_stopper_midt_i_arkivet(tmp_p
             tar.addfile(info, io.BytesIO(data))
     script = (
         "import sys\n"
-        "from DSI.csv_files._sds_tar import iter_members\n"
+        "from core.file_delivery import iter_members\n"
         "for _ in range(300):\n"
         "    members = iter_members(sys.argv[1])\n"
         "    next(members)\n"
@@ -492,7 +496,7 @@ def test_iter_members_handle_doer_naar_loekken_gaar_videre(tmp_path):
     path = tmp_path / "delivery.tar.bz2"
     _tar(path, [("1083/a.csv", b"a\n"), ("1083/b.csv", b"b\n")])
 
-    members = _sds_tar.iter_members(str(path))
+    members = file_delivery.iter_members(str(path))
     _, first = next(members)
     next(members)
 
@@ -514,7 +518,7 @@ def test_iter_members_tillader_at_springe_et_medlem_over_uden_at_laese_det(tmp_p
     )
 
     seen = []
-    for name, handle in _sds_tar.iter_members(str(path)):
+    for name, handle in file_delivery.iter_members(str(path)):
         if name.startswith("Metadata_"):
             continue  # deliberately never touches the handle
         seen.append((name, handle.read()))
@@ -529,7 +533,7 @@ def test_iter_members_lader_arkivfejl_slippe_igennem(tmp_path):
     broken = tmp_path / "broken.tar.bz2"
     broken.write_bytes(b"not a bz2 archive at all")
     with pytest.raises(tarfile.TarError):
-        list(_sds_tar.iter_members(str(broken)))
+        list(file_delivery.iter_members(str(broken)))
 
 
 # ---------------------------------------------------------------------------
@@ -666,56 +670,34 @@ def test_execute_statements_kan_udskyde_committen():
 # ---------------------------------------------------------------------------
 
 
-ENV = "SDS_TAR_TEST_BASE_DIR"
+@pytest.mark.parametrize(
+    ("sub_dir", "require_non_empty", "fejl"),
+    [
+        (None, False, "is unset or empty"),
+        ("findes_ikke", False, "is not a directory"),
+        ("", True, "empty directory"),
+    ],
+)
+def test_share_root_fejler_haardt_uden_fallback(tmp_path, sub_dir, require_non_empty, fejl):
+    base_dir = "   " if sub_dir is None else str(tmp_path / sub_dir)
+    with pytest.raises(ValueError, match=fejl):
+        FileShareResource(base_dir=base_dir, require_non_empty=require_non_empty).root()
 
 
-def test_source_dir_fejler_haardt_uden_fallback(tmp_path, monkeypatch):
-    monkeypatch.delenv(ENV, raising=False)
-    with pytest.raises(ValueError, match="is unset or empty") as excinfo:
-        _sds_tar.source_dir(ENV, hint_unset="Mount it.", hint_not_dir="No.")
-    assert "Mount it." in str(excinfo.value)
-
-    monkeypatch.setenv(ENV, str(tmp_path / "findes_ikke"))
-    with pytest.raises(ValueError, match="is not a directory") as excinfo:
-        _sds_tar.source_dir(ENV, hint_unset="Mount it.", hint_not_dir="Not mounted.")
-    assert "Not mounted." in str(excinfo.value)
-
-    monkeypatch.setenv(ENV, f"  {tmp_path}  ")  # whitespace is not a path
-    assert _sds_tar.source_dir(ENV, hint_unset="x", hint_not_dir="y") == str(tmp_path)
-
-
-def test_source_dir_laeser_miljoeet_ved_hvert_kald(tmp_path, monkeypatch):
-    """Resolved per run, never cached at import: the mount follows the
-    allocation, not the code."""
-    monkeypatch.setenv(ENV, str(tmp_path))
-    assert _sds_tar.source_dir(ENV, hint_unset="x", hint_not_dir="y") == str(tmp_path)
-    monkeypatch.delenv(ENV)
-    with pytest.raises(ValueError, match="is unset"):
-        _sds_tar.source_dir(ENV, hint_unset="x", hint_not_dir="y")
-
-
-def test_source_dir_override_vinder_men_valideres(tmp_path, monkeypatch):
-    monkeypatch.setenv(ENV, str(tmp_path / "findes_ikke"))
-    assert _sds_tar.source_dir(
-        ENV, hint_unset="x", hint_not_dir="y", override=str(tmp_path)
-    ) == str(tmp_path)
-    with pytest.raises(ValueError, match="is not a directory"):
-        _sds_tar.source_dir(
-            ENV, hint_unset="x", hint_not_dir="y", override=str(tmp_path / "heller_ikke")
-        )
-    monkeypatch.delenv(ENV)
-    with pytest.raises(ValueError, match="is unset"):
-        _sds_tar.source_dir(ENV, hint_unset="x", hint_not_dir="y", override="   ")
+def test_share_root_accepterer_en_monteret_mappe(tmp_path):
+    assert FileShareResource(base_dir=f"  {tmp_path}  ").root() == str(tmp_path)
+    (tmp_path / "20260730").mkdir()
+    assert FileShareResource(base_dir=str(tmp_path), require_non_empty=True).root() == str(tmp_path)
 
 
 def test_source_encoding_falder_tilbage_paa_default(monkeypatch):
     monkeypatch.delenv("SDS_TAR_TEST_ENCODING", raising=False)
-    assert _sds_tar.source_encoding("SDS_TAR_TEST_ENCODING") == "cp1252"
+    assert file_delivery.source_encoding("SDS_TAR_TEST_ENCODING") == "cp1252"
     monkeypatch.setenv("SDS_TAR_TEST_ENCODING", "  ")
-    assert _sds_tar.source_encoding("SDS_TAR_TEST_ENCODING") == "cp1252"
+    assert file_delivery.source_encoding("SDS_TAR_TEST_ENCODING") == "cp1252"
     monkeypatch.setenv("SDS_TAR_TEST_ENCODING", " utf-8 ")
-    assert _sds_tar.source_encoding("SDS_TAR_TEST_ENCODING") == "utf-8"
-    assert _sds_tar.source_encoding("SDS_TAR_TEST_ENCODING_MISSING", "latin-1") == "latin-1"
+    assert file_delivery.source_encoding("SDS_TAR_TEST_ENCODING") == "utf-8"
+    assert file_delivery.source_encoding("SDS_TAR_TEST_ENCODING_MISSING", "latin-1") == "latin-1"
 
 
 def test_parse_archive_timestamp():
@@ -742,3 +724,21 @@ def test_dataset_prefix_bruger_kildens_eget_moenster():
     assert _sds_tar.dataset_prefix("T26_DRGKONTAKT_1083_20260823.csv", member_re) == "DRGKONTAKT"
     assert _sds_tar.dataset_prefix("Metadata_T26_DRGKONTAKT_1083_20260823.csv", member_re) is None
     assert _sds_tar.dataset_prefix("Readme.txt", member_re) is None
+
+
+def test_upsert_register_opdaterer_ikke_insert_only_kolonner():
+    """A rerun of a CPR delivery must keep the forrige_produktionsdato it was first stored with."""
+    store: dict = {}
+    _sds_tar.upsert_register(
+        FakeCursor(store),
+        "CPRLeverance",
+        ("kildetabel",),
+        {"kildetabel": "t", "forrige_produktionsdato": "20260101", "filnavn": "f"},
+        insert_only=("forrige_produktionsdato",),
+    )
+    sql = store["executed"][0]
+    update_set = re.search(r"UPDATE SET (.*?) WHEN NOT MATCHED", sql).group(1)
+    insert = re.search(r"INSERT \((.*?)\)", sql).group(1)
+    assert "[filnavn]" in update_set
+    assert "[forrige_produktionsdato]" not in update_set
+    assert "[forrige_produktionsdato]" in insert

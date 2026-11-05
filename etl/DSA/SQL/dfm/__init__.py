@@ -11,4 +11,4 @@ from DSA.SQL.dfm.period_orchestrator import period_orchestrator
 
 dfm_assets = [dfm_reset, period_orchestrator]
 
-__all__ = ["dfm_reset", "period_orchestrator", "dfm_assets"]
+__all__ = ["dfm_assets"]

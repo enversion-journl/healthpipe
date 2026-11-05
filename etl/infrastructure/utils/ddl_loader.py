@@ -16,6 +16,10 @@ import dagster as dg
 from core.resources import MSSQLResource
 
 
+class MigrationConfig(dg.Config):
+    filenames: list[str] | None = None
+
+
 def get_ddl_path() -> Path:
     """Get the path to the ddl/ directory."""
     return Path(__file__).parent.parent / "ddl"
@@ -108,6 +112,7 @@ def execute_sql(
     description: str = "SQL",
     collect_errors: bool = False,
     autocommit: bool = False,
+    skip_schemas: frozenset[str] = frozenset(),
 ) -> int:
     """
     Execute a SQL statement using the provided MSSQL resource.
@@ -128,6 +133,8 @@ def execute_sql(
         collect_errors: If True, continue executing all batches and collect errors
             instead of failing on the first one. Raises after all batches have run.
             Batches that succeeded stay committed.
+        skip_schemas: Schema names whose batches are not executed (see
+            ``references_schema``).
 
     Returns:
         Number of rows affected (or 0 for DDL statements)
@@ -145,6 +152,14 @@ def execute_sql(
         commit_per_batch = previous_autocommit is not None and not autocommit
         try:
             batches = split_sql_batches(sql)
+            if skip_schemas:
+                kept = [b for b in batches if not references_schema(b, skip_schemas)]
+                if context and len(kept) < len(batches):
+                    context.log.info(
+                        f"Skipped {len(batches) - len(kept)} batch(es) in schemas "
+                        f"{sorted(skip_schemas)}"
+                    )
+                batches = kept
             errors: list[tuple[int, str, Exception]] = []
 
             total_affected = 0
@@ -218,11 +233,22 @@ def split_sql_batches(sql: str) -> list[str]:
     return [batch.strip() for batch in batches if batch.strip()]
 
 
+def references_schema(batch: str, schemas: frozenset[str]) -> bool:
+    """True when the batch, outside comments, names an object in or creates one of ``schemas``."""
+    import re
+
+    code = re.sub(r"--[^\n]*", "", re.sub(r"/\*.*?\*/", "", batch, flags=re.DOTALL))
+    names = "|".join(re.escape(name) for name in schemas)
+    pattern = rf"(?<![\w\].])\[?(?:{names})\]?\s*\.\s*\[?\w|\bSCHEMA\s+\[?(?:{names})\b"
+    return re.search(pattern, code, flags=re.IGNORECASE) is not None
+
+
 def execute_sql_file(
     mssql_resource: MSSQLResource,
     relative_path: str,
     context: dg.AssetExecutionContext | None = None,
     autocommit: bool = False,
+    skip_schemas: frozenset[str] = frozenset(),
 ) -> int:
     """
     Load and execute a SQL file.
@@ -242,6 +268,7 @@ def execute_sql_file(
         context,
         description=relative_path,
         autocommit=autocommit,
+        skip_schemas=skip_schemas,
     )
 
 
@@ -251,6 +278,7 @@ def execute_sql_files_from_directory(
     context: dg.AssetExecutionContext | None = None,
     pattern: str = "*.sql",
     autocommit: bool = False,
+    skip_schemas: frozenset[str] = frozenset(),
 ) -> dict[str, int]:
     """
     Load and execute all SQL files from a directory in sorted order.
@@ -283,6 +311,7 @@ def execute_sql_files_from_directory(
                 description=f"{relative_dir}/{filename}",
                 collect_errors=True,
                 autocommit=autocommit,
+                skip_schemas=skip_schemas,
             )
             results[filename] = rows_affected
         except Exception as e:
@@ -360,6 +389,8 @@ def execute_migrations(
     mssql_resource: MSSQLResource,
     relative_dir: str,
     context: dg.AssetExecutionContext | None = None,
+    skip_schemas: frozenset[str] = frozenset(),
+    only: list[str] | None = None,
 ) -> dict[str, str]:
     """
     Execute migration SQL files, recording each successful filename in
@@ -380,10 +411,21 @@ def execute_migrations(
         mssql_resource: The MSSQL resource to use.
         relative_dir: Path relative to the ddl/ directory (e.g. "migrations").
         context: Optional Dagster context for logging.
+        skip_schemas: Passed to ``execute_sql``. A file whose batches are all
+            skipped is still recorded as applied.
+        only: Run only these filenames; an unknown name raises ``ValueError``.
 
     Returns:
         Dictionary mapping filename to "applied" or "skipped".
     """
+    sql_files = load_sql_files_from_directory(relative_dir)
+    if only is not None:
+        selected = set(only)
+        missing = selected - {name for name, _ in sql_files}
+        if missing:
+            raise ValueError(f"Unknown migration filenames: {sorted(missing)}")
+        sql_files = [(name, sql) for name, sql in sql_files if name in selected]
+
     # 1. Bootstrap the tracker and load the applied set in a single connection.
     with mssql_resource.get_connection() as conn:
         cursor = conn.cursor()
@@ -396,7 +438,6 @@ def execute_migrations(
             cursor.close()
 
     # 2. Discover and partition files.
-    sql_files = load_sql_files_from_directory(relative_dir)
     results: dict[str, str] = {}
 
     # Mark already-applied files first so the result dict carries every file.
@@ -416,6 +457,7 @@ def execute_migrations(
             sql,
             context=context,
             description=f"{relative_dir}/{filename}",
+            skip_schemas=skip_schemas,
         )
 
         with mssql_resource.get_connection() as conn:
@@ -601,6 +643,8 @@ def apply_migrations(
     mssql_resource: MSSQLResource,
     relative_dir: str = "migrations",
     context: dg.AssetExecutionContext | None = None,
+    skip_schemas: frozenset[str] = frozenset(),
+    only: list[str] | None = None,
 ) -> dict[str, str]:
     """
     Bring a database to migration head the right way for its state.
@@ -611,7 +655,8 @@ def apply_migrations(
         fails, because many patch dim/fct/fhir/meta objects that the
         infrastructure DAG only creates *after* this step.
     Existing database -> ``execute_migrations``: pending files run in filename
-        order, exactly as before.
+        order, exactly as before. ``only`` limits that run to the named files;
+        a fresh database is always baselined in full.
 
     Returns the underlying runner's ``{filename: status}`` map, where status is
     "applied"/"skipped" when migrating and "baselined"/"already-present" when
@@ -619,4 +664,6 @@ def apply_migrations(
     """
     if database_is_unprovisioned(mssql_resource, context):
         return baseline_migrations(mssql_resource, relative_dir, context)
-    return execute_migrations(mssql_resource, relative_dir, context)
+    return execute_migrations(
+        mssql_resource, relative_dir, context, skip_schemas=skip_schemas, only=only
+    )

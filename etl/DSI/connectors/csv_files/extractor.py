@@ -13,8 +13,6 @@ and optional partition filtering on a date column.
 
 from __future__ import annotations
 
-from typing import Any
-
 import dagster as dg
 from DSI.connectors.base import ExtractResult
 from DSI.connectors.csv_files.models import CsvExtractionConfig, read_csv_as_dicts
@@ -57,16 +55,3 @@ class CsvExtractor:
             column_names=columns,
             row_count=len(rows),
         )
-
-    def extract_from_path(self, file_path: str, **kwargs: Any) -> ExtractResult:
-        """Convenience method: build a config on-the-fly and extract.
-
-        Args:
-            file_path: Path to the CSV file.
-            **kwargs: Additional keyword arguments passed to CsvExtractionConfig.
-
-        Returns:
-            ExtractResult with row data.
-        """
-        config = CsvExtractionConfig(file_path=file_path, **kwargs)
-        return self.extract(config)

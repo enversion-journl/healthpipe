@@ -139,6 +139,7 @@ MAP_SPECS: list[GrainSpec] = [
         ["dw_ek_Vareudlevering"],
         "clean_code_Vareudlevering",
     ),
+    GrainSpec("Ordre", "map", "Ordre", ["dw_ek_Ordre"], "clean_code_Ordre"),
     GrainSpec(
         "Leverandoervare",
         "map",
@@ -238,6 +239,15 @@ DIM_SPECS: list[GrainSpec] = [
         map_grain_column="dw_ek_Vareudlevering",
     ),
     GrainSpec(
+        "Ordre",
+        "dim",
+        "Ordre",
+        ["dw_ek_Ordre"],
+        "clean_code_Ordre",
+        map_table="map.Ordre",
+        map_grain_column="dw_ek_Ordre",
+    ),
+    GrainSpec(
         "Leverandoervare",
         "dim",
         "Leverandoervare",
@@ -292,6 +302,18 @@ FCT_SPECS: list[GrainSpec] = [
         # (shared with dim.Vareudlevering).
         map_table="map.Vareudlevering",
         map_grain_column="dw_ek_Vareudlevering",
+    ),
+    GrainSpec(
+        "Ordre",
+        "fct",
+        "Ordre",
+        ["clean_code_Ordre"],
+        staging_table="stg.fct_Ordre_ils",
+        staging_grain_columns=["clean_code_Ordre"],
+        source_system="ILS",
+        # Transaction dim: dw_ek_Ordre is resolved from map.Ordre (shared with dim.Ordre).
+        map_table="map.Ordre",
+        map_grain_column="dw_ek_Ordre",
     ),
     GrainSpec(
         "AftaleVarePris",

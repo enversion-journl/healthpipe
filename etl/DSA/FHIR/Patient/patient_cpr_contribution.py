@@ -6,7 +6,7 @@
 
 """Register contribution to the builder: CPR archive (``arc.cpr_*``) as one Patient contribution.
 
-The contribution carries exactly the fields ``field_ownership`` gives the register. ``active``,
+The contribution carries exactly the fields ``patient_ownership`` gives the register. ``active``,
 ``deceased`` and address protection are also set when the answer is no, so a stale yes from EPJ
 does not win the field. Previous numbers come from the identity resolution, not raw 022 rows.
 A date the register marks as uncertain (``*_umrk``) is carried as delivered; the marker stays in
@@ -24,9 +24,9 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 
 from core.resources import MSSQLResource
-from DSA.FHIR.Patient.field_ownership import SOURCE_CPR, USE_OFFICIAL
-from DSA.FHIR.Patient.patient_builder import Contribution
 from DSA.FHIR.Patient.patient_contributions import USE_OLD
+from DSA.FHIR.Patient.patient_ownership import SOURCE_CPR, USE_OFFICIAL
+from DSA.FHIR.utils.field_ownership import Contribution
 from DSA.FHIR.utils.ifdb.arc_lookup import chunked_in_fetch
 from DSI.csv_files.cpr_publication import published_cpr
 from fhir.resources.R4B.address import Address
@@ -437,7 +437,7 @@ def contribution_from_register(
         maritalStatus=_marital_status(reg),
         extension=[e for e in extensions if e is not None],
     )
-    return Contribution(kilde=SOURCE_CPR, patient=patient)
+    return Contribution(source=SOURCE_CPR, resource=patient)
 
 
 # ---------------------------------------------------------------------------

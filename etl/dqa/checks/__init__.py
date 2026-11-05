@@ -12,6 +12,7 @@ that calls ``@register_check`` and importing it below.
 """
 
 from dqa.checks import (  # noqa: F401  (imported for registration side effects)
+    archive_fhir_reconciliation,
     chain,
     completeness,
     custom_sql,
@@ -19,12 +20,11 @@ from dqa.checks import (  # noqa: F401  (imported for registration side effects)
     fhir_server_reconciliation,
     freshness,
     not_null,
-    archive_reconciliation,
     patient_arc_integrity,
     referential_integrity,
     row_parity,
     sentinel_rate,
-    source_reconciliation,
+    source_archive_reconciliation,
     uniqueness,
 )
 
@@ -33,8 +33,8 @@ __all__ = [
     "sentinel_rate",
     "uniqueness",
     "referential_integrity",
-    "source_reconciliation",
-    "archive_reconciliation",
+    "archive_fhir_reconciliation",
+    "source_archive_reconciliation",
     "completeness",
     "custom_sql",
     "chain",

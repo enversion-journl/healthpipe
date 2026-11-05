@@ -177,8 +177,8 @@ samme form (fladt view uden `forEach`, eller flerrækket view med `forEach`).
 3. **Anden kørsel er stabil.** MERGE'en skal opdatere de samme rækker, ikke
    indsætte nye.
 4. **Antal matcher FHIR-serveren** for de aktive (ikke-slettede) ressourcer. DQA's
-   `source_reconciliation` og `fhir_server_reconciliation` tjekker netop det
-   løbende — konfigurér dem for den nye tabel.
+   `fhir_server_reconciliation` tjekker netop det løbende, og `archive_fhir_reconciliation`
+   tjekker nøglerne mod arkivet — konfigurér dem for den nye tabel.
 
 ## Videre herfra
 

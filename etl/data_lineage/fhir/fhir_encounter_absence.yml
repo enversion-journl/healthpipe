@@ -29,4 +29,4 @@ dso_lineage:
 
   Notes:
     - "MERGE-config (sof_utils.py SOF_RESOURCE_CONFIGS): child_grain_reconcile=True + resurrect_soft_deleted=True. En soft-slettet fraværsperiode udelades af extension-listen, så den re-emitterede kontakt bærer én periode mindre; kun reconcile pensionerer den række, kilden ikke længere har."
-    - "Berørte kontakter og efterslæb: se Notes i fhir_encounter_bed_space.yml — samme child-affected delta og samme værn mod at køre efterslæbet i en natlig kørsel."
+    - "Berørte kontakter: se Notes i fhir_encounter_bed_space.yml — samme child-affected delta og samme værn mod at køre hele historikken i en natlig kørsel."

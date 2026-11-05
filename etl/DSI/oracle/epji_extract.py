@@ -4,9 +4,9 @@
 # This file is part of Healthpipe. See the LICENSE file in the project
 # root for the full AGPL-3.0 license text.
 
-"""EPJI LOCATION extract.
+"""EPJI extracts: LOCATION and the three PRACTITIONER tables.
 
-Full snapshot of EPJI ``LOCATION`` LEFT JOIN ``LOCATION_IDENTIFIER`` (SYSTEM
+LOCATION: full snapshot of EPJI ``LOCATION`` LEFT JOIN ``LOCATION_IDENTIFIER`` (SYSTEM
 like '%SorIdentifier') into ``ext.epji_location``, built via the shared DFM
 extract factory (``create_dfm_extraction_assets``) — the same pattern IFDB
 uses, rather than a hand-rolled asset.
@@ -44,6 +44,12 @@ this is EPJI's LOCATION table enriched with its SOR identifier, not a
 SHAK-a-like-specific shape — cs_shakalike is one consumer of it, matching
 IFDB's arc.ifdb_location naming (also joined with a second table, also
 named after the grain table alone).
+
+PRACTITIONER, PRACTITIONER_IDENTIFIER, PRACTITIONER_ROLE: 1:1 full snapshots.
+None of them has a transfer timestamp and PRACTITIONER_IDENTIFIER has no time
+column at all, so there is no delta column to filter on. PRACTITIONER has one
+row per EPJ account, not per person. It carries names, and
+PRACTITIONER_IDENTIFIER carries CPR: never log field values from them.
 """
 
 from core.resources import EPJIOracleResource
@@ -105,7 +111,97 @@ epji_location_extract_assets = create_dfm_extraction_assets(
     group_name="epji_archive",
     domain_tag="epji",
     dialect="oracle",
-    deps=["staging_infra_epji_archive"],
+    deps=["staging_infra_source_epji"],
 )
 
-__all__ = ["EXT_COLUMNS", "EPJI_LOCATION_EXTRACT_CONFIG", "epji_location_extract_assets"]
+# Every value arrives stringified (stringify_oracle_value), so NUMBER and
+# TIMESTAMP columns land as NVARCHAR, as in the IFDB archive.
+PRACTITIONER_COLUMN_TYPES: dict[str, str] = {
+    "PK": "NVARCHAR(50) NOT NULL",
+    "VERSION": "NVARCHAR(50) NULL",
+    "LAST_UPDATE_DATE": "NVARCHAR(50) NULL",
+    "EXTERNAL_ID": "NVARCHAR(300) NULL",
+    "STATE": "NVARCHAR(50) NULL",
+    "RELATED_TO_GUID": "NVARCHAR(40) NULL",
+    "NAME": "NVARCHAR(300) NULL",
+    "GIVEN_NAME": "NVARCHAR(100) NULL",
+    "FAMILY_NAME": "NVARCHAR(200) NULL",
+}
+
+PRACTITIONER_IDENTIFIER_COLUMN_TYPES: dict[str, str] = {
+    "PK": "NVARCHAR(50) NOT NULL",
+    "PRACTITIONER_PK": "NVARCHAR(50) NULL",
+    "SYSTEM": "NVARCHAR(500) NULL",
+    "VALUE": "NVARCHAR(500) NULL",
+}
+
+PRACTITIONER_ROLE_COLUMN_TYPES: dict[str, str] = {
+    "PK": "NVARCHAR(50) NOT NULL",
+    "VERSION": "NVARCHAR(50) NULL",
+    "LAST_UPDATE_DATE": "NVARCHAR(50) NULL",
+    "CODE_PK": "NVARCHAR(50) NULL",
+    "CODE": "NVARCHAR(64) NULL",
+    "SYSTEM": "NVARCHAR(500) NULL",
+    "DISPLAY": "NVARCHAR(64) NULL",
+}
+
+EPJI_PRACTITIONER_EXTRACT_CONFIG = DfmExtractConfig(
+    source_schema="EPJI",
+    source_table="PRACTITIONER",
+    target_table="epji_practitioner",
+    is_full_load=True,
+    checkpoint_from=("arc", "epji_practitioner"),
+    columns=tuple(PRACTITIONER_COLUMN_TYPES),
+    column_types=PRACTITIONER_COLUMN_TYPES,
+    index_keys=("PK",),
+    description="EPJI PRACTITIONER full snapshot (one row per EPJ account).",
+)
+
+EPJI_PRACTITIONER_IDENTIFIER_EXTRACT_CONFIG = DfmExtractConfig(
+    source_schema="EPJI",
+    source_table="PRACTITIONER_IDENTIFIER",
+    target_table="epji_practitioner_identifier",
+    is_full_load=True,
+    checkpoint_from=("arc", "epji_practitioner_identifier"),
+    columns=tuple(PRACTITIONER_IDENTIFIER_COLUMN_TYPES),
+    column_types=PRACTITIONER_IDENTIFIER_COLUMN_TYPES,
+    index_keys=("PRACTITIONER_PK", "SYSTEM"),
+    description="EPJI PRACTITIONER_IDENTIFIER full snapshot. The source has no time column.",
+)
+
+EPJI_PRACTITIONER_ROLE_EXTRACT_CONFIG = DfmExtractConfig(
+    source_schema="EPJI",
+    source_table="PRACTITIONER_ROLE",
+    target_table="epji_practitioner_role",
+    is_full_load=True,
+    checkpoint_from=("arc", "epji_practitioner_role"),
+    columns=tuple(PRACTITIONER_ROLE_COLUMN_TYPES),
+    column_types=PRACTITIONER_ROLE_COLUMN_TYPES,
+    index_keys=("PK",),
+    description="EPJI PRACTITIONER_ROLE full snapshot (Columna role catalogue).",
+)
+
+epji_practitioner_extract_assets = create_dfm_extraction_assets(
+    configs=[
+        EPJI_PRACTITIONER_EXTRACT_CONFIG,
+        EPJI_PRACTITIONER_IDENTIFIER_EXTRACT_CONFIG,
+        EPJI_PRACTITIONER_ROLE_EXTRACT_CONFIG,
+    ],
+    source_resource_key="epji_oracle",
+    source_resource_type=EPJIOracleResource,
+    source_system="EPJI",
+    group_name="epji_practitioner_archive",
+    domain_tag="epji",
+    dialect="oracle",
+    deps=["staging_infra_source_epji"],
+)
+
+__all__ = [
+    "EXT_COLUMNS",
+    "EPJI_LOCATION_EXTRACT_CONFIG",
+    "EPJI_PRACTITIONER_EXTRACT_CONFIG",
+    "EPJI_PRACTITIONER_IDENTIFIER_EXTRACT_CONFIG",
+    "EPJI_PRACTITIONER_ROLE_EXTRACT_CONFIG",
+    "epji_location_extract_assets",
+    "epji_practitioner_extract_assets",
+]

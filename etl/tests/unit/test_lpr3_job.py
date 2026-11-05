@@ -10,7 +10,7 @@ from unittest.mock import MagicMock
 
 import dagster as dg
 import pytest
-from core.resources import MSSQLResource
+from core.resources import FileShareResource, MSSQLResource
 from DSI.csv_files.lpr3 import lpr3_extract_assets
 from DSI.csv_files.lpr3_archive import lpr3_archive_assets
 from DSI.csv_files.lpr3_datasets import ARCHIVE_DATASETS
@@ -27,7 +27,8 @@ def test_job_contains_all_archives_and_independent_freshness():
         resources={
             "mssql_target_staging": MSSQLResource(
                 host="unused", port=1433, database="unused", user="unused", password="unused"
-            )
+            ),
+            "lpr3_share": FileShareResource(base_dir="unused"),
         },
     )
     dg.Definitions.validate_loadable(defs)

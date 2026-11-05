@@ -19,5 +19,5 @@ sof_practitioner_role_dfm = create_sof_dfm_asset(
     checkpoint_resource="PractitionerRole",
     deps=["fhir_sof_infrastructure", "fhir_server_practitioner_role_dfm"],
     # See Practitioner_dfm.py for why this is not in the shared fhir_sof_dfm.
-    group_name="fhir_silkeborgdata_sof",
+    group_name="fhir_practitioner_sof",
 )

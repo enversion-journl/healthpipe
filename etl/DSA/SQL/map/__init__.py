@@ -39,6 +39,7 @@ from .map_Lagerbeholdning import map_Lagerbeholdning
 from .map_LagerbeholdningEgenskaber import map_LagerbeholdningEgenskaber
 from .map_Leverandoervare import map_Leverandoervare
 from .map_Okosted import map_Okosted
+from .map_Ordre import map_Ordre
 from .map_Postering import map_Postering
 from .map_Rekvirent import map_Rekvirent
 from .map_SHAK import map_SHAK
@@ -85,49 +86,10 @@ all_assets = [
     map_Lagerbeholdning,
     map_AfdelingLagerbeholdning,
     map_Okosted,
+    map_Ordre,
     map_SHAK,
     map_SHAKAlike,
     map_UNSPSC,
 ]
 
-__all__ = [
-    "map_DRGProcedure",
-    "map_DRGProcedureGruppe",
-    "map_DRGDiagnose",
-    "map_DRGDiagnoseGruppe",
-    "map_DRGKontaktKlassifikation",
-    "map_DRGKontakt",
-    "map_Helbredsforloeb",
-    "map_Udredningsforloeb",
-    "map_UdredningsretKlassifikation",
-    "map_Forloebsmarkoer",
-    "map_UdredningsretMarkoer",
-    "all_assets",
-    "map_Aftale",
-    "map_AftaleVarePris",
-    "map_Budget",
-    "map_BudgetEgenskaber",
-    "map_EAN",
-    "map_Faktura",
-    "map_ILSBruger",
-    "map_ILSVare",
-    "map_ILSLeverandoer",
-    "map_Fakturalinje",
-    "map_Finanskladde",
-    "map_Finanskladdelinje",
-    "map_Kontoplan",
-    "map_Kreditor",
-    "map_Lager",
-    "map_Postering",
-    "map_Rekvirent",
-    "map_Vareudlevering",
-    "map_Leverandoervare",
-    "map_LagerbeholdningEgenskaber",
-    "map_AfdelingLagerbeholdningEgenskaber",
-    "map_Lagerbeholdning",
-    "map_AfdelingLagerbeholdning",
-    "map_Okosted",
-    "map_SHAK",
-    "map_SHAKAlike",
-    "map_UNSPSC",
-]
+__all__ = ["all_assets"]

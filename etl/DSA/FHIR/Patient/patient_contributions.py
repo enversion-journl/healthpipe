@@ -13,14 +13,14 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from DSA.FHIR.Patient.field_ownership import (
+from DSA.FHIR.Patient.patient_ownership import (
     ALL_SOURCES,
     FIELD_OWNERSHIP,
     SOURCE_CPR,
     SOURCE_IFDB,
     USE_OFFICIAL,
 )
-from DSA.FHIR.Patient.patient_builder import Contribution, NotOwner
+from DSA.FHIR.utils.field_ownership import Contribution, NotOwner
 from fhir.resources.R4B.humanname import HumanName
 from fhir.resources.R4B.identifier import Identifier
 from fhir.resources.R4B.patient import Patient
@@ -42,8 +42,8 @@ def stub_contribution(cpr: str, source: str) -> Contribution:
     if source not in FIELD_OWNERSHIP[f"identifier:{SYSTEM_CPR}"]:
         raise NotOwner(f"{source} does not own the personal number and cannot supply a stub")
     return Contribution(
-        kilde=source,
-        patient=Patient(identifier=[Identifier(system=SYSTEM_CPR, value=str(cpr).strip())]),
+        source=source,
+        resource=Patient(identifier=[Identifier(system=SYSTEM_CPR, value=str(cpr).strip())]),
     )
 
 
@@ -94,7 +94,7 @@ def contribution_from_bom_patientinfo(rows: dict | Iterable[dict]) -> Contributi
             break
 
     return Contribution(
-        kilde=SOURCE_IFDB, patient=Patient(identifier=identifiers, name=name, gender=gender)
+        source=SOURCE_IFDB, resource=Patient(identifier=identifiers, name=name, gender=gender)
     )
 
 
@@ -104,12 +104,12 @@ def with_additional_epj_ids(
     deleted_ids: Iterable[str] = (),
 ) -> Contribution:
     """Add the person's other EPJ ids to the EPJ contribution after the primary; skip duplicates."""
-    if contribution.kilde != SOURCE_IFDB:
-        raise NotOwner(f"{contribution.kilde} does not own EPJ patient ids")
+    if contribution.source != SOURCE_IFDB:
+        raise NotOwner(f"{contribution.source} does not own EPJ patient ids")
     deleted = {str(d).strip() for d in deleted_ids}
     present = {
         i.value
-        for i in (contribution.patient.identifier or [])
+        for i in (contribution.resource.identifier or [])
         if i.system == SYSTEM_IFDB_PATIENT_ID
     }
     extras = [
@@ -123,13 +123,13 @@ def with_additional_epj_ids(
     ]
     if not extras:
         return contribution
-    patient = contribution.patient
+    patient = contribution.resource
     identifiers = list(patient.identifier or []) + extras
     try:
         patient.identifier = identifiers
     except Exception:
         patient = Patient(**{**patient.dict(exclude_none=True), "identifier": identifiers})
-    return Contribution(kilde=contribution.kilde, patient=patient)
+    return Contribution(source=contribution.source, resource=patient)
 
 
 def register_identity_contribution(
@@ -144,7 +144,7 @@ def register_identity_contribution(
     identifiers = [Identifier(system=SYSTEM_CPR, value=str(current_cpr).strip())] + [
         Identifier(system=SYSTEM_CPR, value=c, use=USE_OLD) for c in old
     ]
-    return Contribution(kilde=SOURCE_CPR, patient=Patient(identifier=identifiers))
+    return Contribution(source=SOURCE_CPR, resource=Patient(identifier=identifiers))
 
 
 __all__ = [

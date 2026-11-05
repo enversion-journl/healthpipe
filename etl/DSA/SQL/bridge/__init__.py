@@ -16,10 +16,4 @@ all_assets = [
     bridge_AftaleLager,
 ]
 
-__all__ = [
-    "bridge_DRGDiagnoseGruppe",
-    "bridge_DRGProcedureGruppe",
-    "all_assets",
-    "bridge_LeverandoervareILSVare",
-    "bridge_AftaleLager",
-]
+__all__ = ["all_assets"]

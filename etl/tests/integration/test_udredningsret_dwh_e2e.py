@@ -419,10 +419,9 @@ def dwh_db(staging_db):  # noqa: F811
 def test_1_fuld_indlaesning_bygger_facten_og_dimensionerne(
     dwh_db,
     delivery_dir,  # noqa: F811
-    monkeypatch,
 ):
     build_delivery(delivery_dir, A_FILE, "20260830", "2026-08-30", rows_a_dwh())
-    assert run_extract(dwh_db, delivery_dir, monkeypatch).metadata["besluttet"] == "indlaest"
+    assert run_extract(dwh_db, delivery_dir).metadata["besluttet"] == "indlaest"
     run_archive(dwh_db)
     run_gate(dwh_db)
     koer_kaeden(dwh_db, mode="full_load")
@@ -703,12 +702,11 @@ def test_1b_markoerfacten_er_en_til_en_med_arkivet(dwh_db):
 def test_2_delta_efter_leverance_b_holder_noeglen_og_overskriver_attributterne(
     dwh_db,
     delivery_dir,  # noqa: F811
-    monkeypatch,
 ):
     cp = TILSTAND["cp_efter_a"]
     vent_paa_nyt_db_sekund(dwh_db, cp)
     build_delivery(delivery_dir, B_FILE, "20260906", "2026-09-06", rows_b_dwh())
-    assert run_extract(dwh_db, delivery_dir, monkeypatch).metadata["kandidater"] == 1
+    assert run_extract(dwh_db, delivery_dir).metadata["kandidater"] == 1
     assert run_archive(dwh_db).metadata["rows_soft_deleted"] == 1
     run_gate(dwh_db)
 

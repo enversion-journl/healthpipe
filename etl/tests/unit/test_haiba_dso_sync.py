@@ -152,7 +152,7 @@ def test_every_dm_table_has_a_filtered_consumer_view():
 
 
 def test_view_asset_waits_for_the_tables_it_wraps():
-    from infrastructure import dso_infra_views_haiba
+    from infrastructure.assets.dso_infrastructure import dso_infra_views_haiba
 
     assert "dso_infra_haiba" in _deps(dso_infra_views_haiba)
 

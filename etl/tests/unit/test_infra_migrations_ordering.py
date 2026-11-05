@@ -62,14 +62,17 @@ def _upstream_of(graph: dict[str, set[str]], name: str) -> set[str]:
 
 
 def _assets_executing_table_ddl(module) -> set[str]:
-    """Names of asset functions whose body reads DDL out of ``tables/``."""
+    """Names of asset functions whose body reads DDL out of ``tables/`` or ``sources/``."""
     source = inspect.getsource(module)
     tree = ast.parse(source)
     return {
         node.name
         for node in ast.walk(tree)
         if isinstance(node, ast.FunctionDef)
-        and '"tables/' in (ast.get_source_segment(source, node) or "")
+        and any(
+            folder in (ast.get_source_segment(source, node) or "")
+            for folder in ('"tables/', '"sources/')
+        )
     }
 
 

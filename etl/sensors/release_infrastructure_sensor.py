@@ -26,6 +26,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import dagster as dg
+from dagster._core.definitions.resource_annotation import get_resource_args
 from dagster._core.definitions.schedule_definition import DecoratedScheduleFunction
 from dagster._core.definitions.unresolved_asset_job_definition import (
     UnresolvedAssetJobDefinition,
@@ -169,8 +170,12 @@ def _gate_schedule(
 
         return _execution_fn
 
+    required_resource_keys: set[str] | None = set(schedule.required_resource_keys)
     if isinstance(original, DecoratedScheduleFunction):
         execution_fn = original._replace(wrapped_fn=_gated(original.wrapped_fn))
+        # Dagster rejects explicit keys when the function takes its resources as parameters.
+        if get_resource_args(original.decorated_fn):
+            required_resource_keys = None
     else:
         execution_fn = _gated(original)
     return dg.ScheduleDefinition(
@@ -182,7 +187,7 @@ def _gate_schedule(
         description=schedule.description,
         execution_timezone=schedule.execution_timezone,
         default_status=schedule.default_status,
-        required_resource_keys=schedule.required_resource_keys,
+        required_resource_keys=required_resource_keys,
         execution_fn=execution_fn,
     )
 

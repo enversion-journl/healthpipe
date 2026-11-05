@@ -12,8 +12,8 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-from DSA.FHIR.Patient.field_ownership import USE_OFFICIAL
 from DSA.FHIR.Patient.patient_ifdb_contribution import transform_fhir_patient_ifdb
+from DSA.FHIR.Patient.patient_ownership import USE_OFFICIAL
 
 pytestmark = pytest.mark.unit
 

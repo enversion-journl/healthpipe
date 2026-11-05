@@ -124,7 +124,7 @@ dso_lineage:
     # Proveniens (meta) — hvem bidrog til denne borger
     #
     # Ressourcen samles af DSA/FHIR/Patient/patient_builder.py ud fra ét bidrag pr. kilde,
-    # og feltejerskabet står i DSA/FHIR/Patient/field_ownership.py. Kolonnerne herunder har derfor
+    # og feltejerskabet står i DSA/FHIR/Patient/patient_ownership.py. Kolonnerne herunder har derfor
     # ingen Source: de beskriver ikke, hvad en kilde leverer, men hvem der bidrog.
     # ------------------------------------------------------------------
     meta_source:               { DataType: NVARCHAR(255), FhirPath: "meta.source",                                                    Description: "Byggerens URI. NULL på ressourcer, der ikke er bygget om siden kolonnen kom til." }

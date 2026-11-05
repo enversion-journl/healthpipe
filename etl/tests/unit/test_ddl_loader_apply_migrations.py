@@ -133,3 +133,15 @@ def test_tracker_rows_without_tables_is_not_treated_as_fresh(
     apply_migrations(mssql_resource, "migrations")
 
     assert _migration_sql_was_executed(cursor_mock)
+
+
+def test_fresh_database_is_baselined_in_full_even_when_only_is_given(
+    migrations_dir, mssql_resource, cursor_mock
+):
+    (migrations_dir / "20260102_own.sql").write_text("PRINT 'own';")
+    _shape(cursor_mock, user_tables=0, applied_rows=0)
+
+    result = apply_migrations(mssql_resource, only=["20260102_own.sql"])
+
+    assert set(result) == {"20260101_add_column.sql", "20260102_own.sql"}
+    assert not _migration_sql_was_executed(cursor_mock)

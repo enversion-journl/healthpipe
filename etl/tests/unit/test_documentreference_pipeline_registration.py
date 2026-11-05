@@ -25,11 +25,12 @@ from DSA.FHIR.SqlOnFhir.DocumentReference_Recipient_dfm import (
     sof_documentreference_recipient_dfm,
 )
 from DSA.FHIR.utils.sql_on_fhir.sof_utils import VIEW_DEFINITIONS_DIR
+from tests.utils.asset_graph_helpers import SOF_PREFIXES, assert_deps
 
-_TRANSFORM_KEYS = {
-    AssetKey.from_user_string("fhir_sof_infrastructure"),
-    AssetKey.from_user_string("fhir_server_documentreference_epikrise_dfm"),
-    AssetKey.from_user_string("fhir_server_documentreference_care_discharge_report_dfm"),
+_SOF_REQUIRED = {
+    "fhir_sof_infrastructure",
+    "fhir_server_documentreference_epikrise_dfm",
+    "fhir_server_documentreference_care_discharge_report_dfm",
 }
 
 
@@ -38,12 +39,20 @@ class TestDocumentReferencePipelineRegistration:
     """Validate DocumentReference SOF wiring + view/config contracts."""
 
     def test_sof_documentreference_depends_on_both_transforms(self):
-        key = AssetKey.from_user_string("sof_documentreference_dfm")
-        assert sof_documentreference_dfm.asset_deps[key] == _TRANSFORM_KEYS
+        assert_deps(
+            sof_documentreference_dfm,
+            "sof_documentreference_dfm",
+            allowed_prefixes=SOF_PREFIXES,
+            required=_SOF_REQUIRED,
+        )
 
     def test_sof_recipient_depends_on_both_transforms(self):
-        key = AssetKey.from_user_string("sof_documentreference_recipient_dfm")
-        assert sof_documentreference_recipient_dfm.asset_deps[key] == _TRANSFORM_KEYS
+        assert_deps(
+            sof_documentreference_recipient_dfm,
+            "sof_documentreference_recipient_dfm",
+            allowed_prefixes=SOF_PREFIXES,
+            required=_SOF_REQUIRED,
+        )
 
     def test_documentreference_view_includes_required_columns(self):
         with open(VIEW_DEFINITIONS_DIR / "documentreference_view.json") as f:

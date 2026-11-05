@@ -8,7 +8,7 @@
 
 # Navngivningsstandarder
 
-> Denne standard gælder repoet `datamarter`. Reglerne for basismodellen står i
+> Denne standard gælder datamart-repositoriet. Reglerne for basismodellen står i
 > [navngivningsstandard_basismodel.md](navngivningsstandard_basismodel.md).
 
 I det følgende beskrives navngivningsstandarder for alle elementer i datamarter – fra de scripts, der danner datamarten, til datamartens enkelte kolonner.
@@ -47,23 +47,21 @@ Den generelle regel er, at tabelnavne skrives i PascalCase, mens alle øvrige el
 
 ## Repository
 
-Vores datamarter dannes på baggrund af data i basismodellen. Koden, som danner datamarterne, ligger i et GitLab-repository med navnet `datamarter`.
+Vores datamarter dannes på baggrund af data i basismodellen. Koden, som danner datamarterne, ligger i et separat repository.
 
 ### Struktur i repositoriet
 
-Repositoriet `datamarter` er opdelt i en række mapper, heriblandt mappen `etl`, som blandt andet indeholder undermappen `domains`.
+Datamart-repositoriet er opdelt i en række mapper, heriblandt mappen `etl`, som blandt andet indeholder undermappen `domains`.
 
 Undermappen `domains` indeholder én undermappe for hvert sikkerhedsdomæne, fx `patientrettigheder`.
 
 Hver af disse undermapper indeholder igen én undermappe for hver datamart i sikkerhedsdomænet, fx `kraeftpakker`.
 
-Nye mapper i repositoriet må kun oprettes efter aftale med teamet Datamarter og rapporter i Dokumentation og ledelsesinformation.
-
-Strukturen for repositoriet `datamarter` er vist på tegningen herunder.
+Strukturen for datamart-repositoriet er vist på tegningen herunder.
 
 
 ```
-datamarter
+datamart-repository
 ├── etl
 │   ├── domains
 │   │   ├── template        -- skabelonmappe til nyt domæne
@@ -96,12 +94,12 @@ datamarter
 ### Navngivning i repositoriet
 
 
-Tabellen herunder viser, hvordan du skal navngive de enkelte elementer i repositoriet `datamarter`.
+Tabellen herunder viser, hvordan du skal navngive de enkelte elementer i datamart-repositoriet.
 
 | Element | Regler | Eksempel |
 | :--- | :--- | :--- |
 | **Generelt** | - Ingen specialtegn og ingen Æ-Ø-Å<br>- Brug `ae` for æ, `oe` for ø og `aa` for å<br>- Brug danske ord til forretningsbegreber<br>- Brug engelske ord til tekniske infrastrukturbegreber | |
-| **Repository** | - Brug kebab-case<br>- Tilstræb korte navne | `datamarter` |
+| **Repository** | - Brug kebab-case<br>- Tilstræb korte navne | `datamart-repository` |
 | **Mapper** | - Brug snake_case<br>- Skriv dog akronymer i UPPERCASE<br>- Tilstræb korte navne og gerne kun ét ord | `domains`<br>`jobs`<br>`DSO`<br>`FHIR` |
 | **SQL-scripts** | - Brug snake_case på selve scriptnavnet<br>- Brug dog PascalCase på den del af navnet, der måtte referere til et tabelnavn<br>- Brug `tabeltype_` i snake_case som præfiks: `dim_` for dimensioner, `fct_` for facts og `stg_` for stagingtabeller<br>- Brug et præfiks med 2 cifre til at angive eksekveringsrækkefølgen af scripts (kun hvis relevant), fx `01_`<br>- Giv filen samme navn som den tabel eller det view, som scriptet danner | `dim_Organisation.sql`<br>`fct_Markoerforloeb.sql`<br>`01_stg_Markoerforloeb.sql` |
 | **Funktioner** | - Brug snake_case | `asset_factories.py` |
@@ -134,8 +132,6 @@ Bemærk: `dm`-skemaet bærer dm-pattern (fx HAIBA) — slanke facts parret med
 `Egenskaber`-transaktionsdimensioner, der deler faktaets `dw_ek`. `Egenskaber`
 er i flertal (som de eksisterende `dim.*Egenskaber`), en vedtaget undtagelse
 fra "dimensioner i ental".
-
-Nye databaser må kun oprettes efter aftale med teamet Datamarter og rapporter i Dokumentation og ledelsesinformation.
 
 ### Navngivning i databaser
 

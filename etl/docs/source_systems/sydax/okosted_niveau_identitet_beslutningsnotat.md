@@ -161,5 +161,5 @@ starter forfra, hvilket er konsistent med, at alle koder er nye identiteter.
 ## Uden for scope
 
 - Kolonnenavne og format i OS2mo-filen samt `export.CodesystemToOs2mo`
-  ([internal ticket], egen branch oven på denne).
+  (egen branch oven på denne).
 - Øvrige kodesystemer: SOR og de andre kodesystemer er uberørte.

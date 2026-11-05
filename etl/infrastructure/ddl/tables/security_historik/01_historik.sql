@@ -13,7 +13,7 @@
 -- sec.RolleDomaene and sec.RBOrganisation, which stay full refreshes. A
 -- changed value closes the open row and inserts a new one; a key that leaves
 -- the extract gets its open row closed. When an AD member lookup failed in the
--- extract, no row closes and only new keys get a row, because a partial
+-- extract, the load fails before it changes a table, because a partial
 -- extract can also change a value (a role from K to U).
 --
 -- sec.SORTildelingHistorik holds the grant as AD states it, before the

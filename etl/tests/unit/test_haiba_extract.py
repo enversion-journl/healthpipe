@@ -20,8 +20,6 @@ from DSI.csv_files.haiba import (
     HaibaFile,
     detect_schema,
     discover_files,
-    haiba_dir,
-    haiba_encoding,
     iter_rows,
     parse_filename,
     parse_sas_datetime,
@@ -134,7 +132,7 @@ def test_select_newest_skips_header_only_file_and_falls_back(tmp_path):
     _write(tmp_path / "HAIBA_UTI_cases_RegS_2026_03_21.csv", CASES_HEADER, "UTI;x;y")
     _write(tmp_path / "HAIBA_UTI_cases_RegS_2026_03_28.csv", CASES_HEADER)
 
-    selected, notes, unusable = select_newest(discover_files(str(tmp_path)), "cases")
+    selected, notes, unusable = select_newest(discover_files(str(tmp_path)), "cases", "cp1252")
 
     assert selected["UTI"].delivery_date == date(2026, 3, 21)
     assert any("2026_03_28" in note for note in notes)
@@ -144,7 +142,7 @@ def test_select_newest_skips_header_only_file_and_falls_back(tmp_path):
 def test_select_newest_reports_type_with_no_usable_file(tmp_path):
     _write(tmp_path / "HAIBA_UTI_cases_RegS_2026_03_28.csv", CASES_HEADER)
 
-    selected, notes, unusable = select_newest(discover_files(str(tmp_path)), "cases")
+    selected, notes, unusable = select_newest(discover_files(str(tmp_path)), "cases", "cp1252")
 
     assert "UTI" not in selected
     assert any("no usable file" in note for note in notes)
@@ -162,7 +160,7 @@ def test_select_newest_keeps_type_absent_from_latest_delivery(tmp_path):
     _write(tmp_path / "HAIBA_BACT_agg_RegS_2026-04-25.csv", AGG_HEADER, _agg_row())
     _write(tmp_path / "HAIBA_UTI_agg_RegS_2026-01-10.csv", AGG_HEADER, _agg_row())
 
-    selected, _, _ = select_newest(discover_files(str(tmp_path)), "agg")
+    selected, _, _ = select_newest(discover_files(str(tmp_path)), "agg", "cp1252")
 
     assert set(selected) == {"BACT", "UTI"}
     assert selected["UTI"].delivery_date == date(2026, 1, 10)
@@ -172,7 +170,7 @@ def test_select_newest_prefers_latest_delivery(tmp_path):
     for day in ("2026-04-11", "2026-04-25", "2026-04-18"):
         _write(tmp_path / f"HAIBA_BACT_agg_RegS_{day}.csv", AGG_HEADER, _agg_row())
 
-    selected, notes, _ = select_newest(discover_files(str(tmp_path)), "agg")
+    selected, notes, _ = select_newest(discover_files(str(tmp_path)), "agg", "cp1252")
 
     assert selected["BACT"].delivery_date == date(2026, 4, 25)
     assert notes == []
@@ -239,7 +237,7 @@ def test_iter_rows_maps_findings_by_name_not_position(tmp_path):
     path = _write(tmp_path / "HAIBA_UTI_cases_RegS_2026_04_25.csv", header, row)
     file = HaibaFile(path, "UTI", "cases", date(2026, 4, 25))
 
-    rows = list(iter_rows(file, CASES_INFEKTION))
+    rows = list(iter_rows(file, CASES_INFEKTION, "cp1252"))
 
     assert len(rows) == 1
     assert rows[0]["findings1"] == "Escherichia coli(path)"
@@ -260,7 +258,7 @@ def test_iter_rows_raises_on_unknown_column(tmp_path):
     file = HaibaFile(path, "BACT", "agg", date(2026, 4, 25))
 
     with pytest.raises(ValueError, match="nyt_felt"):
-        list(iter_rows(file, AGG_INFEKTION))
+        list(iter_rows(file, AGG_INFEKTION, "cp1252"))
 
 
 def test_iter_rows_decodes_windows_1252(tmp_path):
@@ -273,7 +271,7 @@ def test_iter_rows_decodes_windows_1252(tmp_path):
     path = _write(tmp_path / "HAIBA_BACT_agg_RegS_2026-04-25.csv", AGG_HEADER, row)
     file = HaibaFile(path, "BACT", "agg", date(2026, 4, 25))
 
-    rows = list(iter_rows(file, AGG_INFEKTION))
+    rows = list(iter_rows(file, AGG_INFEKTION, "cp1252"))
 
     assert rows[0]["AfdelingAfsnit"] == label
 
@@ -290,7 +288,7 @@ def test_iter_rows_keeps_aggregate_rows_without_sor(tmp_path):
     )
     file = HaibaFile(path, "BACT", "agg", date(2026, 4, 25))
 
-    rows = list(iter_rows(file, AGG_INFEKTION))
+    rows = list(iter_rows(file, AGG_INFEKTION, "cp1252"))
 
     assert len(rows) == 2
     assert rows[1]["RegionKode"] == "9999"
@@ -311,7 +309,7 @@ def test_iter_rows_skips_blank_lines(tmp_path):
     )
     file = HaibaFile(path, "BACT", "agg", date(2026, 4, 25))
 
-    assert len(list(iter_rows(file, AGG_INFEKTION))) == 2
+    assert len(list(iter_rows(file, AGG_INFEKTION, "cp1252"))) == 2
 
 
 # ------------------------------------------------------------ ext contract ---
@@ -338,52 +336,7 @@ def test_iter_rows_raises_on_ragged_row(tmp_path):
     file = HaibaFile(path, "BACT", "agg", date(2026, 4, 25))
 
     with pytest.raises(ValueError, match="3 fields, expected 13"):
-        list(iter_rows(file, AGG_INFEKTION))
-
-
-# ------------------------------------------------------- mount / environment ---
-
-
-def test_haiba_dir_fails_loudly_when_unset(monkeypatch):
-    """An unmounted share and "no new deliveries" look identical from the
-    outside. Falling back to a plausible local path is how a pipeline stays
-    green for months while reading nothing."""
-    monkeypatch.delenv("HAIBA_BASE_DIR", raising=False)
-
-    with pytest.raises(ValueError, match="HAIBA_BASE_DIR"):
-        haiba_dir()
-
-
-def test_haiba_dir_fails_loudly_when_blank(monkeypatch):
-    monkeypatch.setenv("HAIBA_BASE_DIR", "   ")
-
-    with pytest.raises(ValueError, match="HAIBA_BASE_DIR"):
-        haiba_dir()
-
-
-def test_haiba_dir_fails_when_share_is_not_mounted(monkeypatch, tmp_path):
-    """The variable is injected by the Nomad job, so it can be set while the
-    CIFS mount itself failed."""
-    monkeypatch.setenv("HAIBA_BASE_DIR", str(tmp_path / "mnt" / "ftproot"))
-
-    with pytest.raises(ValueError, match="not a directory"):
-        haiba_dir()
-
-
-def test_haiba_dir_returns_mounted_path(monkeypatch, tmp_path):
-    monkeypatch.setenv("HAIBA_BASE_DIR", str(tmp_path))
-
-    assert haiba_dir() == str(tmp_path)
-
-
-def test_haiba_encoding_comes_from_the_environment(monkeypatch):
-    """The same mount carries SilkeborgData in DOS-Nordic cp865; one shared
-    constant would corrupt one of the two sources."""
-    monkeypatch.setenv("HAIBA_FILE_ENCODING", "cp865")
-    assert haiba_encoding() == "cp865"
-
-    monkeypatch.delenv("HAIBA_FILE_ENCODING", raising=False)
-    assert haiba_encoding() == "cp1252"
+        list(iter_rows(file, AGG_INFEKTION, "cp1252"))
 
 
 # ------------------------------------------------------------ pinnet load ---
@@ -396,8 +349,10 @@ def test_select_newest_honours_delivery_pin(tmp_path):
     for day in ("2025-12-27", "2026-01-03", "2026-08-15"):
         _write(tmp_path / f"HAIBA_BACT_agg_RegS_{day}.csv", AGG_HEADER, _agg_row())
 
-    pinned, _, _ = select_newest(discover_files(str(tmp_path)), "agg", None, date(2025, 12, 27))
-    newest, _, _ = select_newest(discover_files(str(tmp_path)), "agg")
+    pinned, _, _ = select_newest(
+        discover_files(str(tmp_path)), "agg", "cp1252", None, date(2025, 12, 27)
+    )
+    newest, _, _ = select_newest(discover_files(str(tmp_path)), "agg", "cp1252")
 
     assert pinned["BACT"].delivery_date == date(2025, 12, 27)
     assert newest["BACT"].delivery_date == date(2026, 8, 15)
@@ -409,7 +364,7 @@ def test_select_newest_pin_still_skips_empty_files(tmp_path):
     _write(tmp_path / "HAIBA_BACT_agg_RegS_2025-12-27.csv", AGG_HEADER)
 
     selected, notes, _ = select_newest(
-        discover_files(str(tmp_path)), "agg", None, date(2025, 12, 27)
+        discover_files(str(tmp_path)), "agg", "cp1252", None, date(2025, 12, 27)
     )
 
     assert selected["BACT"].delivery_date == date(2025, 12, 20)

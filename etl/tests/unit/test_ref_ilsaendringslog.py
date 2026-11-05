@@ -85,7 +85,7 @@ def test_dso_sync_config_registered():
 
 @pytest.mark.unit
 def test_dso_sync_asset_registered():
-    from DSO.load import all_dso_sync_ref_erp_assets
+    from DSO.load.sync_ref_erp import all_dso_sync_ref_erp_assets
 
     keys = {spec.key.to_user_string() for a in all_dso_sync_ref_erp_assets for spec in a.specs}
     assert "dso_sync_ref_ILSAendringslog" in keys

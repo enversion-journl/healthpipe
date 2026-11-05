@@ -13,10 +13,33 @@ Tests the end-to-end flow: create ViewDefinition -> query sof view -> verify dat
 import pytest
 from DSA.FHIR.utils.sql_on_fhir.sof_utils import (
     SOF_RESOURCE_CONFIGS,
+    _build_sof_extract_query,
     ensure_view_definition,
-    extract_sof_view,
     load_view_definitions,
 )
+
+
+def extract_sof_view(
+    fhir_database,
+    view_name: str,
+    resource_table: str,
+    id_column: str,
+    partition_start: str | None = None,
+    partition_end: str | None = None,
+) -> list[dict]:
+    """Run the production SoF extract query and return the rows as dicts."""
+    sql, params = _build_sof_extract_query(
+        view_name=view_name,
+        resource_table=resource_table,
+        id_column=id_column,
+        partition_start=partition_start,
+        partition_end=partition_end,
+    )
+    with fhir_database.get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(sql, params or None)
+            columns = [desc[0] for desc in cursor.description]
+            return [dict(zip(columns, row, strict=False)) for row in cursor.fetchall()]
 
 
 @pytest.mark.integration

@@ -29,7 +29,7 @@ EXPECTED_TABLES = {
     "ils_lafth",
     "ils_lafthsgh",
     "ils_zz_oper",
-    # Pattern B — delta on sysdato (7)
+    # Pattern B — delta on sysdato (8)
     "ils_laftdpris",
     "ils_laftdstam",
     "ils_laftd",
@@ -37,6 +37,7 @@ EXPECTED_TABLES = {
     "ils_lgrvare",
     "ils_pmdm",
     "ils_indkfak",
+    "ils_ordh",
     # Pattern C — manual exclusion list (1)
     "ils_rekvundtagne",
     # Pattern D — append-only log, delta on Dato (1)
@@ -68,6 +69,7 @@ PATTERN_DELTA_TABLES = {
     "ils_lgrvare",
     "ils_pmdm",
     "ils_indkfak",
+    "ils_ordh",
 }
 PATTERN_C_TABLES = {"ils_rekvundtagne"}
 PATTERN_D_TABLES = {"ils_changelog"}
@@ -85,12 +87,12 @@ def ils_dfm_extract_configs():
 
 @pytest.fixture
 def ils_dfm_archive_assets():
-    from DSI.mssql.archive import ils_dfm_archive_assets
+    from DSI.mssql.archive.ils_archive_configs import ils_dfm_archive_assets
 
     return ils_dfm_archive_assets
 
 
-def test_extract_configs_cover_24_tables(ils_dfm_extract_configs):
+def test_extract_configs_cover_25_tables(ils_dfm_extract_configs):
     targets = {c.target_table for c in ils_dfm_extract_configs}
     assert targets == EXPECTED_TABLES
 
@@ -142,8 +144,8 @@ def test_extract_source_schema_is_dbo(ils_dfm_extract_configs):
         assert c.source_schema == "dbo", c.target_table
 
 
-def test_archive_assets_are_24(ils_dfm_archive_assets):
-    assert len(ils_dfm_archive_assets) == 24
+def test_archive_assets_are_25(ils_dfm_archive_assets):
+    assert len(ils_dfm_archive_assets) == 25
 
 
 def test_archive_assets_all_in_ils_archive_group(ils_dfm_archive_assets):
@@ -171,7 +173,7 @@ def test_already_archived_tables_not_re_added(ils_dfm_extract_configs):
 
 
 def test_archive_merge_keys():
-    from DSI.mssql.archive import ils_dfm_archive_configs
+    from DSI.mssql.archive.ils_archive_configs import ils_dfm_archive_configs
 
     for cfg in ils_dfm_archive_configs:
         assert cfg.strategy == "upsert", cfg.target_table
@@ -194,7 +196,7 @@ def test_archive_merge_keys():
 
 def test_merge_key_never_in_non_key_columns():
     """The UPDATE SET must never try to overwrite the merge key."""
-    from DSI.mssql.archive import ils_dfm_archive_configs
+    from DSI.mssql.archive.ils_archive_configs import ils_dfm_archive_configs
 
     for cfg in ils_dfm_archive_configs:
         overlap = set(cfg.merge_keys) & set(cfg.non_key_columns)
@@ -202,7 +204,7 @@ def test_merge_key_never_in_non_key_columns():
 
 
 def test_archive_source_table_matches_extract_target(ils_dfm_extract_configs):
-    from DSI.mssql.archive import ils_dfm_archive_configs
+    from DSI.mssql.archive.ils_archive_configs import ils_dfm_archive_configs
 
     # The `_dfm` cutover postfix was dropped in 20260701_drop_ext_dfm_postfix.sql,
     # so the arc source_table equals the extract target (source == arc name).
@@ -227,7 +229,7 @@ def test_ils_archive_in_erp_daily_dfm_job():
 
 
 def test_ddl_column_lists_match_non_key_columns():
-    """Each arc.*_ils DDL block in 00_archive.sql must contain exactly the
+    """Each arc.ils_* DDL block in sources/ils/ must contain exactly the
     columns declared in the corresponding ArchiveMergeConfig.non_key_columns
     tuple (plus 'prrowid' and the standard audit columns).
 
@@ -237,17 +239,10 @@ def test_ddl_column_lists_match_non_key_columns():
     import re
     from pathlib import Path
 
-    from DSI.mssql.archive import ils_dfm_archive_configs
+    from DSI.mssql.archive.ils_archive_configs import ils_dfm_archive_configs
 
-    ddl_path = (
-        Path(__file__).resolve().parents[2]
-        / "infrastructure"
-        / "ddl"
-        / "tables"
-        / "erp"
-        / "00_archive.sql"
-    )
-    ddl = ddl_path.read_text(encoding="utf-8")
+    ddl_dir = Path(__file__).resolve().parents[2] / "infrastructure" / "ddl" / "sources" / "ils"
+    ddl = "\n".join(p.read_text(encoding="utf-8") for p in sorted(ddl_dir.glob("*.sql")))
 
     audit_cols = {"dw_timestamp_insert", "dw_timestamp_update"}
 

@@ -14,9 +14,12 @@ with the row count per file. Members are streamed straight into the ext tables
 
 Two sources already implement that machinery (``drg.py``, ``udredningsret.py``)
 and a third is coming (LPR3 Grunddata, 47 members per tar), so the genuinely
-identical parts live here: the tar walk, the non-seekable stream adapter, the
-chunked ext writer, the export-log parser, the ext DDL shape, the environment
-lookups and the small comparisons that feed the per-source guards.
+identical parts live here: the chunked ext writer, the export-log parser, the
+ext DDL shape and the small comparisons that feed the per-source guards. It
+also holds ``upsert_register``, the MERGE into the meta.* delivery registers,
+which CPR and HAIBA use too. The tar walk and the non-seekable stream adapter
+live in ``core/file_delivery.py``; the folder checks live in
+``FileShareResource.root()``.
 
 WHAT DELIBERATELY DOES NOT LIVE HERE
 - Messages. Every error and log line stays with its source, because they are
@@ -36,7 +39,7 @@ GDPR: nothing here ever puts a row value, a CPR or any field content into an
 exception, a log line or a return value. Column names, file names and counts
 only.
 
-BEHAVIOUR NOTE (the one deliberate change of the extraction, [internal ticket]): DRG's
+BEHAVIOUR NOTE (the one deliberate change of the extraction): DRG's
 load path now runs through :func:`run_writers`, so a designed failure mid-load
 DISCARDS the buffered rows instead of flushing them on the way out. Flushing
 them issued one more INSERT, and when that INSERT failed the driver's error
@@ -45,18 +48,16 @@ the raised exception. udredningsret already worked this way (review F19).
 """
 
 import csv
-import io
-import os
 import re
-import tarfile
-from collections.abc import Callable, Collection, Generator, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from datetime import datetime
-from typing import IO, Protocol, TypeVar
+from typing import Any, Protocol, TypeVar
+
+from core.file_delivery import DELIMITER
+from utils.sql_safety import safe_bracket_quote
 
 T = TypeVar("T")
 
-DEFAULT_ENCODING = "cp1252"
-DELIMITER = ";"
 INSERT_CHUNK_SIZE = 1000
 
 # Encoding sanity: U+FFFD appears when the sender itself has replaced
@@ -89,54 +90,6 @@ class LogContext(Protocol):
     def log(self) -> _Log: ...
 
 
-class CsvReader(Protocol):
-    """``csv.reader``'s structural surface: iteration plus ``line_num``, which
-    the callers quote in their own field-count messages."""
-
-    line_num: int
-
-    def __iter__(self) -> "CsvReader": ...
-
-    def __next__(self) -> list[str]: ...
-
-
-# ---------------------------------------------------------------------------
-# environment
-# ---------------------------------------------------------------------------
-
-
-def source_dir(
-    env_var: str,
-    *,
-    hint_unset: str,
-    hint_not_dir: str,
-    override: str | None = None,
-) -> str:
-    """The mounted delivery folder named by ``env_var``, or a hard failure.
-
-    Read at CALL time rather than at import time: the mount follows the
-    allocation, not the code, and an unset variable must never fall back to a
-    plausible-looking local path — an unmounted share and "no new deliveries"
-    must not look alike.
-
-    ``override`` is an explicit per-run operator input where a source offers
-    one; it is validated exactly like the variable and never defaulted. The
-    caller supplies both hint sentences, because they name that source's share
-    and its mounting convention.
-    """
-    root = (override or os.getenv(env_var) or "").strip()
-    if not root:
-        raise ValueError(f"{env_var} is unset or empty. {hint_unset}")
-    if not os.path.isdir(root):
-        raise ValueError(f"{env_var}={root!r} is not a directory. {hint_not_dir}")
-    return root
-
-
-def source_encoding(env_var: str, default: str = DEFAULT_ENCODING) -> str:
-    """Per-source encoding from the environment; SDS delivers cp1252."""
-    return os.getenv(env_var, "").strip() or default
-
-
 # ---------------------------------------------------------------------------
 # filenames
 # ---------------------------------------------------------------------------
@@ -159,67 +112,6 @@ def dataset_prefix(name: str, member_re: re.Pattern[str]) -> str | None:
     """
     match = member_re.match(name)
     return match["prefix"] if match else None
-
-
-# ---------------------------------------------------------------------------
-# streaming out of the tar
-# ---------------------------------------------------------------------------
-
-
-class NonSeekableReader(io.RawIOBase):
-    """RawIOBase adapter: tarfile's stream-mode file objects lack seekable(),
-    which io.TextIOWrapper requires."""
-
-    def __init__(self, fileobj):
-        self._fileobj = fileobj
-
-    def readable(self) -> bool:
-        return True
-
-    def readinto(self, buffer) -> int:
-        data = self._fileobj.read(len(buffer))
-        buffer[: len(data)] = data
-        return len(data)
-
-
-def open_member_csv(handle, encoding: str, delimiter: str = DELIMITER) -> CsvReader:
-    """A csv reader over one member's byte stream, decoded as ``encoding``."""
-    text = io.TextIOWrapper(
-        io.BufferedReader(NonSeekableReader(handle)), encoding=encoding, newline=""
-    )
-    return csv.reader(text, delimiter=delimiter)
-
-
-def iter_members(tar_path: str) -> Generator[tuple[str, IO[bytes]], None, None]:
-    """Every regular file in the archive as ``(basename, handle)``, in tar order.
-
-    FORWARD-ONLY STREAM. The tar is opened in ``r|bz2`` mode, which decompresses
-    once and never seeks backwards. A handle is therefore valid ONLY until the
-    loop advances: a member may be skipped entirely or read partially — tarfile
-    winds forward through the decompressor for you — but it can never be
-    revisited, and reading a handle after the next member was yielded raises
-    ``tarfile.StreamError``. That is the whole point: a delivery of any size is
-    read in a single pass without unpacking anything to disk.
-
-    Skipping a member saves DECODING, not DECOMPRESSION. One bz2 stream is
-    decompressed end to end whatever the caller reads, so a pass that wants only
-    a subset of members costs the same wall-clock in the decompressor as a pass
-    that reads them all. A source that splits a large delivery over several
-    passes (LPR3 Grunddata: 47 members, ~22 GB compressed) pays the
-    decompression once per pass — that is a property of the format, not
-    something this module can amortise.
-
-    Directories and members tarfile cannot open are skipped; routing, warnings
-    and errors are the caller's, so this never decides what a member means.
-    """
-    with tarfile.open(tar_path, mode="r|bz2") as tar:
-        for member in tar:
-            if not member.isfile():
-                continue
-            handle = tar.extractfile(member)
-            if handle is None:
-                continue
-            yield os.path.basename(member.name), handle
 
 
 # ---------------------------------------------------------------------------
@@ -356,6 +248,46 @@ def ext_create_sql(
     return (
         f"DROP TABLE IF EXISTS [ext].[{ext_table}];\n"
         f"CREATE TABLE [ext].[{ext_table}] (\n    " + ",\n    ".join(lines) + "\n);"
+    )
+
+
+# ---------------------------------------------------------------------------
+# delivery registers
+# ---------------------------------------------------------------------------
+
+
+def upsert_register(
+    cursor,
+    table: str,
+    keys: Sequence[str],
+    values: Mapping[str, Any],
+    *,
+    casts: Mapping[str, str] | None = None,
+    insert_only: Collection[str] = (),
+    matched_condition: str | None = None,
+) -> None:
+    """MERGE one row into meta.<table> on ``keys``; update the other columns and dw_timestamp_update.
+
+    A ``casts`` entry holding ``?`` is the SQL expression for the value; any other entry is a type
+    for ``CAST(? AS <type>)``. ``insert_only`` columns are written on insert and never updated.
+    """
+    casts = casts or {}
+    quoted = {column: safe_bracket_quote(column) for column in values}
+    parameters = {c: casts[c] if "?" in casts[c] else f"CAST(? AS {casts[c]})" for c in casts}
+    source = ", ".join(f"{parameters.get(c, '?')} AS {q}" for c, q in quoted.items())
+    on = " AND ".join(f"tgt.{quoted[k]} = src.{quoted[k]}" for k in keys)
+    updates = "".join(
+        f"tgt.{q} = src.{q}, " for c, q in quoted.items() if c not in keys and c not in insert_only
+    )
+    condition = f" AND {matched_condition}" if matched_condition else ""
+    columns = ", ".join(quoted.values())
+    src_columns = ", ".join(f"src.{q}" for q in quoted.values())
+    cursor.execute(
+        f"MERGE [meta].{safe_bracket_quote(table)} AS tgt USING (SELECT {source}) AS src ON {on} "
+        f"WHEN MATCHED{condition} THEN UPDATE SET {updates}"
+        "tgt.[dw_timestamp_update] = CAST(SYSDATETIME() AS DATETIME2(0)) "
+        f"WHEN NOT MATCHED THEN INSERT ({columns}) VALUES ({src_columns});",
+        tuple(values.values()),
     )
 
 

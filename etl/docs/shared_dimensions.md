@@ -132,7 +132,7 @@ SharedDimensions are "foundational" — Borger is populated daily via the FHIR D
 
 ```
 DSA/SQL/ref/
-    __init__.py                 # Module exports (ref_patient_borger, ref_patient_address_borger)
+    __init__.py                 # all_assets (ref_patient_borger, ref_patient_address_borger)
     patient_borger.py           # ref.PatientToBorger — entity-mapping (dw_ek_Borger)
     patient_address_borger.py   # ref.Patient_Address_To_Borger — version-mapping (dw_sk_Borger)
 
@@ -146,5 +146,5 @@ infrastructure/                 # Centralized infrastructure (DDL)
     ddl/tables/ref/                   # ref.PatientToBorger + ref.Patient_Address_To_Borger DDL
 ```
 
-> **NOTE:** Infrastructure has been centralized to `etl/infrastructure/`.
-> Use `full_infrastructure_job` to create all DDL objects (staging + DSO).
+> Use `full_infrastructure_job` to create all DDL objects (staging + DSO). See the
+> [infrastructure guide](implementation/infrastructure_guide.md).

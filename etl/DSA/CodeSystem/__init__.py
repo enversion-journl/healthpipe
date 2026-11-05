@@ -42,17 +42,4 @@ codesystem_dsa_assets = [
 
 all_assets = [*codesystem_dsa_assets]
 
-__all__ = [
-    "codesystem_dsa_assets",
-    "all_assets",
-    "cs_rekvirent",
-    "cs_lager",
-    "cs_ean",
-    "cs_ifdb_kodelister",
-    "cs_sor",
-    "cs_okosted",
-    "cs_sfi",
-    "cs_sks",
-    "cs_shak",
-    "cs_shakalike",
-]
+__all__ = ["codesystem_dsa_assets", "all_assets"]

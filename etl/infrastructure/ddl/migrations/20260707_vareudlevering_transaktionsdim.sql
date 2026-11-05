@@ -5,7 +5,7 @@
 -- root for the full AGPL-3.0 license text.
 
 -- ============================================================================
--- Migration: Vareudlevering transaktionsdimension — afslut navngivning ([internal ticket], Task 3)
+-- Migration: Vareudlevering transaktionsdimension — afslut navngivning (Task 3)
 --
 -- map.Vareudlevering has been shared between dim and fct since migration
 -- 20260504_01_vareudlevering-egenskaber-fk.sql, but the naming was never

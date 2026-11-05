@@ -11,13 +11,13 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from DSA.FHIR.Questionnaire import (
-    build_questionnaire_from_xml,
-)
-from DSA.FHIR.QuestionnaireResponse import (
+from DSA.FHIR.Questionnaire.Questionnaire_IFDB import build_questionnaire_from_xml
+from DSA.FHIR.QuestionnaireResponse.QuestionnaireResponse_IFDB import (
     build_qr_identifier_value,
     build_questionnaire_response_dict,
     build_questionnaire_response_from_xml,
+)
+from DSA.FHIR.QuestionnaireResponse.QuestionnaireResponse_IFDB_assets import (
     merge_flat_questionnaire_items,
 )
 

@@ -58,7 +58,7 @@ downstream, og typisk som forkerte tal frem for som en fejlmeddelelse.
 | Extract-asset | `ext_{måltabel}` | `ext_ils_vare` |
 | Arkiv-asset | `arc_{måltabel}` | `arc_ils_vare` |
 | Asset-group | `{kilde}_archive` | `ils_archive`, `sydax_archive` |
-| DDL-fil | `infrastructure/ddl/tables/{domæne}/00_archive.sql` | |
+| DDL-fil | `infrastructure/ddl/sources/{kilde}/{måltabel}.sql` | `sources/ils/ils_vare.sql` |
 
 Kildenavnet står **først** i tabelnavnet. To ældre afvigelser findes i koden
 (`arc_{tabel}_ifdb` i `DSI/oracle/ifdb_archive.py` og `ext.{tabel}_ils` i
@@ -95,23 +95,23 @@ Tabellerne kommer i del 2.
 
 En ny datakilde kan ikke kobles på fra repoet alene. Selve forbindelsen —
 MSSQL-connector, Oracle-database, filleverance eller hvad kilden kræver — sættes op
-i **Nomad** — det system, der kører Dagster-deploymentet, og hvor dets environment
+i deploymentet — det system, der kører Dagster, og hvor dets environment
 variables ligger. Første skridt
 er derfor en aftale, ikke kode:
 
 1. **Skaf oplysningerne hos systemejeren:** host, port, database, en **read-only**
    servicekonto, og bekræftelse på at der er netværksvej fra Dagster-miljøet. Noter
    hvilken type kildesystem det er — det afgør bibliotek i trin 3.
-2. **En kollega med Nomad-skriveadgang kobler kilden på:** forbindelsen og dens
-   credentials lægges ind som Nomad-variabler på Dagster-deploymentet, og du får
-   besked om, **hvilke environment variables** resourcen skal læse.
+2. **Kobl kilden på i deploymentet:** forbindelsen og dens credentials lægges ind
+   som environment variables på Dagster-deploymentet, og du noterer,
+   **hvilke environment variables** resourcen skal læse.
 3. **Du bruger de variabelnavne** i resourcen i trin 3 — hver værdi hentes med
    `dg.EnvVar("VARIABEL_NAVN")`.
 
 Læg til sidst de samme variabelnavne i [`.env.template`](../../../.env.template) med
 pladsholderværdier, grupperet under en kommentarhoved som de eksisterende kilder.
 Filen er repoets dokumentation af, *hvilke* variabler kilden kræver — de rigtige
-værdier findes kun i Nomad og bliver aldrig checket ind. **Commit aldrig rigtige
+værdier findes kun i deploymentet og bliver aldrig checket ind. **Commit aldrig rigtige
 credentials**; pipelinen scanner historikken for hemmeligheder og persondata.
 
 ### 2. Beskriv kildens skema
@@ -131,13 +131,15 @@ forbindelsen:
 
 | Kildetype | Kopiér | Bibliotek |
 |---|---|---|
-| On-prem MSSQL | `ILSMSSQLResource`, `SydaxMSSQLResource` | `pymssql` |
+| On-prem MSSQL | `MySupplyMSSQLResource`, `SydaxMSSQLResource` | `mssql-python` |
+| On-prem MSSQL | `ILSMSSQLResource` | `pymssql` |
+| On-prem MSSQL med EXAMPLE-servicekonto | `MaxManusMSSQLResource`, `SimaMSSQLResource`, `SimaArkivMSSQLResource`, `PatologiMSSQLResource` | `pymssql` |
 | Azure Synapse / cloud MSSQL | `KmdUddataMSSQLResource` | `mssql-python` |
 | Oracle | `IFDBOracleResource` | `oracledb` |
 | CSV / fildrop | `DSI/connectors/csv_files/` | — |
 
 Adgangskoden skal blive ved med at være en `dg.EnvVar` (hentes først ved kørsel og
-maskeres i logs); værdien kommer fra Nomad-variablen, ikke fra repoet. Synapse har
+maskeres i logs); værdien kommer fra deploymentets variabel, ikke fra repoet. Synapse har
 opstartsforsinkelse — giv assets en retry policy, som KMD gør.
 
 Registrér derefter klassen i `resources`-dict'en i `etl/definitions.py`. Nøglen i
@@ -150,14 +152,19 @@ det navn assets modtager forbindelsen på.
 extractoren dropper og genskaber tabellen ved hver kørsel — ud fra kildens skema
 for databasekilder, og ud fra filens kolonner for CSV-kilder.
 
-- **Kilden hører til et eksisterende domæne:** læg `CREATE TABLE`-blokkene i
-  domænets arkivfil, fx `infrastructure/ddl/tables/erp/00_archive.sql`.
-- **Kilden er sit eget domæne:** opret
-  `infrastructure/ddl/tables/{kilde}/00_archive.sql` og tilføj et
-  `staging_infra_{kilde}`-asset, der eksekverer mappen. Assettet registreres gennem
+Læg én `CREATE TABLE` i hver fil i `infrastructure/ddl/sources/{kilde}/`, og giv
+filen tabellens navn uden skema: `sources/ils/ils_vare.sql`. Leveranceloggen for en
+filleveret kilde (`meta.{Kilde}Leverance`) ligger i samme mappe.
+`staging_infra_source_{kilde}` eksekverer hele mappen, kun på staging.
+
+- **Kildens mappe findes:** tilføj filen.
+- **Kilden er ny:** opret mappen, og tilføj et `staging_infra_source_{kilde}`-asset,
+  der eksekverer den. Assettet registreres gennem
   kæden `infrastructure/assets/staging_infrastructure.py` →
-  `infrastructure/assets/__init__.py` → `infrastructure/__init__.py`, og
-  extract-assets peger på det med `deps=["staging_infra_{kilde}"]`.
+  `infrastructure/__init__.py` (`all_staging_assets`), og
+  extract-assets peger på det med `deps=["staging_infra_source_{kilde}"]`. Assettet selv
+  har `deps=["staging_infra_schemas", "staging_migrations"]`. Se
+  [infrastrukturguiden](../implementation/infrastructure_guide.md#8-add-a-new-domain).
 
 En kilde, der kun bruges i DSI, skal **ikke** have en `dso_infra_*`-modpart —
 `arc.*` ligger på staging-databasen og synkroniseres ikke til DSO.
@@ -183,13 +190,14 @@ For en Oracle-kilde hedder modparterne `DSI/oracle/{kilde}_extract.py` og
 | `DSI/mssql/archive/sydax_archive_configs.py` | Arkiv-side, inkl. `_make_arc_asset()`-factoryen |
 | `DSI/oracle/ifdb_extract.py` / `ifdb_archive.py` | Oracle-kilde |
 | `DSI/csv_files/haiba.py` / `haiba_archive.py` | Fildrop/CSV-leverance |
-| `DSI/csv_files/_sds_tar.py` | Fælles streaming af SDS' `tar.bz2`-leverancer (DRG, udredningsret, LPR3) |
+| `DSI/csv_files/_sds_tar.py` | Fælles `ExtWriter`, eksportlog, `ext`-DDL og `upsert_register` (DRG, udredningsret, LPR3) |
+| `core/file_delivery.py` | Fælles streaming af SDS' `tar.bz2`-leverancer |
 
 SDS leverer som komprimerede tar-arkiver. Det maskineri, alle tre kilder deler —
-streaming direkte fra tar uden udpakning, den chunkede `ExtWriter` med `discard()`
+den chunkede `ExtWriter` med `discard()`
 på fejlstien, `SDP_ExportLog` som kontroltotal, `ext`-DDL og værnet mod forkert
 tegnkodning (mojibake) —
-ligger i `_sds_tar.py`. Kildemodulerne (`drg.py`, `udredningsret.py`) beholder det
+ligger i `_sds_tar.py`; tar-streamingen ligger i `core/file_delivery.py`, og mappetjekket i `FileShareResource.root()`. Kildemodulerne (`drg.py`, `udredningsret.py`) beholder det
 kildespecifikke: filnavnemønstre, per-række-vagter, leverancedetektion og
 fejlbeskeder.
 
@@ -217,7 +225,7 @@ i `jobs/erp_daily_dfm_jobs.py`) eller med sin egen `dg.ScheduleDefinition` under
 
 ### 8. Tilføj en DQA-plads
 
-Arkivtabeller tjekkes af `archive_reconciliation`: hver aktuel kildenøgle skal findes
+Arkivtabeller tjekkes af `source_archive_reconciliation`: hver aktuel kildenøgle skal findes
 i `arc.*`, og arkivnøgler, der er forsvundet fra kilden, skal være markeret som
 slettede frem for at stå tilbage som forældede.
 
@@ -238,7 +246,7 @@ efter mønstret `mock_ils_mssql_resource` / `real_ils_mssql_resource`.
 
 ### Tjekliste — ny kilde
 
-- [ ] Kilden er koblet på i Nomad, og variabelnavnene er modtaget fra en kollega med Nomad-skriveadgang
+- [ ] Kilden er koblet på i deploymentet, og variabelnavnene er noteret
 - [ ] `.env.template` opdateret med pladsholdere for de variabler, resourcen kræver
 - [ ] `docs/source_systems/{kilde}/` oprettet
 - [ ] Resource-klasse tilføjet i `core/resources.py` og registreret i `definitions.py`
@@ -261,7 +269,7 @@ Fem filer ændrer sig. Resten er undersøgelse.
 flowchart TD
     U["<b>1 · Undersøg kildetabellen</b><br/>grain · primærnøgle · delta-kolonne · sletteadfærd · volumen"]
     L["<b>2 · Træf load-beslutningerne</b><br/>full load eller delta · merge-nøgle · delete detection"]
-    DDL["<b>3 · Arkivets DDL</b> — <i>ddl/tables/domæne/00_archive.sql</i><br/>kildens kolonner 1:1 + audit-kolonner<br/><i>ændrer du en eksisterende tabel: også en migration</i>"]
+    DDL["<b>3 · Arkivets DDL</b> — <i>ddl/sources/kilde/tabel.sql</i><br/>kildens kolonner 1:1 + audit-kolonner<br/><i>ændrer du en eksisterende tabel: også en migration</i>"]
     EXT["<b>4 · DfmExtractConfig</b> — <i>kilde_extract_configs.py</i><br/><i>Oracle: + columns, column_types, index_keys</i>"]
     ARC["<b>5 · ArchiveMergeConfig</b> — <i>kilde_archive_configs.py</i><br/>merge_keys + non_key_columns dækker hver kildekolonne"]
     DQA["<b>6 · DQA-subject</b> — <i>dqa/config/arc_kilde_subjects.py</i>"]

@@ -6,20 +6,23 @@
 
 """Tests of the CPR load; the personal numbers are synthetic and invalid (day 00, month 00)."""
 
+from collections import defaultdict
+from types import SimpleNamespace
+
 import dagster as dg
 import pytest
+from core.resources import FileShareResource
 from DSI.csv_files.cpr import (
     ARKIVTABELLER,
     BlokdelingFejlede,
     Leverance,
     UkendtRecordlaengde,
-    cpr_dir,
     efterslaeb,
     filart,
+    gennemloeb,
     kolonnenavn,
     kontroller_kaede,
     kontroller_leverance,
-    laes_leverance,
     linjer,
     naeste_leverance,
     sidst_indlaeste_leverance,
@@ -33,6 +36,15 @@ pytestmark = pytest.mark.unit
 
 PNR_A = "0000000001"
 PNR_B = "0000000002"
+
+
+def laes_leverance(sti: str, encoding: str) -> tuple:
+    """The whole file materialised."""
+    leverance = Leverance(sti)
+    raekker: dict = defaultdict(list)
+    for tabel, raekke in gennemloeb(sti, encoding, leverance):
+        raekker[tabel].append(raekke)
+    return leverance, raekker
 
 
 def _pad(felter: dict, recordtype: str) -> str:
@@ -364,18 +376,6 @@ def test_files_without_a_valid_name_are_skipped(tmp_path):
     assert len(vaelg_filer(str(tmp_path))) == 1
 
 
-def test_missing_mount_fails_hard(monkeypatch):
-    monkeypatch.delenv("CPR_BASE_DIR", raising=False)
-    with pytest.raises(ValueError, match="CPR_BASE_DIR"):
-        cpr_dir()
-
-
-def test_an_empty_directory_is_a_missing_mount(monkeypatch, tmp_path):
-    monkeypatch.setenv("CPR_BASE_DIR", str(tmp_path))
-    with pytest.raises(ValueError, match="empty directory"):
-        cpr_dir()
-
-
 def test_two_deliveries_with_the_same_date_are_rejected(tmp_path):
     for navn in ("d260908.l208109", "d260908.l208110"):
         _skriv(tmp_path, navn, [_start(), _slut(0)])
@@ -562,7 +562,7 @@ def test_infrastructure_asset_is_registered():
     from infrastructure import all_infrastructure_assets
 
     navne = {a.key.path[-1] for a in all_infrastructure_assets}
-    assert "staging_infra_cpr" in navne
+    assert "staging_infra_source_cpr" in navne
 
 
 def test_scope_can_be_set_on_the_configuration():
@@ -671,13 +671,14 @@ def test_backlog_check_warns_above_the_limit_and_shows_only_dates(monkeypatch, v
 
     datoer = [f"202609{dag:02d}" for dag in range(10, 10 + ventende)]
     monkeypatch.setattr(modul, "EFTERSLAEB_GRAENSE", 3)
-    monkeypatch.setattr(modul, "cpr_dir", lambda: "/findes/ikke")
     monkeypatch.setattr(
         modul, "sidst_indlaeste_leverance", lambda mssql, kun_arkiverede=True: ("20260909", False)
     )
     monkeypatch.setattr(modul, "efterslaeb", lambda rod, sidst: datoer)
 
-    resultat = modul.cpr_efterslaeb_er_lille.node_def.compute_fn.decorated_fn(object())
+    resultat = modul.cpr_efterslaeb_er_lille.node_def.compute_fn.decorated_fn(
+        object(), SimpleNamespace(root=lambda: "/findes/ikke")
+    )
 
     assert resultat.passed is bestaaet
     assert resultat.severity == dg.AssetCheckSeverity.WARN
@@ -692,7 +693,6 @@ def test_no_new_delivery_empties_ext(monkeypatch, tmp_path):
     from DSI.csv_files import cpr as modul
 
     _skriv(tmp_path, "d260908.l208109", [_start(), _slut(0)])
-    monkeypatch.setenv("CPR_BASE_DIR", str(tmp_path))
     monkeypatch.setattr(modul, "naeste_leverance", lambda *_: None)
     monkeypatch.setattr(modul, "sidst_indlaeste_leverance", lambda *_: ("20260908", False))
 
@@ -701,6 +701,7 @@ def test_no_new_delivery_empties_ext(monkeypatch, tmp_path):
     resultat = modul.ext_cpr(
         context=dg.build_asset_context(),
         mssql_target_staging=mssql,
+        cpr_share=FileShareResource(base_dir=str(tmp_path)),
         config=modul.CprExtractConfig(),
     )
 
@@ -729,7 +730,6 @@ def test_a_delivery_without_persons_is_stamped_archived(monkeypatch, tmp_path):
     from DSI.csv_files import cpr as modul
 
     _skriv(tmp_path, "d260909.l208109", [_start(proddto="20260909", forrig="20260908"), _slut(0)])
-    monkeypatch.setenv("CPR_BASE_DIR", str(tmp_path))
     monkeypatch.setattr(modul, "sidst_indlaeste_leverance", lambda *_: ("20260908", False))
     monkeypatch.setattr(modul, "DfmManager", MagicMock())
 
@@ -737,6 +737,7 @@ def test_a_delivery_without_persons_is_stamped_archived(monkeypatch, tmp_path):
     resultat = modul.ext_cpr(
         context=dg.build_asset_context(),
         mssql_target_staging=mssql,
+        cpr_share=FileShareResource(base_dir=str(tmp_path)),
         config=modul.CprExtractConfig(),
     )
 
@@ -752,13 +753,13 @@ def _indlaes(monkeypatch, tmp_path, linjer_):
     from DSI.csv_files import cpr as modul
 
     _skriv(tmp_path, "d260909.l208109", linjer_)
-    monkeypatch.setenv("CPR_BASE_DIR", str(tmp_path))
     monkeypatch.setattr(modul, "sidst_indlaeste_leverance", lambda *_, **__: ("20260908", False))
     monkeypatch.setattr(modul, "DfmManager", MagicMock())
     mssql = _FalskMssql({"sp_getapplock": (0,), "sys.tables": (0,)})
     resultat = modul.ext_cpr(
         context=dg.build_asset_context(),
         mssql_target_staging=mssql,
+        cpr_share=FileShareResource(base_dir=str(tmp_path)),
         config=modul.CprExtractConfig(),
     )
     return resultat, mssql
@@ -802,7 +803,6 @@ def test_a_failed_delivery_leaves_no_inserted_rows(monkeypatch, tmp_path):
         "d260909.l208109",
         [_start(proddto="20260909", forrig="20260908"), _person(PNR_A), _slut(5)],
     )
-    monkeypatch.setenv("CPR_BASE_DIR", str(tmp_path))
     monkeypatch.setattr(modul, "sidst_indlaeste_leverance", lambda *_, **__: ("20260908", False))
     monkeypatch.setattr(modul, "DfmManager", MagicMock())
     mssql = _FalskMssql({"sp_getapplock": (0,), "sys.tables": (0,)})
@@ -810,6 +810,7 @@ def test_a_failed_delivery_leaves_no_inserted_rows(monkeypatch, tmp_path):
         modul.ext_cpr(
             context=dg.build_asset_context(),
             mssql_target_staging=mssql,
+            cpr_share=FileShareResource(base_dir=str(tmp_path)),
             config=modul.CprExtractConfig(),
         )
 

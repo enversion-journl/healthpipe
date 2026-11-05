@@ -17,7 +17,7 @@ lnr + aftale against arc.ils_lafthsgh; (2) dim_Aftale.py carries
 alle_maa_benytte through source-build, change-detection and both arms of the
 Type 1 MERGE (UPDATE SET and INSERT).
 
-dim.Aftale was converted from Type 2 to Type 1 in [internal ticket], so the three
+dim.Aftale was converted from Type 2 to Type 1, so the three
 SCD2 insert branches (changed / initial / reactivated) collapsed into a
 single MERGE and the d./s. aliases became tgt./src. The assertions below were
 retargeted accordingly; what they guard is unchanged — the column must not

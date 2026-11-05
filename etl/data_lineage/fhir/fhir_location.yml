@@ -8,23 +8,37 @@ dso_lineage:
   Type: fhir
   TableName: fhir.Location
   Domain: [FHIR]
-  Description: "FHIR Location ressource — fysiske lokationer fra IFDB med SOR-identifikator. Sengeenhed- og seng-Locations lander i fhir.WardUnit / fhir.Bed (location_view whitelist'er identifier-systemet SOR)."
+  Description: "FHIR Location ressource — fysiske lokationer med SOR-identifikator fra IFDB's SOR-enhedstabel (BOM_IFDB) og IFDB's kontaktlokationer. Kender SOR koden, leverer SOR alle felter. Sengeenhed- og seng-Locations lander i fhir.WardUnit / fhir.Bed (location_view whitelist'er identifier-systemet SOR)."
   Grain: "Én række pr. fysisk lokation med SOR-kode"
   FhirResource: Location
 
   SourceSystems:
+    - bom_ifdb: [BOM_IFDB.ORGENHED, BOM_IFDB.SORENHED]
     - ifdb: [IFDB.LOCATION]
+
+  SourcePriority: [bom_ifdb, ifdb]
 
   Columns:
     location_id:               { Type: PK, DataType: NVARCHAR(255), FhirPath: "id", Description: "FHIR resource id (Aidbox UUID) — resolver-/servertildelt ved posting ud fra LOCATION_CODE (SOR). Findes ikke i kilden; SOR-koden bæres i Location.identifier (projiceres pt. ikke som egen kolonne i dette view)." }
     name:                      { DataType: NVARCHAR(500), FhirPath: "name", Source: [ifdb.IFDB.LOCATION.LOCATION_NAME] }
-    status:                    { DataType: NVARCHAR(50), FhirPath: "status" }
+    status:                    { DataType: NVARCHAR(50), FhirPath: "status", Source: [bom_ifdb.BOM_IFDB.ORGENHED.AKTIV], Expr: "SOR: AKTIV = 1 giver active, ellers inactive — også for en enhed, SOR har slettet. Kun IFDB: altid active." }
     description:               { DataType: NVARCHAR(MAX), FhirPath: "description" }
-    type_code:                 { DataType: NVARCHAR(255), FhirPath: "type.coding.code" }
+    type_code:                 { DataType: NVARCHAR(255), FhirPath: "type.coding.code", Source: [bom_ifdb.BOM_IFDB.ORGENHED.ORG_TYPE] }
     type_display:              { DataType: NVARCHAR(500), FhirPath: "type.coding.display" }
     managing_organization_id:  { DataType: NVARCHAR(255), FhirPath: "managingOrganization.id", FK-Target: fhir.Organization, FK-Key: organization_id, FK-Required: false, Description: "FHIR-tildelt Organization-reference (Aidbox UUID) — resolver-tildelt ved posting ud fra SOR-kode (IFDB.LOCATION.LOCATION_SORCODE); ikke direkte projiceret fra kilden." }
-    identifier_value_sor:      { DataType: NVARCHAR(255), FhirPath: "identifier.where(system='https://sundhedsdatastyrelsen.dk/sor').value.first()", Source: [ifdb.IFDB.LOCATION.LOCATION_SORCODE], Description: "Forretningsnøgle (SOR-kode) fra Location.identifier — bærer kildenøglen, da location_id er en server-tildelt UUID. Reconciliation-nøgle mod kilden." }
+    identifier_value_sor:      { DataType: NVARCHAR(255), FhirPath: "identifier.where(system='https://sundhedsdatastyrelsen.dk/sor').value.first()", Source: [bom_ifdb.BOM_IFDB.SORENHED.SORKODE, ifdb.IFDB.LOCATION.LOCATION_SORCODE], Description: "Forretningsnøgle (SOR-kode) fra Location.identifier — bærer kildenøglen, da location_id er en server-tildelt UUID. Reconciliation-nøgle mod kilden." }
     dw_is_deleted:                { DataType: INT, Description: "Slettet-flag (0 = live, 1 = slettet). Warehouse-styret: projiceres ikke fra FHIR. Saettes til 1 af dqa_fhir_server_cleanup for raekker hvis Location er hard-slettet paa FHIR-serveren, og nulstilles til 0 ved MERGE-match (resurrect_soft_deleted), saa en genopstaaet Location ikke bliver haengende som slettet. NOT NULL DEFAULT 0." }
     last_updated:              { DataType: DATETIME2, FhirPath: "r.ts" }
     created_at:                { DataType: DATETIME2, FhirPath: "r.cts" }
     dw_ek_Organisation:        { Type: FK, DataType: INT, Expr: "dim.Organisation.dw_ek_Organisation hvor fhir_Organization_id = managing_organization_id", Description: "Organisationen, der administrerer lokationen. -1 når lokationen ikke har en administrerende organisation, eller organisationen ikke findes i dim.Organisation." }
+
+    # ------------------------------------------------------------------
+    # Proveniens (meta) — hvem bidrog til denne lokation
+    #
+    # Ressourcen samles af DSA/FHIR/Location/location_builder.py ud fra ét bidrag pr. kilde,
+    # og feltejerskabet står i DSA/FHIR/Location/location_ownership.py. Kolonnerne herunder har
+    # derfor ingen Source: de beskriver ikke, hvad en kilde leverer, men hvem der bidrog.
+    # ------------------------------------------------------------------
+    meta_source:               { DataType: NVARCHAR(255), FhirPath: "meta.source", Description: "Byggerens URI." }
+    source_bom_ifdb:           { DataType: BIT, FhirPath: "meta.tag.where(system='http://example.org/fhir/CodeSystem/kilde' and code='BOM_IFDB').exists()", Description: "IFDB's SOR-enhedstabel (BOM_IFDB) har en række for koden, også en slettet, og leverer lokationens felter." }
+    source_ifdb:               { DataType: BIT, FhirPath: "meta.tag.where(system='http://example.org/fhir/CodeSystem/kilde' and code='IFDB').exists()", Description: "IFDB har koden som kontaktlokation." }

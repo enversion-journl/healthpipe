@@ -18,7 +18,6 @@ from DSA.FHIR.Procedure.Procedure_IFDB_AdminProc_dfm import (
 from DSA.FHIR.Procedure.Procedure_IFDB_RisYdelse_dfm import _post_ris_ydelse_to_fhir
 from DSA.FHIR.utils.ifdb.dependency_resolver import (
     _fetch_rows_by_ids_from_ifdb,
-    _raise_if_unresolved,
     resolve_missing_encounters,
 )
 from fhir.resources.R4B.extension import Extension
@@ -487,27 +486,6 @@ class TestDependencyResolverHelpers:
         assert first_params == sorted_ids[:999]
         assert second_params == sorted_ids[999:]
 
-    def test_raise_if_unresolved_does_not_raise_when_all_required_are_resolved(self) -> None:
-        _raise_if_unresolved(
-            required_ids={"A", "B"},
-            resolved={"A": "uuid-a", "B": "uuid-b"},
-            entity_label="patients",
-        )
-
-    def test_raise_if_unresolved_raises_with_count_and_truncation(self) -> None:
-        required_ids = {f"ID-{i}" for i in range(6)}
-
-        with pytest.raises(ValueError) as exc_info:
-            _raise_if_unresolved(
-                required_ids=required_ids,
-                resolved={},
-                entity_label="patients",
-            )
-
-        msg = str(exc_info.value)
-        assert "Could not resolve 6 required patients:" in msg
-        assert "..." in msg
-
 
 # --- CPR resolver: archive lookup falls back per CPR, not all-or-nothing ----------
 
@@ -521,7 +499,8 @@ def test_patientinfo_cpr_fallback_is_per_cpr_not_all_or_nothing(monkeypatch):
     from DSA.FHIR.utils.ifdb import dependency_resolver as dr
 
     monkeypatch.setattr(
-        "DSA.FHIR.utils.ifdb.arc_lookup.chunked_in_fetch",
+        dr,
+        "chunked_in_fetch",
         lambda ids, **kw: [{"PATIENTINFOOID": "1", "CPRNR": "111111-1111"}],
     )
     oracle_calls: list[list[str]] = []
@@ -551,7 +530,8 @@ def test_patientinfo_cpr_fallback_skips_oracle_when_archive_covers_all(monkeypat
     from DSA.FHIR.utils.ifdb import dependency_resolver as dr
 
     monkeypatch.setattr(
-        "DSA.FHIR.utils.ifdb.arc_lookup.chunked_in_fetch",
+        dr,
+        "chunked_in_fetch",
         lambda ids, **kw: [{"PATIENTINFOOID": "1", "CPRNR": c} for c in ids],
     )
 

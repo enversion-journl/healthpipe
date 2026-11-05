@@ -222,7 +222,8 @@ def test_hver_ddl_batch_lukker_sine_blokke():
 
     etl = Path(__file__).resolve().parents[2]
     aabner = re.compile(r"\b(BEGIN|CASE|END)\b(?:\s+(TRY|CATCH|TRANSACTION|TRAN))?", re.I)
-    for sti in sorted((etl / "infrastructure/ddl/tables").rglob("*.sql")):
+    ddl = etl / "infrastructure/ddl"
+    for sti in sorted([*(ddl / "tables").rglob("*.sql"), *(ddl / "sources").rglob("*.sql")]):
         tekst = sti.read_text(encoding="utf-8")
         for nr, batch in enumerate(re.split(r"(?mi)^\s*GO\s*$", tekst), start=1):
             # Kommentarer, klammer-identifikatorer (en kolonne hedder [end]) og

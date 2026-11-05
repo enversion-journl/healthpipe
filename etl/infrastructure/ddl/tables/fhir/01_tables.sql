@@ -845,8 +845,13 @@ CREATE TABLE [fhir].[Location] (
     [created_at] DATETIME2 NULL,
     [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Location_dw_timestamp_insert] DEFAULT SYSUTCDATETIME(),
     [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Location_dw_timestamp_update] DEFAULT SYSUTCDATETIME(),
-    -- Set by fhir_dw_keys_location, not by SoF. Last, as on a migrated table.
+    -- Set by fhir_dw_keys_location, not by SoF. Before the provenance columns, as on a migrated table.
     [dw_ek_Organisation] INT NOT NULL CONSTRAINT [DF_Location_dw_ek_Organisation] DEFAULT -1,
+    -- Provenance: meta_source is the builder's URI; each source_* flag mirrors
+    -- one meta.tag, i.e. whether that source contributed to the location.
+    [meta_source] NVARCHAR(255) NULL,
+    [source_bom_ifdb] BIT NULL,
+    [source_ifdb] BIT NULL,
     CONSTRAINT [PK_FHIR_Location] PRIMARY KEY CLUSTERED ([location_id])
 ) ON [PRIMARY];
 
@@ -1261,9 +1266,9 @@ CREATE TABLE [fhir].[Procedure] (
     [udfoert_enhed_orgkode] NVARCHAR(512) NULL,
     [performer_organization_id] NVARCHAR(255) NULL,
     [stamafdeling_organization_id] NVARCHAR(255) NULL,
-    -- Klinikeren fra performer: der findes ingen Practitioner-ressourcer, saa
-    -- referencen bevares som identifier og medarbejder-id projiceres direkte,
-    -- som paa Observation og QuestionnaireResponse.
+    -- Klinikeren fra performer bevares som identifier, og medarbejder-id projiceres
+    -- direkte som paa Observation og QuestionnaireResponse. Join til fhir.Practitioner
+    -- paa identifier_staff_exact.
     [practitioner_id] NVARCHAR(255) NULL,
     [practitioner_display] NVARCHAR(500) NULL,
     [practitioner_role_code] NVARCHAR(255) NULL,
@@ -2168,16 +2173,27 @@ END
 GO
 
 -- ============================================================================
--- Practitioner (from practitioner_view) — SilkeborgData E26PERS
+-- Practitioner (from practitioner_view) — SilkeborgData E26PERS and EPJI
 --
--- Grain: one row per person (practitioner_id), keyed on CprNr in the source.
--- Tjenestenummer identifies the EMPLOYMENT, not the person, and is reissued to
--- new staff, so it cannot key this table — see fhir.PractitionerRole.
+-- Two producers, told apart by source_table. Their resources are never merged:
+-- a SilkeborgData person and an EPJ account are separate rows, even for the
+-- same human being.
+--
+-- SilkeborgData (source_table = 'silkeborgdata_e26_pers'): one row per person,
+-- keyed on CprNr in the source. Tjenestenummer identifies the EMPLOYMENT, not
+-- the person, and is reissued to new staff, so it cannot key this table — see
+-- fhir.PractitionerRole. These rows say who is on the payroll, and `active`
+-- means "present in the most recent payroll delivery".
+--
+-- EPJI (source_table = 'epji_practitioner'): one row per EPJ account, keyed on the
+-- staff code in identifier_staff. One person often has several accounts, and
+-- identifier_regionsid groups them. `active` is the account's own state in EPJ;
+-- an inactive account stays, because IFDB rows written under it still refer to
+-- it. No CPR, gender or birth date on these rows.
 --
 -- No profile is declared: DK Core's dk-core-practitioner carries the
--- authorisation code from the authorisation register, and a payroll extract has
--- none. These rows say who is on the payroll, never who is licensed to
--- practise, and `active` means "present in the most recent payroll delivery".
+-- authorisation code from the authorisation register, and neither source has
+-- it. No row says who is licensed to practise.
 -- ============================================================================
 IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[fhir].[Practitioner]') AND type = 'U')
 BEGIN
@@ -2190,13 +2206,28 @@ BEGIN
         -- because the identifier lookup reads only the first per system. The
         -- superseded number also owns its own row here, with active = 0.
         [identifier_cpr_previous] NVARCHAR(10) NULL,
-        -- Source format is "Efternavn,Fornavn(e)"; name_text keeps the raw
+        -- The EPJ account's staff code (urn:source:ifdb:staff), the value IFDB
+        -- carries in practitioner_id on fhir.Observation, fhir.Procedure,
+        -- fhir.CarePlan_Activity and fhir.QuestionnaireResponse. Join through
+        -- identifier_staff_exact with dw_is_deleted = 0: EPJI holds some codes in
+        -- two cases as two accounts, and the database collation would match both.
+        -- IX_FHIR_Practitioner_IdentifierStaffExact allows one live row per exact
+        -- code; its filter names identifier_staff, because an index filter cannot
+        -- reference a computed column.
+        [identifier_staff] NVARCHAR(64) NULL,
+        [identifier_staff_exact] AS ([identifier_staff] COLLATE Latin1_General_BIN2) PERSISTED,
+        -- The region's user identity, shared by one person's EPJ accounts. Not
+        -- unique: it groups accounts, it does not key them.
+        [identifier_regionsid] NVARCHAR(64) NULL,
+        -- SilkeborgData's format is "Efternavn,Fornavn(e)"; name_text keeps the raw
         -- value, so a wrong split can always be checked against the original.
+        -- EPJI delivers the parts split.
         [name_text] NVARCHAR(100) NULL,
         [name_family] NVARCHAR(100) NULL,
         [name_given] NVARCHAR(100) NULL,
         -- Both derived from CPR and absent when the number fails the validity
         -- gate (10 digits + a parsable date part) or implies an age under 13.
+        -- Always absent on EPJI rows.
         [gender] NVARCHAR(20) NULL,
         [birth_date] DATE NULL,
         -- BIT, not NVARCHAR: the SOF view projects FHIR's boolean `active`
@@ -2206,13 +2237,15 @@ BEGIN
         -- is NVARCHAR(10) for historical reasons and is not touched here.)
         [active] BIT NULL,
         [source_table] NVARCHAR(100) NULL,
-        -- Projected from the urn:fhir:isDeleted extension, which the transform
-        -- always sets. The source never deletes rows, but the transform sets 1 on
+        -- Projected from the urn:fhir:isDeleted extension, which both transforms
+        -- always set. SilkeborgData never deletes rows, but its transform sets 1 on
         -- a retired identity: the CPR a person held before a correction keeps its
-        -- own row, and that row is not a person to be counted. Everyone who simply
-        -- left the payroll stays 0 and is told apart by active = 0 —
-        -- filtering them out here would hide thousands of former staff that
-        -- historical data still refers to. dqa_fhir_server_cleanup also sets 1.
+        -- own row, and that row is not a person to be counted. EPJI sets 1 only
+        -- when the account disappears from EPJ. Everyone who simply left the
+        -- payroll, and every inactive EPJ account, stays 0 and is told apart by
+        -- active = 0 — filtering them out here would hide thousands of former
+        -- staff that historical data still refers to. dqa_fhir_server_cleanup
+        -- also sets 1.
         [dw_is_deleted] INT NOT NULL CONSTRAINT [DF_Practitioner_dw_is_deleted] DEFAULT 0,
         [last_updated] DATETIME2 NULL,
         [created_at] DATETIME2 NULL,
@@ -2226,6 +2259,13 @@ BEGIN
 
     CREATE NONCLUSTERED
     INDEX [IX_FHIR_Practitioner_IdentifierCpr] ON [fhir].[Practitioner] ([identifier_cpr] ASC) ON [PRIMARY];
+
+    CREATE UNIQUE NONCLUSTERED
+    INDEX [IX_FHIR_Practitioner_IdentifierStaffExact] ON [fhir].[Practitioner] ([identifier_staff_exact] ASC)
+    WHERE [identifier_staff] IS NOT NULL AND [dw_is_deleted] = 0 ON [PRIMARY];
+
+    CREATE NONCLUSTERED
+    INDEX [IX_FHIR_Practitioner_IdentifierRegionsId] ON [fhir].[Practitioner] ([identifier_regionsid] ASC) ON [PRIMARY];
 END
 GO
 

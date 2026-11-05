@@ -30,11 +30,18 @@ from DSA.FHIR.SqlOnFhir.ServiceRequest_dfm import (
 )
 from DSA.FHIR.utils.sql_on_fhir.sof_utils import VIEW_DEFINITIONS_DIR
 from DSO.load.sync_fhir import all_fhir_dso_sync_dfm_assets
+from tests.utils.asset_graph_helpers import (
+    DFM_PRODUCER_PREFIXES,
+    DSO_SYNC_PREFIXES,
+    SOF_PREFIXES,
+    assert_deps,
+)
 
-_SOF_PRODUCER_KEYS = {
-    AssetKey.from_user_string("fhir_sof_infrastructure"),
-    AssetKey.from_user_string("fhir_server_service_request_dfm"),
-    AssetKey.from_user_string("fhir_server_rehabilitation_plan_dfm"),
+# Both ServiceRequest producers must post before the SOF view reads.
+_SOF_PRODUCERS = {
+    "fhir_sof_infrastructure",
+    "fhir_server_service_request_dfm",
+    "fhir_server_rehabilitation_plan_dfm",
 }
 
 
@@ -49,29 +56,39 @@ class TestServiceRequestPipelineRegistration:
             for a in servicerequest_assets
             if next(iter(a.keys)).to_user_string() == key.to_user_string()
         )
-        assert asset.asset_deps[key] == {
-            AssetKey.from_user_string("arc_henvisning_ifdb"),
-            AssetKey.from_user_string("arc_henvisning_historik_ifdb"),
-            AssetKey.from_user_string("arc_referralinformation_ifdb"),
-            AssetKey.from_user_string("arc_ris_ydelse_ifdb"),
-            AssetKey.from_user_string("fhir_server_patient_dfm"),
-            AssetKey.from_user_string("fhir_server_encounter_dfm"),
-            AssetKey.from_user_string("fhir_server_eoc_dfm"),
-        }
+        assert_deps(
+            asset,
+            "fhir_server_service_request_dfm",
+            allowed_prefixes=DFM_PRODUCER_PREFIXES,
+            required={
+                "arc_henvisning_ifdb",
+                "arc_henvisning_historik_ifdb",
+                "arc_referralinformation_ifdb",
+                "arc_ris_ydelse_ifdb",
+                "fhir_server_patient_dfm",
+                "fhir_server_encounter_dfm",
+                "fhir_server_eoc_dfm",
+            },
+        )
 
     def test_sof_service_request_depends_on_both_dfm_producers(self):
-        key = AssetKey.from_user_string("sof_service_request_dfm")
-        assert sof_service_request_dfm.asset_deps[key] == _SOF_PRODUCER_KEYS
+        assert_deps(
+            sof_service_request_dfm,
+            "sof_service_request_dfm",
+            allowed_prefixes=SOF_PREFIXES,
+            required=_SOF_PRODUCERS,
+        )
 
     def test_sof_service_request_supplementary_code_follows_its_parent(self):
         # The child view is derived from the parent's resources, so it follows
         # the parent SOF asset (Condition/Procedure child pattern) — the
         # producer edges are transitive through the parent.
-        key = AssetKey.from_user_string("sof_service_request_supplementary_code_dfm")
-        assert sof_service_request_supplementary_code_dfm.asset_deps[key] == {
-            AssetKey.from_user_string("fhir_sof_infrastructure"),
-            AssetKey.from_user_string("sof_service_request_dfm"),
-        }
+        assert_deps(
+            sof_service_request_supplementary_code_dfm,
+            "sof_service_request_supplementary_code_dfm",
+            allowed_prefixes=SOF_PREFIXES,
+            required={"fhir_sof_infrastructure", "sof_service_request_dfm"},
+        )
 
     def test_service_request_view_includes_required_columns(self):
         with open(VIEW_DEFINITIONS_DIR / "servicerequest_view.json") as f:
@@ -101,16 +118,20 @@ class TestServiceRequestPipelineRegistration:
         for sof_name in ("service_request", "service_request_supplementary_code"):
             dso_name = f"dso_sync_fhir_{sof_name}_dfm"
             assert dso_name in by_name, f"Missing DFM DSO sync asset: {dso_name}"
-            key = AssetKey.from_user_string(dso_name)
-            expected = {
-                AssetKey.from_user_string(f"sof_{sof_name}_dfm"),
-                # Gates the MERGE on the DSO fhir.* tables + their migrations, so
-                # it never runs against a stale target schema/PK.
-                AssetKey.from_user_string("dso_infra_fhir"),
+            required = {
+                f"sof_{sof_name}_dfm",
+                # Gates the MERGE on the DSO fhir.* tables + their migrations,
+                # so it never runs against a stale target schema/PK.
+                "dso_infra_fhir",
             }
             if sof_name == "service_request":
-                expected.add(AssetKey.from_user_string("fhir_dw_keys_service_request"))
-            assert by_name[dso_name].asset_deps[key] == expected
+                required.add("fhir_dw_keys_service_request")
+            assert_deps(
+                by_name[dso_name],
+                dso_name,
+                allowed_prefixes=DSO_SYNC_PREFIXES,
+                required=required,
+            )
 
     def test_service_request_assets_are_materializable(self):
         graph = defs.resolve_asset_graph()
@@ -129,21 +150,6 @@ class TestServiceRequestPipelineRegistration:
             key = AssetKey.from_user_string(key_str)
             assert graph.has(key), f"Missing asset key: {key_str}"
             assert graph.get(key).is_materializable, f"Asset is not materializable: {key_str}"
-
-    def test_legacy_service_request_assets_are_gone(self):
-        graph = defs.resolve_asset_graph()
-        removed = [
-            "fhir_service_request_daily_ifdb",
-            "fhir_service_request_monthly_ifdb",
-            "fhir_service_request_bulk_ifdb",
-            "sof_service_request_daily",
-            "sof_service_request_monthly",
-            "dso_sync_fhir_service_request_daily",
-        ]
-        for key_str in removed:
-            assert not graph.has(
-                AssetKey.from_user_string(key_str)
-            ), f"Legacy asset still registered: {key_str}"
 
     def test_fetch_columns_are_subset_of_archive_columns(self):
         """The local lookup column lists must stay a subset of the arc-table

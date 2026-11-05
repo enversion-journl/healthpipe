@@ -30,10 +30,6 @@ class ExtractResult:
     column_names: list[str]
     row_count: int
 
-    @property
-    def is_empty(self) -> bool:
-        return self.row_count == 0
-
 
 class SqlExtractor(ABC):
     """Abstract base class for SQL-based data extractions.

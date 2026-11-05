@@ -27,7 +27,7 @@ derfor bygges på leverancens LPR3-UUID'er (`*_VAERDI`-kolonnerne) — og hvor d
 mangler, på veldefinerede afledninger, som dette notat fastlægger.
 
 Fordi samme kontakt vurderes under flere takstsystemer (M-leverancer dækker
-tre aktivitetsår; grain-beslutning på [internal ticket]: alle kombinationer
+tre aktivitetsår; grain-beslutning: alle kombinationer
 medtages), indgår **takstsystem** i alle merge-nøgler. Takstsystem kommer
 fra leverancens filnavn/mappenavn og stemples på alle rækker ved extract.
 
@@ -236,14 +236,14 @@ change detection og delete detection, som kontakterne.
 - Kontakt/procedure/forløb/diagnoser: HAIBA-mønstret (upsert +
   detect_deletes + update_only_on_change) med nøglerne ovenfor. Værnet mod
   dubletter er IKKE fast `dedup_source_on_keys` som oprindeligt foreslået,
-  men den skelnende guard fra [internal ticket] (se §Kildedubletter) — dedup slås
+  men den skelnende guard (se §Kildedubletter) — dedup slås
   kun til for den enkelte kørsel, og kun for indholds-identiske dubletter.
 - Fallback for diagnoser (kun hvis dubletter observeres): genopbygning pr.
   kontakt — kræver enten `core/archive_merge.py`-udvidelse (scoped replace)
   eller et dedikeret merge-mønster i drg_archive.py. Beslutning ligger i
   US-2.
 - Delete-detection skal scopes pr. (takstsystem × AKTIVITETSÅR) — jf.
-  §Kadence og arkiv-enhed ovenfor samt arkiv-invariant 1 på [internal ticket].
+  §Kadence og arkiv-enhed ovenfor samt arkiv-invariant 1.
   Skemavariation: T25-somatik mangler DW_EK_HelbredsForloeb og
   FORLOB_REFERENCE_* — arc-DDL og extract-validering skal være pr.
   takstsystem-skema (Metadata_*-filerne er autoritative).

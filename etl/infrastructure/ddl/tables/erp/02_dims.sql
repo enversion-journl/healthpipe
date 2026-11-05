@@ -567,6 +567,57 @@ BEGIN
 END
 GO
 
+-- dim.Ordre
+-- Source: ILS dbo.ordh -- order headers. Grain: one row per (sgh, lgr, ordre).
+-- Transaction dimension: dw_ek_Ordre is the shared PK with fct.Ordre, resolved
+-- from map.Ordre. Freight and fee sit on fct.Ordre, not here.
+-- dim.ILSBruger is an outrigger: dw_ek_ILSBruger_oprettet_af is the user that
+-- ordh.bd_oprid names, matched on bruger_id and, when no user has that bruger_id,
+-- on the initials (older orders); -1 when it names no ILS user.
+-- ilsbruger_match_kilde records which match was used.
+-- adr1-adr5 (alternative delivery address, can name a home patient) are left out.
+IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dim].[Ordre]') AND type = 'U')
+BEGIN
+    CREATE TABLE [dim].[Ordre](
+        [dw_ek_Ordre] INT NOT NULL,
+        [clean_code_Ordre] NVARCHAR(100) NOT NULL,
+        [bk_prrowid] NVARCHAR(100) NULL,
+        [ordrenummer] NVARCHAR(20) NULL,
+        [sygehus] NVARCHAR(8) NULL,
+        [lager] NVARCHAR(8) NULL,
+        [leverandoernummer] NVARCHAR(20) NULL,
+        [ordredato] DATE NULL,
+        [ordrestatus] NVARCHAR(4) NULL,
+        [ordre_oprettet_af] NVARCHAR(20) NULL,
+        [dw_ek_ILSBruger_oprettet_af] INT NOT NULL CONSTRAINT [DF_Ordre_dw_ek_ILSBruger_oprettet_af] DEFAULT -1,
+        [ilsbruger_match_kilde] NVARCHAR(10) NULL,
+        [dw_ek_Dato_ajourfoert] INT NOT NULL CONSTRAINT [DF_Ordre_dw_ek_Dato_ajourfoert] DEFAULT -1,
+        [dato_tid_ajourfoert] DATETIME2 NULL,
+        [ajourfoert_bruger] NVARCHAR(6) NULL,
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Ordre_dw_timestamp_insert] DEFAULT SYSDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Ordre_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        CONSTRAINT [PK_Dim_Ordre] PRIMARY KEY CLUSTERED ([dw_ek_Ordre] ASC)
+    ) ON [PRIMARY];
+
+    -- Lookup by order number, the key ILS users search on.
+    CREATE NONCLUSTERED INDEX [IX_Dim_Ordre_ordrenummer] ON [dim].[Ordre]
+    ([ordrenummer] ASC) INCLUDE ([sygehus], [lager], [ordrestatus]) ON [PRIMARY];
+END
+GO
+
+-- Insert UNKNOWN row if not exists - dynamic SQL avoids compile-time column resolution
+IF NOT EXISTS (SELECT 1 FROM [dim].[Ordre] WHERE [dw_ek_Ordre] = -1)
+BEGIN
+    EXEC('
+        INSERT INTO [dim].[Ordre] (
+            [dw_ek_Ordre], [clean_code_Ordre], [dw_timestamp_insert], [dw_timestamp_update]
+        ) VALUES (
+            -1, N''UNKNOWN'', CAST(SYSDATETIME() AS DATETIME2), CAST(SYSDATETIME() AS DATETIME2)
+        )
+    ');
+END
+GO
+
 -- dim.Lager
 -- Hierarchy and SOR mapping columns for ILS Lager codesystem (REGION_SYD -> sgh -> lgr)
 IF NOT EXISTS (

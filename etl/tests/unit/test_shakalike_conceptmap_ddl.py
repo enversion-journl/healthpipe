@@ -94,7 +94,7 @@ def test_migration_arc_epji_location_is_staging_only():
         "arc.epji_location CREATE TABLE must be guarded by "
         "DB_NAME() LIKE N'%staging%' — this migration runs via the shared "
         "migrations/ folder on both DBs, unlike the staging-only baseline "
-        "in tables/epji_archive/00_archive.sql"
+        "in sources/epji/epji_location.sql"
     )
 
 

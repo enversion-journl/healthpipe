@@ -8,11 +8,16 @@ dso_lineage:
   Type: fhir
   TableName: fhir.Practitioner
   Domain: [FHIR]
-  Description: "FHIR Practitioner fra SilkeborgDatas lønudtræk E26PERS. Type 1 (én aktuel række pr. person, bygget på personens nyeste leverance). Historikken bevares i arc.silkeborgdata_e26_pers, ikke som FHIR-versioner."
-  Grain: "Én række pr. person (practitioner_id), identificeret ved CPR i kilden"
+  Description: "FHIR Practitioner fra to kilder, adskilt i source_table: SilkeborgDatas lønudtræk E26PERS (én aktuel række pr. person, bygget på personens nyeste leverance) og EPJI's PRACTITIONER (én række pr. EPJ-konto). De to kilders rækker samles ikke, heller ikke for samme menneske. Type 1: historikken bevares i arkivet, ikke som FHIR-versioner."
+  Grain: "SilkeborgData: én række pr. person, identificeret ved CPR. EPJI: én række pr. EPJ-konto, identificeret ved personalekoden (identifier_staff). Et menneske har ofte flere EPJ-konti; de deler identifier_regionsid, som de kan grupperes på."
   FhirResource: Practitioner
+  Privacy: >
+    Tabellen bærer personoplysninger om ansatte: navn, CPR (kun SilkeborgData)
+    og personalekode og RegionsId (kun EPJI). EPJI's CPR føres ikke til FHIR.
+    Adgangen følger DSO's almindelige adgangsstyring og er ikke
+    kolonnebegrænset.
   # Ingen Profile: dk-core-practitioner bærer autorisationskoden fra
-  # autorisationsregisteret, og et lønudtræk har ingen. At erklære profilen
+  # autorisationsregisteret, og ingen af kilderne har den. At erklære profilen
   # uden dens bærende slice ville være et tomt løfte.
 
   Extensions:
@@ -24,24 +29,29 @@ dso_lineage:
 
   SourceSystems:
     - silkeborgdata:    [arc.silkeborgdata_e26_pers]
+    - epji:             [EPJI.PRACTITIONER, EPJI.PRACTITIONER_IDENTIFIER]
 
   Columns:
     # ------------------------------------------------------------------
     # Identitet
     # ------------------------------------------------------------------
-    practitioner_id:      { Type: PK, DataType: NVARCHAR(255), FhirPath: "id", Description: "FHIR resource id (Aidbox). Ikke deterministisk — opløses ved upsert ud fra CPR-identifieren." }
-    identifier_cpr:       { DataType: NVARCHAR(10), FhirPath: "identifier.where(system='urn:dk:cpr').value", Source: [silkeborgdata.arc.silkeborgdata_e26_pers.CprNr], Description: "CPR (system: identifier_systems.SYSTEM_CPR). Personidentiteten — tjenestenummeret kan ikke bruges, da 36 numre er genbrugt til nye personer. Præcis ét CPR pr. række: et andet nummer under samme system ville gøre indeksnøglen afhængig af identifier-rækkefølgen." }
+    practitioner_id:      { Type: PK, DataType: NVARCHAR(255), FhirPath: "id", Description: "FHIR resource id (Aidbox). Ikke deterministisk — opløses ved upsert ud fra CPR-identifieren (SilkeborgData) eller personalekoden (EPJI)." }
+    identifier_cpr:       { DataType: NVARCHAR(10), FhirPath: "identifier.where(system='urn:dk:cpr').value", Source: [silkeborgdata.arc.silkeborgdata_e26_pers.CprNr], Description: "CPR (system: identifier_systems.SYSTEM_CPR). Kun SilkeborgData. Personidentiteten — tjenestenummeret kan ikke bruges, da 36 numre er genbrugt til nye personer. Præcis ét CPR pr. række: et andet nummer under samme system ville gøre indeksnøglen afhængig af identifier-rækkefølgen." }
     identifier_cpr_previous: { DataType: NVARCHAR(10), FhirPath: "extension('urn:source:silkeborgdata:afloest_cpr').valueString", Source: [silkeborgdata.arc.silkeborgdata_e26_pers.CprNr], FK-None: true, Expr: "Det CPR personen havde før en rettelse. Fyldt på 4 af 53.129 personer. En rettelse giver TO rækker: den overlevende med active = 1 og denne kolonne fyldt, og det afløste nummer som sin egen række med active = 0 og ingen roller." }
 
-    # ------------------------------------------------------------------
-    # Navn — kilden har formen "Efternavn,Fornavn(e)"
-    # ------------------------------------------------------------------
-    name_text:            { DataType: NVARCHAR(100), FhirPath: "name.text", Source: [silkeborgdata.arc.silkeborgdata_e26_pers.Navn], Description: "Rå kildeværdi, sættes altid — en forkert splitning kan derfor altid efterprøves." }
-    name_family:          { DataType: NVARCHAR(100), FhirPath: "name.family", Source: [silkeborgdata.arc.silkeborgdata_e26_pers.Navn], Expr: "Tekst før første komma. Absent når navnet mangler komma (31 rækker) — der gættes ikke." }
-    name_given:           { DataType: NVARCHAR(100), FhirPath: "name.given", Source: [silkeborgdata.arc.silkeborgdata_e26_pers.Navn], Expr: "Tekst efter første komma, splittet på mellemrum. Et efternavn med mellemrum kan ikke skelnes fra flere fornavne; name_text bevarer sandheden." }
+    identifier_staff:     { DataType: NVARCHAR(64), FhirPath: "identifier.where(system='urn:source:ifdb:staff').value", Source: [epji.EPJI.PRACTITIONER.EXTERNAL_ID], FK-None: true, Description: "EPJ-kontoens personalekode (system: identifier_systems.SYSTEM_IFDB_STAFF). Kun EPJI. Samme værdi som practitioner_id på fhir.Observation, fhir.Procedure, fhir.CarePlan_Activity og fhir.QuestionnaireResponse. Store og små bogstaver er bevaret: nogle koder findes i to varianter som to konti. Join derfor via identifier_staff_exact. En konto kan få ny personalekode i EPJ. Så kommer der en ny række med den nye kode, og rækken med den gamle kode bliver stående uændret; historiske IFDB-data med den gamle kode rammer stadig den." }
+    identifier_staff_exact: { DataType: NVARCHAR(64), Source: [epji.EPJI.PRACTITIONER.EXTERNAL_ID], FK-None: true, Expr: "identifier_staff COLLATE Latin1_General_BIN2 (beregnet kolonne). Sammenligner tegn for tegn, så en kode kun rammer den konto, der har netop den stavemåde. Eksempel: f.practitioner_id COLLATE Latin1_General_BIN2 = p.identifier_staff_exact AND p.dw_is_deleted = 0.", Description: "Samme personalekode som identifier_staff, men store og små bogstaver skelnes. Brug den, når en personalekode fra en anden tabel skal ramme præcis én EPJ-konto. Et unikt indeks tillader højst én række med dw_is_deleted = 0 pr. kode." }
+    identifier_regionsid: { DataType: NVARCHAR(64), FhirPath: "identifier.where(system='http://example.org/BSK/RegionsId').value", Source: [epji.EPJI.PRACTITIONER_IDENTIFIER.VALUE], FK-None: true, Expr: "VALUE hvor SYSTEM = 'http://example.org/BSK/RegionsId' (system: identifier_systems.SYSTEM_REGION_REGIONSID). Kun EPJI.", Description: "Regionens bruger-id. Ikke unik: et menneskes EPJ-konti deler den, så konti kan grupperes til mennesker på den. Kendte afvigelser: få mennesker har skiftet RegionsId mellem en gammel og en ny konto, og enkelte værdier deles af to mennesker eller står kun på robot-, eksterne og funktionskonti. Ikke alle konti har et RegionsId. For dem er kolonnen tom, og kontoen kan ikke grupperes via den." }
 
     # ------------------------------------------------------------------
-    # Demografi — udledt af CPR, ikke leveret af kilden
+    # Navn — SilkeborgData har formen "Efternavn,Fornavn(e)", EPJI leverer delene hver for sig
+    # ------------------------------------------------------------------
+    name_text:            { DataType: NVARCHAR(100), FhirPath: "name.text", Source: [silkeborgdata.arc.silkeborgdata_e26_pers.Navn, epji.EPJI.PRACTITIONER.NAME], Description: "Navnet som kilden leverer det. SilkeborgData: Navn, udfyldt når kilden har et navn, så en forkert splitning i name_family og name_given kan efterprøves. EPJI: NAME, uafhængigt af FAMILY_NAME og GIVEN_NAME; NULL når NAME er tom, også når de andre navnedele er udfyldt." }
+    name_family:          { DataType: NVARCHAR(100), FhirPath: "name.family", Source: [silkeborgdata.arc.silkeborgdata_e26_pers.Navn, epji.EPJI.PRACTITIONER.FAMILY_NAME], Expr: "SilkeborgData: tekst før første komma, absent når navnet mangler komma (31 rækker) — der gættes ikke. EPJI: FAMILY_NAME." }
+    name_given:           { DataType: NVARCHAR(100), FhirPath: "name.given", Source: [silkeborgdata.arc.silkeborgdata_e26_pers.Navn, epji.EPJI.PRACTITIONER.GIVEN_NAME], Expr: "Første fornavn. SilkeborgData: tekst efter første komma, splittet på mellemrum; et efternavn med mellemrum kan ikke skelnes fra flere fornavne, name_text bevarer sandheden. EPJI: GIVEN_NAME splittet på mellemrum." }
+
+    # ------------------------------------------------------------------
+    # Demografi — udledt af CPR, ikke leveret af kilden. Kun SilkeborgData
     # ------------------------------------------------------------------
     gender:               { DataType: NVARCHAR(20), FhirPath: "gender", Source: [silkeborgdata.arc.silkeborgdata_e26_pers.CprNr], Expr: "Sidste ciffer ulige → male, lige → female. Absent når CPR ikke består validitetsporten (10 cifre + parsende datodel) — 38 af 53.129 numre." }
     birth_date:           { DataType: DATE, FhirPath: "birthDate", Source: [silkeborgdata.arc.silkeborgdata_e26_pers.CprNr], Expr: "Cifre 1-6 med århundrede fra 7. ciffer. Samme validitetsport som gender, plus en nedre plausibilitetsgrænse på 13 år. Ingen øvre grænse: arkivet rummer rigtige ansatte født helt tilbage til 1918." }
@@ -49,8 +59,8 @@ dso_lineage:
     # ------------------------------------------------------------------
     # Status og proveniens
     # ------------------------------------------------------------------
-    active:               { DataType: BIT, FhirPath: "active", Source: [silkeborgdata.arc.silkeborgdata_e26_pers.Udtraeksdato], Expr: "1 når personen findes i den nyeste leverance. BIT og ikke tekst, så rapport-prædikatet WHERE active = 1 virker — fhir.Patient.active er BIT ad samme vej (fhir.Organization er NVARCHAR af historiske grunde). Betyder 'står i den aktuelle lønleverance' — IKKE 'autoriseret og praktiserende'. Statuskode/Jobstatuskode mappes ikke: kodelisten fra SilkeborgData mangler." }
-    source_table:         { DataType: NVARCHAR(100), FhirPath: "meta.tag.where(system='urn:source:silkeborgdata:source_table').code", Expr: "Konstant 'silkeborgdata_e26_pers' (system: identifier_systems.SYSTEM_SILKEBORGDATA_SOURCE_TABLE)" }
-    dw_is_deleted:        { DataType: INT, FhirPath: "extension('urn:fhir:isDeleted').valueInteger", Expr: "1 på en udgået identitet: det CPR personen havde før en rettelse har sin egen række, og den række er ikke et menneske, der skal tælles med. Alle, der blot er holdt op, står med 0 og skelnes på active = 0 — at filtrere dem væk her ville skjule tusinder af tidligere medarbejdere, som historiske data stadig refererer. Kilden sletter aldrig rækker; dqa_fhir_server_cleanup sætter også 1." }
+    active:               { DataType: BIT, FhirPath: "active", Source: [silkeborgdata.arc.silkeborgdata_e26_pers.Udtraeksdato, epji.EPJI.PRACTITIONER.STATE], Expr: "EPJI: STATE 1 → 1, 0 → 0, en anden værdi → NULL. En inaktiv EPJ-konto bliver stående, fordi IFDB-rækker skrevet under den stadig peger på den. SilkeborgData: 1 når personen findes i den nyeste leverance. BIT og ikke tekst, så rapport-prædikatet WHERE active = 1 virker — fhir.Patient.active er BIT ad samme vej (fhir.Organization er NVARCHAR af historiske grunde). Betyder 'står i den aktuelle lønleverance' — IKKE 'autoriseret og praktiserende'. Statuskode/Jobstatuskode mappes ikke: kodelisten fra SilkeborgData mangler." }
+    source_table:         { DataType: NVARCHAR(100), FhirPath: "meta.tag.where(system='urn:source:silkeborgdata:source_table' or system='urn:source:epji:source_table').code", Expr: "Konstant pr. kilde: 'silkeborgdata_e26_pers' (system: identifier_systems.SYSTEM_SILKEBORGDATA_SOURCE_TABLE) eller 'epji_practitioner' (system: identifier_systems.SYSTEM_EPJI_SOURCE_TABLE)" }
+    dw_is_deleted:        { DataType: INT, FhirPath: "extension('urn:fhir:isDeleted').valueInteger", Expr: "EPJI: 1 når kontoen er forsvundet fra EPJ. En inaktiv konto står med 0 og skelnes på active = 0. SilkeborgData: 1 på en udgået identitet: det CPR personen havde før en rettelse har sin egen række, og den række er ikke et menneske, der skal tælles med. Alle, der blot er holdt op, står med 0 og skelnes på active = 0 — at filtrere dem væk her ville skjule tusinder af tidligere medarbejdere, som historiske data stadig refererer. Kilden sletter aldrig rækker; dqa_fhir_server_cleanup sætter også 1." }
     last_updated:         { DataType: DATETIME2, FhirPath: "r.ts", Description: "Sat af FHIR-serveren, ikke af kilden." }
     created_at:           { DataType: DATETIME2, FhirPath: "r.cts", Description: "Sat af FHIR-serveren, ikke af kilden." }

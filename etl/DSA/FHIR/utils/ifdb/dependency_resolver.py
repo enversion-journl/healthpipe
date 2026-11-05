@@ -36,6 +36,7 @@ from core.dfm_source import resource_source
 from core.resources import FHIRDatabaseResource, IFDBOracleResource, MSSQLResource
 from DSA.FHIR.Patient.patient_service import NEED_REFERENCE, ensure_patients
 from DSA.FHIR.utils.ifdb.arc_lookup import chunked_in_fetch
+from DSA.FHIR.utils.ifdb.oracle_lookup import chunked_in_fetch as oracle_chunked_in_fetch
 from DSA.FHIR.utils.reference_resolver import batch_resolve_references
 from utils.fhir.identifier_systems import (
     SYSTEM_IFDB_EPISODE_OF_CARE_ID,
@@ -129,8 +130,6 @@ def _fetch_bom_ifdb_patientinfo_by_cpr(
     remaining = list(cprs)
 
     if mssql is not None:
-        from DSA.FHIR.utils.ifdb.arc_lookup import chunked_in_fetch
-
         archive_rows = chunked_in_fetch(
             cprs,
             table="arc.bom_ifdb_patientinfo",
@@ -450,9 +449,7 @@ def _fetch_rows_by_ids_from_ifdb(
     context: dg.AssetExecutionContext,
 ) -> list[dict[str, Any]]:
     """Fetch rows from IFDB by a list of IDs (chunked, bind-parameter safe)."""
-    from DSA.FHIR.utils.ifdb.oracle_lookup import chunked_in_fetch
-
-    return chunked_in_fetch(
+    return oracle_chunked_in_fetch(
         ids,
         table=table,
         columns=columns,
@@ -540,108 +537,3 @@ def resolve_careplan_dependencies(
         context=context,
         need=NEED_REFERENCE,
     ).by_ifdb_id
-
-
-def ensure_patient_dependencies(
-    patient_ids: set[str],
-    mssql: MSSQLResource,
-    fhir_database: FHIRDatabaseResource,
-    context: dg.AssetExecutionContext,
-) -> None:
-    """
-    Ensure all required patients exist in FHIR database before proceeding.
-
-    This is a convenience wrapper that raises an error if patients cannot be resolved.
-
-    Args:
-        patient_ids: Set of IFDB patient IDs that must exist
-        mssql: Staging MSSQL resource
-        fhir_database: FHIR database resource
-        context: Dagster asset execution context
-
-    Raises:
-        ValueError: If any required patients cannot be resolved or created
-    """
-    resolved = ensure_patients(
-        ifdb_patient_ids=patient_ids,
-        mssql=mssql,
-        fhir_database=fhir_database,
-        context=context,
-        need=NEED_REFERENCE,
-    ).by_ifdb_id
-    _raise_if_unresolved(required_ids=patient_ids, resolved=resolved, entity_label="patients")
-
-
-def ensure_episode_of_care_dependencies(
-    eoc_ids: set[str],
-    mssql: MSSQLResource,
-    fhir_database: FHIRDatabaseResource,
-    context: dg.AssetExecutionContext,
-) -> None:
-    """
-    Ensure all required episodes of care exist in FHIR database before proceeding.
-
-    This also ensures patient dependencies are met.
-
-    Args:
-        eoc_ids: Set of IFDB episode of care IDs that must exist
-        mssql: Staging MSSQL resource
-        fhir_database: FHIR database resource
-        context: Dagster asset execution context
-
-    Raises:
-        ValueError: If any required episodes cannot be resolved or created
-    """
-    resolved = resolve_missing_episodes_of_care(
-        eoc_ids=eoc_ids,
-        mssql=mssql,
-        fhir_database=fhir_database,
-        context=context,
-    )
-    _raise_if_unresolved(required_ids=eoc_ids, resolved=resolved, entity_label="episodes of care")
-
-
-def ensure_encounter_dependencies(
-    encounter_ids: set[str],
-    mssql: MSSQLResource,
-    fhir_database: FHIRDatabaseResource,
-    context: dg.AssetExecutionContext,
-) -> None:
-    """
-    Ensure all required encounters exist in FHIR database before proceeding.
-
-    Encounter creation reuses the Encounter asset's own dependency-resolution
-    logic, so Patient and EpisodeOfCare prerequisites are handled consistently
-    with the Encounter asset's existing implementation.
-
-    Args:
-        encounter_ids: Set of IFDB encounter OBJECT_ID values that must exist
-        mssql: Staging MSSQL resource
-        fhir_database: FHIR database resource
-        context: Dagster asset execution context
-
-    Raises:
-        ValueError: If any required encounters cannot be resolved or created
-    """
-    resolved = resolve_missing_encounters(
-        encounter_ids=encounter_ids,
-        mssql=mssql,
-        fhir_database=fhir_database,
-        context=context,
-    )
-    _raise_if_unresolved(required_ids=encounter_ids, resolved=resolved, entity_label="encounters")
-
-
-def _raise_if_unresolved(
-    *,
-    required_ids: set[str],
-    resolved: dict[str, str],
-    entity_label: str,
-) -> None:
-    """Raise a consistent error when dependency IDs cannot be resolved."""
-    missing = [dep_id for dep_id in required_ids if dep_id not in resolved]
-    if missing:
-        raise ValueError(
-            f"Could not resolve {len(missing)} required {entity_label}: "
-            f"{missing[:5]}{'...' if len(missing) > 5 else ''}"
-        )

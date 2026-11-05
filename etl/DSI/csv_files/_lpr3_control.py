@@ -23,7 +23,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import IO
 
-from DSI.csv_files._sds_tar import iter_members, open_member_csv
+from core.file_delivery import iter_members, open_member_csv
 
 MEMBER_RE = re.compile(
     r"(?P<metadata>Metadata_)?(?P<table>(?:Dim|[Ff]ct)[A-Za-z0-9_]+?)"

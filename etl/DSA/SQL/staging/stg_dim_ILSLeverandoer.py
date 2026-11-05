@@ -30,14 +30,13 @@ from DSA.SQL.common.ils_leverandoer_clean_code import (
     sql_clean_code_ils_leverandoer,
     sql_kreditor_clean_code_from_lnr,
 )
-from utils.sql.tax_id_sql import sql_cvr_cleancode_from_se_nr
+from utils.sql.tax_id_sql import (
+    sql_cvr_cleancode_from_se_nr,
+    sql_ils_kreditor_cleancode,
+    sql_unless_ils_person,
+)
 
 CLEAN_CODE_SQL = sql_clean_code_ils_leverandoer("lev.lnr")
-
-
-def _unless_person(candidate: str) -> str:
-    """NULL for giro = 'Person' rows, else the candidate CVR code."""
-    return f"CASE WHEN lev.giro = 'Person' THEN NULL ELSE {candidate} END"
 
 
 def _text(column: str) -> str:
@@ -80,11 +79,11 @@ STG_SQL = f"""
         SELECT
             {CLEAN_CODE_SQL} AS clean_code_ILSLeverandoer,
             CAST(UPPER(LTRIM(RTRIM(lev.lnr))) AS NVARCHAR(100)) AS leverandoernummer,
-            {_unless_person(sql_cvr_cleancode_from_se_nr("lev.se_nr"))}
+            {sql_ils_kreditor_cleancode("lev.se_nr")}
                 AS clean_code_Kreditor_se_nr,
-            {_unless_person(sql_cvr_cleancode_from_se_nr("lev.cvr_nr"))}
+            {sql_unless_ils_person(sql_cvr_cleancode_from_se_nr("lev.cvr_nr"))}
                 AS clean_code_Kreditor_cvr_nr,
-            {_unless_person(sql_kreditor_clean_code_from_lnr("lev.lnr", "lev.land"))}
+            {sql_unless_ils_person(sql_kreditor_clean_code_from_lnr("lev.lnr", "lev.land"))}
                 AS clean_code_Kreditor_lnr,
             {_text("lev.navn")} AS leverandoernavn,
             {_text("lev.adr")} AS adresse,

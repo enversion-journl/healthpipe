@@ -16,7 +16,7 @@ from DSI.connectors.oracle.models import (
     TableExtractionConfig,
     build_partition_query,
 )
-from DSI.oracle import (
+from DSI.oracle.ifdb import (
     ENCOUNTER_CONFIG,
     EPISODE_OF_CARE_CONFIG,
     LOCATION_CONFIG,

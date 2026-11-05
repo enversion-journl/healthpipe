@@ -84,6 +84,7 @@ from core.archive_merge import build_archive_metadata, execute_archive_merge
 from core.dfm_config import ArchiveMergeConfig, RunModeConfig
 from core.dfm_manager import DfmManager
 from core.resources import MSSQLResource
+from DSI.csv_files._sds_tar import upsert_register
 from DSI.csv_files.udredningsret import (
     DELIVERY_COLUMN,
     DELIVERY_UNIT,
@@ -765,47 +766,25 @@ def record_delivery(
     """
     cursor = conn.cursor()
     try:
-        cursor.execute(
-            f"""
-            MERGE [meta].[{LEVERANCE_TABLE}] AS tgt
-            USING (SELECT ? AS kildetabel, CAST(? AS DATETIME2(0)) AS leverance_tidsstempel) AS src
-            ON tgt.[kildetabel] = src.kildetabel
-               AND tgt.[leverance_tidsstempel] = src.leverance_tidsstempel
-            WHEN MATCHED THEN UPDATE SET
-                tgt.[kadence] = ?, tgt.[leverance_dato] = ?, tgt.[lpropdateringsdato] = ?,
-                tgt.[indlaesningstype] = ?, tgt.[raekker_ext] = ?, tgt.[raekker_kilde] = ?,
-                tgt.[raekker_indsat] = ?, tgt.[raekker_opdateret] = ?, tgt.[raekker_soft_slettet] = ?,
-                tgt.[helbredsforloeb_genfindelse] = ?,
-                tgt.[dw_timestamp_update] = CAST(SYSDATETIME() AS DATETIME2(0))
-            WHEN NOT MATCHED THEN INSERT
-                ([kildetabel], [leverance_tidsstempel], [kadence], [leverance_dato],
-                 [lpropdateringsdato], [indlaesningstype], [raekker_ext], [raekker_kilde],
-                 [raekker_indsat], [raekker_opdateret], [raekker_soft_slettet],
-                 [helbredsforloeb_genfindelse])
-                VALUES (src.kildetabel, src.leverance_tidsstempel, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
-            """,
-            dataset.ext_table,
-            delivery.filnavn_stempel,
-            delivery.kadence,
-            delivery.leverance_dato,
-            delivery.lpropdateringsdato,
-            "backfill" if backfill else "merge",
-            parity["ext_raekker"],
-            parity["kilderaekker_efter_dubletreduktion"],
-            result.rows_inserted,
-            result.rows_updated,
-            result.rows_soft_deleted,
-            recovery["andel"],
-            delivery.kadence,
-            delivery.leverance_dato,
-            delivery.lpropdateringsdato,
-            "backfill" if backfill else "merge",
-            parity["ext_raekker"],
-            parity["kilderaekker_efter_dubletreduktion"],
-            result.rows_inserted,
-            result.rows_updated,
-            result.rows_soft_deleted,
-            recovery["andel"],
+        upsert_register(
+            cursor,
+            LEVERANCE_TABLE,
+            ("kildetabel", "leverance_tidsstempel"),
+            {
+                "kildetabel": dataset.ext_table,
+                "leverance_tidsstempel": delivery.filnavn_stempel,
+                "kadence": delivery.kadence,
+                "leverance_dato": delivery.leverance_dato,
+                "lpropdateringsdato": delivery.lpropdateringsdato,
+                "indlaesningstype": "backfill" if backfill else "merge",
+                "raekker_ext": parity["ext_raekker"],
+                "raekker_kilde": parity["kilderaekker_efter_dubletreduktion"],
+                "raekker_indsat": result.rows_inserted,
+                "raekker_opdateret": result.rows_updated,
+                "raekker_soft_slettet": result.rows_soft_deleted,
+                "helbredsforloeb_genfindelse": recovery["andel"],
+            },
+            casts={"leverance_tidsstempel": "DATETIME2(0)"},
         )
         conn.commit()
     finally:

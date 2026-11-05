@@ -13,18 +13,22 @@ from unittest.mock import MagicMock
 import dagster as dg
 import pytest
 from core.dfm_config import RunModeConfig
-from DSA.FHIR.Patient.field_ownership import SOURCE_CPR, SOURCE_DRG, SOURCE_HAIBA, SOURCE_IFDB
-from DSA.FHIR.Patient.patient_builder import (
+from DSA.FHIR.Patient.patient_builder import assemble, build, contributions_from_ifdb
+from DSA.FHIR.Patient.patient_ifdb_contribution import _transform_patient_rows_to_fhir
+from DSA.FHIR.Patient.patient_ownership import (
+    PATIENT_OWNERSHIP,
+    SOURCE_CPR,
+    SOURCE_DRG,
+    SOURCE_HAIBA,
+    SOURCE_IFDB,
+)
+from DSA.FHIR.utils.field_ownership import (
     Contribution,
     DuplicateContribution,
     NotOwner,
     UnknownField,
-    assemble,
-    build,
-    contributions_from_ifdb,
     field_keys,
 )
-from DSA.FHIR.Patient.patient_ifdb_contribution import _transform_patient_rows_to_fhir
 from fhir.resources.R4B.address import Address
 from fhir.resources.R4B.codeableconcept import CodeableConcept
 from fhir.resources.R4B.coding import Coding
@@ -143,8 +147,8 @@ def test_provenance_on_epj_contribution():
 def _cpr_bidrag() -> Contribution:
     """The CPR register's proposal for the same person: the fields the register owns or shares."""
     return Contribution(
-        kilde=SOURCE_CPR,
-        patient=Patient(
+        source=SOURCE_CPR,
+        resource=Patient(
             identifier=[
                 Identifier(system=SYSTEM_CPR, value=PNR),
                 Identifier(system=SYSTEM_CPR, value=PNR_GAMMELT, use="old"),
@@ -224,7 +228,7 @@ def test_provenance_names_all_contributing_sources_in_canonical_order():
 def test_stub_contribution_gives_only_identifier_and_tag():
     """HAIBA/DRG only know a personal number. That is all they may supply."""
     stub = Contribution(
-        kilde=SOURCE_HAIBA, patient=Patient(identifier=[Identifier(system=SYSTEM_CPR, value=PNR)])
+        source=SOURCE_HAIBA, resource=Patient(identifier=[Identifier(system=SYSTEM_CPR, value=PNR)])
     )
     patient = build([stub])
     assert [i.value for i in patient.identifier] == [PNR]
@@ -271,8 +275,8 @@ def _registerbidrag(*, beskyttet: bool, med_aktuel_adresse: bool = True) -> Cont
             )
         )
     return Contribution(
-        kilde=SOURCE_CPR,
-        patient=Patient(
+        source=SOURCE_CPR,
+        resource=Patient(
             identifier=[Identifier(system=SYSTEM_CPR, value=PNR)],
             name=[
                 HumanName(
@@ -363,8 +367,8 @@ def test_the_registers_yes_stands_even_if_epj_says_no():
 
 def test_field_without_owner_is_rejected():
     fremmed = Contribution(
-        kilde=SOURCE_IFDB,
-        patient=Patient(extension=[Extension(url="http://example.org/ukendt", valueString="x")]),
+        source=SOURCE_IFDB,
+        resource=Patient(extension=[Extension(url="http://example.org/ukendt", valueString="x")]),
     )
     with pytest.raises(UnknownField):
         assemble([fremmed])
@@ -372,7 +376,7 @@ def test_field_without_owner_is_rejected():
 
 def test_contribution_supplying_something_it_does_not_own_is_rejected():
     for kilde in (SOURCE_HAIBA, SOURCE_DRG):
-        stub_med_navn = Contribution(kilde=kilde, patient=Patient(name=[HumanName(family="X")]))
+        stub_med_navn = Contribution(source=kilde, resource=Patient(name=[HumanName(family="X")]))
         with pytest.raises(NotOwner):
             assemble([stub_med_navn])
 
@@ -384,7 +388,7 @@ def test_two_contributions_from_the_same_source_are_rejected():
 
 def test_contribution_must_not_set_id_or_meta():
     with pytest.raises(NotOwner):
-        assemble([Contribution(kilde=SOURCE_CPR, patient=Patient(id="abc"))])
+        assemble([Contribution(source=SOURCE_CPR, resource=Patient(id="abc"))])
 
 
 def test_no_contributions_is_an_error():
@@ -394,7 +398,7 @@ def test_no_contributions_is_an_error():
 
 def test_field_keys_treat_choice_types_as_one_field():
     p = Patient(deceasedBoolean=True, identifier=[Identifier(system=SYSTEM_CPR, value=PNR)])
-    assert field_keys(p) == {"deceased", f"identifier:{SYSTEM_CPR}"}
+    assert field_keys(PATIENT_OWNERSHIP, p) == {"deceased", f"identifier:{SYSTEM_CPR}"}
 
 
 # --------------------------------------------------- EPJ alone: nothing else may move

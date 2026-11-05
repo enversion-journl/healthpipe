@@ -6,9 +6,9 @@
 
 """Semi-automatic remediation: ids-mode re-extract + archive merge for arc gaps.
 
-``archive_reconciliation`` finds IFDB merge keys that never reached the archive
+``source_archive_reconciliation`` finds IFDB merge keys that never reached the archive
 (``missing_in_arc``) and captures them to ``dqa.RemediationQueue``
-(``reference_column='archive_reconciliation'``, ``replay_entity`` = the arc subject
+(``reference_column='source_archive_reconciliation'``, ``replay_entity`` = the arc subject
 name, e.g. ``arc_ifdb_encounter`` -- deliberately NOT an FHIR replay entity, so
 these rows never leak into the ``dqa.v_replay_*`` feeder views).
 

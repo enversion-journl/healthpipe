@@ -24,25 +24,17 @@ import dagster as dg
 from core.dfm_manager import DfmManager
 from core.mssql_application_lock import application_lock
 from core.parallel import env_int
-from core.resources import MSSQLResource
+from core.resources import FileShareResource, MSSQLResource
 from DSI.csv_files._sds_tar import (
     ExtWriter,
     execute_statements,
     ext_create_sql,
     run_writers,
-    source_dir,
-    source_encoding,
+    upsert_register,
 )
 from DSI.csv_files.cpr_layouts import LAYOUTS, Layout
 from DSI.csv_files.cpr_publication import CPR_PUBLICATION_LOCK, register_exists
 from pydantic import Field
-
-# The delivery directory; set per environment like the other file sources' *_BASE_DIR.
-BASE_DIR_ENV = "CPR_BASE_DIR"
-ENCODING_ENV = "CPR_FILE_ENCODING"
-
-# Only this encoding gives correct record lengths on the deliveries.
-DEFAULT_ENCODING = "cp1252"
 
 # d<YYMMDD>.<task number>; the task number is also in the start record.
 FILNAVN = re.compile(r"^d(?P<dato>\d{6})\.(?P<opgave>[a-z]\d{6})$", re.IGNORECASE)
@@ -181,28 +173,6 @@ def vaelg_layout(kode: str, laengde: int) -> Layout | None:
             f"variant than the one the layout table knows."
         )
     return layout
-
-
-def cpr_dir(overstyring: str | None = None) -> str:
-    """The mounted delivery directory, or a hard failure if it is missing or empty."""
-    rod = source_dir(
-        BASE_DIR_ENV,
-        hint_unset="Set it in the environment's setup, or pass base_dir in the run configuration.",
-        hint_not_dir="The share is probably not mounted in this allocation.",
-        override=overstyring,
-    )
-    with os.scandir(rod) as indhold:
-        if next(indhold, None) is None:
-            raise ValueError(
-                f"{BASE_DIR_ENV}={rod!r} is an empty directory. That is a share that is "
-                f"not mounted or points to the wrong place, not an absence of deliveries."
-            )
-    return rod
-
-
-def cpr_encoding() -> str:
-    """Encoding from the environment, with the measured value as default."""
-    return source_encoding(ENCODING_ENV, DEFAULT_ENCODING)
 
 
 def filnavnsdato(navn: str) -> str | None:
@@ -405,15 +375,6 @@ def gennemloeb(sti: str, encoding: str, leverance: "Leverance") -> Iterator[tupl
         tabel = TABEL_PR_RECORDTYPE.get(kode)
         if tabel is not None:
             yield tabel.tabel, udskaer(linje, layout)
-
-
-def laes_leverance(sti: str, encoding: str) -> tuple:
-    """The whole file materialised. Only for tests and small files."""
-    leverance = Leverance(sti)
-    raekker: dict = defaultdict(list)
-    for tabel, raekke in gennemloeb(sti, encoding, leverance):
-        raekker[tabel].append(raekke)
-    return leverance, raekker
 
 
 def kontroller_leverance(leverance: Leverance) -> None:
@@ -619,13 +580,6 @@ def _ventende(rod: str, sidst_indlaest: str | None) -> list[tuple[str, str]]:
 class CprExtractConfig(dg.Config):
     """Control of a single load."""
 
-    base_dir: str | None = Field(
-        default=None,
-        description=(
-            "Overrides CPR_BASE_DIR. Leave empty in normal operation; used only "
-            "if the directory is somewhere other than the environment variable points."
-        ),
-    )
     fil: str | None = Field(
         default=None,
         description=(
@@ -647,7 +601,7 @@ class CprExtractConfig(dg.Config):
 @dg.asset(
     name="ext_cpr",
     group_name="cpr",
-    deps=["staging_infra_cpr"],
+    deps=["staging_infra_source_cpr"],
     compute_kind="fastbredde",
     # Same key as arc_cpr; requires a limit in the instance's configuration.
     tags={"domain": "cpr", "layer": "extract", "source": "cpr", "dagster/concurrency_key": "cpr"},
@@ -660,11 +614,12 @@ class CprExtractConfig(dg.Config):
 def ext_cpr(
     context: dg.AssetExecutionContext,
     mssql_target_staging: MSSQLResource,
+    cpr_share: FileShareResource,
     config: CprExtractConfig,
 ) -> dg.MaterializeResult:
     with application_lock(mssql_target_staging, CPR_PUBLICATION_LOCK):
-        rod = cpr_dir(config.base_dir)
-        encoding = cpr_encoding()
+        rod = cpr_share.root()
+        encoding = cpr_share.encoding
         sidst, sidst_var_grundudtraek = sidst_indlaeste_leverance(mssql_target_staging)
         kontroller_ingen_anden_fil_paa_datoen(
             rod, sidst, indlaest_filnavn(mssql_target_staging, sidst)
@@ -815,9 +770,11 @@ EFTERSLAEB_GRAENSE = env_int("CPR_EFTERSLAEB_GRAENSE", 3, minimum=1)
     ),
     compute_kind="fastbredde",
 )
-def cpr_efterslaeb_er_lille(mssql_target_staging: MSSQLResource) -> dg.AssetCheckResult:
+def cpr_efterslaeb_er_lille(
+    mssql_target_staging: MSSQLResource, cpr_share: FileShareResource
+) -> dg.AssetCheckResult:
     """How many deliveries wait after the latest loaded one, and how old is the oldest?"""
-    rod = cpr_dir()
+    rod = cpr_share.root()
     # Same starting point as ext_cpr's metadata: the loaded file, archived or not.
     sidst, _ = sidst_indlaeste_leverance(mssql_target_staging, kun_arkiverede=False)
     venter = efterslaeb(rod, sidst)
@@ -869,46 +826,29 @@ def registrer_leverance(
         cursor = conn.cursor()
         try:
             for arkivtabel in ARKIVTABELLER:
-                cursor.execute(
-                    """
-                    MERGE [meta].[CPRLeverance] AS tgt
-                    USING (SELECT ? AS kildetabel, CONVERT(DATE, ?, 112) AS leverance_dato) AS src
-                      ON tgt.[kildetabel] = src.[kildetabel]
-                     AND tgt.[leverance_dato] = src.[leverance_dato]
-                    WHEN MATCHED THEN UPDATE SET
-                        [opgavenr] = ?, [filnavn] = ?, [indlaesningstype] = ?,
-                        [records_i_fil] = ?, [records_indlaest] = ?,
-                        [blindt_vindue_fra] = TRY_CONVERT(DATE, ?, 112),
-                        [blindt_vindue_til] = TRY_CONVERT(DATE, ?, 112),
-                        [dw_timestamp_update] = CAST(SYSDATETIME() AS datetime2(0))
-                    WHEN NOT MATCHED THEN INSERT
-                        ([kildetabel], [leverance_dato], [opgavenr],
-                         [forrige_produktionsdato], [filnavn], [indlaesningstype],
-                         [records_i_fil], [records_indlaest],
-                         [blindt_vindue_fra], [blindt_vindue_til])
-                    VALUES (src.[kildetabel], src.[leverance_dato], ?,
-                            TRY_CONVERT(DATE, ?, 112), ?, ?, ?, ?,
-                            TRY_CONVERT(DATE, ?, 112), TRY_CONVERT(DATE, ?, 112));
-                    """,
-                    (
-                        arkivtabel.tabel,
-                        leverance.produktionsdato,
-                        leverance.opgavenr,
-                        leverance.navn,
-                        indlaesningstype,
-                        leverance.records_i_slutrecord,
-                        leverance.records_laest,
-                        blindt_vindue[0] if blindt_vindue else None,
-                        blindt_vindue[1] if blindt_vindue else None,
-                        leverance.opgavenr,
-                        leverance.forrige_produktionsdato or None,
-                        leverance.navn,
-                        indlaesningstype,
-                        leverance.records_i_slutrecord,
-                        leverance.records_laest,
-                        blindt_vindue[0] if blindt_vindue else None,
-                        blindt_vindue[1] if blindt_vindue else None,
-                    ),
+                upsert_register(
+                    cursor,
+                    "CPRLeverance",
+                    ("kildetabel", "leverance_dato"),
+                    {
+                        "kildetabel": arkivtabel.tabel,
+                        "leverance_dato": leverance.produktionsdato,
+                        "opgavenr": leverance.opgavenr,
+                        "forrige_produktionsdato": leverance.forrige_produktionsdato or None,
+                        "filnavn": leverance.navn,
+                        "indlaesningstype": indlaesningstype,
+                        "records_i_fil": leverance.records_i_slutrecord,
+                        "records_indlaest": leverance.records_laest,
+                        "blindt_vindue_fra": blindt_vindue[0] if blindt_vindue else None,
+                        "blindt_vindue_til": blindt_vindue[1] if blindt_vindue else None,
+                    },
+                    casts={
+                        "leverance_dato": "CONVERT(DATE, ?, 112)",
+                        "forrige_produktionsdato": "TRY_CONVERT(DATE, ?, 112)",
+                        "blindt_vindue_fra": "TRY_CONVERT(DATE, ?, 112)",
+                        "blindt_vindue_til": "TRY_CONVERT(DATE, ?, 112)",
+                    },
+                    insert_only=("forrige_produktionsdato",),
                 )
             conn.commit()
         finally:

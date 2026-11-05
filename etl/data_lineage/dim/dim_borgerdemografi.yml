@@ -1,0 +1,30 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: dimension
+  TableName: dim.BorgerDemografi
+  Domain: [Shared]
+  Description: "Demografiske kombinationer fra dim.Borger uden borgeridentifikatorer. Samme hash-nøgle som dim.Borger.dw_ek_BorgerDemografi."
+  Grain: "Én række pr. distinkt kombination af region, kommune, postnummer, postdistrikt, sogn, køn, fødselsår og fødselsmåned."
+  SourceSystems:
+    - datafordeler: [CPR.Person, CPR.Adresse, CPR.Adressehistorik]
+    - ifdb: [IFDB.PATIENT_OPLYSNINGER_COLUMNA]
+  Columns:
+    dw_ek_BorgerDemografi: { Type: PK, DataType: CHAR(64), Expr: "SHA-256 over de elleve normaliserede felter ved kendt fødselsperiode. Ved ukendt fødselsperiode: SHA-256 over de ni øvrige felter. Samme nøgle som på dim.Borger." }
+    region_id: { DataType: VARCHAR(8), Expr: "Normaliseret dim.Borger.region_id" }
+    regionnavn: { DataType: NVARCHAR(255), Expr: "Normaliseret dim.Borger.regionnavn" }
+    kommune_id: { DataType: VARCHAR(8), Expr: "Normaliseret dim.Borger.kommune_id" }
+    kommunenavn: { DataType: NVARCHAR(255), Expr: "Normaliseret dim.Borger.kommunenavn" }
+    postnr: { DataType: VARCHAR(10), Expr: "Normaliseret dim.Borger.postnr" }
+    postdistrikt: { DataType: NVARCHAR(255), Expr: "Normaliseret dim.Borger.postdistrikt" }
+    sogn_id: { DataType: VARCHAR(4), Expr: "dim.Borger.sogn_id — NULL indtil kilde og tidssemantik er aftalt." }
+    sognenavn: { DataType: NVARCHAR(60), Expr: "dim.Borger.sognenavn — NULL indtil kilde og tidssemantik er aftalt." }
+    koen_navn: { DataType: NVARCHAR(20), Expr: "Normaliseret dim.Borger.koen_navn" }
+    foedselsaar: { DataType: SMALLINT, Expr: "YEAR(dim.Borger.foedselsdato); NULL ved ukendt fødselsdato." }
+    foedselsmaaned: { DataType: TINYINT, Expr: "MONTH(dim.Borger.foedselsdato); NULL ved ukendt fødselsdato." }
+    dw_timestamp_insert: { Type: Audit, DataType: DATETIME2(0), Expr: "Tidspunkt for første indlæsning af kombinationen" }
+    dw_timestamp_update: { Type: Audit, DataType: DATETIME2(0), Expr: "Sættes ved indsættelsen; rækker ændres ikke (append-only)" }

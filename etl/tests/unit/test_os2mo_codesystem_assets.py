@@ -28,7 +28,7 @@ from DSO.export.os2mo.codesystem_assets import (
     _upload_delivery,
     csv_preview,
 )
-from DSO.export.os2mo.codesystems import OKOSTED_EXPORT
+from DSO.export.os2mo.codesystems import EAN_EXPORT, OKOSTED_EXPORT
 from utils.os2mo.csv_format import encode_csv
 
 pytestmark = pytest.mark.unit
@@ -41,7 +41,7 @@ SOURCE_ROWS = [
 ]
 
 
-def _build(tmp_path, source_rows=SOURCE_ROWS):
+def _build(tmp_path, source_rows=SOURCE_ROWS, spec=OKOSTED_EXPORT):
     with (
         patch(f"{MODULE}.DfmManager") as dfm_cls,
         patch(f"{MODULE}.read_source_rows", return_value=source_rows),
@@ -51,7 +51,7 @@ def _build(tmp_path, source_rows=SOURCE_ROWS):
         dfm.start_dfm_run.return_value = MagicMock(log_id=7)
         output = _build_delivery(
             dg.build_asset_context(),
-            OKOSTED_EXPORT,
+            spec,
             MagicMock(),
             OS2moExportConfig(output_dir=str(tmp_path)),
         )
@@ -142,6 +142,12 @@ class TestBuild:
         assert metadata["codes_without_type"].value == 2
         assert "codes_with_mappings" not in metadata
         assert "map_slots" not in metadata
+
+    def test_a_codesystem_without_a_type_property_has_none_missing(self, tmp_path):
+        delivery, _, metadata = _build(tmp_path, spec=EAN_EXPORT)
+
+        assert re.fullmatch(r"rsyd_ean_\d{8}_\d{6}\.csv", delivery["filename"])
+        assert metadata["codes_without_type"].value == 0
 
     def test_the_build_is_logged_under_export(self, tmp_path):
         _, dfm, _ = _build(tmp_path)

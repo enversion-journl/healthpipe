@@ -17,11 +17,15 @@ sof_practitioner_dfm = create_sof_dfm_asset(
     asset_name="sof_practitioner_dfm",
     config_key="practitioner_view",
     checkpoint_resource="Practitioner",
-    deps=["fhir_sof_infrastructure", "fhir_server_practitioner_dfm"],
-    # Own group, not the shared fhir_sof_dfm: SilkeborgData runs its whole chain
-    # in silkeborgdata_daily_job, so the archive, the resources and this
-    # extraction are ordered by the asset graph inside one run. In the shared
+    deps=[
+        "fhir_sof_infrastructure",
+        "fhir_server_practitioner_dfm",
+        "fhir_server_practitioner_epji_dfm",
+    ],
+    # Own group, not the shared fhir_sof_dfm: both Practitioner sources run their
+    # whole chain in practitioner_daily_job, so the archives, the resources and
+    # this extraction are ordered by the asset graph inside one run. In the shared
     # group it would run with the IFDB jobs instead, where nothing guarantees
-    # that the SD archive and FHIR layers had finished successfully first.
-    group_name="fhir_silkeborgdata_sof",
+    # that the archive and FHIR layers had finished successfully first.
+    group_name="fhir_practitioner_sof",
 )

@@ -22,8 +22,10 @@ from collections.abc import Callable, Sequence
 from typing import Any
 
 import dagster as dg
+from core.dfm_manager import DfmManager
 from core.dfm_source import resource_source
 from DSI.connectors.extract_config import DfmExtractConfig
+from DSI.connectors.mssql.models import TableConfig
 
 # ---------------------------------------------------------------------------
 # DFM checkpoint-based extraction factory
@@ -85,9 +87,8 @@ def _execute_dfm_mssql_extract(
 
     Handles: DfmManager lifecycle, WHERE clause build, MssqlExtractor I/O.
     """
-    from core.dfm_manager import DfmManager
     from DSI.connectors.mssql.extractor import MssqlExtractor
-    from DSI.connectors.mssql.models import TableConfig, TableLoadResult
+    from DSI.connectors.mssql.models import TableLoadResult
 
     dfm = DfmManager(mssql_target_staging, context)
 
@@ -255,12 +256,10 @@ def _execute_dfm_oracle_extract(
     """
     import time
 
-    from core.dfm_manager import DfmManager
     from DSI.connectors.mssql.bulk_copy import (
         bulkcopy_insert_with_retry,
         refresh_bulkcopy_conn,
     )
-    from DSI.connectors.mssql.models import TableConfig
     from DSI.connectors.oracle.models import iter_rows_as_dict_batches, stringify_oracle_value
 
     dfm = DfmManager(mssql_target_staging, context)

@@ -475,7 +475,7 @@ class TestDeleteScopePredicate:
     (DRG: an M delivery carries three activity years, a U delivery only two)
     must be able to scope NOT MATCHED BY SOURCE to that slice — otherwise
     every U run would soft-delete the oldest year and the next M run would
-    resurrect it (the HAIBA [internal ticket] failure mode, per takstsystem/aar)."""
+    resurrect it (the HAIBA failure mode, per takstsystem/aar)."""
 
     def _config(self, **overrides):
         base = dict(

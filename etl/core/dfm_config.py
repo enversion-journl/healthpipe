@@ -226,7 +226,7 @@ class ArchiveMergeConfig:
     # MUST be kept consistent with delete_scope_predicate: both describe the
     # same slice set. Narrowing the source while delete detection still covers
     # a slice makes WHEN NOT MATCHED BY SOURCE soft-delete that whole slice
-    # (the [internal ticket] failure class).
+    # (the failure class).
     source_scope_predicate: str | None = None
 
     def __post_init__(self) -> None:

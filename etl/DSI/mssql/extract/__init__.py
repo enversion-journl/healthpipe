@@ -6,27 +6,17 @@
 
 """DFM-based extract assets (factory-generated from configs).
 
-Each source system has its own configs file. This package re-exports the
-public symbols needed by definitions.py and tests, plus the combined
+Each source system has its own configs file. This package builds the combined
 all_factory_extract_assets list.
 """
 
 from .ils_extract_configs import (
-    ILS_DFM_EXTRACT_CONFIGS,
-    ILS_EXTRACT_CONFIGS,
     ils_dfm_extract_assets,
     ils_unspsc_extract_assets,
     lagerbeholdning_extract_assets,
 )
-from .kmd_uddata_extract_configs import (
-    KMD_EXTRACT_CONFIGS,
-    kmd_uddata_extract_assets,
-)
-from .mysupply_extract_configs import (
-    MYSUPPLY_DFM_EXTRACT_CONFIGS,
-    mysupply_dfm_extract_assets,
-    mysupply_flow_start_assets,
-)
+from .kmd_uddata_extract_configs import kmd_uddata_extract_assets
+from .mysupply_extract_configs import mysupply_dfm_extract_assets, mysupply_flow_start_assets
 
 all_factory_extract_assets = (
     ils_unspsc_extract_assets
@@ -37,16 +27,4 @@ all_factory_extract_assets = (
     + mysupply_flow_start_assets
 )
 
-__all__ = [
-    "ILS_DFM_EXTRACT_CONFIGS",
-    "ILS_EXTRACT_CONFIGS",
-    "KMD_EXTRACT_CONFIGS",
-    "MYSUPPLY_DFM_EXTRACT_CONFIGS",
-    "all_factory_extract_assets",
-    "ils_dfm_extract_assets",
-    "ils_unspsc_extract_assets",
-    "kmd_uddata_extract_assets",
-    "lagerbeholdning_extract_assets",
-    "mysupply_dfm_extract_assets",
-    "mysupply_flow_start_assets",
-]
+__all__ = ["all_factory_extract_assets"]

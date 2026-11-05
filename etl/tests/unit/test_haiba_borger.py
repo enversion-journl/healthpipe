@@ -14,11 +14,11 @@ import dagster as dg
 import pytest
 from DSA.FHIR.Patient import patient_service
 from DSA.FHIR.Patient.cpr_stub_asset import TIER_STATEMENTS
-from DSA.FHIR.Patient.field_ownership import SOURCE_HAIBA
 from DSA.FHIR.Patient.patient_builder import build
 from DSA.FHIR.Patient.patient_contributions import stub_contribution
 from DSA.FHIR.Patient.Patient_HAIBA import CPR_SQL, post_missing_patients
 from DSA.FHIR.Patient.patient_identity import IdentityResolution, Person
+from DSA.FHIR.Patient.patient_ownership import SOURCE_HAIBA
 from DSA.SQL.dm.haiba import DM_TABLES, build_rebuild_sql
 
 pytestmark = pytest.mark.unit
@@ -86,7 +86,7 @@ def test_stub_patients_are_created_regardless_of_cpr_format():
     """Decided 2026-08-19: no format validation, no rejection path. A malformed
     CPR still gets a resource."""
     cprs = ["0101010101", "123", "99999999999", "01010X0101"]
-    built = [stub_contribution(c, SOURCE_HAIBA).patient for c in cprs]
+    built = [stub_contribution(c, SOURCE_HAIBA).resource for c in cprs]
     assert [p.identifier[0].value for p in built] == cprs
 
 

@@ -55,7 +55,7 @@ def _build_patient_query(checkpoint: str | None, config: RunModeConfig) -> str:
     extension posted.
 
     Requires IX_arc_ifdb_patient_CPR for the windowed-CPR → archive join to be a
-    seek (see infrastructure/ddl/tables/ifdb_archive/01_patient_eoc.sql).
+    seek (see infrastructure/ddl/sources/ifdb/ifdb_patient.sql).
     """
     # CPRs touched in this run window (mode-aware: delta / period / ids /
     # full_load), including deleted rows.

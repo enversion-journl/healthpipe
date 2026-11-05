@@ -14,11 +14,11 @@ are manual (never scheduled), all mutate production data, and all take a
 
 | Asset / job | Fixes | Detected by |
 |---|---|---|
-| `dqa_remediation_replay` | Dangling FHIR references; arc rows never posted/delete-propagated | `referential_integrity` + `source_reconciliation` |
+| `dqa_remediation_replay` | Dangling FHIR references; arc rows never posted/delete-propagated | `referential_integrity` + `archive_fhir_reconciliation` |
 | `dqa_fhir_server_cleanup` | Flat rows whose resource was deleted on the FHIR server | `fhir_server_reconciliation` (`stale_in_flat`) |
 | `dqa_patient_delete_propagation` | Patient rows deleted in arc with no active CPR sibling | `patient_arc_integrity` (`delete_mismatch`) |
-| `dqa_arc_ifdb_replay` | IFDB keys that never reached the `arc.*` archive (ids-mode re-extract + merge, checkpoint untouched) | `archive_reconciliation` (`missing_in_arc`, captured to the queue) |
-| `dqa_arc_ifdb_vanished_cleanup` | Active `arc.*` rows whose key vanished from IFDB (source hard-delete) — sets `dw_is_deleted = 1` | `archive_reconciliation` (`vanished_not_marked_deleted`) |
+| `dqa_arc_ifdb_replay` | IFDB keys that never reached the `arc.*` archive (ids-mode re-extract + merge, checkpoint untouched) | `source_archive_reconciliation` (`missing_in_arc`, captured to the queue) |
+| `dqa_arc_ifdb_vanished_cleanup` | Active `arc.*` rows whose key vanished from IFDB (source hard-delete) — sets `dw_is_deleted = 1` | `source_archive_reconciliation` (`vanished_not_marked_deleted`) |
 
 `patient_arc_integrity`'s **`kept_deleted_dup`** (fhir kept a deleted PATIENT_ID
 while an active CPR sibling exists — the person is *alive* under another id) is
@@ -117,8 +117,8 @@ Two weekly checks enqueue keys for `ifdb_encounter` / `ifdb_episode_of_care`
   only if that condition has cleared — a required FK that is still NULL after
   replay stays `pending` (`still dangling after replay`), it is not optimistically
   resolved.
-- **`source_reconciliation`** (`capture_replay=True` on these subjects) —
-  `reference_column = 'source_reconciliation'`. Captures arc keys that are
+- **`archive_fhir_reconciliation`** (`capture_replay=True` on these subjects) —
+  `reference_column = 'archive_fhir_reconciliation'`. Captures arc keys that are
   **`missing_in_target`** (never posted) plus **arc-deleted `delete_status_mismatch`**
   (arc `DELETED=1` but the flat row is still active — the delete never propagated).
   The reverse mismatch (arc active, flat deleted) is **not** captured — it can be a
@@ -143,14 +143,14 @@ Two ways to raise the **capture** guard:
 
 ```yaml
 ops:
-  dqa_fhir_encounter_weekly_fhir_encounter__source_reconciliation__vs_arc:
+  dqa_fhir_encounter_weekly_fhir_encounter__archive_fhir_reconciliation__vs_arc:
     config:
       max_keys: 300000
 ```
 
 The op key is `dqa_<subject>_<cadence>_<full_check_name>` (it is **not**
 branch-postfixed — only asset keys are). `max_keys` only affects checks that
-enqueue (`source_reconciliation` / `archive_reconciliation` w/ `capture_replay`,
+enqueue (`archive_fhir_reconciliation` / `source_archive_reconciliation` w/ `capture_replay`,
 `referential_integrity`, `patient_arc_integrity`); it's a no-op elsewhere.
 
 - **Persistent** — set the env var `DQA_REMEDIATION_MAX_KEYS` on the code-location
@@ -237,9 +237,9 @@ same one-off re-stamp described under `dqa_fhir_server_cleanup` above.
 
 ## `dqa_arc_ifdb_replay_job` — re-extract missing archive keys
 
-Fixes `archive_reconciliation`'s **`missing_in_arc`**: IFDB merge keys the weekly
+Fixes `source_archive_reconciliation`'s **`missing_in_arc`**: IFDB merge keys the weekly
 check found in Oracle but not in the archive. The check auto-captures them to
-`dqa.RemediationQueue` (`reference_column='archive_reconciliation'`,
+`dqa.RemediationQueue` (`reference_column='source_archive_reconciliation'`,
 `replay_entity=arc_ifdb_<entity>` — a separate namespace, so they never appear in
 the FHIR `dqa.v_replay_*` feeder views). The replay launches child run(s) over
 `ext_<entity>_ifdb` + `arc_<entity>_ifdb` in **ids mode**:
@@ -273,7 +273,7 @@ same entity (both write ext/arc).
 
 ## `dqa_arc_ifdb_vanished_cleanup_job` — soft-delete keys gone from IFDB
 
-Fixes `archive_reconciliation`'s **`vanished_not_marked_deleted`**: active arc rows
+Fixes `source_archive_reconciliation`'s **`vanished_not_marked_deleted`**: active arc rows
 whose merge key no longer exists in the IFDB source at all (a source hard-delete —
 invisible to the delta extract, so `dw_is_deleted` never gets set). Stages the
 source's *current* live keys and sets `dw_is_deleted = 1` on the active arc rows
@@ -294,9 +294,9 @@ ops:
 
 Location is again excluded — its daily full-load archive merge already
 soft-deletes vanished rows via NOT MATCHED BY SOURCE. Confirm afterwards by
-re-running the entity's `archive_reconciliation` check (`dqa_arc_ifdb_weekly_job`):
+re-running the entity's `source_archive_reconciliation` check (`dqa_arc_ifdb_weekly_job`):
 the rows reclassify from `vanished_not_marked_deleted` to `vanished_marked_deleted`
 (expected). Soft-delete is reversible (`dw_is_deleted = 0`). NB: soft-deleting in
 arc does **not** propagate to the flat `fhir.*` tables by itself — the next
-`source_reconciliation` run will surface any resulting delete-status mismatches,
+`archive_fhir_reconciliation` run will surface any resulting delete-status mismatches,
 and (for Encounter/EoC) capture them for the FHIR replay.

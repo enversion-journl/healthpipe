@@ -159,3 +159,61 @@ class TestCsOkosted:
     def test_nothing_deleted_stamps_nothing(self):
         _, touch, _ = self._run([])
         touch.assert_not_called()
+
+
+class TestCsLager:
+    """cs_lager's merge is what makes the OS2mo Lager file's `updated` mean "changed"."""
+
+    # One description for both reads: the builder picks its columns by name.
+    _COLUMNS = [("sgh",), ("lgr",), ("navn",), ("aktiv",)]
+    _SGH = [("6000", None, "Sygehus Lillebælt", True)]
+    _LGR = [("6000", "0100", "Centrallager", True)]
+
+    def _run(self, deleted_codes, sgh_rows=_SGH, lgr_rows=_LGR):
+        from unittest.mock import MagicMock, patch
+
+        import dagster as dg
+        from DSA.CodeSystem.lager import lager
+
+        mssql = MagicMock()
+        cursor = mssql.get_connection.return_value.__enter__.return_value.cursor.return_value
+        cursor.fetchall.side_effect = [list(sgh_rows), list(lgr_rows)]
+        cursor.description = self._COLUMNS
+        result = {
+            f"{kind}_{action}": 0
+            for kind in ("concepts", "properties", "hierarchy")
+            for action in ("inserted", "updated")
+        }
+        result["deleted_codes"] = deleted_codes
+        with (
+            patch.object(lager, "merge_codesystem_tables", return_value=result) as merge,
+            patch.object(lager, "touch_concepts") as touch,
+        ):
+            lager.cs_lager(dg.build_asset_context(), mssql)
+        return merge, touch, cursor
+
+    def test_it_merges_only_on_change_and_deletes_stale_rows(self):
+        merge, _, _ = self._run([])
+        kwargs = merge.call_args.kwargs
+        assert kwargs["update_only_on_change"] is True
+        assert kwargs["delete_stale_properties"] is True
+        assert kwargs["delete_stale_hierarchy"] is True
+        assert kwargs.get("delete_stale", False) is False  # concepts are kept
+
+    def test_codes_with_deleted_rows_are_stamped(self):
+        _, touch, cursor = self._run(["SGH_6000_LGR_0100"])
+        touch.assert_called_once_with(cursor, "lager", ["SGH_6000_LGR_0100"])
+
+    def test_nothing_deleted_stamps_nothing(self):
+        _, touch, _ = self._run([])
+        touch.assert_not_called()
+
+    @pytest.mark.parametrize("empty", ["sgh", "lgr"])
+    def test_an_empty_archive_table_is_refused(self, empty):
+        """With stale deletion on, an empty read would strip every lager's properties."""
+        import dagster as dg
+
+        sgh_rows = [] if empty == "sgh" else self._SGH
+        lgr_rows = [] if empty == "lgr" else self._LGR
+        with pytest.raises(dg.Failure, match=f"arc.ils_{empty}"):
+            self._run([], sgh_rows=sgh_rows, lgr_rows=lgr_rows)

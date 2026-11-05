@@ -77,3 +77,20 @@ def sql_cvr_cleancode_from_se_nr(column: str) -> str:
                 THEN 'CVR_' + CASE WHEN {packed} LIKE 'DK[0-9]%' THEN SUBSTRING({packed}, 3, LEN({packed})) ELSE {packed} END
                 ELSE NULL
             END"""
+
+
+# ILS giro = 'Person' suppliers (home patients, employees with expenses) carry a
+# birth date or CPR number in se_nr/cvr_nr, not a CVR. Every ILS chain that
+# derives a clean_code_Kreditor must go through this guard so a person never
+# becomes, or links to, a CVR-keyed map.Kreditor member. giro is matched
+# verbatim, like the datamarts' Person masking.
+
+
+def sql_unless_ils_person(candidate: str, giro: str = "lev.giro") -> str:
+    """NULL for ILS giro = 'Person' rows, else the candidate expression."""
+    return f"CASE WHEN {giro} = 'Person' THEN NULL ELSE {candidate} END"
+
+
+def sql_ils_kreditor_cleancode(se_nr: str = "lev.se_nr", giro: str = "lev.giro") -> str:
+    """ILS clean_code_Kreditor from lev.se_nr; NULL for giro = 'Person' rows."""
+    return sql_unless_ils_person(sql_cvr_cleancode_from_se_nr(se_nr), giro)

@@ -532,7 +532,7 @@ def _post_appointments_to_fhir(
         "arc_bom_ifdb_aftaleressourcedeltager",
         "arc_bom_ifdb_patientinfo",
         "fhir_server_patient_dfm",
-        "fhir_server_location_sor_dfm",
+        "fhir_server_location_bom_ifdb_dfm",
     ],
     tags={
         TAG_CHUNK_SIZE: "400",

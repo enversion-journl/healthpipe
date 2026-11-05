@@ -78,6 +78,34 @@ def _execute_call_strings(cursor_mock) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
+def test_selected_migration_leaves_other_pending_files_untouched(
+    tmp_path, monkeypatch, mssql_resource, cursor_mock
+):
+    root = _make_migrations_dir(
+        tmp_path, {"001_other.sql": "PRINT 'other';", "002_own.sql": "PRINT 'own';"}
+    )
+    _patch_ddl_root(monkeypatch, root)
+    result = execute_migrations(mssql_resource, "migrations", only=["002_own.sql"])
+    assert result == {"002_own.sql": "applied"}
+    assert "PRINT 'other';" not in _execute_call_strings(cursor_mock)
+    inserted = [
+        c.args[1][0]
+        for c in cursor_mock.execute.call_args_list
+        if "INSERT INTO [meta].[MigrationHistory]" in c.args[0]
+    ]
+    assert inserted == ["002_own.sql"]
+
+
+def test_unknown_migration_selection_fails_before_database_access(
+    tmp_path, monkeypatch, mssql_resource
+):
+    root = _make_migrations_dir(tmp_path, {"001_known.sql": "PRINT 'known';"})
+    _patch_ddl_root(monkeypatch, root)
+    with pytest.raises(ValueError, match="Unknown migration filenames"):
+        execute_migrations(mssql_resource, "migrations", only=["typo.sql"])
+    mssql_resource.get_connection.assert_not_called()
+
+
 def test_first_run_bootstraps_table_and_applies_all(
     tmp_path, monkeypatch, mssql_resource, cursor_mock
 ):

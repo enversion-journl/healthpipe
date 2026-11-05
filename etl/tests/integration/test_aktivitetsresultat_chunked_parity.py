@@ -332,11 +332,8 @@ def test_pipeline_helper_produces_identical_result_across_chunk_sizes(monkeypatc
         posted_by_run.append({})
         monkeypatch.setattr(mod, "_AKTIVITETSRESULTAT_CHUNK_SIZE", chunk_size)
         monkeypatch.setattr(posting_mod, "post_resource_dicts_direct", _spy_on_post)
-        # Also patch the reference in Observation module (local import)
-        monkeypatch.setattr(
-            "DSA.FHIR.utils.ifdb.fhir_posting.post_resource_dicts_direct",
-            _spy_on_post,
-        )
+        # Also patch the reference the orchestrator module imports
+        monkeypatch.setattr(mod, "post_resource_dicts_direct", _spy_on_post)
         mod._run_aktivitetsresultat_pipeline_chunked(
             extracted_data=rows,
             context=ctx,

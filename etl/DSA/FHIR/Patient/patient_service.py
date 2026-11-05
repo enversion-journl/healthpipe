@@ -22,8 +22,7 @@ import dagster as dg
 from core.fhir.deletion import mark_resources_deleted
 from core.resources import FHIRDatabaseResource, MSSQLResource
 from core.safe_asset import aggregate_errors
-from DSA.FHIR.Patient.field_ownership import ALL_SOURCES, SOURCE_CPR, SOURCE_IFDB
-from DSA.FHIR.Patient.patient_builder import Contribution, build, contributions_from_ifdb
+from DSA.FHIR.Patient.patient_builder import build, contributions_from_ifdb
 from DSA.FHIR.Patient.patient_contributions import (
     contribution_from_bom_patientinfo,
     register_identity_contribution,
@@ -45,6 +44,8 @@ from DSA.FHIR.Patient.patient_identity import (
     row_is_deleted,
     row_patient_id,
 )
+from DSA.FHIR.Patient.patient_ownership import ALL_SOURCES, SOURCE_CPR, SOURCE_IFDB
+from DSA.FHIR.utils.field_ownership import Contribution
 from DSA.FHIR.utils.ifdb.fhir_posting import prepare_resources_for_upsert
 from fhir.resources.R4B.patient import Patient
 from utils.fhir.identifier_systems import SYSTEM_CPR, SYSTEM_IFDB_PATIENT_ID, SYSTEM_SOURCE_TAG
@@ -138,7 +139,7 @@ def epj_contributions(
         return {}
     by_id: dict[str, Contribution] = {}
     for c in contributions_from_ifdb(rows, context):
-        for i in c.patient.identifier or []:
+        for i in c.resource.identifier or []:
             if i.system == SYSTEM_IFDB_PATIENT_ID and i.value:
                 by_id[str(i.value).strip()] = c
                 break

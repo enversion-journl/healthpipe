@@ -4,13 +4,11 @@
 # This file is part of Healthpipe. See the LICENSE file in the project
 # root for the full AGPL-3.0 license text.
 
-import dataclasses
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
 TABLE_TYPE_MASTER_DATA = "master_data"
-TABLE_TYPE_MASTER_DATA_PARTITIONED = "master_data_partitioned"
 TABLE_TYPE_TRANSACTIONAL = "transactional"
 TABLE_TYPE_BRIDGE = "bridge"
 TABLE_TYPE_DEPENDENT = "dependent"
@@ -62,35 +60,3 @@ class TableLoadResult:
             "source_table": self.source_table,
             "row_count": self.row_count,
         }
-
-
-def generate_partition_configs(
-    base_configs: Sequence[TableConfig],
-    partition_frequency: str,
-) -> Sequence[TableConfig]:
-    """Generate daily/monthly configs from base configs."""
-    return tuple(
-        dataclasses.replace(
-            cfg,
-            output_name=f"{cfg.output_name}_{partition_frequency}",
-            description=f"{cfg.description} ({partition_frequency} partition)",
-        )
-        for cfg in base_configs
-    )
-
-
-class RowView:
-    """Helper wrapper that provides case-insensitive column lookup."""
-
-    def __init__(self, data: dict[str, Any]):
-        self._data = data
-        self._lower_map = {key.lower(): value for key, value in data.items()}
-
-    def get(self, *candidates: str) -> Any:
-        for candidate in candidates:
-            if candidate in self._data:
-                return self._data[candidate]
-            lowered = candidate.lower()
-            if lowered in self._lower_map:
-                return self._lower_map[lowered]
-        return None

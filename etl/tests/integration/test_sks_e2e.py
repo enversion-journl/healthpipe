@@ -16,8 +16,6 @@ Run with:
     pytest tests/integration/test_sks_e2e.py -v
 """
 
-import gzip
-
 # ---------------------------------------------------------------------------
 # We import the pure-logic helpers directly to avoid pulling in Dagster/MSSQL
 # through the package __init__.py chain (which requires oracledb at import).
@@ -27,9 +25,9 @@ import gzip
 import sys
 import types
 from datetime import date
-from urllib.request import Request, urlopen
 
 import pytest
+from core.resources import file_delivery_defs
 
 
 def _import_sks_register():
@@ -41,15 +39,6 @@ def _import_sks_register():
         "DSI/csv_files/sks_register.py",
         submodule_search_locations=[],
     )
-    # Provide a stub for core.resources so the import doesn't fail
-    if "core" not in sys.modules:
-        core_stub = types.ModuleType("core")
-        sys.modules["core"] = core_stub
-    if "core.resources" not in sys.modules:
-        res_stub = types.ModuleType("core.resources")
-        res_stub.MSSQLResource = type("MSSQLResource", (), {})
-        sys.modules["core.resources"] = res_stub
-
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
@@ -80,7 +69,6 @@ sks_reg = _import_sks_register()
 sks_cs = _import_sks_codesystem()
 
 KNOWN_PREFIXES = sks_reg.KNOWN_PREFIXES
-SKS_COMPLETE_URL = sks_reg.SKS_COMPLETE_URL
 EXT_COLUMNS = sks_reg.EXT_COLUMNS
 _parse_sks_lines = sks_reg._parse_sks_lines
 _deduplicate_newest = sks_reg._deduplicate_newest
@@ -108,15 +96,8 @@ class _Ctx:
 
 def _fetch_raw() -> str:
     """Download SKScomplete.txt and return decoded text."""
-    req = Request(
-        SKS_COMPLETE_URL,
-        headers={"User-Agent": "Mozilla/5.0 (compatible; Dagster-SKS-Loader/2.0)"},
-    )
-    with urlopen(req, timeout=300) as response:
-        data = response.read()
-    if len(data) > 2 and data[0] == 0x1F and data[1] == 0x8B:
-        data = gzip.decompress(data)
-    return data.decode("latin-1")
+    download = file_delivery_defs().resources["sks_download"]
+    return sks_reg._decode_sks_bytes(download.fetch(sks_reg.SKS_COMPLETE_PATH))
 
 
 # ===========================================================================

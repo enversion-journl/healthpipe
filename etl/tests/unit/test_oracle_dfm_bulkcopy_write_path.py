@@ -221,11 +221,11 @@ class FakeMssqlResource:
 
 
 def _run_extract(monkeypatch, *, batches, tags=None, server=None):
-    import core.dfm_manager
+    import DSI.connectors.factory
     from DSI.connectors.factory import _execute_dfm_oracle_extract
 
     FakeDfmManager.instances = []
-    monkeypatch.setattr(core.dfm_manager, "DfmManager", FakeDfmManager)
+    monkeypatch.setattr(DSI.connectors.factory, "DfmManager", FakeDfmManager)
 
     server = server or FakeMssqlServer()
     context = FakeContext(tags=tags)
@@ -281,10 +281,10 @@ class TestBulkcopyHappyPath:
         assert _meta(result, "row_count") == 3
 
     def test_oracle_cursor_arraysize_and_prefetchrows(self, monkeypatch):
-        import core.dfm_manager
+        import DSI.connectors.factory
         from DSI.connectors.factory import _execute_dfm_oracle_extract
 
-        monkeypatch.setattr(core.dfm_manager, "DfmManager", FakeDfmManager)
+        monkeypatch.setattr(DSI.connectors.factory, "DfmManager", FakeDfmManager)
         oracle = FakeOracleResource([[("1", "a")]])
         _execute_dfm_oracle_extract(
             FakeContext(),
@@ -303,7 +303,7 @@ class TestBulkcopyHappyPath:
 
     def test_resource_handler_maps_strings_and_lobs(self):
         import oracledb
-        from core.resources import _ifdb_oracle_output_type_handler
+        from core.resources import _oracle_output_type_handler
 
         class VarRecorder:
             arraysize = 10_000
@@ -312,7 +312,7 @@ class TestBulkcopyHappyPath:
                 return (db_type, arraysize, encoding_errors)
 
         cursor = VarRecorder()
-        # Strings keep the Windows-1252 dirty-byte protection.
+        # Strings keep the dirty-byte protection.
         for str_type in (
             oracledb.DB_TYPE_VARCHAR,
             oracledb.DB_TYPE_CHAR,
@@ -321,27 +321,27 @@ class TestBulkcopyHappyPath:
             oracledb.DB_TYPE_NCHAR,
         ):
             meta = SimpleNamespace(type_code=str_type)
-            assert _ifdb_oracle_output_type_handler(cursor, meta) == (str, 10_000, "replace")
+            assert _oracle_output_type_handler(cursor, meta) == (str, 10_000, "replace")
         # LOBs fetch inline (no per-row locator round trips).
         for lob_type, expected in (
             (oracledb.DB_TYPE_CLOB, oracledb.DB_TYPE_LONG),
             (oracledb.DB_TYPE_NCLOB, oracledb.DB_TYPE_LONG),
         ):
             meta = SimpleNamespace(type_code=lob_type)
-            assert _ifdb_oracle_output_type_handler(cursor, meta) == (
+            assert _oracle_output_type_handler(cursor, meta) == (
                 expected,
                 10_000,
                 "replace",
             )
         meta = SimpleNamespace(type_code=oracledb.DB_TYPE_BLOB)
-        assert _ifdb_oracle_output_type_handler(cursor, meta) == (
+        assert _oracle_output_type_handler(cursor, meta) == (
             oracledb.DB_TYPE_LONG_RAW,
             10_000,
             None,
         )
         # Everything else keeps the driver default binding.
         meta = SimpleNamespace(type_code=oracledb.DB_TYPE_NUMBER)
-        assert _ifdb_oracle_output_type_handler(cursor, meta) is None
+        assert _oracle_output_type_handler(cursor, meta) is None
 
     def test_values_are_stringified(self, monkeypatch):
         batches = [[(99276330680.0, "x")]]
@@ -376,12 +376,12 @@ class TestBulkcopyFailureFailsAsset:
         assert not FakeDfmManager.instances[0].completed
 
     def test_timeout_error_propagates(self, monkeypatch):
-        import core.dfm_manager
+        import DSI.connectors.factory
         import DSI.connectors.mssql.bulk_copy as bulk_copy_module
         from DSI.connectors.factory import _execute_dfm_oracle_extract
 
         FakeDfmManager.instances = []
-        monkeypatch.setattr(core.dfm_manager, "DfmManager", FakeDfmManager)
+        monkeypatch.setattr(DSI.connectors.factory, "DfmManager", FakeDfmManager)
 
         def _raise_timeout(*args, **kwargs):
             raise RuntimeError("bulk-copy timeout: deadline exceeded")
@@ -606,11 +606,11 @@ class TestFlowStartCeiling:
         self, monkeypatch, mode, expected_upper_bound
     ):
         """The archive merge must checkpoint at the ceiling this extract read, not a later one."""
-        import core.dfm_manager
+        import DSI.connectors.factory
         from DSI.connectors.factory import _execute_dfm_oracle_extract
 
         FakeDfmManager.instances = []
-        monkeypatch.setattr(core.dfm_manager, "DfmManager", CeilingDfmManager)
+        monkeypatch.setattr(DSI.connectors.factory, "DfmManager", CeilingDfmManager)
         config = dataclasses.replace(EXTRACT_CONFIG, flow_start_from=("dfm", "test_ceiling"))
         upper_bounds = []
 

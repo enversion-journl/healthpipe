@@ -58,9 +58,7 @@ pytestmark = pytest.mark.unit
 _ARCHIVE_CONFIGS = [v for v in vars(ifdb_archive).values() if isinstance(v, ArchiveMergeConfig)]
 _EXTRACT_BY_TARGET = {c.target_table: c for c in IFDB_EXTRACT_CONFIGS}
 
-_DDL_DIR = (
-    Path(__file__).resolve().parents[2] / "infrastructure" / "ddl" / "tables" / "ifdb_archive"
-)
+_DDL_DIR = Path(__file__).resolve().parents[2] / "infrastructure" / "ddl" / "sources" / "ifdb"
 
 
 def _ids(cfg: ArchiveMergeConfig) -> str:
@@ -187,7 +185,7 @@ def test_arkivtabellen_findes_i_ddl(arc):
     """Uden DDL findes tabellen ikke, når assetet kører første gang."""
     assert (
         _ddl_block(_ddl_text(), arc.target_table) is not None
-    ), f"{arc.target_table}: ingen CREATE TABLE i tables/ifdb_archive/"
+    ), f"{arc.target_table}: ingen CREATE TABLE i sources/ifdb/"
 
 
 @pytest.mark.parametrize("arc", _ARCHIVE_CONFIGS, ids=_ids)

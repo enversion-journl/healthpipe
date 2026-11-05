@@ -10,4 +10,4 @@ from DSA.SQL.cpr.abonnement_kandidater import cpr_abonnement_kandidater
 
 all_assets = [cpr_abonnement_kandidater]
 
-__all__ = ["all_assets", "cpr_abonnement_kandidater"]
+__all__ = ["all_assets"]

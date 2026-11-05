@@ -71,7 +71,6 @@ from jobs.ifdb_dfm_jobs import (
     fhir_sof_dfm_job,
     ifdb_archive_job,
     ifdb_dfm_daily_job,
-    ifdb_dfm_full_job,
     period_orchestrator_job,
 )
 
@@ -92,8 +91,8 @@ from jobs.infrastructure_jobs import (
 # SQL KMD UdData jobs
 from jobs.kmd_uddata_jobs import kmd_uddata_archive_job
 
-# SilkeborgData archive job (delivery share -> ext -> arc)
-from jobs.silkeborgdata_jobs import silkeborgdata_daily_job
+# Practitioner job (SilkeborgData and EPJI -> arc -> FHIR -> fhir.* -> DSO)
+from jobs.practitioner_jobs import practitioner_daily_job
 
 # SQL Lager jobs
 from jobs.lager_jobs import lager_dim_job
@@ -150,8 +149,8 @@ all_jobs = [
     populationsansvar_ref_job,
     # KMD UdData Jobs
     kmd_uddata_archive_job,
-    # SilkeborgData Archive Job
-    silkeborgdata_daily_job,
+    # Practitioner Job
+    practitioner_daily_job,
     # MySupply DFM Archive Job
     mysupply_archive_job,
     # ILS DFM Archive Job
@@ -177,7 +176,6 @@ all_jobs = [
     # IFDB DFM Jobs (archive + FHIR with checkpoint tracking)
     ifdb_archive_job,
     fhir_ifdb_dfm_job,
-    ifdb_dfm_full_job,
     ifdb_dfm_daily_job,
     fhir_sof_dfm_job,
     dfm_reset_job,
@@ -190,68 +188,4 @@ all_jobs = [
 if erp_dev_assets:
     all_jobs.append(erp_faktura_reset_job)
 
-__all__ = [
-    # FHIR IFDB jobs
-    "sfi_datapoint_reconciliation_job",
-    # ERP jobs
-    "erp_faktura_reset_job",
-    "erp_infrastructure_job",
-    # Organisation jobs
-    "organisation_cs_job",
-    "os2mo_codesystem_export_job",
-    # FHIR CodeSystem job
-    "fhir_codesystem_job",
-    "DRG_INGEST_JOBS",
-    "drg_freshness_job",
-    "drg_publish_job",
-    "cpr_ingest_job",
-    "haiba_ingest_job",
-    "haiba_publish_job",
-    # LPR3 jobs
-    "lpr3_ingest_job",
-    "lpr3_freshness_job",
-    "udredningsret_ingest_job",
-    "udredningsret_publish_job",
-    # Lager jobs
-    "lager_dim_job",
-    # ERP Daily DFM job
-    "erp_daily_dfm_job",
-    # Shared date dimension daily job
-    "dim_dato_daily_job",
-    # Municipality to population responsibility reference job
-    "populationsansvar_ref_job",
-    # KMD UdData jobs
-    "kmd_uddata_archive_job",
-    # SilkeborgData archive job
-    "silkeborgdata_daily_job",
-    # MySupply DFM Archive job
-    "mysupply_archive_job",
-    # ILS DFM Archive job
-    "ils_archive_job",
-    # FHIR SOF jobs
-    "codesystem_sfi_sync_job",
-    # Infrastructure jobs
-    "staging_infrastructure_job",
-    "dso_infrastructure_job",
-    "full_infrastructure_job",
-    "dfm_infrastructure_job",
-    "migrate_dso_sync_watermarks_to_dfm_job",
-    "linked_server_job",
-    "db_space_daily_job",
-    # Data Quality jobs
-    "data_quality_job",
-    # IFDB DFM jobs
-    "ifdb_archive_job",
-    "fhir_ifdb_dfm_job",
-    "ifdb_dfm_full_job",
-    "ifdb_dfm_daily_job",
-    "fhir_sof_dfm_job",
-    "dfm_reset_job",
-    "period_orchestrator_job",
-    # SydAX archive job
-    "sydax_archive_job",
-    # Security daily job
-    "security_daily_job",
-    # All jobs collection
-    "all_jobs",
-]
+__all__ = ["all_jobs"]

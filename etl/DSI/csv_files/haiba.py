@@ -13,9 +13,9 @@ aggregated KPI figures, HAIBAcpr/ for the CPR-level cases). Files accumulate:
 eventually.
 
 The folder is a read-only SMB share, mounted into the code-server by its Nomad
-job and located through HAIBA_BASE_DIR. The share is scoped per branch — a
-branch that has not been opted in on the acr-watcher has no /mnt/ftproot at
-all — so the path is resolved per run and an unset variable is a hard error,
+job and read through the ``haiba_share`` resource, bound to HAIBA_BASE_DIR. The
+share is scoped per branch — a branch that has not been opted in on the
+acr-watcher has no /mnt/ftproot at all — so an unset variable is a hard error,
 never a fallback.
 
 Every delivery is a full snapshot, not a delta. SDS' readme promises five
@@ -81,7 +81,7 @@ would not know about the share at all.
 One more guard protects the archive MERGE itself:
 
 3. Column width: every value is checked against the arc column widths
-   (``arc_widths``, parity-tested against 00_archive.sql). An over-wide value
+   (``arc_widths``, parity-tested against sources/haiba/). An over-wide value
    would otherwise abort the whole archive MERGE with error 8152, which names
    neither column nor row. A non-key over-wide value skips its row and is
    counted per (column, HAI type) — never logged by value; CPR may be among
@@ -106,7 +106,8 @@ from typing import cast
 import dagster as dg
 from core.dfm_manager import DfmManager
 from core.dfm_source import share_source
-from core.resources import MSSQLResource
+from core.file_delivery import DELIMITER
+from core.resources import FileShareResource, MSSQLResource
 from DSI.connectors.delivery_detection import (
     DELIVERY_SCHEMA,
     DELIVERY_TARGET_TYPE,
@@ -118,48 +119,7 @@ from DSI.csv_files._sds_tar import execute_statements
 from pydantic import Field
 from utils.sql_safety import safe_bracket_quote
 
-# Injected into the code-server by the Nomad job that mounts the SMB share.
-# The share is scoped per branch, so a branch that has not been opted in has no
-# /mnt/ftproot at all.
-BASE_DIR_ENV = "HAIBA_BASE_DIR"
-ENCODING_ENV = "HAIBA_FILE_ENCODING"
-
-DEFAULT_ENCODING = "cp1252"
-DELIMITER = ";"
 INSERT_CHUNK_SIZE = 1000
-
-
-def haiba_dir() -> str:
-    """The mounted delivery folder, or a hard failure.
-
-    Resolved per run rather than at import time: the mount appears with the
-    allocation, not with the code. An unset variable must NOT fall back to a
-    plausible-looking local path — an unmounted share and "no new deliveries"
-    look identical from the outside, and that is the failure mode that stays
-    green for months.
-    """
-    root = os.getenv(BASE_DIR_ENV, "").strip()
-    if not root:
-        raise ValueError(
-            f"{BASE_DIR_ENV} is unset or empty. The HAIBA share is mounted per "
-            f"branch — this branch's slug must be added to SMB_SHARE_BRANCHES on "
-            f"the acr-watcher before the code-server gets /mnt/ftproot."
-        )
-    if not os.path.isdir(root):
-        raise ValueError(
-            f"{BASE_DIR_ENV}={root!r} is not a directory. The SMB share is "
-            f"probably not mounted in this allocation."
-        )
-    return root
-
-
-def haiba_encoding() -> str:
-    """Per-source encoding, from the environment.
-
-    HAIBA is cp1252 per SDS' own readme; the SilkeborgData share on the same
-    mount is DOS-Nordic cp865. One shared constant would corrupt one of them.
-    """
-    return os.getenv(ENCODING_ENV, "").strip() or DEFAULT_ENCODING
 
 
 # Only real deliveries match. The folders also hold 0_laesmig_2021-11-16.txt
@@ -195,8 +155,8 @@ _AGG_DIMENSIONS = (
 # 9999, so the key holds without widening it to the unit-name columns.
 _AGG_KEY = ("HAI", "HAIBA_dato", "Rolle_ansvar", "RegionKode", "SORIdentifier")
 
-# NVARCHAR widths from tables/haiba/00_archive.sql — parity-tested against the
-# DDL file, so a width change lands in both places or fails the suite.
+# NVARCHAR widths from sources/haiba/ — parity-tested against the
+# DDL files, so a width change lands in both places or fails the suite.
 _AGG_WIDTHS = {
     "HAI": 50,
     "HAIBA_dato": 30,
@@ -340,7 +300,7 @@ class HaibaSchema:
     # across the board, so a value that fits ext but not arc would abort the
     # whole archive MERGE with error 8152 — the extract rejects such rows up
     # front instead (counted per column and HAI type, never logged by value).
-    # A parity test asserts this map matches tables/haiba/00_archive.sql.
+    # A parity test asserts this map matches sources/haiba/.
     arc_widths: dict[str, int] = field(default_factory=dict)
 
     @property
@@ -589,22 +549,22 @@ def detect_schema(kind: str, header: list[str]) -> HaibaSchema | None:
     return None
 
 
-def _read_header(path: str) -> list[str]:
-    with open(path, encoding=haiba_encoding(), newline="") as handle:
+def _read_header(path: str, encoding: str) -> list[str]:
+    with open(path, encoding=encoding, newline="") as handle:
         reader = csv.reader(handle, delimiter=DELIMITER)
         for row in reader:
             return [c.strip() for c in row]
     return []
 
 
-def has_data_row(path: str) -> bool:
+def has_data_row(path: str, encoding: str) -> bool:
     """True when the file carries at least one non-empty data row.
 
     This is invariant 2. Header-only files (197 bytes) are a real, recurring
     delivery defect, and accepting one as the newest file empties ext for that
     HAI type — which the archive then reads as "SDS deleted everything".
     """
-    with open(path, encoding=haiba_encoding(), newline="") as handle:
+    with open(path, encoding=encoding, newline="") as handle:
         reader = csv.reader(handle, delimiter=DELIMITER)
         next(reader, None)  # header
         for row in reader:
@@ -629,6 +589,7 @@ def discover_files(root: str) -> list[HaibaFile]:
 def select_newest(
     files: list[HaibaFile],
     kind: str,
+    encoding: str,
     context: dg.AssetExecutionContext | None = None,
     on_or_before: date | None = None,
 ) -> tuple[dict[str, HaibaFile], list[str], list[str]]:
@@ -656,7 +617,7 @@ def select_newest(
         candidates.sort(key=lambda f: f.delivery_date, reverse=True)
         skipped: list[str] = []
         for candidate in candidates:
-            if has_data_row(candidate.path):
+            if has_data_row(candidate.path, encoding):
                 selected[hai_type] = candidate
                 break
             skipped.append(candidate.filename)
@@ -678,7 +639,9 @@ def select_newest(
     return selected, notes, unusable
 
 
-def iter_rows(file: HaibaFile, schema: HaibaSchema) -> Iterator[dict[str, str | None]]:
+def iter_rows(
+    file: HaibaFile, schema: HaibaSchema, encoding: str
+) -> Iterator[dict[str, str | None]]:
     """Stream one file as ext rows.
 
     Columns are matched by header name — never by position — because the
@@ -686,7 +649,7 @@ def iter_rows(file: HaibaFile, schema: HaibaSchema) -> Iterator[dict[str, str | 
     """
     delivery = file.delivery_date.isoformat()
     known = set(schema.all_columns)
-    with open(file.path, encoding=haiba_encoding(), newline="") as handle:
+    with open(file.path, encoding=encoding, newline="") as handle:
         reader = csv.reader(handle, delimiter=DELIMITER)
         header = [c.strip() for c in next(reader, [])]
         unknown = [c for c in header if c and c not in known]
@@ -772,7 +735,10 @@ def _write_to_ext_table(
 
 
 def unusable_types_for_schema(
-    files: list[HaibaFile], unusable: list[str], schema: HaibaSchema
+    files: list[HaibaFile],
+    unusable: list[str],
+    schema: HaibaSchema,
+    encoding: str,
 ) -> list[str]:
     """HAI types whose candidates are ALL unusable and belong to this schema.
 
@@ -795,7 +761,7 @@ def unusable_types_for_schema(
             continue
         newest = max(candidates, key=lambda f: f.delivery_date)
         try:
-            detected = detect_schema(schema.kind, _read_header(newest.path))
+            detected = detect_schema(schema.kind, _read_header(newest.path, encoding))
         except (OSError, ValueError, UnicodeDecodeError, csv.Error):
             # A corrupt header (bad encoding, malformed CSV) must fail on the
             # delivery, not crash the ownership check with an unrelated error.
@@ -968,10 +934,11 @@ def _enforce_ext_is_loadable(
 def _extract_schema(
     context: dg.AssetExecutionContext,
     mssql: MSSQLResource,
+    share: FileShareResource,
     schema: HaibaSchema,
     config: HaibaExtractConfig,
 ) -> dg.MaterializeResult:
-    root = haiba_dir()
+    root = share.root()
 
     cutoff = None
     if config.delivery_on_or_before:
@@ -984,7 +951,9 @@ def _extract_schema(
         )
 
     all_files = discover_files(root)
-    selected, notes, unusable = select_newest(all_files, schema.kind, context, cutoff)
+    selected, notes, unusable = select_newest(
+        all_files, schema.kind, share.encoding, context, cutoff
+    )
     # Ownership must be decided on the SAME window select_newest saw, so a file
     # newer than the pin cannot claim a type between the two agg schemas.
     cutoff_files = [f for f in all_files if cutoff is None or f.delivery_date <= cutoff]
@@ -994,7 +963,7 @@ def _extract_schema(
     # with no files at all is a genuine retirement and passes by design.
     blocked = [
         hai_type
-        for hai_type in unusable_types_for_schema(cutoff_files, unusable, schema)
+        for hai_type in unusable_types_for_schema(cutoff_files, unusable, schema, share.encoding)
         if hai_type not in config.allow_missing_hai_types
     ]
     if blocked:
@@ -1008,7 +977,7 @@ def _extract_schema(
 
     files: dict[str, HaibaFile] = {}
     for hai_type, file in selected.items():
-        header = _read_header(file.path)
+        header = _read_header(file.path, share.encoding)
         if detect_schema(schema.kind, header) is schema:
             files[hai_type] = file
 
@@ -1079,7 +1048,7 @@ def _extract_schema(
             context.log.info(f"Reading {file.filename} ({hai_type})")
             survived = 0
             for row in _rows_within_arc_widths(
-                schema, hai_type, iter_rows(file, schema), rejections
+                schema, hai_type, iter_rows(file, schema, share.encoding), rejections
             ):
                 # Count under the row's OWN type value, not the filename's: the
                 # two diverge on the agg CDI types (file 'CDI_COHA', column
@@ -1163,6 +1132,7 @@ def _build_asset(schema: HaibaSchema):
     def _asset(
         context: dg.AssetExecutionContext,
         mssql_target_staging: MSSQLResource,
+        haiba_share: FileShareResource,
         config: HaibaExtractConfig,
     ) -> dg.MaterializeResult:
         # Log-only DFM run: ext owns no checkpoint, so the run borrows the
@@ -1180,10 +1150,10 @@ def _build_asset(schema: HaibaSchema):
             checkpoint_from=("arc", schema.ext_table),
             dagster_run_id=context.run_id,
             mode="full_load",
-            **share_source(os.getenv(BASE_DIR_ENV), f"HAIBA_*_{schema.kind}_RegS_*.csv"),
+            **share_source(haiba_share.base_dir, f"HAIBA_*_{schema.kind}_RegS_*.csv"),
         )
         try:
-            result = _extract_schema(context, mssql_target_staging, schema, config)
+            result = _extract_schema(context, mssql_target_staging, haiba_share, schema, config)
         except Exception as exc:
             dfm.fail_dfm_run(run_ctx.log_id, error_message=str(exc))
             raise
@@ -1220,8 +1190,6 @@ __all__ = [
     "manifest_table",
     "unusable_types_for_schema",
     "SCHEMAS",
-    "haiba_dir",
-    "haiba_encoding",
     "HaibaExtractConfig",
     "HaibaFile",
     "HaibaSchema",

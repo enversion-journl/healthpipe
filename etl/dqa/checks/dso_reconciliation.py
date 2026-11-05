@@ -19,7 +19,7 @@ DSA table reached over the linked server:
 
 The comparison is on the **full primary key** (composite-aware), which is unique on
 each side, so the delete-flag comparison is a straight per-row equality (no MIN/MAX
-aggregation needed, unlike the business-key ``source_reconciliation``). All three
+aggregation needed, unlike the business-key ``archive_fhir_reconciliation``). All three
 counts come from ONE ``FULL OUTER JOIN`` pass over the linked server -- separate
 ``NOT EXISTS`` / ``JOIN`` queries would re-read the whole remote table per count,
 which hurts on Observation-scale tables.

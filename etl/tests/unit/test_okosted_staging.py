@@ -21,14 +21,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-
-def _mock_context() -> MagicMock:
-    """Create a mock Dagster AssetExecutionContext with a logger."""
-    ctx = MagicMock()
-    ctx.log = MagicMock()
-    return ctx
-
-
 # =============================================================================
 # TestStgOkostedHelpers
 # =============================================================================
@@ -277,61 +269,61 @@ class TestDetermineStatus:
 
 
 # =============================================================================
-# TestTransformToExtFormat (SOR version-grain extract)
+# TestIterExtRows (SOR version-grain extract)
 # =============================================================================
 
 
 @pytest.mark.unit
-class TestTransformToExtFormat:
-    """Tests for _transform_to_ext_format() — the extract keeps ALL versions
+class TestIterExtRows:
+    """Tests for _iter_ext_rows() — the extract keeps ALL versions
     (arc.sor_register is version-grained) and only collapses exact
     (SorId, FromDate) duplicates so the archive MERGE never sees duplicate keys."""
 
     def test_all_versions_of_a_code_are_kept(self):
-        from DSI.csv_files.sor_register import _transform_to_ext_format
+        from DSI.csv_files.sor_register import _iter_ext_rows
 
         rows = [
             {"SorId": "100", "FromDate": "2024-01-01", "EntityName": "V1"},
             {"SorId": "100", "FromDate": "2024-06-01", "EntityName": "V2"},
         ]
-        result = _transform_to_ext_format(rows, _mock_context())
+        result = list(_iter_ext_rows(rows, {"skipped": 0, "duplicates": 0}))
         assert len(result) == 2
         assert {r["from_date"] for r in result} == {"2024-01-01", "2024-06-01"}
 
     def test_duplicate_version_key_collapsed_to_one_row(self):
-        from DSI.csv_files.sor_register import _transform_to_ext_format
+        from DSI.csv_files.sor_register import _iter_ext_rows
 
         rows = [
             {"SorId": "100", "FromDate": "2024-01-01", "EntityName": "First"},
             {"SorId": "100", "FromDate": "2024-01-01", "EntityName": "Second"},
         ]
-        result = _transform_to_ext_format(rows, _mock_context())
+        result = list(_iter_ext_rows(rows, {"skipped": 0, "duplicates": 0}))
         assert len(result) == 1
         assert result[0]["display"] == "First"
 
     def test_excel_format_ids_cleaned(self):
-        from DSI.csv_files.sor_register import _transform_to_ext_format
+        from DSI.csv_files.sor_register import _iter_ext_rows
 
         rows = [
             {"SorId": '="100"', "FromDate": "2024-01-01", "ParentSorId": '="200"'},
         ]
-        result = _transform_to_ext_format(rows, _mock_context())
+        result = list(_iter_ext_rows(rows, {"skipped": 0, "duplicates": 0}))
         assert result[0]["code"] == "100"
         assert result[0]["parent_code"] == "200"
 
     def test_empty_sor_id_skipped(self):
-        from DSI.csv_files.sor_register import _transform_to_ext_format
+        from DSI.csv_files.sor_register import _iter_ext_rows
 
         rows = [
             {"SorId": "", "FromDate": "2024-01-01"},
             {"SorId": "100", "FromDate": "2024-01-01"},
         ]
-        result = _transform_to_ext_format(rows, _mock_context())
+        result = list(_iter_ext_rows(rows, {"skipped": 0, "duplicates": 0}))
         assert len(result) == 1
         assert result[0]["code"] == "100"
 
     def test_csv_columns_mapped_to_ext_names(self):
-        from DSI.csv_files.sor_register import _transform_to_ext_format
+        from DSI.csv_files.sor_register import _iter_ext_rows
 
         rows = [
             {
@@ -343,7 +335,7 @@ class TestTransformToExtFormat:
                 "FirstFromDate": "2020-01-01",
             }
         ]
-        result = _transform_to_ext_format(rows, _mock_context())
+        result = list(_iter_ext_rows(rows, {"skipped": 0, "duplicates": 0}))
         row = result[0]
         assert row["to_date"] == "2025-01-01"
         assert row["display"] == "Afdeling X"

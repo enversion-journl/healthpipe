@@ -2,10 +2,88 @@
 
 All notable changes to this project are documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
-project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). While
+the major number is 1, a release with a **Breaking:** entry increases the minor number,
+for example from 1.0.8 to 1.1.0. All other releases increase the patch number, for
+example from 1.0.8 to 1.0.9.
 
 ## [Unreleased]
+
+## [1.1.0] - 2026-11-05
+
+### Added
+
+- Order tables `dim.Ordre` and `fct.Ordre` from ILS (one row for each order header).
+  `fct.Ordre` has the freight and fee amounts of the order.
+- Demographic dimension `dim.BorgerDemografi` from Datafordeler (CPR) and IFDB. It has
+  one row for each combination of region, municipality, postal code, parish, gender,
+  birth year and birth month, and no citizen identifiers. `dim.Borger` has the new key
+  `dw_ek_BorgerDemografi` and the new columns `sogn_id` and `sognenavn`, which are
+  empty for now.
+- The OS2mo export also delivers the ILS stores and the EAN codes.
+- `.env.template` has the folder and encoding variables of the SDS file-drop sources
+  and the LDAP connection variables.
+- `just example` loads a made-up example source and runs a first pipeline in the
+  devcontainer. The README shows it as the first run.
+- A `justfile` with the CI and devcontainer commands.
+- A configuration reference page, `etl/docs/configuration.md`, made from
+  `.env.template` in each release.
+- An operations guide for logs, health checks, errors and backup.
+- A Dependabot configuration for the Python dependencies and the GitHub Actions.
+
+### Changed
+
+- `fhir.Practitioner` also loads the EPJ accounts from EPJI, with one row for each
+  account. The new columns `identifier_staff` and `identifier_regionsid` identify an
+  EPJI account. The SilkeborgData rows keep one row for each person. One daily job,
+  `practitioner_daily_job`, loads both sources.
+- `fhir.Location` merges the SOR units from BOM IFDB with the IFDB locations. The new
+  columns `meta_source`, `source_bom_ifdb` and `source_ifdb` show the source of each row.
+- **Breaking:** The DSO sync writes only through the linked server, because the Python
+  fallback is removed. Set the `MSSQL_LINKED_SERVER_*` variables before you run a DSO
+  sync. Without a linked server, the sync fails and its checkpoint does not move.
+- **Breaking:** The DQA check type `archive_reconciliation` is now
+  `source_archive_reconciliation`, and `source_reconciliation` is now
+  `archive_fhir_reconciliation`. A migration renames the stored results. Change each
+  query that filters on the old names.
+- The ten ILS tables with a `sysdato` delta read with a lookback of two days. A
+  migration resets their archive checkpoints, so that the next run reads them again in
+  full and loads the changes that the old delta did not read.
+- `dim.Kreditor` no longer makes CVR members from ILS suppliers of the type `Person`. A
+  migration removes the members that came only from these suppliers.
+- The IFDB FHIR full load starts when the daily chain is complete. The schedule
+  `ifdb_fhir_fuldload_nightly_schedule` is now `ifdb_fhir_fuldload_schedule`, and it is
+  stopped by default. If you started the old schedule, start the new schedule.
+- The IFDB cycle no longer waits for `PatientJob`.
+- The OS2mo deliveries always have the `gyldig_fra` and `gyldig_til` values.
+- `populate_security` stops before it writes when an AD lookup fails.
+- The DQA does not reconcile the reference tables that the DSO sync does not copy.
+- The data sources are Dagster resources. The archive DDL is in
+  `etl/infrastructure/ddl/sources/<source>/`, with one file for each table.
+- Two migrations of 2026-10-07 have new names: `20261007_01_rolledomaene_rolle_p.sql` is
+  now `20261007_02_rolledomaene_rolle_p.sql`, and
+  `20261007_02_drop_unused_security_functions.sql` is now
+  `20261007_03_drop_unused_security_functions.sql`. A database that applied the old
+  names runs them again. Both migrations are idempotent.
+- Updates of `pyasn1`, `msgpack`, `dnspython`, `pip` and `multidict` fix known
+  vulnerabilities.
+- The devcontainer mounts `.ssh` from `USERPROFILE` on Windows.
+- CI installs the locked dependencies from `uv.lock`, and `etl/utils` must pass
+  `mypy --strict`.
+- CI fails on a dead relative link in the docs.
+- The README, CONTRIBUTING and SECURITY.md describe the public setup, the PR flow and
+  the advisory form.
+- `.gitignore` ignores each `output/` folder, not only the root folder.
+- The dependency review runs only when code scanning is on.
+
+### Removed
+
+- **Breaking:** The DSO database no longer has the schemas `ext`, `arc`, `map` and
+  `stg`. A migration drops them. Read these tables in the staging database.
+- `arc.ils_pmdm` no longer has the 18 columns that ILS removed from `dbo.pmdm`.
+- The job `ifdb_dfm_full_job`.
+- 28 unit tests that only repeated the source code.
+- The internal deployment notes in the docs and in `.env.template`.
 
 ## [1.0.8] - 2026-11-03
 
@@ -17,7 +95,6 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   has `dw_ek_Borger`, `dw_sk_Borger`, `dw_ek_Organisation_henvist_fra` and
   `dw_ek_Organisation_henvist_til`. `fhir.WardUnit` has `dw_ek_Organisation`. The value
   is `-1` when the platform cannot find the citizen or the organisation.
-- The deploy to QA and production runs `full_infrastructure_setup` automatically.
 
 ### Changed
 
@@ -292,8 +369,7 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   more storage locations and requesters. A row without a storage location or a
   requester links to its hospital. A migration resets the load checkpoints, so the next
   run loads the ILS history again.
-- The daily `dim.Dato` schedule starts automatically in the development, production and
-  release deployments.
+- The daily `dim.Dato` schedule starts automatically in a deployed environment.
 
 ## [1.0.2] - 2026-10-07
 
@@ -360,7 +436,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - First public release.
 
-[Unreleased]: https://github.com/enversion-journl/healthpipe/compare/v1.0.8...HEAD
+[Unreleased]: https://github.com/enversion-journl/healthpipe/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/enversion-journl/healthpipe/compare/v1.0.8...v1.1.0
 [1.0.8]: https://github.com/enversion-journl/healthpipe/compare/v1.0.7...v1.0.8
 [1.0.7]: https://github.com/enversion-journl/healthpipe/compare/v1.0.6...v1.0.7
 [1.0.6]: https://github.com/enversion-journl/healthpipe/compare/v1.0.5...v1.0.6

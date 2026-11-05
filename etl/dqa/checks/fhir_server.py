@@ -14,7 +14,7 @@ row (it survives only in ``<type>_history``). So ``SELECT id FROM <type>`` is th
 set of ids that still exist on the server -- which equals ``fhir.<Table>``'s
 resource-id column (e.g. ``encounter_id``).
 
-Cross-DB (PostgreSQL -> MSSQL), so -- like ``archive_reconciliation`` -- ids are
+Cross-DB (PostgreSQL -> MSSQL), so -- like ``source_archive_reconciliation`` -- ids are
 streamed (server-side cursor) and ``bulkcopy``'d into a global ``##temp`` table
 rather than pulled into Python; the diff/update then runs in MSSQL.
 """

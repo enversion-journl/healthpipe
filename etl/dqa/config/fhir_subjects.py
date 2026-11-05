@@ -93,7 +93,7 @@ def _reconcile_vs_archive(
     subject's ``ReplaySpec.filter_column`` equals ``source_key`` (the capture
     no-ops with a warning otherwise)."""
     return CheckSpecification(
-        "source_reconciliation",
+        "archive_fhir_reconciliation",
         Severity.ERROR,
         Cadence.WEEKLY,
         {
@@ -308,7 +308,7 @@ FHIR_SUBJECTS: list[DqaSubject] = [
                 name_suffix="vs_arc_cpr",
             ),
             # patient_id-level: dedup-aware. A deleted PATIENT_ID dropped per CPR is
-            # NOT a gap (a plain source_reconciliation would false-flag it), so this
+            # NOT a gap (a plain archive_fhir_reconciliation would false-flag it), so this
             # asserts only that the *chosen* ifdb_patient_id is valid, non-deleted-
             # when-possible, and delete-consistent.
             CheckSpecification(

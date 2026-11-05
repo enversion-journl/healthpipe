@@ -482,36 +482,6 @@ class DfmManager:
             finally:
                 cursor.close()
 
-    def clear_checkpoint(
-        self,
-        schema: str,
-        table: str,
-        *,
-        mode: str = "delta",
-        scope: str = "staging",
-        target_type: str | None = None,
-    ) -> None:
-        """Set an EXISTING checkpoint row back to NULL.
-
-        ``set_checkpoint`` cannot express NULL: it COALESCEs a missing value to
-        SYSDATETIME(), because for a delta checkpoint "no value" means "now".
-        One-off markers (see 02_dfm_state.sql) give NULL a different meaning --
-        armed, not yet started -- so resetting one must be explicit. Only an
-        UPDATE, never an INSERT: a row that does not exist stays absent, so a
-        caller can still tell "never armed" from "armed and cleared".
-
-        ``target_type`` defaults to the schema's own; see _resolve_target_type.
-        """
-        target_type = _resolve_target_type(schema, target_type)
-        sql = (
-            f"UPDATE {self.STATE_TABLE} SET [checkpoint_value] = NULL, [last_mode] = ?, "
-            f"[updated_at] = CAST(SYSDATETIME() AS datetime2(0)) "
-            f"WHERE [scope] = ? AND [target_type] = ? "
-            f"AND [schema_name] = ? AND [table_name] = ?"
-        )
-        with self._get_conn() as conn:
-            self._execute_commit(conn, sql, (mode, scope, target_type, schema, table))
-
     def complete_dfm_run(
         self,
         log_id: int,

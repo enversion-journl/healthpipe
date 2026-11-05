@@ -11,4 +11,4 @@ from DSA.SQL.dm.haiba_kontakt import haiba_kontakt_assets
 
 all_assets = [*haiba_dm_assets, *haiba_kontakt_assets]
 
-__all__ = ["all_assets", "haiba_dm_assets", "haiba_kontakt_assets"]
+__all__ = ["all_assets"]

@@ -732,8 +732,8 @@ def test_non_dfm_subjects_have_no_replay_wiring():
             assert not spec.params.get("capture_replay"), s.name
             # No arc.* archives for these resources either.
             assert spec.check_type not in (
-                "source_reconciliation",
-                "archive_reconciliation",
+                "archive_fhir_reconciliation",
+                "source_archive_reconciliation",
             ), s.name
 
 
@@ -882,7 +882,7 @@ def test_arc_sensor_spec_is_weekly_only():
     }
 
 
-# --- arc replay: ids-mode re-extract for archive_reconciliation gaps ---------------
+# --- arc replay: ids-mode re-extract for source_archive_reconciliation gaps ---------------
 
 
 def test_arc_subjects_replay_wiring_excludes_location():
@@ -954,13 +954,13 @@ def test_arc_replay_recheck_resolves_and_parks_unresolvable():
 
 def test_capture_oracle_gaps_enqueues_under_arc_entity():
     from dqa.config.arc_subjects import ARC_SUBJECTS
-    from dqa.remediation.capture import capture_archive_reconciliation_gaps
+    from dqa.remediation.capture import capture_source_archive_reconciliation_gaps
 
     subject = next(s for s in ARC_SUBJECTS if s.name == "arc_ifdb_encounter")
     cursor = MagicMock()
     cursor.fetchone.return_value = (3,)  # under the guard -> MERGE path
     resources = SimpleNamespace(mssql_target_staging=_make_resource(cursor))
-    capture_archive_reconciliation_gaps(
+    capture_source_archive_reconciliation_gaps(
         MagicMock(),
         subject,
         resources,
@@ -970,7 +970,7 @@ def test_capture_oracle_gaps_enqueues_under_arc_entity():
     )
     sql = _all_sql(cursor)
     assert "MERGE [dqa].[RemediationQueue]" in sql
-    assert "'archive_reconciliation'" in sql  # reference_column
+    assert "'source_archive_reconciliation'" in sql  # reference_column
     assert "'arc_ifdb_encounter'" in sql  # replay_entity namespace
     assert "'IFDB.ENCOUNTER'" in sql  # target
 
@@ -1114,11 +1114,11 @@ def test_stage_ifdb_keys_composite_normalizes_each_part():
     assert index.endswith("(k0, k1)")
 
 
-# --- archive_reconciliation: source-generic (dialect / source_resource / flow-start)
+# --- source_archive_reconciliation: source-generic (dialect / source_resource / flow-start)
 
 
 def _run_archive_recon(params, *, source_resource_key, flow_start="2026-07-04 06:00:00"):
-    """Run archive_reconciliation with scripted cursors; all diff counts are zero."""
+    """Run source_archive_reconciliation with scripted cursors; all diff counts are zero."""
     staging_cursor = MagicMock()
     # flow-start row, (source_count, within), missing, (arc_total, extra, stale)
     staging_cursor.fetchone.side_effect = [(flow_start,), (10, 10), (0,), (10, 0, 0)]
@@ -1135,12 +1135,14 @@ def _run_archive_recon(params, *, source_resource_key, flow_start="2026-07-04 06
         resource_key="mssql_target_staging",
         identity_column=params["key_columns"][0],
     )
-    spec = CheckSpecification("archive_reconciliation", Severity.ERROR, Cadence.WEEKLY, params)
-    outcome = CHECK_TYPES["archive_reconciliation"](MagicMock(), subject, spec, resources)
+    spec = CheckSpecification(
+        "source_archive_reconciliation", Severity.ERROR, Cadence.WEEKLY, params
+    )
+    outcome = CHECK_TYPES["source_archive_reconciliation"](MagicMock(), subject, spec, resources)
     return outcome, staging_cursor, source_cursor
 
 
-def test_archive_reconciliation_mssql_dialect():
+def test_source_archive_reconciliation_mssql_dialect():
     params = {
         "source_table": "dbo.Finanspostering",
         "key_columns": ["RECID"],
@@ -1166,7 +1168,7 @@ def test_archive_reconciliation_mssql_dialect():
     assert batch == [("123.0", 1)]
 
 
-def test_archive_reconciliation_oracle_defaults_preserved():
+def test_source_archive_reconciliation_oracle_defaults_preserved():
     params = {
         "source_table": "IFDB.ENCOUNTER",
         "key_columns": ["OBJECT_ID"],
@@ -1187,7 +1189,7 @@ def test_archive_reconciliation_oracle_defaults_preserved():
     assert batch == [("123", 1)]
 
 
-def test_archive_reconciliation_rejects_unknown_dialect():
+def test_source_archive_reconciliation_rejects_unknown_dialect():
     resources = SimpleNamespace()  # must not be touched -- validation fires first
     subject = DqaSubject(
         name="arc_x",
@@ -1197,13 +1199,13 @@ def test_archive_reconciliation_rejects_unknown_dialect():
         identity_column="RECID",
     )
     spec = CheckSpecification(
-        "archive_reconciliation",
+        "source_archive_reconciliation",
         Severity.ERROR,
         Cadence.WEEKLY,
         {"source_table": "dbo.X", "key_columns": ["RECID"], "dialect": "postgres"},
     )
     with pytest.raises(ValueError, match="unknown dialect"):
-        CHECK_TYPES["archive_reconciliation"](MagicMock(), subject, spec, resources)
+        CHECK_TYPES["source_archive_reconciliation"](MagicMock(), subject, spec, resources)
 
 
 def test_arc_subjects_pin_ifdb_oracle_and_flow_start_state():
@@ -1212,7 +1214,7 @@ def test_arc_subjects_pin_ifdb_oracle_and_flow_start_state():
 
     for s in ARC_SUBJECTS:
         (spec,) = s.checks
-        assert spec.check_type == "archive_reconciliation"
+        assert spec.check_type == "source_archive_reconciliation"
         assert spec.params["dialect"] == "oracle"
         assert spec.params["source_resource"] == "ifdb_oracle"
         assert spec.params["source_resource"] in spec.requires
@@ -1269,7 +1271,7 @@ def test_arc_subject_inline_source_exposes_its_flow_start_bound_column():
             assert bound_column in select_list, s.name
 
 
-def test_archive_reconciliation_commits_staging_before_capture():
+def test_source_archive_reconciliation_commits_staging_before_capture():
     # Regression (local Encounter hang): the capture reads the ##staging temp from
     # its OWN connection. Autocommit is off, so unless the staging transaction
     # (INSERTs + CREATE CLUSTERED INDEX) is committed first, that cross-session
@@ -1302,7 +1304,7 @@ def test_archive_reconciliation_commits_staging_before_capture():
         replay=ReplaySpec("OBJECT_ID", "arc_ifdb_encounter", "OBJECT_ID"),
     )
     spec = CheckSpecification(
-        "archive_reconciliation",
+        "source_archive_reconciliation",
         Severity.ERROR,
         Cadence.WEEKLY,
         {
@@ -1314,10 +1316,12 @@ def test_archive_reconciliation_commits_staging_before_capture():
     )
     commits_when_captured = []
     with patch(
-        "dqa.remediation.capture.capture_archive_reconciliation_gaps",
+        "dqa.remediation.capture.capture_source_archive_reconciliation_gaps",
         side_effect=lambda *a, **k: commits_when_captured.append(conn.commit.call_count),
     ):
-        outcome = CHECK_TYPES["archive_reconciliation"](MagicMock(), subject, spec, resources)
+        outcome = CHECK_TYPES["source_archive_reconciliation"](
+            MagicMock(), subject, spec, resources
+        )
     # Commit #1 releases the CREATE TABLE schema lock (for bulkcopy's connection);
     # commit #2 must land AFTER the index build and BEFORE the capture runs.
     assert commits_when_captured == [2]

@@ -7,9 +7,7 @@
 """
 Partition utilities for FHIR ETL assets.
 
-This module provides shared functionality for handling date-based partitions
-across different database types (Oracle, MSSQL) and partition formats
-(daily, monthly, full_load).
+This module parses monthly partition keys into date ranges.
 """
 
 from calendar import monthrange
@@ -96,56 +94,4 @@ def get_month_date_range(partition_key: str) -> tuple[str, str]:
     raise ValueError(
         f"Invalid monthly partition key format: {partition_key}. "
         "Expected 'YYYY-MM' or 'YYYY-MM-DD' format."
-    )
-
-
-def build_date_filter_where_clause(
-    partition_key: str, column_name: str, is_oracle: bool = False
-) -> str:
-    """
-    Build WHERE clause based on partition key format.
-
-    Args:
-        partition_key: Partition key (daily: "YYYY-MM-DD", monthly: "YYYY-MM",
-                      full_load: "full_load")
-        column_name: Date column name to filter on
-        is_oracle: True if Oracle database (uses different date functions)
-
-    Returns:
-        WHERE clause string (without "WHERE" keyword). Empty string for full_load.
-
-    Raises:
-        ValueError: If partition_key format is invalid
-    """
-    if partition_key == "full_load":
-        return ""
-
-    # Check if it's a monthly partition (YYYY-MM format)
-    if len(partition_key) == 7 and partition_key.count("-") == 1:
-        start_date, end_date = parse_monthly_partition(partition_key)
-        if is_oracle:
-            # Oracle uses DATE 'YYYY-MM-DD' format and TRUNC for date comparison
-            return (
-                f"TRUNC(CAST({column_name} AS DATE)) >= DATE '{start_date}' "
-                f"AND TRUNC(CAST({column_name} AS DATE)) <= DATE '{end_date}'"
-            )
-        else:
-            # MSSQL uses CAST and standard date comparison
-            return (
-                f"CAST({column_name} AS DATE) >= '{start_date}' "
-                f"AND CAST({column_name} AS DATE) <= '{end_date}'"
-            )
-
-    # Check if it's a daily partition (YYYY-MM-DD format)
-    if len(partition_key) == 10 and partition_key.count("-") == 2:
-        if is_oracle:
-            # Oracle: use TRUNC for date comparison
-            return f"TRUNC(CAST({column_name} AS DATE)) = DATE '{partition_key}'"
-        else:
-            return f"CAST({column_name} AS DATE) = '{partition_key}'"
-
-    # Invalid format
-    raise ValueError(
-        f"Invalid partition key format: {partition_key}. "
-        "Expected 'full_load', 'YYYY-MM-DD', or 'YYYY-MM'."
     )

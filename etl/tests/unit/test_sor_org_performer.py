@@ -389,7 +389,7 @@ def test_aktivitetsresultat_active_post_path_resolves_only_organizations(monkeyp
             metadata={"posted_count": len(kwargs["resource_dicts"]), "failed_count": 0}
         )
 
-    monkeypatch.setattr("DSA.FHIR.utils.ifdb.fhir_posting.post_resource_dicts_direct", post)
+    monkeypatch.setattr("DSA.FHIR.Aktivitetsresultat.orchestrator.post_resource_dicts_direct", post)
     database = Mock()
     database.resolve_identifier_values.return_value = (
         {"581841000016000": resolved_id} if resolved_id else {}

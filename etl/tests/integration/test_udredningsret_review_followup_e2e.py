@@ -32,7 +32,6 @@ from tests.integration.test_udredningsret_dwh_e2e import (  # noqa: F401
 def test_null_identiteter_og_500_tegns_f_id_bevares_uden_nye_noegler(
     dwh_db,  # noqa: F811
     delivery_dir,  # noqa: F811
-    monkeypatch,
 ):
     r = dwh_db
     migration = "migrations/20260917_udredningsret_f_id_width.sql"
@@ -70,7 +69,7 @@ def test_null_identiteter_og_500_tegns_f_id_bevares_uden_nye_noegler(
         markoer("9800", "", "", "9804_1", "9804", CPR_X, "AFV01A1", "2025-03-01"),
     ]
     build_delivery(delivery_dir, A_FILE, "20260831", "2026-08-31", rows_a_dwh() + rows)
-    run_extract(r, delivery_dir, monkeypatch)
+    run_extract(r, delivery_dir)
     run_archive(r)
 
     def publish():

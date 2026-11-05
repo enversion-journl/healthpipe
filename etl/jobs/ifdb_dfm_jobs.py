@@ -65,7 +65,9 @@ borger_dim_assets = dg.AssetSelection.assets(
     "ref_patient_address_borger",
     "ref_KommuneToPopulationsansvar",
     "dim_Borger",
+    "dim_BorgerDemografi",
     "dso_sync_dim_borger",
+    "dso_sync_dim_borgerdemografi",
 )
 
 # ---------------------------------------------------------------------------
@@ -93,19 +95,6 @@ fhir_ifdb_dfm_job = dg.define_asset_job(
         f"Transform {_IFDB_RESOURCES} from arc.* archive tables "
         "to FHIR resources and post to FHIR server. DFM checkpoint-based."
     ),
-)
-
-# ---------------------------------------------------------------------------
-# Full pipeline: archive + FHIR + SOF
-# ---------------------------------------------------------------------------
-
-ifdb_dfm_full_job = dg.define_asset_job(
-    name="ifdb_dfm_full_job",
-    selection=(
-        ifdb_archive_assets | patient_identity_assets | fhir_ifdb_dfm_assets | fhir_sof_dfm_assets
-    ),
-    executor_def=_dfm_multiprocess_executor,
-    description=("Full DFM pipeline: extract from Oracle → archive → FHIR server → SOF."),
 )
 
 # ---------------------------------------------------------------------------

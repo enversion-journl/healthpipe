@@ -19,7 +19,7 @@ from DSA.FHIR.utils.sql_on_fhir.sof_dfm_factory import create_sof_dfm_asset
 _PRODUCERS = [
     "fhir_sof_infrastructure",
     "fhir_server_location_dfm",
-    "fhir_server_location_sor_dfm",
+    "fhir_server_location_bom_ifdb_dfm",
 ]
 
 sof_location_dfm = create_sof_dfm_asset(

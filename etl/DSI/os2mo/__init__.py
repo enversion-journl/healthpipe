@@ -10,7 +10,3 @@ Distinct from ``DSI/csv_files/os2mo.py``, which reads hand-maintained CSV
 override files for the ConceptMap builders. This package reads OS2mo's live
 organisation over the API.
 """
-
-from DSI.os2mo.org_unit import os2mo_extract_assets
-
-__all__ = ["os2mo_extract_assets"]

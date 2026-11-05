@@ -77,7 +77,7 @@ dfm_infrastructure_job = dg.define_asset_job(
     selection=dg.AssetSelection.assets(
         "staging_infra_schemas",
         "staging_infra_dfm",
-        "staging_infra_ifdb_archive",
+        "staging_infra_source_ifdb",
     ),
     tags={
         "layer": "staging",
@@ -85,7 +85,7 @@ dfm_infrastructure_job = dg.define_asset_job(
     },
     description=(
         "Setup DFM infrastructure: meta.DFMState, meta.DFMRunLog, "
-        "meta.usp_dfm_reset, arc.ifdb_encounter, arc.ifdb_location."
+        "meta.usp_dfm_reset and the IFDB archive tables (arc.ifdb_*, arc.bom_ifdb_*)."
     ),
 )
 
@@ -104,7 +104,7 @@ migrate_dso_sync_watermarks_to_dfm_job = dg.define_asset_job(
     },
     description=(
         "One-shot cutover: copy DSO meta.SyncWatermarks into staging "
-        "meta.DFMState (scope='dso'). Skips sfi_datapoint. Idempotent. "
+        "meta.DFMState (scope='dso' and 'sfi_store'). Idempotent. "
         "Run once per environment before first watermark DSO sync on DFM code."
     ),
 )

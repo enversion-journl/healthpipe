@@ -63,6 +63,7 @@ _FACTS: list[tuple[str, str]] = [
     ("dwh_faktura", "fct.Faktura"),
     ("dwh_postering", "fct.Postering"),
     ("dwh_vareudlevering", "fct.Vareudlevering"),
+    ("dwh_ordre", "fct.Ordre"),
     ("dwh_finanskladdelinje", "fct.Finanskladdelinje"),
     ("dwh_budget", "fct.Budget"),
 ]

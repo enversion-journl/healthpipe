@@ -1,0 +1,37 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: dimension
+  TableName: dim.Ordre
+  Domain: [ERP]
+  Description: "Ordrehoveder fra ILS (dbo.ordh) som transaktionsdimension, SCD Type 1. dw_ek_Ordre er en delt nøgle med fct.Ordre via map.Ordre. Fragt og gebyr ligger på fct.Ordre, så de kan summeres uden at blive talt med én gang pr. ordrelinje."
+  Grain: "Én række pr. ordre (sgh, lgr, ordre). Deler to kilderækker ordre, vinder den senest ændrede (sysdato)."
+  SCD: type1
+  Notes:
+    - "adr1-adr5 (alternativ leveringsadresse) er udeladt: de kan rumme en hjemmepatients navn og adresse. Medtages de senere, skal de sløres via dbo.rekv.rtyp = HP/OHP."
+    - "bd_oprid indeholder på ordrer fra 2008-2013 CPR-numre i stedet for bruger-id. De sløres til '[CPR-FORM]' i ordre_oprettet_af; arkivet beholder råværdien."
+    - "Arkivet registrerer ikke sletninger, så en ordre, der slettes i ILS, bliver stående med sin seneste status."
+
+  SourceSystems:
+    - ils: [dbo.ordh, dbo.zz_oper]
+
+  Columns:
+    dw_ek_Ordre:                 { Type: PK, DataType: INT }
+    clean_code_Ordre:            { DataType: NVARCHAR(100), Source: [ils.dbo.ordh.sgh, ils.dbo.ordh.lgr, ils.dbo.ordh.ordre], Expr: "'ORDRE_' + UPPER(TRIM(sgh)) + '_' + UPPER(TRIM(lgr)) + '_' + ordre; tom sgh/lgr giver et tomt segment, uden ordre ingen række" }
+    bk_prrowid:                  { DataType: NVARCHAR(100), Source: [ils.dbo.ordh.prrowid], Description: "Kilderækken, der vandt for ordren." }
+    ordrenummer:                 { DataType: NVARCHAR(20), Source: [ils.dbo.ordh.ordre], Description: "Ordrenummeret som tekst (ILS 'Ordrenr'). Det identificerer ordren og er ikke en mængde." }
+    sygehus:                     { DataType: NVARCHAR(8), Source: [ils.dbo.ordh.sgh], Expr: "TRIM(sgh); tom værdi → NULL" }
+    lager:                       { DataType: NVARCHAR(8), Source: [ils.dbo.ordh.lgr], Expr: "UPPER(TRIM(lgr)); tom værdi → NULL" }
+    leverandoernummer:           { DataType: NVARCHAR(20), Source: [ils.dbo.ordh.lnr], Expr: "UPPER(TRIM(lnr)); tom værdi → NULL" }
+    ordredato:                   { DataType: DATE, Source: [ils.dbo.ordh.orddto], Description: "Ordredato (ILS 'OrdDato'). Rollen dw_ek_Dato_ordre ligger på fct.Ordre." }
+    ordrestatus:                 { DataType: NVARCHAR(4), Source: [ils.dbo.ordh.ordstat], Expr: "UPPER(TRIM(ordstat)); tom værdi → NULL" }
+    ordre_oprettet_af:           { DataType: NVARCHAR(20), Source: [ils.dbo.ordh.bd_oprid], Description: "Bruger-id på den, der oprettede ordren. Kan afvige fra den, der oprettede den enkelte ordrelinje.", Expr: "UPPER(TRIM(bd_oprid)); tom værdi → NULL; en værdi med CPR-form (DDMMÅÅNNNN eller DDMMÅÅ-NNNN, dag 01-31, måned 01-12) → '[CPR-FORM]'" }
+    dw_ek_ILSBruger_oprettet_af: { Type: FK, DataType: INT, FK-Target: dim.ILSBruger, Source: [ils.dbo.ordh.bd_oprid, ils.dbo.zz_oper.bd_oprid, ils.dbo.zz_oper.bd_init], Expr: "Brugeren i zz_oper med bd_oprid = ordre_oprettet_af; har ingen bruger det bd_oprid, så brugeren med bd_init = ordre_oprettet_af. Hver bruger er den zz_oper-række, dim.ILSBruger viser for initialerne, og deler flere brugere bd_oprid, vinder den aktive, dernæst nyeste sysdato. Nøglen slås op i map.ILSBruger; -1 når intet matcher", Description: "Brugeren, der oprettede ordren. Ordrer fra før ca. 2014 har initialerne i bd_oprid og kobles via dem. Initialer genbruges over tid, og dim.ILSBruger kender kun den nuværende indehaver, så den kobling er mindre sikker — se ilsbruger_match_kilde. En delta-kørsel opløser kun de ordrer, den genindlæser." }
+    ilsbruger_match_kilde:       { DataType: NVARCHAR(10), Source: [ils.dbo.ordh.bd_oprid], Expr: "'bruger_id' | 'initialer' efter hvilken kobling der blev brugt; NULL når dw_ek_ILSBruger_oprettet_af = -1", Description: "Hvordan opretteren blev koblet; 'initialer' er den mindst sikre" }
+    dw_ek_Dato_ajourfoert:       { Type: FK, DataType: INT, Source: [ils.dbo.ordh.sysdato] }
+    dato_tid_ajourfoert:         { DataType: DATETIME2, Source: [ils.dbo.ordh.sysdato] }
+    ajourfoert_bruger:           { DataType: NVARCHAR(6), Source: [ils.dbo.ordh.bruger], Description: "UPPER af init" }

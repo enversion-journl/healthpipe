@@ -8,9 +8,8 @@
 
 # SDS Udredningsret — målmodel, staging-regler og beslutninger (US-3 → US-6)
 
-Feature [internal ticket] (SDSUDRED v1.0). Dette notat er den autoritative specifikation for lagene
-efter arkivet: `pre_stg` → `stg` → `map` → `dim`/`fct` → DSO/DQA ([internal ticket], [internal ticket],
-[internal ticket], [internal ticket]). Kilden og arkivet (US-2/US-7) er beskrevet i
+Feature SDSUDRED v1.0. Dette notat er den autoritative specifikation for lagene
+efter arkivet: `pre_stg` → `stg` → `map` → `dim`/`fct` → DSO/DQA. Kilden og arkivet (US-2/US-7) er beskrevet i
 [udredningsret_kilde.md](udredningsret_kilde.md); beslutningerne B1–B10 står på featuren og på
 review-siden "Udredningsret i basismodellen".
 
@@ -226,7 +225,7 @@ Målt på dev 2026-09-13: **2.948** kombinationer i `stg.dim_UdredningsretEgensk
 Som DRG (`tables/drg/02_maps.sql` … `05_seeds.sql`): map = `dw_ek_<Tabel> INT IDENTITY(1,1)` + `clean_code_<Tabel>` PK
 clustered + `IX_Map_<Tabel>_DW_EK`; dims og facts PK på `dw_ek_*`; FK'er `INT NOT NULL CONSTRAINT [DF_<Tabel>_<kolonne>] DEFAULT -1`;
 sentinel-seeds -1 `'UNKNOWN'` for map og dim (aldrig for fct); constraint-navne `PK_Map_*`, `PK_Dim_*`, `PK_Fct_*`, `IX_*`, `DF_*`
-(søskende-konventionen fra DRG vinder over KONTEKST-blokkens `PK_udredningsret_*`, som allerede er brudt af `01_meta.sql`).
+(søskende-konventionen fra DRG vinder over KONTEKST-blokkens `PK_udredningsret_*`, som allerede er brudt af `sources/udredningsret/UdredningsretLeverance.sql`).
 Audit `dw_timestamp_insert/update DATETIME2 NOT NULL DEFAULT SYSDATETIME()`. Ingen migration nødvendig: tabellerne er nye.
 
 ### 4.2 Tabeller
@@ -441,7 +440,7 @@ Teksterne er formuleret af os ud fra SDS' SKS-tekster og datamart-beskrivelsens 
   udredningsretten** (**U19**): præsentations- og DPA-laget ejes af security-views-repoet, som for
   `fct.DRGKontakt`. Aftagere læser indtil da basistabellerne på DSO og filtrerer selv `dw_is_deleted = 0` —
   begge facter akkumulerer retirerede rækker, så en ufiltreret læsning over-tæller mere for hver leverance.
-- **Indeksflaget.** Begge facter kører med `chunk_size=20_000` og `disable_target_indexes_during_sync=True` (U17).
+- **Indeksflaget.** Begge facter kører med `disable_target_indexes_during_sync=True` (U17).
 - `udredningsret_publish_sensor` (US-6, `sensors/udredningsret_publish_sensor.py` efter `haiba_publish_sensor.py`,
   bygget af `build_udredningsret_publish_sensor` i `definitions.py` efter branch-postfixing og registreret i
   `postfixed_sensors`): på `ifdb_dfm_daily_job` SUCCESS læses to tal fra **staging-databasen** — aldrig fra
@@ -766,7 +765,7 @@ DDL-filerne er fælles for DSA og DSO. Omgøres beslutningen, kræver det (a)'s 
 Status: Fastlagt 2026-09-14 (review-fund på MR !94).
 
 **U17. Begge facter slår måltabellens indekser fra under sync — ikke kun markørfacten.**
-Valgt: `fct.UdredningsretMarkoer` **og** `fct.Udredningsforloeb` får `chunk_size=20_000` og
+Valgt: `fct.UdredningsretMarkoer` **og** `fct.Udredningsforloeb` får
 `disable_target_indexes_during_sync=True` i `UDREDNINGSRET_SYNC_CONFIGS`.
 Alternativ: kun markørfacten, og lade forløbsfacten køre med indekser intakt.
 Begrundelse: flaget slår kun til på **bulk**-stien (`truncate_insert` eller et tomt mål), hvilket her betyder den første

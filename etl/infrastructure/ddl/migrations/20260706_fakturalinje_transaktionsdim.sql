@@ -5,7 +5,7 @@
 -- root for the full AGPL-3.0 license text.
 
 -- ============================================================================
--- Migration: Fakturalinje transaktionsdimension ([internal ticket], Task 4)
+-- Migration: Fakturalinje transaktionsdimension (Task 4)
 --
 -- fct.Fakturalinje.DW_EK_Fakturalinje was a local, independent IDENTITY(1,1) —
 -- NOT derived from map.Fakturalinje like dim.Fakturalinje is. Both tables share

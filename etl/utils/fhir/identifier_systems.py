@@ -231,6 +231,27 @@ SYSTEM_SILKEBORGDATA_DISCOKODE = "urn:source:silkeborgdata:discokode"
 
 
 # =============================================================================
+# EPJI-derived identifiers (EPJ accounts in the PRACTITIONER tables)
+# =============================================================================
+# The account's own key is EXTERNAL_ID, which is the staff code IFDB carries, so
+# EPJI Practitioners use SYSTEM_IFDB_STAFF and not an EPJI system of their own.
+# meta.tag for source-table provenance.
+SYSTEM_EPJI_SOURCE_TABLE = "urn:source:epji:source_table"
+# The region's user identity, as the region's own URI. Shared by a person's
+# accounts, so it groups accounts into people and can carry no unique index.
+SYSTEM_REGION_REGIONSID = "http://example.org/BSK/RegionsId"
+# The other systems in EPJI's PRACTITIONER_IDENTIFIER. None becomes an identifier:
+# uniqueid copies EXTERNAL_ID, initials is not unique, and CPR stays in the archive.
+EPJI_UNMAPPED_IDENTIFIER_SYSTEMS = frozenset(
+    {
+        "http://columnafhir.dk/uniqueid",
+        "http://columnafhir.dk/initials",
+        "http://cpr.dk/personregistret",
+    }
+)
+
+
+# =============================================================================
 # Safe-character regex for SQL-literal interpolation
 # =============================================================================
 # Both the FHIR index DDL and the indexed lookup query embed identifier systems
@@ -253,6 +274,9 @@ SYSTEM_V3_MARITAL_STATUS = "http://terminology.hl7.org/CodeSystem/v3-MaritalStat
 # dk-core codes for the two Danish marital statuses without an HL7 code (P, O).
 SYSTEM_DK_MARITAL_STATUS = "http://hl7.dk/fhir/core/CodeSystem/dk-marital-status"
 
-# Patient provenance: meta.source is the builder, one meta.tag per contributing source.
+# Builder provenance: meta.source is the builder, one meta.tag per contributing source.
 SYSTEM_SOURCE_TAG = "http://example.org/fhir/CodeSystem/kilde"
 SOURCE_PATIENT_BUILDER = "http://example.org/fhir/source/patient-bygger"
+SOURCE_LOCATION_BUILDER = "http://example.org/fhir/source/location-bygger"
+# BOM_IFDB.ORGENHED.ORG_TYPE on the SOR-keyed Location's type.
+SYSTEM_BOM_IFDB_ORG_TYPE = "urn:source:bom_ifdb:org_type"

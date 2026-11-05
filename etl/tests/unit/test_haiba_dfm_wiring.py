@@ -55,7 +55,7 @@ class TestExtractWiring:
         monkeypatch.setattr(ext_module, "_extract_schema", lambda *a, **k: _result(7))
 
         result = ext_module.ext_haiba_cases_ssi(
-            _ctx(), MagicMock(), ext_module.HaibaExtractConfig()
+            _ctx(), MagicMock(), MagicMock(base_dir=None), ext_module.HaibaExtractConfig()
         )
 
         args, kwargs = dfm.start_dfm_run.call_args
@@ -74,7 +74,9 @@ class TestExtractWiring:
         monkeypatch.setattr(ext_module, "_extract_schema", _boom)
 
         with pytest.raises(ValueError, match="no usable delivery"):
-            ext_module.ext_haiba_agg_infektion(_ctx(), MagicMock(), ext_module.HaibaExtractConfig())
+            ext_module.ext_haiba_agg_infektion(
+                _ctx(), MagicMock(), MagicMock(base_dir=None), ext_module.HaibaExtractConfig()
+            )
 
         dfm.fail_dfm_run.assert_called_once()
         assert "no usable delivery" in dfm.fail_dfm_run.call_args.kwargs["error_message"]

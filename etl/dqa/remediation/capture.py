@@ -15,11 +15,11 @@ Three producers feed the queue, all for subjects that declare a ``ReplaySpec``:
   fhir kept a deleted arc PATIENT_ID while an active CPR sibling exists. Replaying
   re-runs the CPR-dedup (``_build_patient_query`` ranks the whole CPR group), which
   re-points fhir to the active id.
-- ``capture_source_reconciliation_gaps`` -- ``source_reconciliation``'s arc rows
+- ``capture_archive_fhir_reconciliation_gaps`` -- ``archive_fhir_reconciliation``'s arc rows
   that never reached the flat table (``missing_in_target``) or whose arc soft-delete
   never propagated (arc-deleted ``delete_status_mismatch``). Replaying posts /
   tomb-stones them. Only valid when ``source_key == ReplaySpec.filter_column``.
-- ``capture_archive_reconciliation_gaps`` -- ``archive_reconciliation``'s
+- ``capture_source_archive_reconciliation_gaps`` -- ``source_archive_reconciliation``'s
   ``missing_in_arc`` keys (in the DFM source, absent from the archive). Fixed by
   ``dqa_arc_ifdb_replay`` (ids-mode re-extract + archive merge), NOT the FHIR
   replay -- the queue rows are namespaced by ``replay_entity`` (``arc_ifdb_*``),
@@ -219,7 +219,7 @@ def _recon_where(key: str, extra: str | None) -> str:
     return clause
 
 
-def capture_source_reconciliation_gaps(
+def capture_archive_fhir_reconciliation_gaps(
     context,
     subject: DqaSubject,
     resources,
@@ -232,7 +232,7 @@ def capture_source_reconciliation_gaps(
     source_filter: str | None = None,
     target_filter: str | None = None,
 ) -> None:
-    """Enqueue the arc keys ``source_reconciliation`` found unposted/mismatched.
+    """Enqueue the arc keys ``archive_fhir_reconciliation`` found unposted/mismatched.
 
     Captures the SOURCE-side business keys to replay via DFM ids mode:
 
@@ -253,7 +253,7 @@ def capture_source_reconciliation_gaps(
         return
     if source_key != subject.replay.filter_column:
         context.log.warning(
-            f"DQA source_reconciliation capture skipped for {subject.name}: source_key "
+            f"DQA archive_fhir_reconciliation capture skipped for {subject.name}: source_key "
             f"{source_key!r} != replay filter_column {subject.replay.filter_column!r}; "
             f"captured keys would not match the DFM ids filter."
         )
@@ -264,7 +264,7 @@ def capture_source_reconciliation_gaps(
     sdel, tdel = _recon_deleted_expr(source_deleted), _recon_deleted_expr(target_deleted)
     compare_deleted = bool(source_deleted and target_deleted)
 
-    # MIN (deleted iff ALL rows deleted), matching source_reconciliation: a business
+    # MIN (deleted iff ALL rows deleted), matching archive_fhir_reconciliation: a business
     # key with a soft-deleted straggler plus a live row is live (t.d = 0), so the
     # arc-deleted branch below captures it for replay only when no live row remains.
     src_agg = (
@@ -291,14 +291,14 @@ def capture_source_reconciliation_gaps(
         context,
         subject,
         resources,
-        reference_column="source_reconciliation",
+        reference_column="archive_fhir_reconciliation",
         target=source_table,
         key_expr="d.k",
         source=source,
     )
 
 
-def capture_archive_reconciliation_gaps(
+def capture_source_archive_reconciliation_gaps(
     context,
     subject: DqaSubject,
     resources,
@@ -307,7 +307,7 @@ def capture_archive_reconciliation_gaps(
     key_expr: str,
     source_table: str,
 ) -> None:
-    """Enqueue ``archive_reconciliation``'s ``missing_in_arc`` keys for arc replay.
+    """Enqueue ``source_archive_reconciliation``'s ``missing_in_arc`` keys for arc replay.
 
     ``missing_source`` is the check's own missing-keys FROM/WHERE clause over its
     (still-live) ``##dqa_recon_*`` staging temp; ``key_expr`` the single merge-key
@@ -322,7 +322,7 @@ def capture_archive_reconciliation_gaps(
         context,
         subject,
         resources,
-        reference_column="archive_reconciliation",
+        reference_column="source_archive_reconciliation",
         target=source_table,
         key_expr=key_expr,
         source=missing_source,

@@ -13,14 +13,14 @@ runs in security_daily_job: extract_security -> populate_security -> dso_sync_se
 is not importable in the deployed Dagster runtime.)
 
 NOTE: extract_security does a live LDAPS bind to AD, so the Dagster runtime needs
-network/VPN access to the AD endpoint. The AD credentials are read from LDAP_* env.
+network/VPN access to the AD endpoint. The AD credentials come from the ad_ldap resource.
 """
 
 import os
 
 import dagster as dg
 from core.dfm_manager import DfmManager
-from core.resources import MSSQLResource
+from core.resources import ActiveDirectoryLDAPResource, MSSQLResource
 
 
 @dg.asset(
@@ -33,10 +33,12 @@ from core.resources import MSSQLResource
         "LDAPS; returns rows in-memory (+ writes JSONL for audit)."
     ),
 )
-def extract_security(context: dg.AssetExecutionContext) -> dict:
+def extract_security(
+    context: dg.AssetExecutionContext, ad_ldap: ActiveDirectoryLDAPResource
+) -> dict:
     from infrastructure.security.export_healthpipe_ad_groups import run_export
 
-    data = run_export()
+    data = run_export(ad_ldap)
     for warning in data["advarsler"]:
         context.log.warning(warning)
     counts = {k: len(v) for k, v in data.items() if k not in ("source", "advarsler")}
@@ -77,6 +79,7 @@ def populate_security(
         _max_lost_users_ratio,
         _max_removed_grants_ratio,
         _min_count_ratio,
+        _validate_no_failed_lookups,
     )
     from infrastructure.security.security_seed import seed_enabled
 
@@ -105,11 +108,7 @@ def populate_security(
         (_SOR_TILDELING_HISTORIK, _build_sor_tildeling_rows(extract_security["org"])),
     ]
     historik_metrics: dict[str, dict] = {}
-    if extract_security["fejlede_opslag"]:
-        context.log.warning(
-            f"{len(extract_security['fejlede_opslag'])} AD member lookups failed; the history "
-            "tables close no rows this run and only open new keys"
-        )
+    _validate_no_failed_lookups(extract_security["fejlede_opslag"])
     conn = _connect(host, port, db, user, password)
     try:
         with DfmManager(mssql_target_staging, context).target_runs(
@@ -144,7 +143,6 @@ def populate_security(
                     tabel_rows,
                     run_id=context.run_id,
                     dry_run=False,
-                    close_rows=not extract_security["fejlede_opslag"],
                 )
                 historik_metrics[tabel.name] = metrics
                 rows[tabel.name] = metrics["closed"] + metrics["inserted"]

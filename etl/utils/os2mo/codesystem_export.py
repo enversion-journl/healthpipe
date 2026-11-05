@@ -20,9 +20,11 @@ Magenta:
   outside the delivered set. It is the only ancestry information in the file:
   there are no grandparent or ancestor-name columns, so an ancestor's rename
   or move changes nothing but its own row.
-* ``gyldig_fra`` / ``gyldig_til`` are the code's validity, as ISO dates; an
-  empty ``gyldig_til`` is open-ended. A source end date in year 9000 or later
-  is a "never ends" sentinel and is rendered empty too.
+* ``gyldig_fra`` / ``gyldig_til`` are the code's validity, as ISO dates, and
+  never empty: where the source names no start, ``gyldig_fra`` is
+  ``1900-01-01``; where it names no end, ``gyldig_til`` is ``9999-12-31``
+  (open-ended). A source end date in year 9000 or later is a "never ends"
+  sentinel and is rendered ``9999-12-31`` too.
 * ``niveau`` is the code's depth in the delivered tree: a root is ``"1"``, a
   child is its parent's niveau plus one. It is computed from the walk, not
   read from the source, so it always matches the tree the file actually
@@ -64,6 +66,7 @@ from utils.sor_codes import parse_sor_date
 
 __all__ = [
     "BASE_COLUMNS",
+    "CodeSource",
     "CodesystemExportSpec",
     "build_export_rows",
     "export_columns",
@@ -97,6 +100,25 @@ _IDENTIFIER_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 
 
 @dataclass(frozen=True)
+class CodeSource:
+    """A code set read from a table other than ``codesystem.<name>Concept``.
+
+    The delivered codes are the distinct non-empty values of ``column`` in
+    ``[schema].[table]``; a code is first seen at the earliest
+    ``dw_timestamp_insert`` of its rows there.
+    """
+
+    schema: str
+    table: str
+    column: str
+
+    def __post_init__(self) -> None:
+        for value in (self.schema, self.table, self.column):
+            if not _IDENTIFIER_RE.match(value):
+                raise ValueError(f"Not a plain identifier: {value!r}")
+
+
+@dataclass(frozen=True)
 class CodesystemExportSpec:
     """Everything that differs between two codesystem deliveries.
 
@@ -106,7 +128,10 @@ class CodesystemExportSpec:
         asset_prefix: Lowercase slug for asset names (``os2mo_<slug>_export``).
         source_deps: Assets that must have rebuilt the codesystem before the
             set is built.
-        from_property / to_property: Properties holding the validity dates.
+        from_property / to_property: Properties holding the validity dates,
+            or None when the codesystem carries none (EAN, Lager) — the file's
+            ``gyldig_fra`` / ``gyldig_til`` are then ``1900-01-01`` /
+            ``9999-12-31``.
         type_property: Property rendered as type, or None for empty.
         scope_property: When set, only codes whose property equals
             ``scope_value`` are delivered, and only those reachable from the
@@ -115,32 +140,59 @@ class CodesystemExportSpec:
             as the ``aktiv`` / ``dw_is_deleted`` flags, or None for empty.
         root_code: The single root the tree is walked from. None means every
             code without a parent in the set is a root.
+        code_source: When set, the codes come from this table instead of
+            ``codesystem.<name>Concept`` (EAN: the invoice receivers in
+            MySupply), and every code in it is delivered. Such a spec is flat
+            and reads only ``display_property`` from the codesystem.
+        display_property: Property rendered as navn — empty when the code has
+            none — instead of the concept's display. Only with ``code_source``.
     """
 
     name: str
     asset_prefix: str
     source_deps: tuple[str, ...]
-    from_property: str
-    to_property: str
+    from_property: str | None
+    to_property: str | None
     type_property: str | None = None
     scope_property: str | None = None
     scope_value: str = "true"
     status_active_property: str | None = None
     status_deleted_property: str | None = None
     root_code: str | None = None
+    code_source: CodeSource | None = None
+    display_property: str | None = None
 
     def __post_init__(self) -> None:
-        for value in (self.name, self.from_property, self.to_property):
-            if not _IDENTIFIER_RE.match(value):
-                raise ValueError(f"Not a plain identifier: {value!r}")
+        if not _IDENTIFIER_RE.match(self.name):
+            raise ValueError(f"Not a plain identifier: {self.name!r}")
         for optional in (
+            self.from_property,
+            self.to_property,
             self.type_property,
             self.scope_property,
             self.status_active_property,
             self.status_deleted_property,
+            self.display_property,
         ):
             if optional is not None and not _IDENTIFIER_RE.match(optional):
                 raise ValueError(f"Not a plain identifier: {optional!r}")
+        if self.display_property is not None and self.code_source is None:
+            raise ValueError("display_property needs a code_source")
+        if self.code_source is not None:
+            # The external-code query reads nothing but the name, so any other
+            # property here would be silently ignored.
+            unread = {
+                "from_property": self.from_property,
+                "to_property": self.to_property,
+                "type_property": self.type_property,
+                "scope_property": self.scope_property,
+                "status_active_property": self.status_active_property,
+                "status_deleted_property": self.status_deleted_property,
+                "root_code": self.root_code,
+            }
+            set_fields = sorted(key for key, value in unread.items() if value is not None)
+            if set_fields:
+                raise ValueError(f"A code_source spec does not read {', '.join(set_fields)}")
 
     @property
     def filename_pattern(self) -> str:
@@ -170,6 +222,12 @@ def format_export_date(value: Any) -> str:
 
 # A source end date this far out means "never ends", not a real closing date.
 OPEN_ENDED_FROM_YEAR = 9000
+
+# The validity a code is delivered with where the source names no date (none,
+# unreadable, or a never-ends sentinel): valid since always, until further
+# notice — so gyldig_fra and gyldig_til are never empty in the file.
+DEFAULT_VALID_FROM = "1900-01-01"
+DEFAULT_VALID_TO = "9999-12-31"
 
 
 def format_export_end_date(value: Any) -> str:
@@ -235,11 +293,12 @@ def _format_timestamp(value: datetime | None) -> str:
 
 
 def unreadable_values(source_rows: list[dict[str, Any]]) -> dict[str, int]:
-    """How many source values the file can only render as empty.
+    """How many present source values the file cannot carry as read.
 
-    A date or a status flag that is present but unreadable becomes "" in the
-    file — and an empty gyldig_til reads as "open-ended". Counting them makes
-    a change in the source's format visible instead of silent.
+    A status flag that is present but unreadable becomes "" in the file, and
+    such a date becomes the default — an unreadable gyldig_til then reads as
+    "open-ended". Counting them makes a change in the source's format visible
+    instead of silent.
     """
     counts = {"valid_from": 0, "valid_to": 0, "status_active": 0, "status_deleted": 0}
     for row in source_rows:
@@ -351,8 +410,8 @@ def _build_export_row(
     return {
         "kode": code,
         "kode_parent": "" if is_root else parent,
-        "gyldig_fra": format_export_date(row.get("valid_from")),
-        "gyldig_til": format_export_end_date(row.get("valid_to")),
+        "gyldig_fra": format_export_date(row.get("valid_from")) or DEFAULT_VALID_FROM,
+        "gyldig_til": format_export_end_date(row.get("valid_to")) or DEFAULT_VALID_TO,
         "navn": str(row.get("display") or ""),
         "type": str(row.get("type") or ""),
         "niveau": str(depth),

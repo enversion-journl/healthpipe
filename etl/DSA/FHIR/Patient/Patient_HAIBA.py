@@ -52,7 +52,7 @@ from DSA.FHIR.Patient.cpr_stub_asset import (
 from DSA.FHIR.Patient.cpr_stub_asset import (
     post_missing_patients as _post_missing_patients,
 )
-from DSA.FHIR.Patient.field_ownership import SOURCE_HAIBA
+from DSA.FHIR.Patient.patient_ownership import SOURCE_HAIBA
 
 CPR_SQL = """
 SELECT DISTINCT cprnr FROM arc.haiba_cases_infektion WHERE cprnr <> ''

@@ -192,7 +192,7 @@ class TestMainEntry:
 
 class TestMigrateAssetRegistration:
     def test_asset_deps_and_name(self):
-        from infrastructure.assets.migrate_dso_sync_watermarks import (
+        from adhoc.migrate_dso_sync_watermarks import (
             migrate_dso_sync_watermarks_to_dfm as asset_fn,
         )
 

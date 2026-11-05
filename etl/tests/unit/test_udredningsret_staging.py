@@ -1190,10 +1190,6 @@ def test_de_seks_assets_er_registreret_med_udredningsret_praefiks_og_grupper():
         assert tags["source"] == "udredningsret" and tags["entity"]
         assert tags["layer"] == ("pre_stg" if "/pre_stg_" in k else "stg")
         assert a.op.tags.get("dagster/compute_kind") == "mssql", k
-    from DSA.SQL.staging import __all__ as eksporteret
-
-    for navn in FORVENTEDE_ASSETS:
-        assert navn.split("/")[1] in eksporteret
 
 
 def test_asset_deps_foelger_laesningerne():

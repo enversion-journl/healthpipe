@@ -50,7 +50,7 @@ has the short quick-start; this guide goes deeper for day-to-day development.
 4. **Start Dagster** *(local devcontainer only)*: open **Run and Debug**
    (`Ctrl+Shift+D`) → run the **Dagster** configuration
    ([../.vscode/launch.json](../.vscode/launch.json)). The web UI opens at
-   http://localhost:3000. *(On a remote / Nomad-hosted VS Code server, Dagster is
+   http://localhost:3000. *(On a remote VS Code server, Dagster is
    started by the deployment — skip this step.)*
 5. **Build the warehouse schema**: in the Dagster UI, materialize the
    `full_infrastructure_setup` job, then materialize assets / launch jobs.

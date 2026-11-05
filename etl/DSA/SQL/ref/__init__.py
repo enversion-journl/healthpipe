@@ -50,16 +50,4 @@ all_assets = [
     ref_ILSAendringslog,
 ]
 
-__all__ = [
-    "ref_patient_borger",
-    "ref_patient_identity",
-    "ref_patient_address_borger",
-    "ref_faktura_to_postering",
-    "ref_kmd_fakturalinje_unspsc_match",
-    "ref_fakturalinje_matchkeys",
-    "ref_organisation",
-    "ref_RekvirentUndtagelse",
-    "ref_KommuneToPopulationsansvar",
-    "ref_ILSAendringslog",
-    "all_assets",
-]
+__all__ = ["all_assets"]

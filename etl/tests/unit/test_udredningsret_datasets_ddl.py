@@ -6,7 +6,7 @@
 
 """Guard: the udredningsret arc DDL must match the dataset specification.
 
-DDL (infrastructure/ddl/tables/udredningsret/00_archive.sql) and
+DDL (infrastructure/ddl/sources/udredningsret/udredningsret_mont.sql) and
 DSI/csv_files/udredningsret_datasets.py are kept in lockstep: columns (name +
 order), primary key, NOT NULL on the computed keys, and the ext table having
 the same widths as arc (HAIBA lesson).
@@ -29,9 +29,10 @@ from DSI.csv_files.udredningsret_datasets import (
 
 pytestmark = pytest.mark.unit
 
-DDL_DIR = (
-    Path(__file__).resolve().parents[2] / "infrastructure" / "ddl" / "tables" / "udredningsret"
-)
+DDL_DIRS = [
+    Path(__file__).resolve().parents[2] / "infrastructure" / "ddl" / "sources" / "udredningsret",
+    Path(__file__).resolve().parents[2] / "infrastructure" / "ddl" / "tables" / "udredningsret",
+]
 TAIL_COLUMNS = ("leverance_dato", "dw_is_deleted", "dw_timestamp_insert", "dw_timestamp_update")
 
 
@@ -67,7 +68,9 @@ def _parse_tables(sql: str) -> dict[str, dict]:
 
 @pytest.fixture(scope="module")
 def ddl_sql() -> str:
-    return "\n".join(p.read_text(encoding="utf-8") for p in sorted(DDL_DIR.glob("*.sql")))
+    return "\n".join(
+        p.read_text(encoding="utf-8") for d in DDL_DIRS for p in sorted(d.glob("*.sql"))
+    )
 
 
 @pytest.fixture(scope="module")

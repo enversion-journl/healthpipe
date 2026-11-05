@@ -14,7 +14,6 @@ and optional direct imports.
 
 from __future__ import annotations
 
-import os
 from collections.abc import Iterable
 from datetime import date, datetime
 from typing import Any
@@ -37,14 +36,6 @@ from DSA.FHIR.utils.ifdb.xml_aktivitetsresultat import (
 from utils.fhir.identifier_systems import SYSTEM_IFDB_OBJECT_ID, SYSTEM_IFDB_PATIENT_ID
 
 _QR_CHUNK_SIZE = 500
-
-
-def _sfi_mode() -> str:
-    return os.environ.get("IFDB_SFI_OBSERVATION_MODE", "sfi_audit").strip().lower()
-
-
-def _sfi_enabled() -> bool:
-    return _sfi_mode() != "legacy"
 
 
 def routing_resolver(mssql_target_staging: MSSQLResource) -> RoutingResolver:
@@ -173,6 +164,3 @@ def apply_resolved_refs(
     encounter_id = normalize_oracle_id(row.get("ENCOUNTER_ID"))
     if encounter_id and encounter_id in encounter_map:
         qr["encounter"] = {"resourceType": "Encounter", "id": encounter_map[encounter_id]}
-
-
-all_assets: list = []

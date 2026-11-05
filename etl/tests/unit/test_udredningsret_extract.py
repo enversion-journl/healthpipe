@@ -22,6 +22,7 @@ import tarfile
 from datetime import date, datetime
 
 import pytest
+from core.resources import FileShareResource
 from DSI.csv_files import udredningsret
 from DSI.csv_files.udredningsret_datasets import (
     DATASETS,
@@ -241,30 +242,6 @@ def test_check_delivery_age():
     with pytest.raises(ValueError, match="days old"):
         udredningsret.check_delivery_age(archive, date(2026, 9, 20))
     assert udredningsret.check_delivery_age(archive, date(2026, 9, 20), max_age_days=30) == 13
-
-
-def test_udredningsret_dir_fejler_haardt_uden_fallback(tmp_path, monkeypatch):
-    monkeypatch.delenv(udredningsret.BASE_DIR_ENV, raising=False)
-    with pytest.raises(ValueError, match="is unset"):
-        udredningsret.udredningsret_dir()
-    monkeypatch.setenv(udredningsret.BASE_DIR_ENV, str(tmp_path / "findes_ikke"))
-    with pytest.raises(ValueError, match="not a directory"):
-        udredningsret.udredningsret_dir()
-    monkeypatch.setenv(udredningsret.BASE_DIR_ENV, str(tmp_path))
-    assert udredningsret.udredningsret_dir() == str(tmp_path)
-
-
-def test_base_dir_override_er_eksplicit_og_valideres(tmp_path, monkeypatch):
-    """Run-config override wins over the variable, but is validated the same way —
-    it is an explicit operator input, never a default."""
-    monkeypatch.delenv(udredningsret.BASE_DIR_ENV, raising=False)
-    assert udredningsret.udredningsret_dir(str(tmp_path)) == str(tmp_path)
-    with pytest.raises(ValueError, match="not a directory"):
-        udredningsret.udredningsret_dir(str(tmp_path / "findes_ikke"))
-    with pytest.raises(ValueError, match="is unset"):
-        udredningsret.udredningsret_dir("   ")  # blank override is no override
-    monkeypatch.setenv(udredningsret.BASE_DIR_ENV, str(tmp_path / "findes_ikke"))
-    assert udredningsret.udredningsret_dir(str(tmp_path)) == str(tmp_path)
 
 
 # ---------------------------------------------------------------------------
@@ -557,12 +534,12 @@ class _FakeDfm:
 
 
 def _run(tmp_path, monkeypatch, checkpoint, on_or_before=None):
-    monkeypatch.setenv(udredningsret.BASE_DIR_ENV, str(tmp_path))
     monkeypatch.setattr(udredningsret, "DfmManager", lambda mssql, context: _FakeDfm(checkpoint))
     resource = _FakeResource()
     result = udredningsret._run_extract(
         _Ctx(),
         resource,
+        FileShareResource(base_dir=str(tmp_path)),
         udredningsret.UdredningsretExtractConfig(delivery_on_or_before=on_or_before),
     )
     return resource.conn, result

@@ -13,11 +13,13 @@ that were previously scattered in the Connections/ folder.
 
 import json
 import os
+import shutil
 import time
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
+from urllib.request import Request, urlopen
 
 import dagster as dg
 import oracledb
@@ -29,6 +31,8 @@ from core.fhir import identifier_lookup as _identifier_lookup
 from core.fhir.aidbox_json import (
     transform_references_for_aidbox as _transform_references_for_aidbox,
 )
+from core.file_delivery import DEFAULT_ENCODING, source_encoding
+from core.org_config import DATA_DIR
 from core.os2mo.client import (
     DEFAULT_FILE_STORE as _OS2MO_DEFAULT_FILE_STORE,
 )
@@ -73,7 +77,6 @@ else:
 # Use FHIR R4B (4.3) model classes
 from fhir.resources.R4B.resource import Resource
 from requests.auth import HTTPBasicAuth
-from utils.fhir.identifier_index_names import sanitize_system_for_identifier
 
 try:
     import mssql_python
@@ -171,22 +174,19 @@ class MSSQLResource(dg.ConfigurableResource):
         return _connect_mssql_python(self._build_conn_str(), timeout=timeout)
 
 
-class MySupplyMSSQLResource(dg.ConfigurableResource):
-    """A Dagster resource for connecting to the mySupply Microsoft SQL Server database.
+class _MSSQLPythonSourceResource(dg.ConfigurableResource):
+    """Base for MSSQL sources that use mssql-python. Subclasses set the five fields from EnvVar."""
 
-    Uses mssql-python for extraction.
-    """
-
-    host: str = dg.EnvVar("MYSUPPLY_PROD_MSSQL_SERVER")
-    port: int = dg.EnvVar.int("MYSUPPLY_PROD_MSSQL_PORT")
-    database: str = dg.EnvVar("MYSUPPLY_PROD_MSSQL_DATABASE")
-    user: str = dg.EnvVar("MYSUPPLY_PROD_MSSQL_USERNAME")
-    password: str = dg.EnvVar("MYSUPPLY_PROD_MSSQL_PASSWORD")
+    host: str
+    port: int
+    database: str
+    user: str
+    password: str
 
     @contextmanager
     def get_connection(self):
         """Context manager yielding a database connection."""
-        dg.get_dagster_logger().info("Using mssql-python for MySupplyMSSQLResource")
+        dg.get_dagster_logger().info(f"Using mssql-python for {type(self).__name__}")
         conn_str = build_mssql_conn_str(
             self.host, self.port, self.database, self.user, self.password
         )
@@ -197,91 +197,8 @@ class MySupplyMSSQLResource(dg.ConfigurableResource):
             conn.close()
 
 
-class SydaxMSSQLResource(dg.ConfigurableResource):
-    """A Dagster resource for connecting to the SYDAX Microsoft SQL Server database.
-
-    Uses mssql-python for extraction.
-    """
-
-    host: str = dg.EnvVar("SYDAX_PROD_MSSQL_SERVER")
-    port: int = dg.EnvVar.int("SYDAX_PROD_MSSQL_PORT")
-    database: str = dg.EnvVar("SYDAX_PROD_MSSQL_DATABASE")
-    user: str = dg.EnvVar("SYDAX_PROD_MSSQL_USERNAME")
-    password: str = dg.EnvVar("SYDAX_PROD_MSSQL_PASSWORD")
-
-    @contextmanager
-    def get_connection(self):
-        """A context manager that yields a database connection and closes it when exiting."""
-        dg.get_dagster_logger().info("Using mssql-python for SydaxMSSQLResource")
-        conn_str = build_mssql_conn_str(
-            self.host, self.port, self.database, self.user, self.password
-        )
-        conn = _connect_mssql_python(conn_str, timeout=6000)
-        try:
-            yield conn
-        finally:
-            conn.close()
-
-
-class ILSMSSQLResource(dg.ConfigurableResource):
-    """A Dagster resource for connecting to the ILS Microsoft SQL Server database."""
-
-    host: str = dg.EnvVar("ILS_PROD_MSSQL_SERVER")
-    port: int = dg.EnvVar.int("ILS_PROD_MSSQL_PORT")
-    database: str = dg.EnvVar("ILS_PROD_MSSQL_DATABASE")
-    user: str = dg.EnvVar("ILS_PROD_MSSQL_USERNAME")
-    password: str = dg.EnvVar("ILS_PROD_MSSQL_PASSWORD")
-
-    @contextmanager
-    def get_connection(self):
-        """A context manager that yields a pymssql database connection and closes it when exiting."""
-        conn = pymssql.connect(
-            server=self.host,
-            port=self.port,
-            user=self.user,
-            password=self.password,
-            database=self.database,
-        )
-        try:
-            yield conn
-        finally:
-            conn.close()
-
-
-class KmdUddataMSSQLResource(dg.ConfigurableResource):
-    """A Dagster resource for connecting to the KMD Spend UdData Azure Synapse database.
-
-    Uses mssql-python for extraction. The Synapse serverless pool has a cold-start
-    latency; the existing ERP retry policy (max_retries=2, delay=30) at the asset
-    level handles transient connection failures.
-    """
-
-    host: str = dg.EnvVar("SPEND_KMD_MSSQL_SERVER")
-    port: int = dg.EnvVar.int("SPEND_KMD_MSSQL_PORT")
-    database: str = dg.EnvVar("SPEND_KMD_MSSQL_DATABASE")
-    user: str = dg.EnvVar("SPEND_KMD_MSSQL_USER")
-    password: str = dg.EnvVar("SPEND_KMD_MSSQL_PASSWORD")
-
-    @contextmanager
-    def get_connection(self):
-        """Context manager yielding a database connection."""
-        dg.get_dagster_logger().info("Using mssql-python for KmdUddataMSSQLResource")
-        conn_str = build_mssql_conn_str(
-            self.host, self.port, self.database, self.user, self.password
-        )
-        conn = _connect_mssql_python(conn_str, timeout=6000)
-        try:
-            yield conn
-        finally:
-            conn.close()
-
-
-class _DomainAccountMSSQLResource(dg.ConfigurableResource):
-    """Base for MSSQL sources that log in with a EXAMPLE service account.
-
-    Uses pymssql, because mssql-python on Linux cannot do NTLM with a user
-    name and a password. Subclasses set the five fields from EnvVar.
-    """
+class _PymssqlSourceResource(dg.ConfigurableResource):
+    """Base for MSSQL sources that use pymssql. Subclasses set the five fields from EnvVar."""
 
     host: str
     port: int
@@ -303,6 +220,65 @@ class _DomainAccountMSSQLResource(dg.ConfigurableResource):
             yield conn
         finally:
             conn.close()
+
+
+class MySupplyMSSQLResource(_MSSQLPythonSourceResource):
+    """A Dagster resource for connecting to the mySupply Microsoft SQL Server database.
+
+    Uses mssql-python for extraction.
+    """
+
+    host: str = dg.EnvVar("MYSUPPLY_PROD_MSSQL_SERVER")
+    port: int = dg.EnvVar.int("MYSUPPLY_PROD_MSSQL_PORT")
+    database: str = dg.EnvVar("MYSUPPLY_PROD_MSSQL_DATABASE")
+    user: str = dg.EnvVar("MYSUPPLY_PROD_MSSQL_USERNAME")
+    password: str = dg.EnvVar("MYSUPPLY_PROD_MSSQL_PASSWORD")
+
+
+class SydaxMSSQLResource(_MSSQLPythonSourceResource):
+    """A Dagster resource for connecting to the SYDAX Microsoft SQL Server database.
+
+    Uses mssql-python for extraction.
+    """
+
+    host: str = dg.EnvVar("SYDAX_PROD_MSSQL_SERVER")
+    port: int = dg.EnvVar.int("SYDAX_PROD_MSSQL_PORT")
+    database: str = dg.EnvVar("SYDAX_PROD_MSSQL_DATABASE")
+    user: str = dg.EnvVar("SYDAX_PROD_MSSQL_USERNAME")
+    password: str = dg.EnvVar("SYDAX_PROD_MSSQL_PASSWORD")
+
+
+class ILSMSSQLResource(_PymssqlSourceResource):
+    """A Dagster resource for connecting to the ILS Microsoft SQL Server database."""
+
+    host: str = dg.EnvVar("ILS_PROD_MSSQL_SERVER")
+    port: int = dg.EnvVar.int("ILS_PROD_MSSQL_PORT")
+    database: str = dg.EnvVar("ILS_PROD_MSSQL_DATABASE")
+    user: str = dg.EnvVar("ILS_PROD_MSSQL_USERNAME")
+    password: str = dg.EnvVar("ILS_PROD_MSSQL_PASSWORD")
+
+
+class KmdUddataMSSQLResource(_MSSQLPythonSourceResource):
+    """A Dagster resource for connecting to the KMD Spend UdData Azure Synapse database.
+
+    Uses mssql-python for extraction. The Synapse serverless pool has a cold-start
+    latency; the existing ERP retry policy (max_retries=2, delay=30) at the asset
+    level handles transient connection failures.
+    """
+
+    host: str = dg.EnvVar("SPEND_KMD_MSSQL_SERVER")
+    port: int = dg.EnvVar.int("SPEND_KMD_MSSQL_PORT")
+    database: str = dg.EnvVar("SPEND_KMD_MSSQL_DATABASE")
+    user: str = dg.EnvVar("SPEND_KMD_MSSQL_USER")
+    password: str = dg.EnvVar("SPEND_KMD_MSSQL_PASSWORD")
+
+
+class _DomainAccountMSSQLResource(_PymssqlSourceResource):
+    """Base for MSSQL sources that log in with a EXAMPLE service account.
+
+    Uses pymssql, because mssql-python on Linux cannot do NTLM with a user
+    name and a password. Subclasses set the five fields from EnvVar.
+    """
 
 
 class MaxManusMSSQLResource(_DomainAccountMSSQLResource):
@@ -350,49 +326,19 @@ class PatologiMSSQLResource(_DomainAccountMSSQLResource):
 # ============================================================================
 
 
-def _ifdb_oracle_output_type_handler(cursor, metadata):
-    """Connection-wide fetch bindings for IFDB Oracle.
+def _oracle_output_type_handler(cursor, metadata):
+    """Connection-wide fetch bindings for the IFDB and EPJI Oracle sources.
 
     Two concerns in one handler (a cursor-level handler would *replace* it,
     so everything lives here):
 
-    - Strings decode from WE8MSWIN1252 with ``encoding_errors="replace"`` so a
-      stray undecodable byte degrades to U+FFFD instead of failing the fetch.
+    - Strings decode with ``encoding_errors="replace"`` so a stray undecodable
+      byte degrades to U+FFFD instead of failing the fetch.
     - CLOB/NCLOB (and BLOB) fetch inline instead of as LOB locators; a locator
       costs one extra network round trip per row for the ``LOB.read()``, which
       dominates fetch time on XML-bearing tables. Inline fetch caps a value at
       1 GB — far above anything in IFDB; ``_convert_oracle_value`` still reads
       any LOB that slips through.
-    """
-    if metadata.type_code in (
-        oracledb.DB_TYPE_VARCHAR,
-        oracledb.DB_TYPE_CHAR,
-        oracledb.DB_TYPE_LONG,
-        oracledb.DB_TYPE_NVARCHAR,
-        oracledb.DB_TYPE_NCHAR,
-    ):
-        return cursor.var(str, arraysize=cursor.arraysize, encoding_errors="replace")
-    if metadata.type_code in (oracledb.DB_TYPE_CLOB, oracledb.DB_TYPE_NCLOB):
-        return cursor.var(
-            oracledb.DB_TYPE_LONG, arraysize=cursor.arraysize, encoding_errors="replace"
-        )
-    if metadata.type_code is oracledb.DB_TYPE_BLOB:
-        return cursor.var(oracledb.DB_TYPE_LONG_RAW, arraysize=cursor.arraysize)
-    return None
-
-
-def _epji_oracle_output_type_handler(cursor, metadata):
-    """Connection-wide fetch bindings for EPJI Oracle.
-
-    Same two concerns as ``_ifdb_oracle_output_type_handler`` (a cursor-level
-    handler would *replace* it, so everything lives here):
-
-    - Strings decode from WE8ISO8859P1 (EPJI's NLS_CHARACTERSET, confirmed
-      against prod-epjsyd — distinct from IFDB's WE8MSWIN1252, though the two
-      agree on the Danish letters æ/ø/å) with ``encoding_errors="replace"`` so
-      a stray undecodable byte degrades to U+FFFD instead of failing the fetch.
-    - CLOB/NCLOB (and BLOB) fetch inline instead of as LOB locators, avoiding
-      a per-row round trip for ``LOB.read()``.
     """
     if metadata.type_code in (
         oracledb.DB_TYPE_VARCHAR,
@@ -429,19 +375,13 @@ class IFDBOracleResource(dg.ConfigurableResource):
 
     @contextmanager
     def get_connection(self):
-        """
-        A context manager that yields an oracledb database connection and closes it when exiting.
-        Sets the current schema for the session.
-
-        Encoding: Uses output type handler to properly decode Danish characters (æ, ø, å).
-        The IFDB database uses WE8MSWIN1252 (Windows-1252) character set.
-        """
+        """Yield an oracledb connection to IFDB with CURRENT_SCHEMA set and close it on exit."""
         user = self.user
         if "ext" in user.lower() and '"' not in user:
             user = f'"{user}"'
         dsn = oracledb.makedsn(self.host, self.port, service_name=self.database)
         conn = oracledb.connect(user=user, password=self.password, dsn=dsn)
-        conn.outputtypehandler = _ifdb_oracle_output_type_handler
+        conn.outputtypehandler = _oracle_output_type_handler
 
         try:
             # Set the current schema for the session
@@ -456,10 +396,10 @@ class IFDBOracleResource(dg.ConfigurableResource):
 
 
 class EPJIOracleResource(dg.ConfigurableResource):
-    """EPJI DWH (location + location_identifier), Oracle. Service accounts: svc-healthpipepov-dwh-*.
+    """EPJI DWH (location, practitioner tables), Oracle. Service accounts: svc-healthpipepov-dwh-*.
 
-    location_identifier has no update timestamp; callers must full-snapshot the
-    mapping each run so in-place SOR identifier changes are picked up.
+    location_identifier and practitioner_identifier have no update timestamp;
+    callers must full-snapshot them each run so in-place changes are picked up.
     """
 
     host: str = dg.EnvVar("EPJI_ORACLE_SERVER")
@@ -471,15 +411,11 @@ class EPJIOracleResource(dg.ConfigurableResource):
 
     @contextmanager
     def get_connection(self):
-        """Yield an oracledb connection to the EPJI DWH and close it on exit.
-
-        Encoding: output type handler decodes WE8ISO8859P1 free text (e.g.
-        LOCATION.NAME) so Danish characters (æ, ø, å) survive the fetch.
-        """
+        """Yield an oracledb connection to EPJI with CURRENT_SCHEMA set and close it on exit."""
         user = self.user if '"' in self.user else f'"{self.user}"'
         dsn = oracledb.makedsn(self.host, self.port, service_name=self.database)
         conn = oracledb.connect(user=user, password=self.password, dsn=dsn)
-        conn.outputtypehandler = _epji_oracle_output_type_handler
+        conn.outputtypehandler = _oracle_output_type_handler
 
         try:
             cursor = conn.cursor()
@@ -490,6 +426,17 @@ class EPJIOracleResource(dg.ConfigurableResource):
             yield conn
         finally:
             conn.close()
+
+
+class ActiveDirectoryLDAPResource(dg.ConfigurableResource):
+    """Active Directory over LDAP(S), read by the AD security load."""
+
+    server: str = dg.EnvVar("LDAP_SERVER")
+    port: int = dg.EnvVar.int("LDAP_PORT")
+    bind_user: str = dg.EnvVar("LDAP_BIND_USER")
+    password: str = dg.EnvVar("LDAP_PASSWORD")
+    use_ssl: str = dg.EnvVar("LDAP_USE_SSL")
+    auth: str = dg.EnvVar("LDAP_AUTH")
 
 
 # ============================================================================
@@ -2092,101 +2039,6 @@ class FHIRDatabaseResource(dg.ConfigurableResource):
         finally:
             conn.close()
 
-    def batch_resolve_ids_direct_query(
-        self,
-        resources: Sequence[Resource],
-        resource_type: str,
-        preferred_systems: list[str],
-        batch_size: int = 1000,
-    ) -> dict[int, str | None]:
-        """
-        Approach 1: Direct PostgreSQL query with batching.
-
-        Bypasses FHIR HTTP API and queries database directly using raw SQL.
-        Processes identifiers in batches using UNION ALL queries.
-
-        Args:
-            resources: List of FHIR resources with identifiers
-            resource_type: Type of resource (e.g., "Patient")
-            preferred_systems: List of identifier systems to try
-            batch_size: Number of identifiers per batch query
-
-        Returns:
-            Dictionary mapping resource index -> resolved FHIR server ID
-        """
-        if not resources:
-            return {}
-
-        # Extract identifiers from resources
-        resource_identifiers: list[tuple[int, str, str]] = []
-
-        for idx, resource in enumerate(resources):
-            identifiers = getattr(resource, "identifier", None)
-            if not identifiers:
-                continue
-
-            system_to_value: dict[str, str] = {}
-            for ident in identifiers:
-                system = getattr(ident, "system", None)
-                value = getattr(ident, "value", None)
-                if system and value:
-                    system_to_value[str(system)] = str(value)
-
-            for preferred_system in preferred_systems:
-                if preferred_system in system_to_value:
-                    resource_identifiers.append(
-                        (
-                            idx,
-                            preferred_system,
-                            system_to_value[preferred_system],
-                        )
-                    )
-                    break
-
-        if not resource_identifiers:
-            return {}
-
-        dg.get_dagster_logger().info(
-            f"[Direct Query] Resolving {len(resource_identifiers)} IDs in batches of {batch_size}"
-        )
-
-        index_to_id: dict[int, str | None] = {}
-        table_name = resource_type.lower()
-
-        with self.get_connection() as conn:
-            with conn.cursor() as cur:
-                # Process in batches
-                for batch_start in range(0, len(resource_identifiers), batch_size):
-                    batch = resource_identifiers[batch_start : batch_start + batch_size]
-
-                    # Build query with UNION ALL for each identifier
-                    # Note: Each SELECT needs to be wrapped in parentheses for UNION ALL
-                    queries = []
-                    params = []
-
-                    for idx, system, value in batch:
-                        queries.append(
-                            f"(SELECT %s as idx, id FROM {table_name} WHERE resource @> %s LIMIT 1)"
-                        )
-                        params.extend(
-                            [
-                                idx,
-                                json.dumps({"identifier": [{"system": system, "value": value}]}),
-                            ]
-                        )
-
-                    if queries:
-                        union_query = " UNION ALL ".join(queries)
-                        cur.execute(union_query, params)
-
-                        for row in cur.fetchall():
-                            index_to_id[row[0]] = row[1]
-
-        dg.get_dagster_logger().info(
-            f"[Direct Query] Resolved {len(index_to_id)}/{len(resource_identifiers)} IDs"
-        )
-        return index_to_id
-
     @staticmethod
     def _cache_key(
         resource_type: str,
@@ -2390,98 +2242,6 @@ class FHIRDatabaseResource(dg.ConfigurableResource):
             resource_types=resource_types,
         )
 
-    def batch_resolve_ids_memory_cache(
-        self,
-        resources: Sequence[Resource],
-        resource_type: str,
-        preferred_systems: list[str],
-    ) -> dict[int, str | None]:
-        """
-        Compatibility wrapper for resolving IDs through the canonical lookup.
-
-        Args:
-            resources: List of FHIR resources with identifiers
-            resource_type: Type of resource (e.g., "Patient")
-            preferred_systems: List of identifier systems to try
-
-        Returns:
-            Dictionary mapping resource index -> resolved FHIR server ID
-        """
-        return self.resolve_resource_ids(
-            resources=resources,
-            resource_type=resource_type,
-            preferred_systems=preferred_systems,
-        )
-
-    def create_optimized_index(
-        self,
-        resource_type: str,
-        identifier_system: str,
-        drop_existing: bool = False,
-        concurrently: bool = True,
-        analyze_after: bool = False,
-    ) -> None:
-        """
-        Approach 2: Create optimized GIN index with expression for specific identifier system.
-
-        Creates a specialized GIN index that filters to a specific identifier system,
-        which is more targeted than a generic GIN index on all identifiers.
-
-        Args:
-            resource_type: Type of resource (e.g., "Patient")
-            identifier_system: Identifier system to index (e.g., "urn:dk:cpr")
-            drop_existing: Whether to drop existing index first
-            concurrently: Use PostgreSQL ``CREATE INDEX CONCURRENTLY``. This is
-                the safe default for live Aidbox tables, but it requires
-                autocommit because PostgreSQL rejects it inside a transaction.
-            analyze_after: Run ``ANALYZE`` after creating the index. Disabled by
-                default because the affected Aidbox tables can be very large.
-        """
-        table_name = resource_type.lower()
-        if not table_name.isalnum():
-            raise ValueError(f"Unsafe FHIR resource table name: {table_name!r}")
-        system_safe = sanitize_system_for_identifier(identifier_system)
-        index_name = f"idx_{table_name}_{system_safe}_opt"
-        concurrent_sql = "CONCURRENTLY " if concurrently else ""
-
-        dg.get_dagster_logger().info(
-            f"[Optimized Index] Creating index {index_name} for system {identifier_system}"
-        )
-
-        with self.get_connection() as conn:
-            previous_autocommit = getattr(conn, "autocommit", None)
-            if concurrently:
-                conn.autocommit = True
-
-            try:
-                with conn.cursor() as cur:
-                    if drop_existing:
-                        cur.execute(f"DROP INDEX {concurrent_sql}IF EXISTS {index_name}")
-
-                    # Create partial GIN index optimized for specific identifier system
-                    # This is more targeted than a generic GIN index on all identifiers
-                    system_filter = json.dumps([{"system": identifier_system}])
-
-                    query = f"""
-                    CREATE INDEX {concurrent_sql}IF NOT EXISTS {index_name}
-                    ON {table_name}
-                    USING GIN ((resource -> 'identifier') jsonb_path_ops)
-                    WHERE resource -> 'identifier' @> '{system_filter}'::jsonb
-                    """
-
-                    cur.execute(query)
-
-                    if analyze_after:
-                        cur.execute(f"ANALYZE {table_name}")
-
-                if not concurrently:
-                    conn.commit()
-            finally:
-                if concurrently and previous_autocommit is not None:
-                    conn.autocommit = previous_autocommit
-
-        dg.get_dagster_logger().info(f"[Optimized Index] Created index {index_name}")
-
     def create_id_index(
         self,
         resource_type: str,
@@ -2588,53 +2348,6 @@ class FHIRDatabaseResource(dg.ConfigurableResource):
                     conn.autocommit = previous_autocommit
 
         dg.get_dagster_logger().info(f"[TXID Index] Created txid index {index_name}")
-
-    def test_index_performance(
-        self,
-        resource_type: str,
-        identifier_system: str,
-        identifier_value: str,
-    ) -> tuple[float, str | None]:
-        """
-        Test query performance with EXPLAIN ANALYZE.
-
-        Returns execution time and found ID for a sample query.
-        Useful for comparing index strategies.
-        """
-        table_name = resource_type.lower()
-
-        with self.get_connection() as conn:
-            with conn.cursor() as cur:
-                query = f"""
-                EXPLAIN ANALYZE
-                SELECT id FROM {table_name}
-                WHERE resource @> %s
-                LIMIT 1
-                """
-
-                identifier_json = json.dumps(
-                    {"identifier": [{"system": identifier_system, "value": identifier_value}]}
-                )
-
-                start_time = time.perf_counter()
-                cur.execute(query, [identifier_json])
-                explain_result = cur.fetchall()
-                elapsed = time.perf_counter() - start_time
-
-                # Get actual result
-                cur.execute(
-                    f"SELECT id FROM {table_name} WHERE resource @> %s LIMIT 1",
-                    [identifier_json],
-                )
-                result = cur.fetchone()
-                fhir_id = result[0] if result else None
-
-                # Parse execution time from EXPLAIN ANALYZE
-                for line in explain_result:
-                    if "Execution Time:" in str(line):
-                        dg.get_dagster_logger().info(f"Query plan: {line}")
-
-        return elapsed, fhir_id
 
     def batch_upsert_resources(
         self,
@@ -2901,6 +2614,155 @@ def os2mo_defs() -> dg.Definitions:
                 enabled=env_bool("OS2MO_ENABLED", False),
                 timeout_sec=env_int("OS2MO_TIMEOUT_SEC", 120, minimum=1),
                 max_retries=env_int("OS2MO_MAX_RETRIES", 3, minimum=0),
+            ),
+        }
+    )
+
+
+class FileShareResource(dg.ConfigurableResource):
+    """A delivery folder on a mounted CIFS share.
+
+    ``base_dir`` is bound to the source's ``<SOURCE>_BASE_DIR``. The Nomad job mounts the
+    share at /mnt/ftproot and sets that variable only on a code server whose branch slug is
+    in SMB_SHARE_BRANCHES on the acr-watcher; elsewhere Dagster fails the run, schedule tick or
+    sensor tick because the environment variable is not set.
+    """
+
+    base_dir: str
+    encoding: str = DEFAULT_ENCODING
+    require_non_empty: bool = False
+
+    def root(self) -> str:
+        """The validated folder; a ValueError when it is empty, not a directory, or (with
+        ``require_non_empty``) a directory without entries."""
+        root = self.base_dir.strip()
+        if not root:
+            raise ValueError(
+                "base_dir is unset or empty. "
+                "Set the source's <SOURCE>_BASE_DIR to the mounted delivery folder."
+            )
+        if not os.path.isdir(root):
+            raise ValueError(
+                f"base_dir={root!r} is not a directory. "
+                f"The CIFS share is probably not mounted in this allocation."
+            )
+        if self.require_non_empty:
+            with os.scandir(root) as entries:
+                if next(entries, None) is None:
+                    raise ValueError(
+                        f"base_dir={root!r} is an empty directory. That is a share that is "
+                        f"not mounted or points to the wrong place, not an absence of deliveries."
+                    )
+        return root
+
+
+class HTTPDownloadResource(dg.ConfigurableResource):
+    """A file source that is downloaded over HTTPS from a fixed base URL."""
+
+    base_url: str
+    user_agent: str
+    timeout_sec: int = 300
+    persist_dir: str | None = None
+
+    def url(self, path: str) -> str:
+        """The full URL of ``path`` under ``base_url``."""
+        return f"{self.base_url}/{path}"
+
+    def _request(self, path: str) -> Request:
+        return Request(self.url(path), headers={"User-Agent": self.user_agent, "Accept": "*/*"})
+
+    def fetch(self, path: str) -> bytes:
+        """The whole file in memory."""
+        with urlopen(self._request(path), timeout=self.timeout_sec) as response:
+            return response.read()
+
+    def persisted_path(self, path: str) -> str:
+        """Where ``download_to_file`` keeps ``path``: its file name in ``persist_dir``."""
+        if not self.persist_dir:
+            raise ValueError("persist_dir is not set on this HTTPDownloadResource")
+        return os.path.join(self.persist_dir, os.path.basename(path))
+
+    def download_to_file(self, path: str) -> str:
+        """Stream ``path`` to ``persisted_path(path)``; the file gets that name only when complete."""
+        file_path = self.persisted_path(path)
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        partial_path = f"{file_path}.partial"
+        try:
+            with (
+                urlopen(self._request(path), timeout=self.timeout_sec) as response,
+                open(partial_path, "wb") as f,
+            ):
+                shutil.copyfileobj(response, f)
+            os.replace(partial_path, file_path)
+        finally:
+            if os.path.exists(partial_path):
+                os.remove(partial_path)
+        return file_path
+
+
+def file_delivery_defs() -> dg.Definitions:
+    """Defines one resource per file-delivered source: a share or an HTTP download."""
+    return dg.Definitions(
+        resources={
+            "sks_download": HTTPDownloadResource(
+                base_url="https://filer.sundhedsdata.dk/sks/data/skscomplete",
+                user_agent="Mozilla/5.0 (compatible; Dagster-SKS-Loader/2.0)",
+            ),
+            "sor_download": HTTPDownloadResource(
+                base_url="https://sor-filer.sundhedsdata.dk/sor2_produktion/V1_00",
+                user_agent="Mozilla/5.0 (compatible; Dagster-SOR-Loader/1.0)",
+                persist_dir=os.path.join(DATA_DIR, "sor_raw"),
+            ),
+            "apovision_share": FileShareResource(
+                base_dir=dg.EnvVar("APOVISION_BASE_DIR"),
+                encoding=source_encoding("APOVISION_FILE_ENCODING"),
+            ),
+            "cpr_share": FileShareResource(
+                base_dir=dg.EnvVar("CPR_BASE_DIR"),
+                encoding=source_encoding("CPR_FILE_ENCODING"),
+                require_non_empty=True,
+            ),
+            "drg_share": FileShareResource(
+                base_dir=dg.EnvVar("DRG_BASE_DIR"),
+                encoding=source_encoding("DRG_FILE_ENCODING"),
+            ),
+            "haiba_share": FileShareResource(
+                base_dir=dg.EnvVar("HAIBA_BASE_DIR"),
+                encoding=source_encoding("HAIBA_FILE_ENCODING"),
+            ),
+            "kraeftmonitorering_share": FileShareResource(
+                base_dir=dg.EnvVar("KRAEFTMONITORERING_BASE_DIR"),
+                encoding=source_encoding("KRAEFTMONITORERING_FILE_ENCODING"),
+            ),
+            "lpr3_share": FileShareResource(
+                base_dir=dg.EnvVar("LPR3_BASE_DIR"),
+                encoding=source_encoding("LPR3_FILE_ENCODING"),
+            ),
+            "lprlister_share": FileShareResource(
+                base_dir=dg.EnvVar("LPRLISTER_BASE_DIR"),
+                encoding=source_encoding("LPRLISTER_FILE_ENCODING"),
+            ),
+            "safetynet_share": FileShareResource(
+                base_dir=dg.EnvVar("SAFETYNET_BASE_DIR"),
+                encoding=source_encoding("SAFETYNET_FILE_ENCODING"),
+            ),
+            "sds_tip_share": FileShareResource(
+                base_dir=dg.EnvVar("SDS_TIP_BASE_DIR"),
+                encoding=source_encoding("SDS_TIP_FILE_ENCODING"),
+            ),
+            "silkeborgdata_share": FileShareResource(
+                base_dir=dg.EnvVar("SILKEBORGDATA_BASE_DIR"),
+                # DOS-Nordic; HAIBA on the same mount is cp1252.
+                encoding=source_encoding("SILKEBORGDATA_FILE_ENCODING", "cp865"),
+                require_non_empty=True,
+            ),
+            "udredningsret_share": FileShareResource(
+                base_dir=dg.EnvVar("UDREDNINGSRET_BASE_DIR"),
+                encoding=source_encoding("UDREDNINGSRET_FILE_ENCODING"),
+            ),
+            "ventetider_share": FileShareResource(
+                base_dir=dg.EnvVar("VENTETIDER_BASE_DIR"),
+                encoding=source_encoding("VENTETIDER_FILE_ENCODING"),
             ),
         }
     )

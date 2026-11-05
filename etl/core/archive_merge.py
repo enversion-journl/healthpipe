@@ -7,8 +7,9 @@
 """
 Archive MERGE utilities.
 
-build_archive_merge_sql() generates readable T-SQL MERGE from an ArchiveMergeConfig.
-execute_archive_merge()   is the shared execution lifecycle for all archive assets.
+build_archive_merge_sql()     generates readable T-SQL MERGE from an ArchiveMergeConfig.
+build_soft_delete_count_sql() counts what that MERGE would soft-delete, before it runs.
+execute_archive_merge()       is the shared execution lifecycle for all archive assets.
 
 The generated SQL is designed to be copy-pasteable into SSMS for investigation.
 """
@@ -50,6 +51,21 @@ def build_archive_merge_sql(config: ArchiveMergeConfig, *, track_actions: bool =
     if config.strategy == "insert_only":
         return _build_insert_only_sql(config)
     return _build_upsert_sql(config, track_actions=track_actions)
+
+
+def build_soft_delete_count_sql(config: ArchiveMergeConfig) -> str:
+    """Count the live archive rows that WHEN NOT MATCHED BY SOURCE would soft-delete."""
+    tgt = f"[{config.target_schema}].[{config.target_table}]"
+    matched = " AND ".join(f"src.[{k}] = tgt.[{k}]" for k in config.merge_keys)
+    delete_scope = ""
+    if config.delete_scope_predicate:
+        delete_scope = f"\n  AND ({config.delete_scope_predicate})"
+    # Dedup keeps one row per merge key, so the scoped source holds the same keys.
+    return (
+        f"SELECT COUNT(*)\nFROM {tgt} AS tgt\n"
+        f"WHERE tgt.[{config.soft_delete_column}] = 0{delete_scope}\n"
+        f"  AND NOT EXISTS (SELECT 1 FROM {_scoped_source(config)} AS src WHERE {matched})"
+    )
 
 
 def _scoped_source(config: ArchiveMergeConfig) -> str:

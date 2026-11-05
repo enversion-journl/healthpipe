@@ -21,8 +21,8 @@ class DqaCheckConfig(dg.Config):
     (``DQA_REMEDIATION_MAX_KEYS``, default 100k) for **this run only** -- set it in
     the Dagster Launchpad to let a check enqueue a backlog larger than the guard
     without editing the code-location environment. It only affects checks that
-    enqueue to ``dqa.RemediationQueue`` (``source_reconciliation`` /
-    ``archive_reconciliation`` with ``capture_replay``, ``referential_integrity``,
+    enqueue to ``dqa.RemediationQueue`` (``archive_fhir_reconciliation`` /
+    ``source_archive_reconciliation`` with ``capture_replay``, ``referential_integrity``,
     ``patient_arc_integrity``); it is a harmless no-op on every other check. ``None`` -> use the env-var/default guard.
 
     NB: this is the *capture* guard only. The replay job has its own ``max_keys``

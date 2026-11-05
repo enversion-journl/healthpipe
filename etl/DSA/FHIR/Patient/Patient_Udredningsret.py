@@ -38,7 +38,7 @@ carry counts only.
 from core.resources import MSSQLResource
 from DSA.FHIR.Patient.cpr_stub_asset import build_cpr_stub_asset
 from DSA.FHIR.Patient.cpr_stub_asset import classify_cprs as _classify_cprs
-from DSA.FHIR.Patient.field_ownership import SOURCE_UDRED
+from DSA.FHIR.Patient.patient_ownership import SOURCE_UDRED
 
 CPR_SQL = """
 -- No length cast: CAST(... AS NVARCHAR(10)) would silently truncate a

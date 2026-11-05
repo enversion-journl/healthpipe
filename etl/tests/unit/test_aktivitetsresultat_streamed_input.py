@@ -106,8 +106,6 @@ def test_aktivitetsresultat_pipeline_consumes_streamed_batches(monkeypatch) -> N
 
     monkeypatch.setattr(mod, "_transform_aktivitetsresultat_to_fhir_dicts", _fake_transform)
 
-    import DSA.FHIR.utils.ifdb.fhir_posting as posting_mod
-
     def _fake_post_resource_dicts_direct(**kwargs):
         post_counts.append(len(kwargs["resource_dicts"]))
         return dg.MaterializeResult(
@@ -118,7 +116,7 @@ def test_aktivitetsresultat_pipeline_consumes_streamed_batches(monkeypatch) -> N
         )
 
     monkeypatch.setattr(
-        posting_mod,
+        mod,
         "post_resource_dicts_direct",
         _fake_post_resource_dicts_direct,
     )
@@ -187,10 +185,8 @@ def test_udf_og_speciale_opslag_er_chunk_lokale(monkeypatch) -> None:
 
     monkeypatch.setattr(mod, "_transform_aktivitetsresultat_to_fhir_dicts", _fake_transform)
 
-    import DSA.FHIR.utils.ifdb.fhir_posting as posting_mod
-
     monkeypatch.setattr(
-        posting_mod,
+        mod,
         "post_resource_dicts_direct",
         lambda **kwargs: dg.MaterializeResult(
             metadata={
@@ -277,9 +273,7 @@ def _patch_pipeline_omgivelser(monkeypatch, *, chunk_size: int, post: _PostOptag
         mod, "_transform_aktivitetsresultat_to_fhir_dicts", _fake_transform_alle_familier
     )
 
-    import DSA.FHIR.utils.ifdb.fhir_posting as posting_mod
-
-    monkeypatch.setattr(posting_mod, "post_resource_dicts_direct", post)
+    monkeypatch.setattr(mod, "post_resource_dicts_direct", post)
 
 
 def _tre_raekker() -> _StreamingRows:

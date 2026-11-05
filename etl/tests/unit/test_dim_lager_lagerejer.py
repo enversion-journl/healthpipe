@@ -349,8 +349,14 @@ class TestLineage:
 
     def test_every_column_declares_its_ils_source(self, columns):
         for dim_col, source_col in LAGER_SOURCE_COLUMNS.items():
+            if dim_col == "aktiv":
+                continue  # both levels carry it — see the test below
             assert dim_col in columns, dim_col
             assert columns[dim_col]["Source"] == [f"ils.dbo.lgr.{source_col}"], dim_col
+
+    def test_aktiv_comes_from_the_warehouse_and_the_hospital(self, columns):
+        """A lager row's flag is dbo.lgr.aktiv, a sygehus row's is dbo.sgh.aktiv."""
+        assert columns["aktiv"]["Source"] == ["ils.dbo.lgr.aktiv", "ils.dbo.sgh.aktiv"]
 
     def test_previously_dead_columns_no_longer_claim_to_come_from_sgh(self, columns):
         """They were documented as ils.dbo.sgh.* while being populated by nothing."""

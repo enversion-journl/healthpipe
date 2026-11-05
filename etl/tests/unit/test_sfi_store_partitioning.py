@@ -149,7 +149,9 @@ def test_index_definitions_are_two_aligned_btrees_on_a_columnstore():
         "UX_FHIR_SFI_datapoint_store_DatapointKey",
         "IX_FHIR_SFI_datapoint_store_PatientOccurredDt",
     ]
-    assert p.NON_ALIGNED_INDEXES == (), "på en columnstore skal alle B-træer være alignede"
+    assert all(
+        i.aligned for i in p.STORE_INDEXES
+    ), "på en columnstore skal alle B-træer være alignede"
     for ix in p.STORE_INDEXES:
         assert ix.key_columns[-1] == p.PARTITION_COLUMN, f"{ix.name}: partitionskolonnen sidst"
         assert ix.include_columns == (), "smalle B-træer: kolonnerne læses fra columnstoren"
@@ -162,7 +164,7 @@ def test_index_definitions_are_two_aligned_btrees_on_a_columnstore():
 
 
 def test_columnstore_sql_names_and_reorganize():
-    assert p.columnstore_index_name() == "CCI_FHIR_SFI_datapoint_store" == p.COLUMNSTORE_INDEX
+    assert p.columnstore_index_name() == "CCI_FHIR_SFI_datapoint_store"
     assert p.columnstore_index_name(p.WORK_TABLE) == "CCI_FHIR_SFI_datapoint_store_backfill"
     sql = _norm(p.columnstore_index_sql())
     assert sql == (

@@ -67,6 +67,14 @@ class TestAssetWiring:
         # Mappings left the file; the delivery depends only on the codesystem.
         assert _deps("os2mo_okosted_export") == _keys("cs_okosted", "staging_infra_export")
 
+    def test_ean_is_built_from_the_invoice_receivers_and_its_codesystem(self):
+        assert _deps("os2mo_ean_export") == _keys(
+            "cs_ean", "arc_mysupply_statistic_invoice_header", "staging_infra_export"
+        )
+
+    def test_lager_is_built_from_its_codesystem_alone(self):
+        assert _deps("os2mo_lager_export") == _keys("cs_lager", "staging_infra_export")
+
     @pytest.mark.parametrize("spec", CODESYSTEM_EXPORTS, ids=lambda s: s.name)
     def test_each_upload_consumes_its_own_export(self, spec):
         assert _deps(upload_asset_name(spec)) == _keys(export_asset_name(spec))
@@ -74,7 +82,7 @@ class TestAssetWiring:
     def test_the_archive_waits_for_the_extract_and_its_table(self):
         key = AssetKey.from_user_string("arc_os2mo_org_unit")
         assert arc_os2mo_org_unit.asset_deps[key] == _keys(
-            "ext_os2mo_org_unit", "staging_infra_os2mo_archive"
+            "ext_os2mo_org_unit", "staging_infra_source_os2mo"
         )
 
 

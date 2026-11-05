@@ -15,7 +15,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from DSA.FHIR.Questionnaire import (
+from DSA.FHIR.Questionnaire.Questionnaire_IFDB import (
     QUESTIONNAIRE_CANONICAL_PREFIX,
     QUESTIONNAIRE_IDENTIFIER_SYSTEM,
     build_questionnaire_canonical,

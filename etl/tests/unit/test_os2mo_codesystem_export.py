@@ -34,6 +34,7 @@ from pathlib import Path
 import pytest
 from utils.os2mo.codesystem_export import (
     BASE_COLUMNS,
+    CodeSource,
     CodesystemExportSpec,
     build_export_rows,
     export_columns,
@@ -87,10 +88,8 @@ def _fixture_rows() -> list[dict[str, str]]:
 
 
 def _phase1_date_to_iso(value: str) -> str:
-    """ "20150730 00:00:00 " -> "2015-07-30"; the open sentinel 9999… -> ""."""
+    """ "20150730 00:00:00 " -> "2015-07-30"; the open sentinel "99991231 …" -> "9999-12-31"."""
     raw = value.strip()
-    if raw.startswith("9999"):
-        return ""
     return f"{raw[0:4]}-{raw[4:6]}-{raw[6:8]}"
 
 
@@ -280,7 +279,7 @@ class TestOkosted:
     def test_a_closed_code_carries_its_end_date(self):
         built = {row["kode"]: row for row in _okosted_rows()}
         assert built["4711"]["gyldig_til"] == "2025-12-31"
-        assert built["OUH"]["gyldig_til"] == ""
+        assert built["OUH"]["gyldig_til"] == "9999-12-31"
 
     def test_okosted_has_no_type(self):
         assert {row["type"] for row in _okosted_rows()} == {""}
@@ -292,6 +291,52 @@ class TestOkosted:
         ]
         # Neither is a root, so neither is reachable — and the walk terminates.
         assert build_export_rows(OKOSTED_SPEC, source) == []
+
+
+INVOICE_RECEIVERS = CodeSource(
+    schema="arc", table="mysupply_statistic_invoice_header", column="RegningsModtagerID"
+)
+
+# A local stand-in for the production EAN spec: flat, no dates, type or flags.
+EAN_SPEC = CodesystemExportSpec(
+    name="EAN",
+    asset_prefix="ean",
+    source_deps=("cs_ean",),
+    from_property=None,
+    to_property=None,
+    code_source=INVOICE_RECEIVERS,
+    display_property="participantName",
+)
+
+# As build_code_source_query returns them: no parent, and display NULL for a
+# receiver NemHandel does not know.
+EAN_SOURCE = [
+    {"code": "5790000000002", "display": "Firma B", "parent_code": None},
+    {"code": "5790000000001", "display": "Firma A", "parent_code": None},
+    {"code": "5790000000003", "display": None, "parent_code": None},
+]
+
+
+class TestEan:
+    def test_a_flat_codesystem_is_all_roots_at_niveau_1(self):
+        built = build_export_rows(EAN_SPEC, EAN_SOURCE)
+        assert [row["kode"] for row in built] == ["5790000000001", "5790000000002", "5790000000003"]
+        assert {row["kode_parent"] for row in built} == {""}
+        assert {row["niveau"] for row in built} == {"1"}
+
+    def test_columns_without_a_source_property_are_empty(self):
+        for row in build_export_rows(EAN_SPEC, EAN_SOURCE):
+            for column in ("type", "aktiv", "dw_is_deleted"):
+                assert row[column] == ""
+
+    def test_without_source_dates_a_code_is_valid_from_1900_to_9999(self):
+        for row in build_export_rows(EAN_SPEC, EAN_SOURCE):
+            assert (row["gyldig_fra"], row["gyldig_til"]) == ("1900-01-01", "9999-12-31")
+
+    def test_navn_is_the_name_and_empty_without_one(self):
+        built = {row["kode"]: row for row in build_export_rows(EAN_SPEC, EAN_SOURCE)}
+        assert built["5790000000001"]["navn"] == "Firma A"
+        assert built["5790000000003"]["navn"] == ""
 
 
 class TestUnreadableValues:
@@ -340,13 +385,15 @@ class TestStatusFlags:
 
 
 class TestOpenEndedSentinel:
-    def test_a_year_9999_end_date_is_open(self):
-        source = [
-            {"code": "A", "display": "A", "valid_from": "1900-01-01", "valid_to": "9999-12-31"}
-        ]
-        built = build_export_rows(OKOSTED_SPEC, source)
-        assert built[0]["gyldig_fra"] == "1900-01-01"
-        assert built[0]["gyldig_til"] == ""
+    @pytest.mark.parametrize("valid_to", ["9999-12-31", "9000-01-01", "", None, "not a date"])
+    def test_every_open_end_is_delivered_as_9999_12_31(self, valid_to):
+        source = [{"code": "A", "display": "A", "valid_from": "2020-01-01", "valid_to": valid_to}]
+        assert build_export_rows(OKOSTED_SPEC, source)[0]["gyldig_til"] == "9999-12-31"
+
+    @pytest.mark.parametrize("valid_from", ["", None, "not a date"])
+    def test_a_missing_start_is_delivered_as_1900_01_01(self, valid_from):
+        source = [{"code": "A", "display": "A", "valid_from": valid_from}]
+        assert build_export_rows(OKOSTED_SPEC, source)[0]["gyldig_fra"] == "1900-01-01"
 
     @pytest.mark.parametrize(
         ("value", "expected"),
@@ -363,7 +410,7 @@ class TestOpenEndedSentinel:
 
 
 class TestTimestamps:
-    """dw_timestamp_insert/dw_timestamp_update let Magenta act on the rows that changed."""
+    """dw_timestamp_insert/dw_timestamp_update: when a code entered and when its row changed."""
 
     SOURCE = [
         {
@@ -426,16 +473,28 @@ class TestSpecs:
         assert SOR_SPEC.filename(built_at) == "rsyd_sor_20261006_013007.csv"
         assert OKOSTED_SPEC.filename(built_at) == "rsyd_okosted_20261006_013007.csv"
 
-    @pytest.mark.parametrize("field", ["name", "from_property", "type_property"])
+    @pytest.mark.parametrize("field", ["name", "from_property", "to_property", "type_property"])
     def test_identifiers_that_reach_sql_must_be_plain(self, field):
         with pytest.raises(ValueError):
             replace(SOR_SPEC, **{field: "x]; DROP TABLE y --"})
 
+    @pytest.mark.parametrize("field", ["schema", "table", "column"])
+    def test_a_code_source_must_be_plain_identifiers(self, field):
+        with pytest.raises(ValueError):
+            replace(INVOICE_RECEIVERS, **{field: "x]; DROP TABLE y --"})
+
+    def test_a_code_source_spec_refuses_properties_it_would_not_read(self):
+        with pytest.raises(ValueError, match="type_property"):
+            replace(EAN_SPEC, type_property="entityType")
+
+    def test_a_display_property_needs_a_code_source(self):
+        with pytest.raises(ValueError, match="code_source"):
+            replace(EAN_SPEC, code_source=None)
+
 
 class TestDateFormats:
-    def test_open_units_have_an_empty_gyldig_til(self):
-        # Empty is open-ended, as null is in OS2mo's validity.
-        assert {row["gyldig_til"] for row in _sor_rows()} == {""}
+    def test_open_units_are_valid_until_9999_12_31(self):
+        assert {row["gyldig_til"] for row in _sor_rows()} == {"9999-12-31"}
 
     @pytest.mark.parametrize(
         ("value", "expected"),

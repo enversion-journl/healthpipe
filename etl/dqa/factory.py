@@ -65,9 +65,9 @@ def _param_hint(spec: CheckSpecification, subject: DqaSubject) -> str:
         return f"{table} grain {p.get('grain')}{' (active rows only)' if dc else ''}"
     if t == "referential_integrity":
         return f"{table}.{p.get('column')} -> {p.get('parent_table')}.{p.get('parent_key')}{active}"
-    if t == "source_reconciliation":
+    if t == "archive_fhir_reconciliation":
         return f"{p.get('source_table')}.{p.get('source_key')} vs {table}.{p.get('target_key')}"
-    if t == "archive_reconciliation":
+    if t == "source_archive_reconciliation":
         return f"{p.get('source_table')} {p.get('key_columns')} vs {table}"
     if t == "patient_arc_integrity":
         return f"{table}.{p.get('target_key')} -> {p.get('source_table')}.{p.get('source_key')} (CPR-deduped)"

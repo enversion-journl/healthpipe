@@ -11,6 +11,9 @@ Every codesystem in the warehouse has the same three tables —
 ``codesystem.<name>Concept``, ``<name>Hierarchy`` and ``<name>Properties`` — so
 one pivot, parameterised by a :class:`CodesystemExportSpec`, reads them all.
 
+A spec with a ``code_source`` (EAN) reads its codes from that table instead,
+and only its name from the codesystem — see :func:`build_code_source_query`.
+
 Always a full read. The delivery is a full load by contract, so there is no
 DFM checkpoint and no delta window here. When a spec has a scope, the scope is
 applied in SQL rather than in Python: for SOR the codes outside the region's
@@ -38,6 +41,7 @@ from utils.os2mo.codesystem_export import (
 __all__ = [
     "EXPORT_TABLE",
     "EXPORT_TABLE_COLUMNS",
+    "build_code_source_query",
     "build_source_query",
     "read_source_rows",
     "write_export_table",
@@ -70,6 +74,59 @@ def _property_join(alias: str, property_code: str | None, *, inner: bool = False
     )
 
 
+def build_code_source_query(spec: CodesystemExportSpec) -> str:
+    """The codes of a spec's ``code_source``, named from the codesystem.
+
+    Every distinct non-empty code in the source table is delivered, whether
+    the codesystem knows it or not, so ``has_properties`` is always 1 and no
+    code is ever "gone". ``display`` is the ``display_property`` value, NULL
+    (an empty navn) when the codesystem has none.
+
+    ``created`` is the first time the code was seen in the source table;
+    ``updated`` is the later of that and the name property's own
+    ``dw_timestamp_update``, so a changed name moves it.
+    """
+    source = spec.code_source
+    assert source is not None
+    null = "CAST(NULL AS NVARCHAR(500))"
+    name_join = ""
+    display_select = null
+    updated_select = "k.[first_seen]"
+    if spec.display_property is not None:
+        name_join = (
+            "    LEFT JOIN [codesystem].[{name}Properties] p_name\n"
+            "           ON p_name.[code] = k.[code]"
+            f" AND p_name.[property_code] = '{spec.display_property}'\n"
+        )
+        display_select = "p_name.[value]"
+        updated_select = (
+            "(SELECT MAX(ts) FROM (VALUES (k.[first_seen]),\n"
+            "                                        (p_name.[dw_timestamp_update])) AS v(ts))"
+        )
+    sql = (
+        "    SELECT k.[code]          AS [code],\n"
+        f"           {display_select} AS [display],\n"
+        f"           {null} AS [parent_code],\n"
+        f"           {null} AS [valid_from],\n"
+        f"           {null} AS [valid_to],\n"
+        f"           {null} AS [type],\n"
+        f"           {null} AS [scope],\n"
+        f"           {null} AS [status_active],\n"
+        f"           {null} AS [status_deleted],\n"
+        "           k.[first_seen]    AS [created],\n"
+        f"           {updated_select} AS [updated],\n"
+        "           1 AS [has_properties]\n"
+        "    FROM (\n"
+        f"        SELECT src.[{source.column}] AS [code],\n"
+        "               MIN(src.[dw_timestamp_insert]) AS [first_seen]\n"
+        f"        FROM [{source.schema}].[{source.table}] src\n"
+        f"        WHERE src.[{source.column}] IS NOT NULL AND src.[{source.column}] <> ''\n"
+        f"        GROUP BY src.[{source.column}]\n"
+        "    ) k\n" + name_join
+    )
+    return sql.format(name=spec.name)
+
+
 def build_source_query(spec: CodesystemExportSpec) -> str:
     """The pivot for one codesystem, with each code's warehouse timestamps.
 
@@ -92,6 +149,8 @@ def build_source_query(spec: CodesystemExportSpec) -> str:
             _property_join("p_scope", spec.scope_property, inner=True).rstrip("\n")
             + f"\n          AND p_scope.[value] = '{spec.scope_value}'\n"
         )
+    from_select = "p_from.[value]" if spec.from_property else "CAST(NULL AS NVARCHAR(500))"
+    to_select = "p_to.[value]" if spec.to_property else "CAST(NULL AS NVARCHAR(500))"
     type_select = "p_type.[value]" if spec.type_property else "CAST(NULL AS NVARCHAR(500))"
     scope_select = "p_scope.[value]" if spec.scope_property else "CAST(NULL AS NVARCHAR(500))"
     status_active_select = (
@@ -105,8 +164,8 @@ def build_source_query(spec: CodesystemExportSpec) -> str:
         "    SELECT c.[code]          AS [code],\n"
         "           c.[display]       AS [display],\n"
         "           h.[parent_code]   AS [parent_code],\n"
-        "           p_from.[value]    AS [valid_from],\n"
-        "           p_to.[value]      AS [valid_to],\n"
+        f"           {from_select} AS [valid_from],\n"
+        f"           {to_select} AS [valid_to],\n"
         f"           {type_select} AS [type],\n"
         f"           {scope_select} AS [scope],\n"
         f"           {status_active_select} AS [status_active],\n"
@@ -148,7 +207,8 @@ def _fetch(mssql: MSSQLResource, sql: str) -> list[tuple]:
 
 def read_source_rows(mssql: MSSQLResource, spec: CodesystemExportSpec) -> list[dict[str, Any]]:
     """Read the codesystem's codes with the properties the export needs."""
-    rows = _fetch(mssql, build_source_query(spec))
+    query = build_code_source_query(spec) if spec.code_source else build_source_query(spec)
+    rows = _fetch(mssql, query)
     return [dict(zip(_SOURCE_COLUMNS, row, strict=False)) for row in rows]
 
 

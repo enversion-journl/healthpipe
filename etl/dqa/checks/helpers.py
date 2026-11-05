@@ -30,7 +30,7 @@ _ENVIRONMENT_MAX_LEN = 128
 # Pin char columns to the *current database's* collation. Two DQA uses, same token:
 #
 # * ##temp DDL on mssql_target_staging (fhir_server / oracle_source /
-#   archive_reconciliation): tempdb inherits the instance collation (SQL_Latin1
+#   source_archive_reconciliation): tempdb inherits the instance collation (SQL_Latin1
 #   on QA/Prod) while healthpipe_staging is Danish_Norwegian_CI_AS. Without this,
 #   joining the staged keys to fhir.* / arc.* -- or MERGEing them into
 #   dqa.RemediationQueue -- raises "Cannot resolve the collation conflict".

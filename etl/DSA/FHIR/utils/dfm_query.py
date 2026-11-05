@@ -21,6 +21,20 @@ from utils.sql_safety import safe_bracket_quote, safe_table_ref, validate_checkp
 _DEFAULT_DELTA_COL = "dw_timestamp_update"
 
 
+def delta_column_ref(run_config: RunModeConfig) -> str:
+    """Bracket-quoted column a run's delta and period windows filter on."""
+    return safe_bracket_quote(run_config.delta_column or _DEFAULT_DELTA_COL)
+
+
+def delta_lower_bound(checkpoint: str, run_config: RunModeConfig) -> str:
+    """SQL expression for a delta window's exclusive lower bound: checkpoint minus lookback."""
+    safe_cp = validate_checkpoint_value(checkpoint).replace("'", "''")
+    lookback = run_config.lookback_days or 0
+    if lookback > 0:
+        return f"DATEADD(day, -{lookback}, CAST('{safe_cp}' AS DATETIME2))"
+    return f"'{safe_cp}'"
+
+
 def build_fhir_archive_query(
     table: str,
     checkpoint: str | None,
@@ -62,7 +76,7 @@ def build_fhir_archive_query(
         delta_upper_bound: Optional inclusive upper bound on the delta column in
             delta mode, from ``next_delta_slice_bound``.  Ignored in other modes.
     """
-    col = safe_bracket_quote(run_config.delta_column or _DEFAULT_DELTA_COL)
+    col = delta_column_ref(run_config)
     select = select_clause or "SELECT *"
     deleted_filter = "" if include_deleted else " AND [dw_is_deleted] = 0"
     safe_tbl = safe_table_ref(table)
@@ -92,13 +106,7 @@ def build_fhir_archive_query(
             )
             where = f" AND {safe_id_col} IN ({escaped})"
     elif run_config.mode == "delta" and checkpoint:
-        validate_checkpoint_value(checkpoint)
-        safe_cp = checkpoint.replace("'", "''")
-        lookback = run_config.lookback_days or 0
-        if lookback > 0:
-            where = f" AND {col} > DATEADD(day, -{lookback}, " f"CAST('{safe_cp}' AS DATETIME2))"
-        else:
-            where = f" AND {col} > '{safe_cp}'"
+        where = f" AND {col} > {delta_lower_bound(checkpoint, run_config)}"
     else:
         where = ""
 

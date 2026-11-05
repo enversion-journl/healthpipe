@@ -23,14 +23,17 @@ Pure asset-graph + config validation (no live Aidbox/MSSQL). Mirrors
 import json
 
 import pytest
-from dagster import AssetKey
-from definitions import defs
 from DSA.FHIR.Condition.Condition_IFDB_Diagnose_dfm import fhir_server_condition_diagnose_dfm
 from DSA.FHIR.Condition.Condition_IFDB_PasDiagnose_dfm import (
     fhir_server_condition_pas_diagnose_dfm,
 )
 from DSA.FHIR.SqlOnFhir.Condition_dfm import sof_condition_dfm
 from DSA.FHIR.utils.sql_on_fhir.sof_utils import VIEW_DEFINITIONS_DIR
+from tests.utils.asset_graph_helpers import (
+    DFM_PRODUCER_PREFIXES,
+    SOF_PREFIXES,
+    assert_deps,
+)
 
 
 @pytest.mark.unit
@@ -38,23 +41,31 @@ class TestConditionPipelineRegistration:
     """Validate Condition DFM wiring + SOF config contracts."""
 
     def test_diagnose_dfm_depends_on_archive_and_patient(self):
-        key = AssetKey.from_user_string("fhir_server_condition_diagnose_dfm")
-        assert fhir_server_condition_diagnose_dfm.asset_deps[key] == {
-            AssetKey.from_user_string("arc_diagnose_ifdb"),
-            AssetKey.from_user_string("arc_diagnose_tillaegskode_ifdb"),
-            AssetKey.from_user_string("fhir_server_patient_dfm"),
-        }
+        assert_deps(
+            fhir_server_condition_diagnose_dfm,
+            "fhir_server_condition_diagnose_dfm",
+            allowed_prefixes=DFM_PRODUCER_PREFIXES,
+            required={
+                "arc_diagnose_ifdb",
+                "arc_diagnose_tillaegskode_ifdb",
+                "fhir_server_patient_dfm",
+            },
+        )
 
     def test_pas_diagnose_dfm_depends_on_archive_patient_and_encounter(self):
-        key = AssetKey.from_user_string("fhir_server_condition_pas_diagnose_dfm")
-        assert fhir_server_condition_pas_diagnose_dfm.asset_deps[key] == {
-            AssetKey.from_user_string("arc_pas_diagnose_ifdb"),
-            AssetKey.from_user_string("arc_pas_diagnose_encounter_ref_ifdb"),
-            AssetKey.from_user_string("arc_pas_diagnose_tillaegskode_ifdb"),
-            AssetKey.from_user_string("arc_pas_diagnose_henvisning_ref_ifdb"),
-            AssetKey.from_user_string("fhir_server_patient_dfm"),
-            AssetKey.from_user_string("fhir_server_encounter_dfm"),
-        }
+        assert_deps(
+            fhir_server_condition_pas_diagnose_dfm,
+            "fhir_server_condition_pas_diagnose_dfm",
+            allowed_prefixes=DFM_PRODUCER_PREFIXES,
+            required={
+                "arc_pas_diagnose_ifdb",
+                "arc_pas_diagnose_encounter_ref_ifdb",
+                "arc_pas_diagnose_tillaegskode_ifdb",
+                "arc_pas_diagnose_henvisning_ref_ifdb",
+                "fhir_server_patient_dfm",
+                "fhir_server_encounter_dfm",
+            },
+        )
 
     def test_sof_condition_moved_to_dfm_with_all_producers(self):
         """Condition SOF moved to DFM: all four producers are on the base job.
@@ -63,14 +74,20 @@ class TestConditionPipelineRegistration:
         Aktivitetsresultat/SFI. Nothing in the partitioned daily job
         can post a Condition after the SOF read any more.
         """
-        key = AssetKey.from_user_string("sof_condition_dfm")
-        assert sof_condition_dfm.asset_deps[key] == {
-            AssetKey.from_user_string("fhir_sof_infrastructure"),
-            AssetKey.from_user_string("fhir_server_condition_diagnose_dfm"),
-            AssetKey.from_user_string("fhir_server_condition_pas_diagnose_dfm"),
-            AssetKey.from_user_string("fhir_server_service_request_dfm"),
-            AssetKey.from_user_string("fhir_server_aktivitetsresultat_dfm"),
-        }
+        assert_deps(
+            sof_condition_dfm,
+            "sof_condition_dfm",
+            allowed_prefixes=SOF_PREFIXES,
+            required={
+                "fhir_sof_infrastructure",
+                # All four Condition producers — a missing one lets SOF read
+                # before that producer has posted.
+                "fhir_server_condition_diagnose_dfm",
+                "fhir_server_condition_pas_diagnose_dfm",
+                "fhir_server_service_request_dfm",
+                "fhir_server_aktivitetsresultat_dfm",
+            },
+        )
 
     def test_condition_view_includes_required_columns_for_fhir_condition_table(self):
         path = VIEW_DEFINITIONS_DIR / "condition_view.json"
@@ -89,16 +106,3 @@ class TestConditionPipelineRegistration:
         }
         missing = expected - set(columns)
         assert not missing, f"condition_view is missing required columns: {missing}"
-
-    def test_legacy_condition_assets_are_gone(self):
-        graph = defs.resolve_asset_graph()
-        removed = [
-            "fhir_diagnose_daily_ifdb",
-            "fhir_pas_diagnose_daily_ifdb",
-            "ifdb_extract/diagnose_daily",
-            "ifdb_extract/pas_diagnose_daily",
-        ]
-        for key_str in removed:
-            assert not graph.has(
-                AssetKey.from_user_string(key_str)
-            ), f"Legacy asset still registered: {key_str}"

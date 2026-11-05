@@ -190,7 +190,7 @@ def test_view_asset_wraps_the_tables_without_security_infra():
     """dso_infra_views_drg builds only CPR-free pass-throughs, so it depends on
     dso_infra_drg (the tables) and must NOT pull in dso_infra_security — the
     secured views are not built here anymore."""
-    from infrastructure import dso_infra_views_drg
+    from infrastructure.assets.dso_infrastructure import dso_infra_views_drg
 
     deps = _deps(dso_infra_views_drg)
     assert "dso_infra_drg" in deps

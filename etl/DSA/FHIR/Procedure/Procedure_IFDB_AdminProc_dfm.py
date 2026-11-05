@@ -133,9 +133,9 @@ PROCEDURE_NESTED_REFERENCE_CONFIGS = [
     ),
     # Udførende enhed (LOCATION_SORCODE) opløses til Organization/<id>, så den
     # flade tabel kan joine til fhir.Organization ligesom ServiceRequest gør.
-    # Kliniker-referencen (SYSTEM_IFDB_STAFF) står ikke i mappingen: der findes
-    # ingen Practitioner-ressourcer at opløse mod, så den bevares som
-    # identifier-reference og projiceres direkte (practitioner_id).
+    # Kliniker-referencen (SYSTEM_IFDB_STAFF) står ikke i mappingen. Den bevares som
+    # identifier-reference og projiceres direkte (practitioner_id), som joines til
+    # fhir.Practitioner på identifier_staff_exact.
     NestedReferenceFieldConfig(
         field_path="performer.actor",
         identifier_system_to_type={

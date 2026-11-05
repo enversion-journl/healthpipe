@@ -25,8 +25,6 @@ Coverage:
     counts and verifying every live SOR org in fhir.Organization resolves a
     DW_EK (the OKOSTED rows are already gone on development, so the legacy
     vs. new comparison reduces to "all SOR orgs present").
-
-Part of [internal ticket].
 """
 
 import os

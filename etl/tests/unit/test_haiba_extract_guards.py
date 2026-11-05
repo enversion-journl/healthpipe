@@ -20,6 +20,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+from core.resources import FileShareResource
 from DSI.csv_files.haiba import (
     AGG_INFEKTION,
     AGG_ORTOPAEDI,
@@ -36,14 +37,7 @@ from DSI.csv_files.haiba import (
 
 pytestmark = pytest.mark.unit
 
-_DDL = (
-    Path(__file__).resolve().parents[2]
-    / "infrastructure"
-    / "ddl"
-    / "tables"
-    / "haiba"
-    / "00_archive.sql"
-)
+_DDL_DIR = Path(__file__).resolve().parents[2] / "infrastructure" / "ddl" / "sources" / "haiba"
 
 _AGG_HEADER = (
     "HAI;HAIBA_dato;Rolle_ansvar;ejerforhold;RegionKode;region;Sundhedsinstitution;"
@@ -64,10 +58,10 @@ def _file(path: Path, hai_type: str, kind: str, delivery: str) -> HaibaFile:
 
 
 def test_arc_widths_match_the_archive_ddl():
-    """Every NVARCHAR width in 00_archive.sql must equal schema.arc_width, and
+    """Every NVARCHAR width in the archive DDL must equal schema.arc_width, and
     every text column in the schema must have a width — a drift on either side
     silently re-opens the 8152 abort the guard exists to prevent."""
-    ddl = _DDL.read_text(encoding="utf-8")
+    ddl = "\n".join(p.read_text(encoding="utf-8") for p in sorted(_DDL_DIR.glob("*.sql")))
     blocks = re.split(r"CREATE TABLE \[arc\]\.\[(\w+)\]", ddl)
     ddl_widths: dict[str, dict[str, int]] = {}
     for table, body in zip(blocks[1::2], blocks[2::2], strict=True):
@@ -106,11 +100,11 @@ def test_header_only_type_fails_the_owning_asset_only(tmp_path):
         _file(a2, "BACT", "agg", "2026-08-08"),
         _file(usable, "Acute_HIP", "agg", "2026-08-15"),
     ]
-    _, notes, unusable = select_newest(files, "agg")
+    _, notes, unusable = select_newest(files, "agg", "cp1252")
     assert any("no usable file" in n for n in notes)
 
-    assert unusable_types_for_schema(files, unusable, AGG_INFEKTION) == ["BACT"]
-    assert unusable_types_for_schema(files, unusable, AGG_ORTOPAEDI) == []
+    assert unusable_types_for_schema(files, unusable, AGG_INFEKTION, "cp1252") == ["BACT"]
+    assert unusable_types_for_schema(files, unusable, AGG_ORTOPAEDI, "cp1252") == []
 
 
 def test_retired_type_produces_no_note_and_passes(tmp_path):
@@ -119,10 +113,10 @@ def test_retired_type_produces_no_note_and_passes(tmp_path):
     usable = tmp_path / "HAIBA_UTI_agg_RegS_2026-08-15.csv"
     _write(usable, _AGG_HEADER, ["UTI;2024-05-01;Kontaktansvar;;1083;;;;;;;1;2.5"])
     files = [_file(usable, "UTI", "agg", "2026-08-15")]
-    _, notes, unusable = select_newest(files, "agg")
+    _, notes, unusable = select_newest(files, "agg", "cp1252")
     assert notes == []
     assert unusable == []
-    assert unusable_types_for_schema(files, unusable, AGG_INFEKTION) == []
+    assert unusable_types_for_schema(files, unusable, AGG_INFEKTION, "cp1252") == []
 
 
 def test_extract_fails_on_blocked_type_and_allows_the_override(tmp_path, monkeypatch):
@@ -134,7 +128,6 @@ def test_extract_fails_on_blocked_type_and_allows_the_override(tmp_path, monkeyp
         _AGG_HEADER,
         ["UTI;2024-05-01;Kontaktansvar;;1083;;;;;;;1;2.5"],
     )
-    monkeypatch.setenv("HAIBA_BASE_DIR", str(tmp_path))
 
     import DSI.csv_files.haiba as module
 
@@ -144,12 +137,17 @@ def test_extract_fails_on_blocked_type_and_allows_the_override(tmp_path, monkeyp
     monkeypatch.setattr(module, "_arc_active_counts", lambda conn, schema: {})
     monkeypatch.setattr(module, "_read_checkpoints", lambda *a, **k: {})
     ctx = MagicMock()
+    share = FileShareResource(base_dir=str(tmp_path))
 
     with pytest.raises(ValueError, match="BACT"):
-        _extract_schema(ctx, MagicMock(), AGG_INFEKTION, HaibaExtractConfig())
+        _extract_schema(ctx, MagicMock(), share, AGG_INFEKTION, HaibaExtractConfig())
 
     result = _extract_schema(
-        ctx, MagicMock(), AGG_INFEKTION, HaibaExtractConfig(allow_missing_hai_types=["BACT"])
+        ctx,
+        MagicMock(),
+        share,
+        AGG_INFEKTION,
+        HaibaExtractConfig(allow_missing_hai_types=["BACT"]),
     )
     assert result.metadata["row_count"].value == 1
 

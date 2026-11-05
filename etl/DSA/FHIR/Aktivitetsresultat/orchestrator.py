@@ -70,6 +70,7 @@ from DSA.FHIR.utils.ifdb.dict_validation import (
     _validate_observation_dicts_sample,
     _validate_procedure_dicts_sample,
 )
+from DSA.FHIR.utils.ifdb.fhir_posting import post_resource_dicts_direct
 from DSA.FHIR.utils.ifdb.posting_config import aktivitetsresultat_chunk_size_from_context
 from DSA.FHIR.utils.ifdb.routing import RoutingResolver
 from DSA.FHIR.utils.ifdb.transforms import normalize_oracle_id as _normalize_oracle_id
@@ -756,8 +757,6 @@ def _process_chunk(
     oprydning af forsvundne XML-børn → skema-sideudgange → frigivelse af
     chunkens id'er.
     """
-    from DSA.FHIR.utils.ifdb.fhir_posting import post_resource_dicts_direct
-
     logger.info("Chunk %d/%d: transforming %d rows", chunk_idx, n_chunks, len(chunk))
     fhir_database.log_identifier_lookup_status(
         f"pre-chunk-{chunk_idx}",
@@ -1092,8 +1091,6 @@ def _post_chunk_families(
     Procedure og Condition kun når chunken har nogen. Tallene er FAKTISK
     postede, fejlede og genoprettede rækker fra resultaterne — ikke indsendte.
     """
-    from DSA.FHIR.utils.ifdb.fhir_posting import post_resource_dicts_direct
-
     logger = dg.get_dagster_logger()
 
     resolve_procedure_organizations(procedure_dicts, fhir_database)

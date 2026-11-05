@@ -57,6 +57,7 @@ from DSI.connectors.delivery_detection import (
     DELIVERY_TARGET_TYPE,
     delivery_identity,
 )
+from DSI.csv_files._sds_tar import upsert_register
 from DSI.csv_files.haiba import (
     AGG_INFEKTION,
     AGG_ORTOPAEDI,
@@ -321,40 +322,6 @@ def _recorded_delivery(mssql: MSSQLResource, source_table: str) -> str | None:
 # The register is per (kildetabel, hai_type) — its PK. leverance_dato is part
 # of the key too so the history accumulates one row per delivery of each type.
 _LEVERANCE_KEYS = ("kildetabel", "hai_type", "leverance_dato")
-LEVERANCE_COLUMNS = (
-    "kildetabel",
-    "hai_type",
-    "leverance_dato",
-    "indlaesningstype",
-    "raekker_indsat",
-    "raekker_opdateret",
-    "raekker_soft_slettet",
-)
-
-
-def build_leverance_sql() -> str:
-    """Upsert of one register row, keyed on (kildetabel, hai_type, leverance_dato).
-
-    An upsert rather than an insert: re-running the same delivery of a type must
-    refresh its row, not add a second one for it.
-    """
-    placeholders = ", ".join("?" * len(LEVERANCE_COLUMNS))
-    columns = ", ".join(f"[{c}]" for c in LEVERANCE_COLUMNS)
-    src_values = ", ".join(f"src.[{c}]" for c in LEVERANCE_COLUMNS)
-    on_clause = "\n   AND ".join(f"tgt.[{k}] = src.[{k}]" for k in _LEVERANCE_KEYS)
-    updates = "\n    ".join(
-        f"tgt.[{c}] = src.[{c}]," for c in LEVERANCE_COLUMNS if c not in _LEVERANCE_KEYS
-    )
-    return f"""
-MERGE [meta].[{LEVERANCE_TABLE}] AS tgt
-USING (VALUES ({placeholders})) AS src ({columns})
-    ON {on_clause}
-WHEN MATCHED THEN UPDATE SET
-    {updates}
-    tgt.[dw_timestamp_update] = CAST(SYSDATETIME() AS datetime2(0))
-WHEN NOT MATCHED THEN INSERT ({columns})
-    VALUES ({src_values});
-"""
 
 
 def record_delivery(
@@ -379,17 +346,19 @@ def record_delivery(
     with mssql.get_connection() as conn:
         cursor = conn.cursor()
         try:
-            cursor.execute(
-                build_leverance_sql(),
-                (
-                    source_table,
-                    hai_type,
-                    leverance_dato,
-                    indlaesningstype,
-                    inserted,
-                    updated,
-                    soft_deleted,
-                ),
+            upsert_register(
+                cursor,
+                LEVERANCE_TABLE,
+                _LEVERANCE_KEYS,
+                {
+                    "kildetabel": source_table,
+                    "hai_type": hai_type,
+                    "leverance_dato": leverance_dato,
+                    "indlaesningstype": indlaesningstype,
+                    "raekker_indsat": inserted,
+                    "raekker_opdateret": updated,
+                    "raekker_soft_slettet": soft_deleted,
+                },
             )
             conn.commit()
         finally:
@@ -653,11 +622,9 @@ __all__ = [
     "arc_haiba_agg_ortopaedi",
     "arc_haiba_cases_infektion",
     "arc_haiba_cases_ssi",
-    "LEVERANCE_COLUMNS",
     "LEVERANCE_TABLE",
     "build_backfill_sql",
     "build_config",
-    "build_leverance_sql",
     "guard_delivery_direction",
     "build_revision_sql",
     "capture_agg_revisions",

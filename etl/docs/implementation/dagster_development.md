@@ -11,8 +11,8 @@
 The development loop: making a change, getting it running on the Dev environment,
 verifying it, and finding out why it does not work.
 
-For *how to get set up at all* — VS Code server, cloning, feature branches, the Dev
-code location, dbcode — read [Getting started](../../../docs/onboarding.md) first.
+For *how to get set up at all* — the devcontainer or a local venv — read
+[Development Setup](../../../CONTRIBUTING.md#development-setup) first.
 For *where things live* and *what the words mean*, read the
 [Repository Tour](repo_tour.md).
 
@@ -41,7 +41,7 @@ new work is a config entry consumed by an existing factory, not a hand-written a
 
 ### 3. Register it
 
-Assets reach `definitions.py` through module `__init__.py` exports. An asset that is
+Assets reach `definitions.py` through aggregate lists in module `__init__.py` files. An asset that is
 not in one of those lists does not exist as far as Dagster is concerned — this is the
 most common reason a new asset "does not show up". See
 [How assets reach definitions](repo_tour.md#how-assets-reach-definitions) in the
@@ -57,8 +57,7 @@ So when your assets are missing or the code location is in error after a push:
 
 1. Read the code location's error in the Dagster UI — it names the failing import.
 2. Read the `static-checks` job log in the pipeline for the same information.
-3. Check that the asset is exported from its module's `__init__.py` **and** included
-   in the aggregate list that `definitions.py` imports.
+3. Check that the asset is included in the aggregate list that `definitions.py` imports.
 
 ### 5. Materialize
 
@@ -137,7 +136,7 @@ with a `RunModeConfig` from the UI Launchpad — see
 
 See [step 4](#4-push-and-check-that-the-code-location-loaded) above: the code
 location's error and the `static-checks` log name the cause, and an asset missing
-from an `__init__.py` export chain is the usual one.
+from an aggregate list is the usual one.
 
 ### Resource connection errors
 
@@ -172,8 +171,8 @@ thing to inspect, not partitions. See
 
 ## Related documentation
 
-- [Getting started](../../../docs/onboarding.md) — VS Code server, feature-branch
-  code locations, dbcode
+- [Development Setup](../../../CONTRIBUTING.md#development-setup) — devcontainer or
+  local venv
 - [Repository Tour](repo_tour.md) — structure, terminology, asset groups
 - [Docs index & glossary](../README.md)
 - [DSI ETL Guide](dsi_etl_guide.md) — source system → archive table

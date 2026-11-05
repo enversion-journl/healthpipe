@@ -138,7 +138,7 @@ class TestDecideSlices:
 
 class TestSlicePredicate:
     def test_source_and_delete_scope_select_the_same_slices(self):
-        """The [internal ticket] invariant: narrowing the source while delete detection
+        """The invariant: narrowing the source while delete detection
         still covers a slice soft-deletes that slice. Compared on the literals
         each predicate actually selects, not by re-deriving one from the other."""
         accepted = {"T25": ["2024"], "T26": ["2024", "2025"]}

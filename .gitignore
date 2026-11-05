@@ -119,14 +119,11 @@ Thumbs.db
 !.devcontainer/.env.template
 # End Generation Here
 
-# User files
-daniel/**
-
 # Output files
-output/**
+**/output/
+etl/infrastructure/security/output/
 storage/**
 *.db
-nomad_data/**
 **/*.log
 *.err
 *.out
@@ -145,7 +142,6 @@ certificates
 !etl/tests/fixtures/**/*.csv
 .devcontainer/tmp/*
 pgdata
-nomad_stack/config_files/tmp/*
 
 # DAGSTER files — runtime state ignored, tracked config kept
 .devcontainer/dagster_home/*

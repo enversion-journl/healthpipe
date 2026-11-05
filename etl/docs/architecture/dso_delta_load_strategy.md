@@ -501,7 +501,6 @@ class SyncTableConfig:
     insert_only_columns: list[str] = field(default_factory=lambda: ["dw_timestamp_insert"])
     identity_insert: bool = False
     watermark_column: str | None = None  # Required when mode='watermark'
-    chunk_size: int = 5000               # Python fallback batch size
 ```
 
 Note: `dw_is_deleted` does not require any special configuration in `SyncTableConfig`. When DSA adds the `dw_is_deleted` column to tables, it flows through the existing MERGE as a normal data column -- included in both the UPDATE SET and INSERT clauses automatically. The watermark filter captures the change because `dw_timestamp_update` is updated when `dw_is_deleted` is set.

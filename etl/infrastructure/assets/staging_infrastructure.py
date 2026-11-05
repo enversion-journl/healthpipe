@@ -19,6 +19,7 @@ NOTE: Does NOT create stg.* tables - these are created/dropped by daily ETL.
 import dagster as dg
 from core.resources import MSSQLResource, get_linked_server_config
 from infrastructure.utils.ddl_loader import (
+    MigrationConfig,
     apply_migrations,
     execute_legacy_sql2019_functions_if_needed,
     execute_sql_file,
@@ -156,13 +157,13 @@ def staging_infra_functions(
     compute_kind="mssql",
     deps=["staging_infra_schemas", "staging_migrations", "staging_infra_ref"],
     tags={"layer": "staging", "type": "infrastructure", "domain": "shared_dimensions"},
-    description="Create shared dimension tables (dim.Borger, dim.Dato)",
+    description="Create shared dimension tables (dim.Borger, dim.BorgerDemografi, dim.Dato)",
 )
 def staging_infra_shared_dimensions(
     context: dg.AssetExecutionContext,
     mssql_target_staging: MSSQLResource,
 ) -> dg.MaterializeResult:
-    """Create shared dimension tables (dim.Borger, dim.Dato).
+    """Create shared dimension tables (dim.Borger, dim.BorgerDemografi, dim.Dato).
 
     Depends on staging_migrations so the 20260515 drop-and-rebuild migration
     runs before the new dim.Borger DDL is applied, and on staging_infra_ref
@@ -177,7 +178,7 @@ def staging_infra_shared_dimensions(
     return dg.MaterializeResult(
         metadata={
             "files_executed": list(results.keys()),
-            "tables": "dim.Borger, dim.Dato",
+            "tables": "dim.Borger, dim.BorgerDemografi, dim.Dato",
         }
     )
 
@@ -263,7 +264,7 @@ def staging_infra_erp(
     context: dg.AssetExecutionContext,
     mssql_target_staging: MSSQLResource,
 ) -> dg.MaterializeResult:
-    """Create all ERP infrastructure (archive, maps, dims, facts)."""
+    """Create all ERP infrastructure (maps, dims, facts, seeds, bridges)."""
 
     results = execute_sql_files_from_directory(mssql_target_staging, "tables/erp", context)
     context.log.info("✅ ERP infrastructure created")
@@ -272,77 +273,7 @@ def staging_infra_erp(
     return dg.MaterializeResult(
         metadata={
             "files_executed": all_files,
-            "tables": "map.Kontoplan, map.Kreditor, map.Leverandoervare, map.Aftale, map.ILSLeverandoer, map.AftaleVarePris, map.Faktura, map.Fakturalinje, map.Postering, map.Lager, map.Vareudlevering, map.Rekvirent, map.ean, map.LagerbeholdningEgenskaber, map.AfdelingLagerbeholdningEgenskaber, map.Okosted, dim.Kontoplan, dim.Kreditor, dim.Leverandoervare, dim.Aftale, dim.ILSLeverandoer, dim.Faktura, dim.Fakturalinje, dim.Postering, dim.Lager, dim.Vareudlevering, dim.Rekvirent, dim.ean, dim.LagerbeholdningEgenskaber, dim.AfdelingLagerbeholdningEgenskaber, dim.Okosted, fct.Faktura, fct.Fakturalinje, fct.Postering, fct.Vareudlevering, fct.Lagerbeholdning, fct.AfdelingLagerbeholdning, fct.AftaleVarePris",
-        }
-    )
-
-
-# ============================================================================
-# KMD UDDATA
-# ============================================================================
-
-
-@dg.asset(
-    name="staging_infra_kmd_uddata",
-    group_name="staging_infrastructure",
-    compute_kind="mssql",
-    deps=["staging_infra_schemas", "staging_infra_functions", "staging_migrations"],
-    tags={"layer": "staging", "type": "infrastructure", "domain": "kmd_uddata"},
-    description="Create KMD UdData archive tables (UNSPSC, SpendAnalysisLines, Invoice)",
-)
-def staging_infra_kmd_uddata(
-    context: dg.AssetExecutionContext,
-    mssql_target_staging: MSSQLResource,
-) -> dg.MaterializeResult:
-    """Create KMD UdData archive infrastructure (arc.kmd_uddata_* tables)."""
-
-    results = execute_sql_files_from_directory(mssql_target_staging, "tables/kmd_uddata", context)
-    context.log.info("✅ KMD UdData archive infrastructure created")
-
-    return dg.MaterializeResult(
-        metadata={
-            "files_executed": list(results.keys()),
-            "tables": (
-                "arc.kmd_uddata_unspsc, arc.kmd_uddata_spend_analysis_lines, "
-                "arc.kmd_uddata_invoice"
-            ),
-        }
-    )
-
-
-# ============================================================================
-# SILKEBORGDATA
-# ============================================================================
-
-
-@dg.asset(
-    name="staging_infra_silkeborgdata",
-    group_name="staging_infrastructure",
-    compute_kind="mssql",
-    deps=["staging_infra_schemas", "staging_infra_functions", "staging_migrations"],
-    tags={"layer": "staging", "type": "infrastructure", "domain": "silkeborgdata"},
-    description="Create SilkeborgData archive tables (arc.silkeborgdata_*).",
-)
-def staging_infra_silkeborgdata(
-    context: dg.AssetExecutionContext,
-    mssql_target_staging: MSSQLResource,
-) -> dg.MaterializeResult:
-    """Create arc.silkeborgdata_* archive infrastructure.
-
-    Executes the whole tables/silkeborgdata directory, so a future SD file's DDL
-    is picked up by dropping a 01_*.sql into it — no change to this asset. Keep
-    the name and description at domain level, not at E26PERS level.
-    """
-
-    results = execute_sql_files_from_directory(
-        mssql_target_staging, "tables/silkeborgdata", context
-    )
-    context.log.info("✅ SilkeborgData archive infrastructure created")
-
-    return dg.MaterializeResult(
-        metadata={
-            "files_executed": list(results.keys()),
-            "tables": "arc.silkeborgdata_e26_pers",
+            "tables": "map.Kontoplan, map.Kreditor, map.Leverandoervare, map.Aftale, map.ILSLeverandoer, map.AftaleVarePris, map.Faktura, map.Fakturalinje, map.Postering, map.Lager, map.Vareudlevering, map.Ordre, map.Rekvirent, map.ean, map.LagerbeholdningEgenskaber, map.AfdelingLagerbeholdningEgenskaber, map.Okosted, dim.Kontoplan, dim.Kreditor, dim.Leverandoervare, dim.Aftale, dim.ILSLeverandoer, dim.Faktura, dim.Fakturalinje, dim.Postering, dim.Lager, dim.Vareudlevering, dim.Ordre, dim.Rekvirent, dim.ean, dim.LagerbeholdningEgenskaber, dim.AfdelingLagerbeholdningEgenskaber, dim.Okosted, fct.Faktura, fct.Fakturalinje, fct.Postering, fct.Vareudlevering, fct.Ordre, fct.Lagerbeholdning, fct.AfdelingLagerbeholdning, fct.AftaleVarePris",
         }
     )
 
@@ -437,6 +368,7 @@ def staging_infra_fhir(
 def staging_migrations(
     context: dg.AssetExecutionContext,
     mssql_target_staging: MSSQLResource,
+    config: MigrationConfig,
 ) -> dg.MaterializeResult:
     """Run pending migrations/*.sql scripts on staging in filename-sorted order.
 
@@ -448,7 +380,7 @@ def staging_migrations(
     that is harmless.
     """
 
-    results = apply_migrations(mssql_target_staging, "migrations", context)
+    results = apply_migrations(mssql_target_staging, "migrations", context, only=config.filenames)
 
     applied = [name for name, status in results.items() if status == "applied"]
     skipped = [name for name, status in results.items() if status == "skipped"]
@@ -821,66 +753,6 @@ def staging_infra_db_space(
 
 
 # ============================================================================
-# IFDB ARCHIVE
-# ============================================================================
-
-
-@dg.asset(
-    name="staging_infra_ifdb_archive",
-    group_name="staging_infrastructure",
-    compute_kind="mssql",
-    deps=["staging_infra_schemas", "staging_migrations"],
-    tags={"layer": "staging", "type": "infrastructure"},
-    description="Create archive tables for IFDB Patient, EpisodeOfCare, Encounter, and Location",
-)
-def staging_infra_ifdb_archive(
-    context: dg.AssetExecutionContext,
-    mssql_target_staging: MSSQLResource,
-) -> dg.MaterializeResult:
-    """Deploy arc.ifdb_patient, arc.ifdb_episode_of_care, arc.ifdb_encounter, and arc.ifdb_location tables."""
-
-    results = execute_sql_files_from_directory(mssql_target_staging, "tables/ifdb_archive", context)
-
-    context.log.info("IFDB archive tables deployed")
-    return dg.MaterializeResult(
-        metadata={
-            "files_executed": len(results),
-            "tables": "arc.ifdb_patient, arc.ifdb_episode_of_care, arc.ifdb_encounter, arc.ifdb_location",
-        }
-    )
-
-
-# ============================================================================
-# EPJI ARCHIVE
-# ============================================================================
-
-
-@dg.asset(
-    name="staging_infra_epji_archive",
-    group_name="staging_infrastructure",
-    compute_kind="mssql",
-    deps=["staging_infra_schemas", "staging_migrations"],
-    tags={"layer": "staging", "type": "infrastructure"},
-    description="Create the EPJI location archive table (arc.epji_location)",
-)
-def staging_infra_epji_archive(
-    context: dg.AssetExecutionContext,
-    mssql_target_staging: MSSQLResource,
-) -> dg.MaterializeResult:
-    """Deploy arc.epji_location."""
-
-    results = execute_sql_files_from_directory(mssql_target_staging, "tables/epji_archive", context)
-
-    context.log.info("EPJI archive table deployed")
-    return dg.MaterializeResult(
-        metadata={
-            "files_executed": len(results),
-            "tables": "arc.epji_location",
-        }
-    )
-
-
-# ============================================================================
 # DQA (Data Quality Assurance results store)
 # ============================================================================
 
@@ -929,11 +801,9 @@ def staging_infra_dqa(
     deps=["staging_infra_schemas", "staging_migrations"],
     compute_kind="mssql",
     description=(
-        "Create the HAIBA tables: arc.haiba_* (archive incl. the "
-        "arc.haiba_agg_revision log), map.HAIBA_* (key minting), the dm.HAIBA_* "
-        "facts with their *_Egenskaber transaction dimensions, and "
-        "meta.HAIBALeverance. The ext.haiba_* landing tables are created by "
-        "the extract assets themselves, as for SOR."
+        "Create the HAIBA tables: map.HAIBA_* (key minting) and the dm.HAIBA_* "
+        "facts with their *_Egenskaber transaction dimensions. The archive "
+        "tables and meta.HAIBALeverance are created by staging_infra_source_haiba."
     ),
 )
 def staging_infra_haiba(
@@ -945,34 +815,13 @@ def staging_infra_haiba(
 
 
 @dg.asset(
-    name="staging_infra_cpr",
-    group_name="staging_infrastructure",
-    deps=["staging_infra_schemas", "staging_migrations"],
-    compute_kind="mssql",
-    description=(
-        "Create the CPR register archive tables arc.cpr_* (one per record type) and "
-        "the control tables meta.CPRLeverance and meta.CPRAbonnementKandidat. The "
-        "ext.cpr_* landing tables are created by the extract asset."
-    ),
-)
-def staging_infra_cpr(
-    context: dg.AssetExecutionContext,
-    mssql_target_staging: MSSQLResource,
-) -> dg.MaterializeResult:
-    results = execute_sql_files_from_directory(mssql_target_staging, "tables/cpr", context)
-    return dg.MaterializeResult(metadata={"files_executed": len(results)})
-
-
-@dg.asset(
     name="staging_infra_drg",
     group_name="staging_infrastructure",
     deps=["staging_infra_schemas", "staging_migrations"],
     compute_kind="mssql",
     description=(
-        "Create the DRG-grupperet LPR archive tables (arc.drg_* / arc.drgpsyk_*, "
-        "the arc.drg_pris_revision log and meta.DRGLeverance). The ext.drg* "
-        "landing tables are created by the extract assets themselves, as for "
-        "HAIBA and SOR."
+        "Create the DRG maps, dimensions, facts, seeds and bridges. The archive "
+        "tables and meta.DRGLeverance are created by staging_infra_source_drg."
     ),
 )
 def staging_infra_drg(
@@ -989,12 +838,10 @@ def staging_infra_drg(
     deps=["staging_infra_schemas", "staging_migrations"],
     compute_kind="mssql",
     description=(
-        "Create the udredningsret tables: the archive (arc.udredningsret_mont), "
-        "meta.UdredningsretLeverance, the five maps, the three dimensions, "
+        "Create the udredningsret tables: the five maps, the three dimensions, "
         "fct.Udredningsforloeb, fct.UdredningsretMarkoer and the -1 sentinel seeds. "
-        "The ext.udredningsret* "
-        "landing tables and the ext.udredningsret_mont_noegler key table are created "
-        "by the extract/archive assets themselves, as for DRG and HAIBA."
+        "The archive table and meta.UdredningsretLeverance are created by "
+        "staging_infra_source_udredningsret."
     ),
 )
 def staging_infra_udredningsret(
@@ -1032,47 +879,237 @@ def staging_infra_export(
     )
 
 
+# ============================================================================
+# SOURCES (sources/<source>: archive tables and delivery logs, staging only)
+# ============================================================================
+
+
 @dg.asset(
-    name="staging_infra_os2mo_archive",
+    name="staging_infra_source_cpr",
     group_name="staging_infrastructure",
     compute_kind="mssql",
     deps=["staging_infra_schemas", "staging_migrations"],
-    tags={"layer": "staging", "type": "infrastructure"},
-    description="Create the OS2mo organisation archive table (arc.os2mo_org_unit)",
+    tags={"layer": "staging", "type": "infrastructure", "source": "cpr"},
+    description="Create the CPR register archive tables (arc.cpr_*) and the control tables meta.CPRLeverance and meta.CPRAbonnementKandidat",
 )
-def staging_infra_os2mo_archive(
+def staging_infra_source_cpr(
     context: dg.AssetExecutionContext,
     mssql_target_staging: MSSQLResource,
 ) -> dg.MaterializeResult:
-    """Deploy arc.os2mo_org_unit — the return leg of the Magenta integration."""
-
-    results = execute_sql_files_from_directory(
-        mssql_target_staging, "tables/os2mo_archive", context
-    )
-
-    context.log.info("OS2mo archive table deployed")
-    return dg.MaterializeResult(
-        metadata={
-            "files_executed": len(results),
-            "tables": "arc.os2mo_org_unit",
-        }
-    )
+    results = execute_sql_files_from_directory(mssql_target_staging, "sources/cpr", context)
+    return dg.MaterializeResult(metadata={"files_executed": list(results.keys())})
 
 
 @dg.asset(
-    name="staging_infra_lpr3",
+    name="staging_infra_source_drg",
     group_name="staging_infrastructure",
-    deps=["staging_infra_schemas", "staging_migrations"],
     compute_kind="mssql",
+    deps=["staging_infra_schemas", "staging_migrations"],
+    tags={"layer": "staging", "type": "infrastructure", "source": "drg"},
+    description="Create the DRG-grupperet LPR archive tables (arc.drg_*, arc.drgpsyk_*) and meta.DRGLeverance",
+)
+def staging_infra_source_drg(
+    context: dg.AssetExecutionContext,
+    mssql_target_staging: MSSQLResource,
+) -> dg.MaterializeResult:
+    results = execute_sql_files_from_directory(mssql_target_staging, "sources/drg", context)
+    return dg.MaterializeResult(metadata={"files_executed": list(results.keys())})
+
+
+@dg.asset(
+    name="staging_infra_source_epji",
+    group_name="staging_infrastructure",
+    compute_kind="mssql",
+    deps=["staging_infra_schemas", "staging_migrations"],
+    tags={"layer": "staging", "type": "infrastructure", "source": "epji"},
     description=(
-        "Create the 38 LPR3 archive tables and meta.LPR3Leverance from the "
-        "Metadata-derived dataset contract. Extract and identity tables are "
-        "owned by ingestion. LPR3 creates no DSO or FHIR tables."
+        "Create the EPJI archive tables (arc.epji_location, arc.epji_practitioner, "
+        "arc.epji_practitioner_identifier, arc.epji_practitioner_role)"
     ),
 )
-def staging_infra_lpr3(
+def staging_infra_source_epji(
     context: dg.AssetExecutionContext,
     mssql_target_staging: MSSQLResource,
 ) -> dg.MaterializeResult:
-    results = execute_sql_files_from_directory(mssql_target_staging, "tables/lpr3", context)
-    return dg.MaterializeResult(metadata={"files_executed": len(results)})
+    results = execute_sql_files_from_directory(mssql_target_staging, "sources/epji", context)
+    return dg.MaterializeResult(metadata={"files_executed": list(results.keys())})
+
+
+@dg.asset(
+    name="staging_infra_source_haiba",
+    group_name="staging_infrastructure",
+    compute_kind="mssql",
+    deps=["staging_infra_schemas", "staging_migrations"],
+    tags={"layer": "staging", "type": "infrastructure", "source": "haiba"},
+    description="Create the HAIBA archive tables (arc.haiba_*) and meta.HAIBALeverance",
+)
+def staging_infra_source_haiba(
+    context: dg.AssetExecutionContext,
+    mssql_target_staging: MSSQLResource,
+) -> dg.MaterializeResult:
+    results = execute_sql_files_from_directory(mssql_target_staging, "sources/haiba", context)
+    return dg.MaterializeResult(metadata={"files_executed": list(results.keys())})
+
+
+@dg.asset(
+    name="staging_infra_source_ifdb",
+    group_name="staging_infrastructure",
+    compute_kind="mssql",
+    deps=["staging_infra_schemas", "staging_migrations"],
+    tags={"layer": "staging", "type": "infrastructure", "source": "ifdb"},
+    description="Create the IFDB and BOM_IFDB archive tables (arc.ifdb_*, arc.bom_ifdb_*)",
+)
+def staging_infra_source_ifdb(
+    context: dg.AssetExecutionContext,
+    mssql_target_staging: MSSQLResource,
+) -> dg.MaterializeResult:
+    results = execute_sql_files_from_directory(mssql_target_staging, "sources/ifdb", context)
+    return dg.MaterializeResult(metadata={"files_executed": list(results.keys())})
+
+
+@dg.asset(
+    name="staging_infra_source_ils",
+    group_name="staging_infrastructure",
+    compute_kind="mssql",
+    deps=["staging_infra_schemas", "staging_migrations"],
+    tags={"layer": "staging", "type": "infrastructure", "source": "ils"},
+    description="Create the ILS archive tables (arc.ils_*)",
+)
+def staging_infra_source_ils(
+    context: dg.AssetExecutionContext,
+    mssql_target_staging: MSSQLResource,
+) -> dg.MaterializeResult:
+    results = execute_sql_files_from_directory(mssql_target_staging, "sources/ils", context)
+    return dg.MaterializeResult(metadata={"files_executed": list(results.keys())})
+
+
+@dg.asset(
+    name="staging_infra_source_kmd_uddata",
+    group_name="staging_infrastructure",
+    compute_kind="mssql",
+    deps=["staging_infra_schemas", "staging_migrations"],
+    tags={"layer": "staging", "type": "infrastructure", "source": "kmd_uddata"},
+    description="Create the KMD UdData archive tables (arc.kmd_uddata_*)",
+)
+def staging_infra_source_kmd_uddata(
+    context: dg.AssetExecutionContext,
+    mssql_target_staging: MSSQLResource,
+) -> dg.MaterializeResult:
+    results = execute_sql_files_from_directory(mssql_target_staging, "sources/kmd_uddata", context)
+    return dg.MaterializeResult(metadata={"files_executed": list(results.keys())})
+
+
+@dg.asset(
+    name="staging_infra_source_lpr3",
+    group_name="staging_infrastructure",
+    compute_kind="mssql",
+    deps=["staging_infra_schemas", "staging_migrations"],
+    tags={"layer": "staging", "type": "infrastructure", "source": "lpr3"},
+    description="Create the LPR3 archive tables (arc.lpr3_*) and meta.LPR3Leverance",
+)
+def staging_infra_source_lpr3(
+    context: dg.AssetExecutionContext,
+    mssql_target_staging: MSSQLResource,
+) -> dg.MaterializeResult:
+    results = execute_sql_files_from_directory(mssql_target_staging, "sources/lpr3", context)
+    return dg.MaterializeResult(metadata={"files_executed": list(results.keys())})
+
+
+@dg.asset(
+    name="staging_infra_source_mysupply",
+    group_name="staging_infrastructure",
+    compute_kind="mssql",
+    deps=["staging_infra_schemas", "staging_migrations"],
+    tags={"layer": "staging", "type": "infrastructure", "source": "mysupply"},
+    description="Create the MySupply archive tables (arc.mysupply_*)",
+)
+def staging_infra_source_mysupply(
+    context: dg.AssetExecutionContext,
+    mssql_target_staging: MSSQLResource,
+) -> dg.MaterializeResult:
+    results = execute_sql_files_from_directory(mssql_target_staging, "sources/mysupply", context)
+    return dg.MaterializeResult(metadata={"files_executed": list(results.keys())})
+
+
+@dg.asset(
+    name="staging_infra_source_os2mo",
+    group_name="staging_infrastructure",
+    compute_kind="mssql",
+    deps=["staging_infra_schemas", "staging_migrations"],
+    tags={"layer": "staging", "type": "infrastructure", "source": "os2mo"},
+    description="Create the OS2mo organisation archive table (arc.os2mo_org_unit)",
+)
+def staging_infra_source_os2mo(
+    context: dg.AssetExecutionContext,
+    mssql_target_staging: MSSQLResource,
+) -> dg.MaterializeResult:
+    results = execute_sql_files_from_directory(mssql_target_staging, "sources/os2mo", context)
+    return dg.MaterializeResult(metadata={"files_executed": list(results.keys())})
+
+
+@dg.asset(
+    name="staging_infra_source_silkeborgdata",
+    group_name="staging_infrastructure",
+    compute_kind="mssql",
+    deps=["staging_infra_schemas", "staging_migrations"],
+    tags={"layer": "staging", "type": "infrastructure", "source": "silkeborgdata"},
+    description="Create the SilkeborgData archive tables (arc.silkeborgdata_*)",
+)
+def staging_infra_source_silkeborgdata(
+    context: dg.AssetExecutionContext,
+    mssql_target_staging: MSSQLResource,
+) -> dg.MaterializeResult:
+    results = execute_sql_files_from_directory(
+        mssql_target_staging, "sources/silkeborgdata", context
+    )
+    return dg.MaterializeResult(metadata={"files_executed": list(results.keys())})
+
+
+@dg.asset(
+    name="staging_infra_source_sor",
+    group_name="staging_infrastructure",
+    compute_kind="mssql",
+    deps=["staging_infra_schemas", "staging_migrations"],
+    tags={"layer": "staging", "type": "infrastructure", "source": "sor"},
+    description="Create the SOR register archive table (arc.sor_register)",
+)
+def staging_infra_source_sor(
+    context: dg.AssetExecutionContext,
+    mssql_target_staging: MSSQLResource,
+) -> dg.MaterializeResult:
+    results = execute_sql_files_from_directory(mssql_target_staging, "sources/sor", context)
+    return dg.MaterializeResult(metadata={"files_executed": list(results.keys())})
+
+
+@dg.asset(
+    name="staging_infra_source_sydax",
+    group_name="staging_infrastructure",
+    compute_kind="mssql",
+    deps=["staging_infra_schemas", "staging_migrations"],
+    tags={"layer": "staging", "type": "infrastructure", "source": "sydax"},
+    description="Create the SydAX archive tables (arc.sydax_*)",
+)
+def staging_infra_source_sydax(
+    context: dg.AssetExecutionContext,
+    mssql_target_staging: MSSQLResource,
+) -> dg.MaterializeResult:
+    results = execute_sql_files_from_directory(mssql_target_staging, "sources/sydax", context)
+    return dg.MaterializeResult(metadata={"files_executed": list(results.keys())})
+
+
+@dg.asset(
+    name="staging_infra_source_udredningsret",
+    group_name="staging_infrastructure",
+    compute_kind="mssql",
+    deps=["staging_infra_schemas", "staging_migrations"],
+    tags={"layer": "staging", "type": "infrastructure", "source": "udredningsret"},
+    description="Create the udredningsret archive table (arc.udredningsret_mont) and meta.UdredningsretLeverance",
+)
+def staging_infra_source_udredningsret(
+    context: dg.AssetExecutionContext,
+    mssql_target_staging: MSSQLResource,
+) -> dg.MaterializeResult:
+    results = execute_sql_files_from_directory(
+        mssql_target_staging, "sources/udredningsret", context
+    )
+    return dg.MaterializeResult(metadata={"files_executed": list(results.keys())})

@@ -120,7 +120,6 @@ IFDB_ACTIVE_JOB_TYPES: tuple[str, ...] = (
     "KP Important Information",
     "Medicinudleveringer",
     "KP Negativt samtykke",
-    "PatientJob",
     "AkutdataJob",
     "AkutJob",
 )
@@ -2225,7 +2224,7 @@ _ifdb_factory_extract_assets = create_dfm_extraction_assets(
     group_name="ifdb_archive",
     domain_tag="ifdb",
     dialect="oracle",
-    deps=["staging_infra_ifdb_archive", "dfm_ifdb_flow_start"],
+    deps=["staging_infra_source_ifdb", "dfm_ifdb_flow_start"],
 )
 
 # ---------------------------------------------------------------------------

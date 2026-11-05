@@ -8,7 +8,7 @@
 
 The delta IFDB extract can only see rows that still exist in the source -- a row
 hard-deleted in IFDB lingers in the archive with ``dw_is_deleted = 0`` forever.
-``archive_reconciliation`` detects that (``vanished_not_marked_deleted``); this
+``source_archive_reconciliation`` detects that (``vanished_not_marked_deleted``); this
 asset is the fix: it stages the source's CURRENT live merge keys (see
 ``checks/oracle_source.stage_ifdb_keys``) and sets ``dw_is_deleted = 1`` on the
 active arc rows whose key is gone. The arc analogue of
@@ -19,7 +19,7 @@ Every ``ARC_SUBJECTS`` entity is wired, composite merge keys included --
 Location's grain is (OBJECT_ID, PERIOD_START). Location depends on this asset:
 its join-delta extract carries no delete detection, so this operator-triggered
 cleanup is the only thing that retires its hard-deleted rows;
-``archive_reconciliation`` counts the backlog weekly as
+``source_archive_reconciliation`` counts the backlog weekly as
 ``vanished_not_marked_deleted``.
 
 NB: IFDB *retains* logically-deleted rows (its own DELETED/SLETTET flags), so a

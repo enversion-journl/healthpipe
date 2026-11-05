@@ -556,9 +556,9 @@ def staging_db(udred_db):  # noqa: F811
 # ---------------------------------------------------------------------------
 
 
-def test_1_fuld_indlaesning_grain_og_kolonner(staging_db, delivery_dir, monkeypatch):  # noqa: F811
+def test_1_fuld_indlaesning_grain_og_kolonner(staging_db, delivery_dir):  # noqa: F811
     build_delivery(delivery_dir, A_FILE, "20260830", "2026-08-30", rows_a_staging())
-    assert run_extract(staging_db, delivery_dir, monkeypatch).metadata["besluttet"] == "indlaest"
+    assert run_extract(staging_db, delivery_dir).metadata["besluttet"] == "indlaest"
     run_archive(staging_db)
     run_gate(staging_db)
     # 14 ext-raekker -> 13 arc-raekker (b+c er identiske), 5 helbredsforloeb
@@ -1036,11 +1036,11 @@ def test_6_ingen_cpr_i_nogen_stg_tabel(staging_db):
 # ---------------------------------------------------------------------------
 
 
-def test_7_delta_efter_leverance_b(staging_db, delivery_dir, monkeypatch):  # noqa: F811
+def test_7_delta_efter_leverance_b(staging_db, delivery_dir):  # noqa: F811
     cp = TILSTAND["cp_efter_a"]
     vent_paa_nyt_db_sekund(staging_db, cp)
     build_delivery(delivery_dir, B_FILE, "20260906", "2026-09-06", rows_b_staging())
-    assert run_extract(staging_db, delivery_dir, monkeypatch).metadata["kandidater"] == 1
+    assert run_extract(staging_db, delivery_dir).metadata["kandidater"] == 1
     arkiv = run_archive(staging_db)
     assert arkiv.metadata["rows_soft_deleted"] == 1
     assert arkiv.metadata["helbredsforloeb_genfindelse"]["andel"] == 1.0

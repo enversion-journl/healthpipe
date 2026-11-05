@@ -108,6 +108,7 @@ def test_references_preserve_role_version_and_null_sentinel_contract():
 
 
 def test_archive_ddl_stays_in_lockstep_with_every_spec():
-    ddl = Path(__file__).parents[2] / "infrastructure/ddl/tables/lpr3/00_archive.sql"
-    assert ddl.read_text() == archive_ddl()
-    assert ddl.read_text().count("CREATE TABLE [arc].") == len(ARCHIVE_DATASETS)
+    directory = Path(__file__).parents[2] / "infrastructure/ddl/sources/lpr3"
+    files = archive_ddl()
+    assert {name: (directory / name).read_text() for name in files} == files
+    assert len(files) == len(ARCHIVE_DATASETS)

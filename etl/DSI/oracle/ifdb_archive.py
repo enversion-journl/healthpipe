@@ -133,7 +133,7 @@ LOCATION_ARCHIVE_CONFIG = ArchiveMergeConfig(
     # window, so NOT MATCHED BY SOURCE would soft-delete nearly the whole
     # archive on every run. A location row deleted upstream (IFDB.LOCATION has
     # no delete flag to read) is instead retired by the operator-triggered
-    # dqa_arc_ifdb_vanished_cleanup; archive_reconciliation counts the backlog
+    # dqa_arc_ifdb_vanished_cleanup; source_archive_reconciliation counts the backlog
     # weekly as vanished_not_marked_deleted.
     detect_deletes=False,
     soft_delete_column="dw_is_deleted",
@@ -2007,7 +2007,7 @@ BOM_IFDB_AFTALE_ARCHIVE_CONFIG = ArchiveMergeConfig(
 # (rebooking), and the transform reads the archive per AFTALEOID, so a stale
 # row is re-attached on every future re-transform. Retirement therefore runs
 # out-of-band: the table is a DQA arc-subject, so the weekly
-# archive_reconciliation counts the backlog (vanished_not_marked_deleted) and
+# source_archive_reconciliation counts the backlog (vanished_not_marked_deleted) and
 # the operator-triggered dqa_arc_ifdb_vanished_cleanup soft-deletes it.
 # ---------------------------------------------------------------------------
 
@@ -2289,7 +2289,7 @@ def arc_eventmarker_ifdb(
 # Merge-nøglerne er MÅLT mod den levende kilde, ikke antaget: alle fire
 # PK-løse tabeller viste sig entydige på nøglerne nedenfor (0 dubletter), så
 # dedup_source_on_keys er unødvendig. Rækketal og distinkte nøgler står ved
-# hver tabel i ddl/tables/ifdb_archive/07_senge_kapacitet.sql.
+# hver tabel i ddl/sources/ifdb/ifdb_sengeenhed.sql.
 # ---------------------------------------------------------------------------
 
 _SENGEENHED_MERGE_KEYS = ("OBJEKT_ID",)

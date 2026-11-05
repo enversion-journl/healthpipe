@@ -9,7 +9,12 @@ CodeSystem Asset: ean
 
 Reads ean (GLN) source data from ext.ean_nemhandel,
 builds flat codesystem, and MERGEs into persistent tables:
-codesystem.ean_concept, _properties, _hierarchy.
+codesystem.EANConcept, EANProperties, EANHierarchy.
+
+The merge only upserts: nothing is deleted, so a partial NemHandel response
+cannot remove the properties of the GLNs it is missing. Rows are only touched
+when they change, so dw_timestamp_update is a real change signal — the OS2mo
+EAN delivery reads participantName's as a renamed GLN's "last changed".
 """
 
 import dagster as dg
@@ -25,7 +30,8 @@ def build_ean_codesystem(
     Build codesystem structure from ext.ean_nemhandel rows.
 
     Flat hierarchy (no parent codes). Each GLN entry becomes a concept
-    with participantName and participantOwnerId as properties.
+    with participantName and participantOwnerId as properties, always both
+    (NULL when empty).
 
     Returns:
         (concepts, properties, hierarchy) triple
@@ -48,20 +54,14 @@ def build_ean_codesystem(
         display = name if name else f"ean {code}"
         concepts.append({"CODE": code, "DISPLAY": display})
 
-        if name:
-            properties.append(
-                {"CODE": code, "KEY": "participantName", "VALUE": name, "TYPE": "String"}
-            )
-
-        if owner_id:
-            properties.append(
-                {
-                    "CODE": code,
-                    "KEY": "participantOwnerId",
-                    "VALUE": owner_id,
-                    "TYPE": "String",
-                }
-            )
+        # Both properties are always written — NULL when NemHandel has no
+        # value — so a name NemHandel itself clears is cleared here too.
+        properties.append(
+            {"CODE": code, "KEY": "participantName", "VALUE": name or None, "TYPE": "String"}
+        )
+        properties.append(
+            {"CODE": code, "KEY": "participantOwnerId", "VALUE": owner_id or None, "TYPE": "String"}
+        )
 
         hierarchy.append({"CODE": code, "PARENT_CODE": ""})
 
@@ -84,7 +84,7 @@ def _ensure_dicts(rows: list) -> list[dict]:
     group_name="codesystem",
     compute_kind="mssql",
     tags={"domain": "codesystem", "layer": "codesystem", "module": "ean"},
-    description=("Build ean codesystem from ext.ean_nemhandel " "and MERGE into codesystem.ean_*"),
+    description="Build ean codesystem from ext.ean_nemhandel and MERGE into codesystem.EAN*",
 )
 def cs_ean(
     context: dg.AssetExecutionContext,
@@ -106,7 +106,14 @@ def cs_ean(
                 f"{len(hierarchy)} hierarchy entries"
             )
 
-            result = merge_codesystem_tables(cursor, "ean", concepts, properties, hierarchy)
+            result = merge_codesystem_tables(
+                cursor,
+                "ean",
+                concepts,
+                properties,
+                hierarchy,
+                update_only_on_change=True,
+            )
             conn.commit()
         finally:
             cursor.close()

@@ -6,7 +6,7 @@
 
 """Regenerate the LPR3 archive DDL from the single dataset contract.
 
-Run from etl: python -m scripts.lpr3_generate_contract. The generated file is
+Run from etl: python -m scripts.lpr3_generate_contract. The generated files are
 reviewed and checked into Git; generation never connects to a database.
 """
 
@@ -16,8 +16,9 @@ from DSI.csv_files.lpr3_datasets import archive_ddl
 
 
 def main():
-    root = Path(__file__).parents[1]
-    (root / "infrastructure/ddl/tables/lpr3/00_archive.sql").write_text(archive_ddl())
+    directory = Path(__file__).parents[1] / "infrastructure/ddl/sources/lpr3"
+    for name, ddl in archive_ddl().items():
+        (directory / name).write_text(ddl)
 
 
 if __name__ == "__main__":

@@ -30,14 +30,6 @@ def _import_sor_register():
         "DSI/csv_files/sor_register.py",
         submodule_search_locations=[],
     )
-    if "core" not in sys.modules:
-        core_stub = types.ModuleType("core")
-        sys.modules["core"] = core_stub
-    if "core.resources" not in sys.modules:
-        res_stub = types.ModuleType("core.resources")
-        res_stub.MSSQLResource = type("MSSQLResource", (), {})
-        sys.modules["core.resources"] = res_stub
-
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
@@ -85,34 +77,17 @@ def sor_raw_data():
     return rows
 
 
-class _StubLog:
-    """Minimal stub for dagster AssetExecutionContext.log used by sor_register helpers."""
-
-    def info(self, msg, *args, **kwargs):
-        pass
-
-    def warning(self, msg, *args, **kwargs):
-        pass
-
-
-class _StubContext:
-    log = _StubLog()
-
-
 @pytest.fixture(scope="module")
 def sor_wide_rows(sor_raw_data):
     """Convert raw SOR rows to the wide format cs_sor feeds build_sor_codesystem.
 
-    Drives raw CSV rows through the REAL sor_register._transform_to_ext_format
+    Drives raw CSV rows through the REAL sor_register._iter_ext_rows
     (version grain), then applies the current-version-per-code selection that
     cs_sor's _CURRENT_VERSION_QUERY performs in SQL: highest from_date wins
     (lexicographic on the ISO strings, matching NVARCHAR ordering), to_date is
     projected as the closingDate property column.
     """
-    _transform_to_ext_format = sor_reg._transform_to_ext_format
-
-    ctx = _StubContext()
-    ext_rows = _transform_to_ext_format(sor_raw_data, ctx)
+    ext_rows = list(sor_reg._iter_ext_rows(sor_raw_data, {"skipped": 0, "duplicates": 0}))
 
     current: dict[str, dict] = {}
     for row in ext_rows:

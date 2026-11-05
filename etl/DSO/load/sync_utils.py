@@ -27,7 +27,6 @@ from dataclasses import replace as dc_replace
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Literal, cast
-from uuid import UUID
 
 import dagster as dg
 from core.resources import MSSQLResource, get_linked_server_config
@@ -43,19 +42,10 @@ _LINKED_SERVER_CONFIG = get_linked_server_config()
 LINKED_SERVER_NAME = _LINKED_SERVER_CONFIG["name"]
 STAGING_DATABASE = _LINKED_SERVER_CONFIG["database"]
 
-# Sync engine and fallback reason (for config/metadata and filtering runs)
+# Sync engine (for metadata and filtering runs)
 SYNC_ENGINE_LINKED_SERVER = "linked_server"
-SYNC_ENGINE_PYTHON_FALLBACK = "python_fallback"
 SYNC_ENGINE_SAME_DATABASE = "same_database"
 SYNC_ENGINE_LOCAL_DEV_SKIP = "local_dev_skip"
-
-FALLBACK_REASON_LINKED_SERVER_NOT_AVAILABLE = "linked_server_not_available"
-FALLBACK_REASON_LINKED_SERVER_VALIDATION_FAILED = "linked_server_validation_failed"
-FALLBACK_REASON_CONNECTIVITY = "connectivity"
-
-# Env: Python fallback is default (allowed when linked server unavailable).
-# Set to "false" or "0" to require linked server and fail the run if unavailable (e.g. in closed/prod).
-DSO_SYNC_ALLOW_PYTHON_FALLBACK_ENV = "DSO_SYNC_ALLOW_PYTHON_FALLBACK"
 
 # Cached collation mismatch result (None = not checked yet).
 _collation_mismatch_cache: bool | None = None
@@ -69,182 +59,6 @@ _RETRYABLE_ERROR_PATTERNS = (
     # SQL Server 7359: linked-server plan compiled against a stale remote schema; recompile heals it.
     "reported a change in schema version",
 )
-
-# mssql_python DDBC SQL type constants used by cursor.setinputsizes().
-# We bind string/date-like values explicitly to avoid first-row width inference.
-_SQL_WVARCHAR = -9
-_SQL_TYPE_TIMESTAMP = 93
-_SQL_TYPE_DATE = 91
-_SQL_INTEGER = 4
-_SQL_BIGINT = -5
-_SQL_DOUBLE = 8
-_SQL_BIT = -7
-_SQL_VARBINARY = -3
-_SQL_NUMERIC = 2
-
-
-_SQL_MAX_NUMERIC_PRECISION = 38
-
-
-def _is_mssql_python_connection(conn: object) -> bool:
-    """Return True when the given connection is created by mssql_python."""
-    return type(conn).__module__.startswith("mssql_python")
-
-
-def _decimal_scale_and_int_digits(value: Decimal) -> tuple[int, int]:
-    """Return (scale, integer_digits) needed to declare *value* in SQL Server.
-
-    Scale comes from the exponent, not the visible digits: Decimal("0E-12") is a
-    zero that still needs scale 12. Non-finite values have a string exponent and
-    cannot be sized, so they report (0, 0).
-    """
-    sign, digits, exponent = value.as_tuple()
-    if not isinstance(exponent, int):
-        return (0, 0)
-    if exponent < 0:
-        scale = -exponent
-        int_digits = max(0, len(digits) - scale)
-    else:
-        scale = 0
-        int_digits = len(digits) + exponent
-    return (scale, int_digits)
-
-
-def _numeric_spec(int_digits: int, scale: int) -> tuple[int, int, int]:
-    """Build a SQL_NUMERIC setinputsizes entry holding int_digits + scale.
-
-    Integer digits win over scale at the 38-digit ceiling: dropping fractional
-    digits rounds, dropping integer digits changes the magnitude.
-    """
-    int_digits = min(int_digits, _SQL_MAX_NUMERIC_PRECISION)
-    scale = min(scale, _SQL_MAX_NUMERIC_PRECISION - int_digits)
-    return (_SQL_NUMERIC, _SQL_MAX_NUMERIC_PRECISION, scale)
-
-
-def _build_mssql_python_chunk_input_sizes(
-    rows: list[tuple],
-) -> list[tuple[int, int, int]] | None:
-    """Build per-parameter input sizes for one executemany() chunk.
-
-    mssql_python infers string parameter widths from early rows in a batch.
-    If a later row is longer, executemany() can fail with
-    "UTF-16 length exceeds allowed column size". This helper computes widths
-    from the entire chunk and returns a setinputsizes()-compatible spec.
-
-    Every column must get an explicit type entry when any column requires one,
-    because mssql_python's setinputsizes() does not accept None entries.
-    """
-    if not rows:
-        return None
-
-    parameter_count = len(rows[0])
-    if parameter_count == 0:
-        return None
-
-    sizes: list[tuple[int, int, int] | None] = [None] * parameter_count
-    has_explicit_sizes = False
-
-    for idx in range(parameter_count):
-        saw_datetime = False
-        saw_date = False
-        saw_bool = False
-        saw_int = False
-        saw_float = False
-        saw_decimal = False
-        saw_bytes = False
-        saw_uuid = False
-        max_text_length = 0
-        max_bytes_length = 0
-        max_decimal_scale = 0
-        max_decimal_int_digits = 0
-
-        for row in rows:
-            if idx >= len(row):
-                continue
-            value = row[idx]
-            if value is None:
-                continue
-            if isinstance(value, datetime):
-                saw_datetime = True
-                break
-            if isinstance(value, date):
-                saw_date = True
-                continue
-            if isinstance(value, bool):
-                saw_bool = True
-                continue
-            if isinstance(value, int):
-                saw_int = True
-                continue
-            if isinstance(value, float):
-                saw_float = True
-                continue
-            if isinstance(value, Decimal):
-                saw_decimal = True
-                scale, int_digits = _decimal_scale_and_int_digits(value)
-                max_decimal_scale = max(max_decimal_scale, scale)
-                max_decimal_int_digits = max(max_decimal_int_digits, int_digits)
-                continue
-            if isinstance(value, str):
-                max_text_length = max(max_text_length, len(value))
-            if isinstance(value, bytes | bytearray):
-                saw_bytes = True
-                max_bytes_length = max(max_bytes_length, len(value))
-            if isinstance(value, UUID):
-                saw_uuid = True
-
-        if saw_datetime:
-            sizes[idx] = (_SQL_TYPE_TIMESTAMP, 0, 0)
-            has_explicit_sizes = True
-        elif saw_date:
-            sizes[idx] = (_SQL_TYPE_DATE, 0, 0)
-            has_explicit_sizes = True
-        elif max_text_length > 0:
-            sizes[idx] = (_SQL_WVARCHAR, max_text_length, 0)
-            has_explicit_sizes = True
-        elif saw_bool:
-            sizes[idx] = (_SQL_BIT, 0, 0)
-            has_explicit_sizes = True
-        elif saw_decimal:
-            sizes[idx] = _numeric_spec(max_decimal_int_digits, max_decimal_scale)
-            has_explicit_sizes = True
-        elif saw_int:
-            sizes[idx] = (_SQL_BIGINT, 0, 0)
-            has_explicit_sizes = True
-        elif saw_float:
-            sizes[idx] = (_SQL_DOUBLE, 0, 0)
-            has_explicit_sizes = True
-        elif saw_bytes:
-            sizes[idx] = (_SQL_VARBINARY, max_bytes_length, 0)
-            has_explicit_sizes = True
-        elif saw_uuid:
-            sizes[idx] = (_SQL_WVARCHAR, 36, 0)
-            has_explicit_sizes = True
-
-    if not has_explicit_sizes:
-        return None
-
-    # Fill any remaining None entries with WVARCHAR(1) so every column
-    # has a valid type — mssql_python rejects None in the sizes list.
-    for idx in range(parameter_count):
-        if sizes[idx] is None:
-            sizes[idx] = (_SQL_WVARCHAR, 1, 0)
-
-    return cast(list[tuple[int, int, int]], sizes)
-
-
-def _set_mssql_python_chunk_input_sizes(conn: object, cursor, rows: list[tuple]) -> None:
-    """Apply setinputsizes() for mssql_python chunks when possible."""
-    if not rows or not _is_mssql_python_connection(conn):
-        return
-
-    setinputsizes = getattr(cursor, "setinputsizes", None)
-    if setinputsizes is None:
-        return
-
-    input_sizes = _build_mssql_python_chunk_input_sizes(rows)
-    if input_sizes is not None:
-        setinputsizes(input_sizes)
 
 
 def _is_retryable_connectivity_error(exc: BaseException) -> bool:
@@ -401,11 +215,6 @@ def check_collation_mismatch(
     return mismatch
 
 
-def get_param_placeholder(mssql_resource: MSSQLResource) -> str:
-    """Get the SQL parameter placeholder for mssql-python ('?')."""
-    return "?"
-
-
 def is_same_database_mode(
     mssql_target_dso: MSSQLResource | None = None,
     mssql_source_staging: MSSQLResource | None = None,
@@ -531,11 +340,6 @@ class SyncTableConfig:
     # Resolved per run from the SFI switch in DFM (sync_table_via_linked_server); never set in
     # sync_configs.
     hold_consumer_indexes: bool = False
-    # Rows per chunk when using the Python fallback path (_sync_via_python).
-    # Controls fetchmany() size and executemany() batch size to keep memory constant.
-    # Default 5k keeps memory <10 MB even for wide dims with NVARCHAR(MAX).
-    # Facts (narrow rows) override to 20k. Tune per table via sync_configs.
-    chunk_size: int = 5_000
     # PK columns that need COLLATE DATABASE_DEFAULT in MERGE ON clauses.
     # Required when staging and DSO databases use different collations and
     # the PK contains string columns (COLLATE is invalid on integer types).
@@ -682,27 +486,6 @@ def _write_values(sync_columns: list[str], alias: str | None = "src") -> str:
 # =============================================================================
 
 
-def check_linked_server_support(mssql_target_dso: MSSQLResource) -> bool:
-    """
-    Check if the target database supports linked servers.
-
-    Azure SQL Edge and some Azure SQL configurations do not support linked servers.
-
-    Returns:
-        True if linked servers are supported
-    """
-    with mssql_target_dso.get_connection() as conn:
-        cursor = conn.cursor()
-        try:
-            # Try to check for linked server stored procedures
-            cursor.execute("SELECT COUNT(*) FROM sys.servers")
-            return True
-        except Exception:
-            return False
-        finally:
-            cursor.close()
-
-
 def validate_linked_server(
     context: dg.AssetExecutionContext,
     mssql_target_dso: MSSQLResource,
@@ -752,71 +535,6 @@ def validate_linked_server(
                 ) from e
         finally:
             cursor.close()
-
-
-def get_staging_table_columns(
-    mssql_target_dso: MSSQLResource,
-    schema: str,
-    table: str,
-    linked_server: str = LINKED_SERVER_NAME,
-    staging_db: str = STAGING_DATABASE,
-    mssql_source_staging: MSSQLResource | None = None,
-) -> list[str]:
-    """
-    Get column names for a table from the staging database via linked server or direct connection.
-
-    Args:
-        mssql_target_dso: DSO database resource (for linked server queries)
-        schema: Schema name
-        table: Table name
-        linked_server: Name of the linked server
-        staging_db: Name of the staging database
-        mssql_source_staging: Optional staging resource for direct query fallback
-
-    Returns:
-        List of column names from staging table
-    """
-    # Try linked server first
-    source_table = f"[{linked_server}].[{staging_db}].[{schema}].[{table}]"
-    try:
-        with mssql_target_dso.get_connection() as conn:
-            cursor = conn.cursor()
-            try:
-                # Use string formatting for schema/table - they're safe config values
-                cursor.execute(
-                    f"""
-                SELECT COLUMN_NAME
-                FROM {source_table}.sys.columns c
-                INNER JOIN {source_table}.sys.tables t ON c.object_id = t.object_id
-                INNER JOIN {source_table}.sys.schemas s ON t.schema_id = s.schema_id
-                WHERE s.name = '{schema}' AND t.name = '{table}'
-                ORDER BY c.column_id
-                """
-                )
-                return [row[0] for row in cursor.fetchall()]
-            finally:
-                cursor.close()
-    except Exception:
-        # Linked server failed - try direct staging connection if available
-        if mssql_source_staging is not None:
-            with mssql_source_staging.get_connection() as conn:
-                cursor = conn.cursor()
-                try:
-                    # Use string formatting for schema/table - they're safe config values
-                    cursor.execute(
-                        f"""
-                    SELECT COLUMN_NAME
-                    FROM INFORMATION_SCHEMA.COLUMNS
-                    WHERE TABLE_SCHEMA = '{schema}' AND TABLE_NAME = '{table}'
-                    ORDER BY ORDINAL_POSITION
-                    """
-                    )
-                    return [row[0] for row in cursor.fetchall()]
-                finally:
-                    cursor.close()
-        else:
-            # No fallback available, re-raise
-            raise
 
 
 class SchemaValidationError(Exception):
@@ -1506,20 +1224,31 @@ def build_truncate_insert_statement(
     return truncate_sql, insert_sql
 
 
-def _attempt_sync_with_fallbacks(
+def _require_linked_server(
+    context: dg.AssetExecutionContext, mssql_target_dso: MSSQLResource, full_table: str
+) -> None:
+    """Raise when the linked server cannot serve the sync of *full_table*."""
+    try:
+        validate_linked_server(context, mssql_target_dso)
+    except RuntimeError as e:
+        raise RuntimeError(
+            f"Cannot sync {full_table}: linked server '{LINKED_SERVER_NAME}' is unavailable: {e}"
+        ) from e
+
+
+def _attempt_sync_with_integrity_recovery(
     context: dg.AssetExecutionContext,
     mssql_target_dso: MSSQLResource,
     config: SyncTableConfig,
     mssql_source_staging: MSSQLResource | None,
-    staging_reachable: bool,
     *,
     last_sync_checkpoint: str | None,
     checkpoint_upper_bound: str | None = None,
 ) -> dict:
-    """Run linked-server sync with Python fallback; no DFM state updates."""
+    """Run linked-server sync with integrity recovery; no DFM state updates."""
     full_table = f"[{config.schema}].[{config.table}]"
+    _require_linked_server(context, mssql_target_dso, full_table)
     try:
-        validate_linked_server(context, mssql_target_dso)
         return _sync_via_linked_server(
             context,
             mssql_target_dso,
@@ -1530,80 +1259,30 @@ def _attempt_sync_with_fallbacks(
             checkpoint_upper_bound=checkpoint_upper_bound,
         )
     except Exception as e:
-        if _is_integrity_error(e):
-            context.log.warning(
-                f"⚠️ INTEGRITY_CONFLICT_RECOVERY: {full_table} — MERGE hit a unique "
-                f"constraint violation: {str(e)[:300]}. "
-                f"Falling back to TRUNCATE+INSERT for a clean full refresh."
-            )
-            recovery_config = dc_replace(config, mode="truncate_insert")
-            try:
-                result = _sync_via_linked_server(
-                    context,
-                    mssql_target_dso,
-                    recovery_config,
-                    mssql_source_staging=mssql_source_staging,
-                    validate_schemas=False,
-                    last_sync_checkpoint=None,
-                    checkpoint_upper_bound=None,
-                )
-            except RuntimeError:
-                if mssql_source_staging is not None and staging_reachable:
-                    result = _sync_via_python(
-                        context,
-                        mssql_source_staging,
-                        mssql_target_dso,
-                        recovery_config,
-                        last_sync_checkpoint=None,
-                        checkpoint_upper_bound=None,
-                    )
-                else:
-                    raise
-            result["recovery_truncate_insert"] = True
-            result["recovery_reason"] = "integrity_constraint_violation"
-            context.log.info(
-                f"✅ INTEGRITY_CONFLICT_RECOVERY COMPLETE: {full_table} — "
-                f"synced {result['rows_affected']} rows via TRUNCATE+INSERT"
-            )
-            return result
-
-        if isinstance(e, RuntimeError) or _is_retryable_connectivity_error(e):
-            err_msg = str(e)
-            if "does not exist" in err_msg:
-                fallback_reason = FALLBACK_REASON_LINKED_SERVER_NOT_AVAILABLE
-            elif "not accessible" in err_msg:
-                fallback_reason = FALLBACK_REASON_LINKED_SERVER_VALIDATION_FAILED
-            else:
-                fallback_reason = FALLBACK_REASON_CONNECTIVITY
-
-            allow_fallback = os.environ.get(
-                DSO_SYNC_ALLOW_PYTHON_FALLBACK_ENV, "true"
-            ).lower() not in ("false", "0")
-            if not allow_fallback:
-                context.log.error(
-                    f"Linked server unavailable (fallback disabled): reason={fallback_reason}, "
-                    f"error={err_msg}. "
-                    f"Set {DSO_SYNC_ALLOW_PYTHON_FALLBACK_ENV}=true to allow Python fallback."
-                )
-                raise
-
-            if mssql_source_staging is not None and staging_reachable:
-                context.log.error(
-                    f"DSO_SYNC_FALLBACK_ACTIVE: using Python fallback for {full_table}; "
-                    f"reason={fallback_reason}, linked_server_error={err_msg[:200]}"
-                )
-                context.log.info("Using Python-based data transfer as fallback...")
-                return _sync_via_python(
-                    context,
-                    mssql_source_staging,
-                    mssql_target_dso,
-                    config,
-                    fallback_reason=fallback_reason,
-                    last_sync_checkpoint=last_sync_checkpoint,
-                    checkpoint_upper_bound=checkpoint_upper_bound,
-                )
+        if not _is_integrity_error(e):
             raise
-        raise
+        context.log.warning(
+            f"⚠️ INTEGRITY_CONFLICT_RECOVERY: {full_table} — MERGE hit an integrity "
+            f"violation: {str(e)[:300]}. "
+            f"Falling back to TRUNCATE+INSERT for a clean full refresh."
+        )
+        recovery_config = dc_replace(config, mode="truncate_insert")
+        result = _sync_via_linked_server(
+            context,
+            mssql_target_dso,
+            recovery_config,
+            mssql_source_staging=mssql_source_staging,
+            validate_schemas=False,
+            last_sync_checkpoint=None,
+            checkpoint_upper_bound=None,
+        )
+        result["recovery_truncate_insert"] = True
+        result["recovery_reason"] = "integrity_constraint_violation"
+        context.log.info(
+            f"✅ INTEGRITY_CONFLICT_RECOVERY COMPLETE: {full_table} — "
+            f"synced {result['rows_affected']} rows via TRUNCATE+INSERT"
+        )
+        return result
 
 
 def sync_table_via_linked_server(
@@ -1616,7 +1295,7 @@ def sync_table_via_linked_server(
     run_mode_config=None,
 ) -> dict:
     """
-    Sync a table from staging to DSO using the linked server or Python fallback.
+    Sync a table from staging to DSO using the linked server.
 
     This function:
     1. Validates the linked server is accessible (or same-database mode)
@@ -1628,14 +1307,12 @@ def sync_table_via_linked_server(
     this function verifies data exists but skips the actual sync
     since both "databases" contain the same data.
 
-    If linked servers are not available (e.g., Azure SQL Edge), falls back
-    to Python-based data transfer when mssql_source_staging is provided.
-
     Args:
         context: Dagster asset execution context
         mssql_target_dso: DSO database resource
         config: Sync configuration
-        mssql_source_staging: Optional staging resource for Python-based fallback
+        mssql_source_staging: Staging resource for the reachability probe, schema and collation
+            checks, DFM state, watermark bound and row counts
         auto_recover_mismatch: If True (default), after a watermark_delta sync
             compare COUNT(*) and re-run as full MERGE only when DSO has fewer
             rows than staging (missing rows). When DSO count >= staging
@@ -1771,12 +1448,11 @@ def sync_table_via_linked_server(
                 )
         try:
             try:
-                result = _attempt_sync_with_fallbacks(
+                result = _attempt_sync_with_integrity_recovery(
                     context,
                     mssql_target_dso,
                     config,
                     mssql_source_staging,
-                    staging_reachable,
                     last_sync_checkpoint=checkpoint,
                     checkpoint_upper_bound=checkpoint_upper_bound,
                 )
@@ -1834,29 +1510,16 @@ def sync_table_via_linked_server(
                     recovery_config = dc_replace(config, mode="merge")
                     recovery_ctx = dfm_session.start_run(config, "full_load")
                     try:
-                        try:
-                            validate_linked_server(context, mssql_target_dso)
-                            result = _sync_via_linked_server(
-                                context,
-                                mssql_target_dso,
-                                recovery_config,
-                                mssql_source_staging=mssql_source_staging,
-                                validate_schemas=False,
-                                last_sync_checkpoint=None,
-                                checkpoint_upper_bound=None,
-                            )
-                        except RuntimeError:
-                            if mssql_source_staging is not None and staging_reachable:
-                                result = _sync_via_python(
-                                    context,
-                                    mssql_source_staging,
-                                    mssql_target_dso,
-                                    recovery_config,
-                                    last_sync_checkpoint=None,
-                                    checkpoint_upper_bound=None,
-                                )
-                            else:
-                                raise
+                        _require_linked_server(context, mssql_target_dso, full_table)
+                        result = _sync_via_linked_server(
+                            context,
+                            mssql_target_dso,
+                            recovery_config,
+                            mssql_source_staging=mssql_source_staging,
+                            validate_schemas=False,
+                            last_sync_checkpoint=None,
+                            checkpoint_upper_bound=None,
+                        )
 
                         result["recovery_full_merge"] = True
                         result["pre_recovery_staging_count"] = staging_count
@@ -2871,411 +2534,6 @@ def _sync_via_linked_server(
         "duration_ms": duration_ms,
         "sync_duration_seconds": sync_duration_seconds,
         "rows_per_second": round(rows_per_second, 1),
-    }
-
-
-def _sync_via_python(
-    context: dg.AssetExecutionContext,
-    mssql_source_staging: MSSQLResource,
-    mssql_target_dso: MSSQLResource,
-    config: SyncTableConfig,
-    fallback_reason: str | None = None,
-    last_sync_checkpoint: str | None = None,
-    checkpoint_upper_bound: str | None = None,
-) -> dict:
-    """
-    Execute sync using Python-based data transfer with streaming chunks.
-
-    Reads from staging in chunks of config.chunk_size rows via fetchmany()
-    to keep memory usage constant regardless of table size. Both staging and
-    DSO connections are held open simultaneously during the transfer.
-
-    This is a fallback for when linked servers are not available
-    (e.g., Azure SQL Edge in local development). Caller must set
-    DSO_SYNC_ALLOW_PYTHON_FALLBACK=true to allow this path.
-
-    Schema validation should be done by the caller (sync_table_via_linked_server).
-    This function assumes schemas have already been validated and match.
-    """
-    staging_table_ref = f"[{config.staging_schema}].[{config.staging_table}]"
-    target_table_ref = f"[{config.schema}].[{config.table}]"
-    full_table = target_table_ref
-
-    # Get column structure from staging (source of truth for data)
-    with mssql_source_staging.get_connection() as conn:
-        cursor = conn.cursor()
-        try:
-            cursor.execute(
-                f"""
-            SELECT COLUMN_NAME
-            FROM INFORMATION_SCHEMA.COLUMNS
-            WHERE TABLE_SCHEMA = '{config.staging_schema}' AND TABLE_NAME = '{config.staging_table}'
-            ORDER BY ORDINAL_POSITION
-            """
-            )
-            staging_columns = [row[0] for row in cursor.fetchall()]
-        finally:
-            cursor.close()
-
-    if not staging_columns:
-        raise RuntimeError(f"Table {full_table} not found in staging database or has no columns")
-
-    # Validate watermark_column exists in table columns
-    if config.mode == "watermark" and config.watermark_column:
-        if config.watermark_column not in staging_columns:
-            raise ValueError(
-                f"watermark_column '{config.watermark_column}' not found in "
-                f"table {full_table}. Available columns: {staging_columns}"
-            )
-
-    # Only apply COLLATE DATABASE_DEFAULT when staging and DSO collations differ.
-    pk_cols_for_type_check = (
-        [config.primary_key] if isinstance(config.primary_key, str) else list(config.primary_key)
-    )
-    needs_collate = check_collation_mismatch(mssql_source_staging, mssql_target_dso, context)
-    string_pk_cols: set[str] = (
-        get_string_pk_columns(mssql_target_dso, config.schema, config.table, pk_cols_for_type_check)
-        if needs_collate
-        else set()
-    )
-
-    # Filter out excluded columns
-    sync_columns = [c for c in staging_columns if c not in config.exclude_columns]
-
-    if len(sync_columns) != len(staging_columns):
-        excluded = [c for c in staging_columns if c in config.exclude_columns]
-        context.log.info(f"Excluding columns from sync: {excluded}")
-
-    col_list = ", ".join(f"[{c}]" for c in sync_columns)
-
-    context.log.info(
-        f"Syncing {full_table} with {len(sync_columns)} columns via Python fallback "
-        f"(chunk_size={config.chunk_size}, mode={config.mode})"
-    )
-
-    # Build SELECT query with optional deduplication for composite PKs.
-    # Truncate-insert mode does not rely on PK semantics in Python fallback.
-    pk_cols = (
-        [config.primary_key] if isinstance(config.primary_key, str) else list(config.primary_key)
-    )
-    pk_cols_present = [c for c in pk_cols if c in sync_columns]
-    if config.mode != "truncate_insert":
-        missing_pk_cols = [c for c in pk_cols if c not in sync_columns]
-        if missing_pk_cols:
-            raise RuntimeError(
-                f"Cannot sync {full_table}: missing PK columns in staging: {missing_pk_cols}"
-            )
-
-    if config.mode == "watermark":
-        if last_sync_checkpoint is not None:
-            context.log.info(
-                f"Python watermark mode: column={config.watermark_column}, "
-                f"last_checkpoint={last_sync_checkpoint}"
-            )
-        else:
-            context.log.info(
-                "Python watermark mode: no previous checkpoint — executing full sync (first run)"
-            )
-
-    watermark_where_clause = ""
-    select_params: tuple = ()
-    if config.mode == "watermark" and (
-        last_sync_checkpoint is not None or checkpoint_upper_bound is not None
-    ):
-        source_placeholder = get_param_placeholder(mssql_source_staging)
-        watermark_col = (
-            config.watermark_column
-            or _find_update_timestamp_col(sync_columns)
-            or "dw_timestamp_update"
-        )
-        insert_fallback = _find_insert_timestamp_col(sync_columns) or "dw_timestamp_insert"
-        expr = (
-            f"[{config.watermark_effective_column}]"
-            if config.watermark_effective_column
-            else f"COALESCE([{watermark_col}], [{insert_fallback}])"
-        )
-        parts: list[str] = []
-        params: list[str] = []
-        if last_sync_checkpoint is not None:
-            parts.append(f"{expr} > {source_placeholder}")
-            params.append(last_sync_checkpoint)
-        if checkpoint_upper_bound is not None:
-            parts.append(f"{expr} <= {source_placeholder}")
-            params.append(checkpoint_upper_bound)
-        watermark_where_clause = "WHERE " + " AND ".join(parts)
-        select_params = tuple(params)
-
-    if len(pk_cols_present) > 1:
-        pk_list = ", ".join(f"[{c}]" for c in pk_cols_present)
-        timestamp_cols = [
-            c for c in sync_columns if "timestamp" in c.lower() or "update" in c.lower()
-        ]
-        order_col = f"[{timestamp_cols[0]}] DESC" if timestamp_cols else "1"
-
-        select_sql = f"""
-            SELECT {col_list}
-            FROM (
-                SELECT {col_list},
-                       ROW_NUMBER() OVER (PARTITION BY {pk_list} ORDER BY {order_col}) AS rn
-                FROM {staging_table_ref}
-                {watermark_where_clause}
-            ) dedup
-            WHERE rn = 1
-        """
-        context.log.info(f"Using deduplicated SELECT with PK: ({pk_list})")
-    else:
-        select_sql = f"""
-            SELECT {col_list}
-            FROM {staging_table_ref}
-            {watermark_where_clause}
-        """
-
-    # Prepare DSO statements
-    target_placeholder = get_param_placeholder(mssql_target_dso)
-    placeholders = ", ".join([target_placeholder] * len(sync_columns))
-    insert_sql = (
-        f"INSERT INTO {target_table_ref} ({col_list}) "
-        f"SELECT {_write_values(sync_columns)} FROM (VALUES ({placeholders})) AS src ({col_list})"
-    )
-
-    # For watermark-delta: prefer temp table + set-based MERGE per chunk.
-    # Falls back to row-level upsert if temp table creation fails (e.g. tempdb permissions).
-    temp_table_name = f"#_sync_{config.schema}_{config.table}"
-    temp_insert_sql: str | None = None
-    merge_from_temp_sql: str | None = None
-    row_upsert_sql: str | None = None
-
-    if config.mode == "watermark" and last_sync_checkpoint is not None:
-        source_column_list = ", ".join(f"[{c}]" for c in sync_columns)
-        on_clause = _build_on_clause(pk_cols, config, string_pk_cols)
-        update_ts_col = _find_update_timestamp_col(sync_columns)
-        update_columns = [
-            c
-            for c in sync_columns
-            if c not in pk_cols and c not in config.insert_only_columns and c != update_ts_col
-        ]
-        update_assignments = [f"tgt.[{c}] = src.[{c}]" for c in update_columns]
-        if update_ts_col:
-            update_assignments.append(_update_timestamp_assignment(update_ts_col))
-        update_set = ", ".join(update_assignments)
-        insert_vals = _write_values(sync_columns)
-
-        # Primary strategy: temp table + set-based MERGE
-        temp_insert_sql = f"INSERT INTO {temp_table_name} ({col_list}) VALUES ({placeholders})"
-        merge_from_temp_sql = f"""
-            MERGE {full_table} AS tgt
-            USING {temp_table_name} AS src
-            ON {on_clause}
-            WHEN MATCHED THEN
-                UPDATE SET {update_set}
-            WHEN NOT MATCHED BY TARGET THEN
-                INSERT ({source_column_list})
-                VALUES ({insert_vals});
-        """
-
-        # Fallback strategy: row-level upsert (slower but works without tempdb access)
-        row_upsert_sql = f"""
-            MERGE {full_table} AS tgt
-            USING (VALUES ({placeholders})) AS src ({source_column_list})
-            ON {on_clause}
-            WHEN MATCHED THEN
-                UPDATE SET {update_set}
-            WHEN NOT MATCHED BY TARGET THEN
-                INSERT ({source_column_list})
-                VALUES ({insert_vals});
-        """
-
-    # Stream data from staging → DSO in chunks.
-    # Both connections are held open simultaneously so rows are never fully
-    # materialised in Python memory.
-    sync_start = time.monotonic()
-    log_every_n_chunks = 10
-    effective_mode = f"python_{config.mode}"
-    backoff_seconds = (5, 15, 45)
-    for attempt in range(len(backoff_seconds) + 1):
-        total_rows = 0
-        chunks_processed = 0
-        try:
-            with mssql_source_staging.get_connection() as staging_conn:
-                staging_cursor = staging_conn.cursor()
-                try:
-                    if select_params:
-                        staging_cursor.execute(select_sql, select_params)
-                    else:
-                        staging_cursor.execute(select_sql)
-
-                    # Peek at first chunk to detect empty source BEFORE mutating DSO
-                    first_chunk = staging_cursor.fetchmany(config.chunk_size)
-                    if not first_chunk:
-                        duration_ms = int((time.monotonic() - sync_start) * 1000)
-                        if config.mode == "watermark" and last_sync_checkpoint is not None:
-                            context.log.info(
-                                f"Watermark not advanced for {full_table} — no source data"
-                            )
-                        context.log.info("No data to sync — source table is empty")
-                        if config.mode == "watermark":
-                            effective_mode = (
-                                "python_watermark_delta"
-                                if last_sync_checkpoint is not None
-                                else "python_watermark_full"
-                            )
-                        return {
-                            "rows_affected": 0,
-                            "mode": effective_mode,
-                            "sync_engine": SYNC_ENGINE_PYTHON_FALLBACK,
-                            "fallback_reason": fallback_reason,
-                            "table": full_table,
-                            "columns_synced": len(sync_columns),
-                            "sync_duration_seconds": round(duration_ms / 1000.0, 2),
-                            "rows_per_second": 0.0,
-                            "note": "Source table was empty",
-                        }
-
-                    with mssql_target_dso.get_connection() as dso_conn:
-                        dso_cursor = dso_conn.cursor()
-
-                        if config.identity_insert:
-                            context.log.info(f"Enabling IDENTITY_INSERT for {full_table}")
-                            dso_cursor.execute(f"SET IDENTITY_INSERT {full_table} ON")
-
-                        try:
-                            is_watermark_delta = (
-                                config.mode == "watermark" and last_sync_checkpoint is not None
-                            )
-                            use_temp_table = False
-                            if is_watermark_delta:
-                                effective_mode = "python_watermark_delta"
-                                try:
-                                    if config.identity_insert:
-                                        # SELECT INTO copies IDENTITY property; use arithmetic
-                                        # expression (col + 0) to strip it for numeric PK columns.
-                                        pk_cols = (
-                                            config.primary_key
-                                            if isinstance(config.primary_key, list)
-                                            else [config.primary_key]
-                                        )
-                                        cols_expr = ", ".join(
-                                            f"([{c}] + 0) AS [{c}]" if c in pk_cols else f"[{c}]"
-                                            for c in sync_columns
-                                        )
-                                        dso_cursor.execute(
-                                            f"SELECT TOP 0 {cols_expr} "
-                                            f"INTO {temp_table_name} FROM {full_table}"
-                                        )
-                                    else:
-                                        dso_cursor.execute(
-                                            f"SELECT TOP 0 {col_list} "
-                                            f"INTO {temp_table_name} FROM {full_table}"
-                                        )
-                                    use_temp_table = True
-                                    context.log.info(
-                                        "Python fallback watermark delta: temp table + set-based MERGE per chunk"
-                                    )
-                                except Exception as temp_err:
-                                    context.log.warning(
-                                        f"Could not create temp table ({temp_err}); "
-                                        f"falling back to row-level upsert"
-                                    )
-                            else:
-                                if config.mode == "watermark":
-                                    effective_mode = "python_watermark_full"
-                                    context.log.info(
-                                        "Python fallback watermark first run: using full truncate-insert"
-                                    )
-                                elif config.mode == "merge":
-                                    context.log.info(
-                                        "Python fallback using truncate-insert pattern for MERGE..."
-                                    )
-                                else:
-                                    context.log.info("Python fallback using truncate-insert mode")
-
-                                context.log.info(f"Executing TRUNCATE on {full_table}")
-                                dso_cursor.execute(f"TRUNCATE TABLE {full_table}")
-                                context.log.info("Streaming data from staging to DSO...")
-
-                            chunk = first_chunk
-                            while chunk:
-                                if chunk[0].__class__.__name__ == "Row":
-                                    chunk = [tuple(row) for row in chunk]
-
-                                _set_mssql_python_chunk_input_sizes(dso_conn, dso_cursor, chunk)
-
-                                if is_watermark_delta:
-                                    if use_temp_table:
-                                        dso_cursor.executemany(temp_insert_sql, chunk)
-                                        _clear_stale_current_before_merge(
-                                            dso_cursor, config, temp_table_name, string_pk_cols
-                                        )
-                                        dso_cursor.execute(merge_from_temp_sql)
-                                        dso_cursor.execute(f"TRUNCATE TABLE {temp_table_name}")
-                                    else:
-                                        dso_cursor.executemany(row_upsert_sql, chunk)
-                                else:
-                                    dso_cursor.executemany(insert_sql, chunk)
-
-                                total_rows += len(chunk)
-                                chunks_processed += 1
-
-                                if chunks_processed % log_every_n_chunks == 0:
-                                    elapsed = time.monotonic() - sync_start
-                                    rps = total_rows / elapsed if elapsed > 0 else 0
-                                    context.log.info(
-                                        f"Progress: {total_rows:,} rows in {chunks_processed} chunks "
-                                        f"({rps:,.0f} rows/s)"
-                                    )
-
-                                chunk = staging_cursor.fetchmany(config.chunk_size)
-
-                        finally:
-                            if use_temp_table:
-                                try:
-                                    dso_cursor.execute(
-                                        f"IF OBJECT_ID('tempdb..{temp_table_name}') IS NOT NULL "
-                                        f"DROP TABLE {temp_table_name}"
-                                    )
-                                except Exception as e:
-                                    context.log.warning(f"Could not drop {temp_table_name}: {e}")
-                            if config.identity_insert:
-                                context.log.info(f"Disabling IDENTITY_INSERT for {full_table}")
-                                dso_cursor.execute(f"SET IDENTITY_INSERT {full_table} OFF")
-                            dso_cursor.close()
-
-                        dso_conn.commit()
-                finally:
-                    staging_cursor.close()
-            break
-        except Exception as e:
-            if attempt < len(backoff_seconds) and _is_retryable_connectivity_error(e):
-                wait = backoff_seconds[attempt]
-                context.log.warning(
-                    f"Python fallback sync for {full_table} failed (attempt "
-                    f"{attempt + 1}/{len(backoff_seconds) + 1}): {str(e)[:200]}. "
-                    f"Retrying in {wait}s..."
-                )
-                time.sleep(wait)
-                continue
-            raise
-
-    duration_ms = int((time.monotonic() - sync_start) * 1000)
-    sync_duration_seconds = duration_ms / 1000.0
-    rows_per_second = total_rows / sync_duration_seconds if sync_duration_seconds > 0 else 0.0
-
-    context.log.info(
-        f"✅ Synced {total_rows:,} rows to {full_table} via Python fallback "
-        f"({chunks_processed} chunks of {config.chunk_size}, mode={effective_mode}, "
-        f"duration={sync_duration_seconds:.1f}s, rows/s={rows_per_second:,.0f})"
-    )
-
-    return {
-        "rows_affected": total_rows,
-        "mode": effective_mode,
-        "sync_engine": SYNC_ENGINE_PYTHON_FALLBACK,
-        "fallback_reason": fallback_reason,
-        "table": full_table,
-        "columns_synced": len(sync_columns),
-        "sync_duration_seconds": round(sync_duration_seconds, 2),
-        "rows_per_second": round(rows_per_second, 1),
-        "note": "Used Python fallback (linked server not available)",
     }
 
 

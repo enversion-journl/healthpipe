@@ -55,7 +55,7 @@ def test_the_dfm_row_switches_the_chain_and_a_run_tag_overrides_it(since, tag, a
 
 
 def test_start_sets_the_switch_once_and_keeps_its_first_time(monkeypatch):
-    import infrastructure.assets.sfi_consumers_absent as start
+    import DSO.load.sfi_consumers_absent as start
 
     dfm = _Dfm()
     monkeypatch.setattr(start, "DfmManager", lambda *a: dfm)

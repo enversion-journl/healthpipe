@@ -8,7 +8,7 @@
 
 # dim.Aftale — kolonneudvidelse (beslutningslog)
 
-- **User story:** [internal ticket] "dim.Aftale — udvidelse med deflevdage, udbud og øvrige lafth-kolonner"
+- **User story:** "dim.Aftale — udvidelse med deflevdage, udbud og øvrige lafth-kolonner"
 - **Kilde:** `dbo.lafth` (ILS) — ekstraktes allerede fuldt til `arc.ils_lafth`
 - **Grain:** én række pr. (lnr, aftale) — ren berigelse, ingen grain-ændring
 - **Besluttet:** 2026-09-30 (kildedata verificeret mod ILS samme dag)

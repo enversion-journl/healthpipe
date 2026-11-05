@@ -21,7 +21,7 @@ tværgående mekanismer. Perioden er februar 2026 og frem.
 
 **Sådan læses en post:** Principperne her i del 0 føres som *Valgt* /
 *Alternativ* / *Begrundelse* / *Betydning for aftager* / *Status*. Delrapporterne
-(del 1–5) fører hver beslutning som en fed konstatering med begrundelse og en
+(del 1–7) fører hver beslutning som en fed konstatering med begrundelse og en
 *Aftager:*-anvisning, samlet under emneafsnit.
 
 **Vedligeholdelse:** Denne fil er den varige hukommelse. Opgavebeskrivelser og
@@ -140,7 +140,7 @@ kan observere fænomenet. Ellers bekræfter den kun sit eget blinde punkt.
 
 ---
 
-## Indhold — de fem delrapporter
+## Indhold — delrapporterne
 
 | Del | Fil | Dækker |
 |---|---|---|
@@ -149,6 +149,8 @@ kan observere fænomenet. Ellers bekræfter den kun sit eget blinde punkt.
 | 3 | [Observationer](beslutningslog_observation.md) | Hvad der bliver en måling, værdihåndtering, enheder, struktur |
 | 4 | [Spørgeskemasvar og routing](beslutningslog_questionnaire.md) | Hvilken ressource en registrering bliver, skemamodellen, datapunkterne |
 | 5 | [Tværgående](beslutningslog_tvaergaaende.md) | Kodenormalisering, XML-parseren, sletning, identitet, flade tabeller, delta |
+| 6 | [Henvisninger og rekvisitioner](beslutningslog_servicerequest.md) | Status, datoer, historik, behandlere og institutioner, genoptræningsplanens modtagere |
+| 7 | [Lokationer](beslutningslog_location.md) | Hvilken kilde der ejer et Location-felt, slettede SOR-enheder, proveniens |
 
 ## Hurtig orientering — de otte ting, der oftest overrasker
 

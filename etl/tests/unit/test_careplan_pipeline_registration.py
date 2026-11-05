@@ -14,6 +14,11 @@ from DSA.FHIR.SqlOnFhir.CarePlan_dfm import sof_careplan_activity_dfm, sof_carep
 from DSA.FHIR.utils.dfm_query import build_fhir_archive_query
 from DSA.FHIR.utils.sql_on_fhir.sof_utils import SOF_RESOURCE_CONFIGS
 from DSI.oracle.ifdb_archive import EVENTMARKER_ARCHIVE_CONFIG
+from tests.utils.asset_graph_helpers import (
+    DFM_PRODUCER_PREFIXES,
+    SOF_PREFIXES,
+    assert_deps,
+)
 
 
 def _single_asset_group(asset_def, asset_name: str) -> str:
@@ -31,28 +36,34 @@ def test_careplan_transform_runs_in_the_dfm_group() -> None:
 def test_careplan_reads_the_archive_and_waits_for_patient_and_eoc() -> None:
     """The transform reads arc.ifdb_eventmarker, not IFDB Oracle, and its
     subject/EpisodeOfCare references must already exist on the FHIR server."""
-    key = AssetKey.from_user_string("fhir_server_careplan_dfm")
 
-    assert fhir_server_careplan_dfm.asset_deps[key] == {
-        AssetKey.from_user_string("arc_eventmarker_ifdb"),
-        AssetKey.from_user_string("fhir_server_patient_dfm"),
-        AssetKey.from_user_string("fhir_server_eoc_dfm"),
-    }
+    assert_deps(
+        fhir_server_careplan_dfm,
+        "fhir_server_careplan_dfm",
+        allowed_prefixes=DFM_PRODUCER_PREFIXES,
+        required={
+            "arc_eventmarker_ifdb",
+            "fhir_server_patient_dfm",
+            "fhir_server_eoc_dfm",
+        },
+    )
 
 
 @pytest.mark.unit
 def test_sof_careplan_assets_follow_the_transform() -> None:
-    parent_key = AssetKey.from_user_string("sof_careplan_dfm")
-    child_key = AssetKey.from_user_string("sof_careplan_activity_dfm")
 
-    assert sof_careplan_dfm.asset_deps[parent_key] == {
-        AssetKey.from_user_string("fhir_sof_infrastructure"),
-        AssetKey.from_user_string("fhir_server_careplan_dfm"),
-    }
-    assert sof_careplan_activity_dfm.asset_deps[child_key] == {
-        AssetKey.from_user_string("fhir_sof_infrastructure"),
-        AssetKey.from_user_string("sof_careplan_dfm"),
-    }
+    assert_deps(
+        sof_careplan_dfm,
+        "sof_careplan_dfm",
+        allowed_prefixes=SOF_PREFIXES,
+        required={"fhir_sof_infrastructure", "fhir_server_careplan_dfm"},
+    )
+    assert_deps(
+        sof_careplan_activity_dfm,
+        "sof_careplan_activity_dfm",
+        allowed_prefixes=SOF_PREFIXES,
+        required={"fhir_sof_infrastructure", "sof_careplan_dfm"},
+    )
     assert (
         _single_asset_group(sof_careplan_activity_dfm, "sof_careplan_activity_dfm")
         == "fhir_sof_dfm"

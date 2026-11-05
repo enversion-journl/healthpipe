@@ -47,8 +47,13 @@ def test_migrations_dir_is_mssql_only():
 
 
 def test_no_migrations_dirs_under_tables():
-    tables_dir = get_ddl_path() / "tables"
-    offenders = sorted(str(p) for p in tables_dir.rglob("migrations") if p.is_dir())
+    ddl = get_ddl_path()
+    offenders = sorted(
+        str(p)
+        for folder in ("tables", "sources")
+        for p in (ddl / folder).rglob("migrations")
+        if p.is_dir()
+    )
     assert offenders == [], (
         "Per-domain migration directories are forbidden; migrations belong in "
         f"infrastructure/ddl/migrations/ as yyyymmdd_name.sql. Found: {offenders}"

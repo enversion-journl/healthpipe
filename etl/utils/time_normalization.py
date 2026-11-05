@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -65,7 +66,9 @@ def datetime_to_fhir_date(dt: datetime | None) -> str | None:
     return dt.date().isoformat()
 
 
-def should_normalize_epoch(env_var: str = "NORMALIZE_EPOCH_TS", run_tags=None) -> bool:
+def should_normalize_epoch(
+    env_var: str = "NORMALIZE_EPOCH_TS", run_tags: Mapping[str, str] | None = None
+) -> bool:
     """
     Feature flag: enable epoch normalization when data stores timestamps as epoch ints.
 

@@ -232,7 +232,11 @@ def _iter_bed_attribute_rows(
     name="fhir_server_location_bed_dfm",
     group_name="fhir_ifdb_dfm",
     compute_kind="fhir",
-    deps=["arc_encounter_bed_space_history_ifdb", "fhir_server_location_dfm"],
+    deps=[
+        "arc_encounter_bed_space_history_ifdb",
+        "fhir_server_location_dfm",
+        "fhir_server_location_bom_ifdb_dfm",
+    ],
     tags={
         TAG_CHUNK_SIZE: "500",
         TAG_MAX_WORKERS: "8",

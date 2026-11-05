@@ -26,10 +26,6 @@ from dataclasses import dataclass
 
 from DSA.SQL.common.hash_clean_code import build_attribute_hash_sql
 
-# Sentinels shared with the rest of the warehouse
-UNKNOWN = -1  # value present but not resolvable
-NOT_APPLICABLE = -2  # structurally absent (e.g. no referral on psyk)
-
 
 @dataclass(frozen=True)
 class StgColumn:

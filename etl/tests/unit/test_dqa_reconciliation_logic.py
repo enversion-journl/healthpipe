@@ -7,7 +7,7 @@
 """Unit tests pinning the subtle reconciliation decisions made while hardening DQA,
 so a future edit can't silently regress them:
 
-- source_reconciliation aggregates the delete flag with MIN (not MAX).
+- archive_fhir_reconciliation aggregates the delete flag with MIN (not MAX).
 - patient_arc_integrity's kept_deleted_dup requires the fhir row to still be active.
 - capture builds MIN aggregates, honours the source_key==filter_column guard.
 - fhir_server_reconciliation degrades to `1 = 1` when the table has no delete column.
@@ -50,7 +50,7 @@ def _fhir_subject(**kw):
     )
 
 
-# --- source_reconciliation: MIN aggregation --------------------------------------
+# --- archive_fhir_reconciliation: MIN aggregation --------------------------------------
 
 
 def _recon_spec(**overrides):
@@ -62,14 +62,14 @@ def _recon_spec(**overrides):
         "target_deleted": "dw_is_deleted",
     }
     params.update(overrides)
-    return CheckSpecification("source_reconciliation", Severity.ERROR, Cadence.WEEKLY, params)
+    return CheckSpecification("archive_fhir_reconciliation", Severity.ERROR, Cadence.WEEKLY, params)
 
 
-def test_source_reconciliation_aggregates_delete_flag_with_min():
+def test_archive_fhir_reconciliation_aggregates_delete_flag_with_min():
     cursor = MagicMock()
     cursor.fetchone.return_value = (100, 100, 0, 0, 0)  # src, tgt, missing, extra, mismatch
     resources = SimpleNamespace(mssql_target_staging=_make_resource(cursor))
-    outcome = CHECK_TYPES["source_reconciliation"](
+    outcome = CHECK_TYPES["archive_fhir_reconciliation"](
         MagicMock(), _fhir_subject(), _recon_spec(), resources
     )
     assert outcome.passed and outcome.violations == 0
@@ -77,14 +77,14 @@ def test_source_reconciliation_aggregates_delete_flag_with_min():
     assert "MIN(" in sql and "MAX(" not in sql
 
 
-def test_source_reconciliation_capture_gated_on_flag():
+def test_archive_fhir_reconciliation_capture_gated_on_flag():
     # capture_replay=True + a gap -> capture is invoked.
     cursor = MagicMock()
     cursor.fetchone.return_value = (100, 100, 5, 0, 0)  # missing=5
     cursor.fetchall.return_value = [("missing_in_target", "k1", None)]
     resources = SimpleNamespace(mssql_target_staging=_make_resource(cursor))
-    with patch("dqa.remediation.capture.capture_source_reconciliation_gaps") as cap:
-        CHECK_TYPES["source_reconciliation"](
+    with patch("dqa.remediation.capture.capture_archive_fhir_reconciliation_gaps") as cap:
+        CHECK_TYPES["archive_fhir_reconciliation"](
             MagicMock(), _fhir_subject(), _recon_spec(capture_replay=True), resources
         )
         assert cap.called
@@ -94,8 +94,8 @@ def test_source_reconciliation_capture_gated_on_flag():
     cursor2.fetchone.return_value = (100, 100, 5, 0, 0)
     cursor2.fetchall.return_value = [("missing_in_target", "k1", None)]
     resources2 = SimpleNamespace(mssql_target_staging=_make_resource(cursor2))
-    with patch("dqa.remediation.capture.capture_source_reconciliation_gaps") as cap2:
-        CHECK_TYPES["source_reconciliation"](
+    with patch("dqa.remediation.capture.capture_archive_fhir_reconciliation_gaps") as cap2:
+        CHECK_TYPES["archive_fhir_reconciliation"](
             MagicMock(), _fhir_subject(), _recon_spec(), resources2
         )
         assert not cap2.called
@@ -144,11 +144,11 @@ def test_patient_kept_deleted_dup_requires_active_fhir_row():
     assert "<> 1 AND EXISTS (SELECT 1 FROM [arc]" in sql
 
 
-# --- capture_source_reconciliation_gaps: guard + MIN ------------------------------
+# --- capture_archive_fhir_reconciliation_gaps: guard + MIN ------------------------------
 
 
 def test_capture_noop_when_source_key_not_filter_column():
-    from dqa.remediation.capture import capture_source_reconciliation_gaps
+    from dqa.remediation.capture import capture_archive_fhir_reconciliation_gaps
 
     ctx = MagicMock()
     subject = DqaSubject(
@@ -160,7 +160,7 @@ def test_capture_noop_when_source_key_not_filter_column():
         replay=ReplaySpec("ifdb_patient_id", "ifdb_patient", "PATIENT_ID"),
     )
     resources = SimpleNamespace()  # must not be touched
-    capture_source_reconciliation_gaps(
+    capture_archive_fhir_reconciliation_gaps(
         ctx,
         subject,
         resources,
@@ -174,12 +174,12 @@ def test_capture_noop_when_source_key_not_filter_column():
 
 
 def test_capture_builds_min_aggregates():
-    from dqa.remediation.capture import capture_source_reconciliation_gaps
+    from dqa.remediation.capture import capture_archive_fhir_reconciliation_gaps
 
     cursor = MagicMock()
     cursor.fetchone.return_value = (5,)  # distinct-key count, under the guard
     resources = SimpleNamespace(mssql_target_staging=_make_resource(cursor))
-    capture_source_reconciliation_gaps(
+    capture_archive_fhir_reconciliation_gaps(
         MagicMock(),
         _fhir_subject(),
         resources,
@@ -239,7 +239,7 @@ def test_fhir_server_reconciliation_scopes_to_active_rows_with_delete_column():
 class TestBoundColumnResolvesInTheSource:
     """The reconciliation's bound column must exist where it is queried.
 
-    ``archive_reconciliation`` builds «SELECT ... FROM <source_table>» and puts the
+    ``source_archive_reconciliation`` builds «SELECT ... FROM <source_table>» and puts the
     extract's ``upper_bound_column`` in a CASE over that FROM, with its alias
     stripped. If the extract qualifies the column because it lives on a JOINED
     table, the column is not in the source and Oracle answers ORA-00904 — and the
@@ -285,7 +285,7 @@ class TestMissingOnly:
         from types import SimpleNamespace
         from unittest.mock import MagicMock
 
-        from dqa.checks.archive_reconciliation import archive_reconciliation
+        from dqa.checks.source_archive_reconciliation import source_archive_reconciliation
 
         executed: list[str] = []
         cur = MagicMock()
@@ -307,7 +307,7 @@ class TestMissingOnly:
         spec = SimpleNamespace(
             params={"source_table": "IFDB.X", "key_columns": ["OBJEKT_ID"], **params}
         )
-        archive_reconciliation(MagicMock(), subject, spec, resources)
+        source_archive_reconciliation(MagicMock(), subject, spec, resources)
         return executed
 
     def test_skips_the_full_archive_anti_join(self) -> None:

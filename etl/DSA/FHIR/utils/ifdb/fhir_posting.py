@@ -297,78 +297,23 @@ def _get_identifier_from_path(resource: Resource, field_path: str) -> str | None
     return str(identifier.value) if hasattr(identifier, "value") else None
 
 
-def _resolve_via_preloaded_cache(
-    resources: list[Resource],
-    fhir_database: FHIRDatabaseResource,
-    resource_type: str,
-    preferred_id_systems: list[str],
-    *,
-    force_reload: bool,
-) -> dict[int, str | None]:
-    """Resolve resource IDs via the full preloaded identifier cache.
-
-    Builds (or reuses) a SharedIdentifierCache / in-memory dict covering
-    all identifiers for the given systems, then resolves from that cache.
-    Preferred for non-indexed resource types (e.g. Observation) where
-    amortising a single cache build across many batches beats repeated
-    sequential-scan queries.
-    """
-    lookup = fhir_database.get_identifier_lookup(
-        resource_type=resource_type,
-        identifier_systems=preferred_id_systems,
-        force_reload=force_reload,
-    )
-
-    index_to_id: dict[int, str | None] = {}
-    for idx, resource in enumerate(resources):
-        identifiers = getattr(resource, "identifier", None)
-        if not identifiers:
-            continue
-        for preferred_system in preferred_id_systems:
-            for ident in identifiers:
-                system = getattr(ident, "system", None)
-                value = getattr(ident, "value", None)
-                if system == preferred_system and value:
-                    fhir_id = lookup.get((str(system), str(value)))
-                    if fhir_id:
-                        index_to_id[idx] = fhir_id
-                        break
-            if idx in index_to_id:
-                break
-
-    return index_to_id
-
-
 def resolve_resource_ids_for_upsert(
     resources: list[Resource],
     fhir_database: FHIRDatabaseResource,
     resource_type: str,
     preferred_id_systems: list[str],
     *,
-    use_cache_resolution: bool = False,
     force_reload: bool = False,
 ) -> list[Resource]:
     """Resolve FHIR server IDs for resources before upsert.
 
-    Two resolution strategies are available:
-
-    - **Default** (``use_cache_resolution=False``): targeted SQL via
-      ``fhir_database.resolve_resource_ids()``.  Uses UNIQUE partial
-      expression indexes for indexed types; fast, batch-scoped.
-
-    - **Cache** (``use_cache_resolution=True``): preloads the full
-      identifier cache via ``get_identifier_lookup()`` and resolves
-      from the ``SharedIdentifierCache`` (SQLite on disk).  Preferred
-      for non-indexed resource types like Observation where amortising
-      a single cache build avoids repeated sequential scans.
+    Uses targeted SQL via ``fhir_database.resolve_resource_ids()``.
 
     Args:
         resources: List of resources to resolve IDs for.
         fhir_database: Database resource for direct Postgres access.
         resource_type: Type of FHIR resource.
         preferred_id_systems: Identifier systems to use for resolution.
-        use_cache_resolution: When True, resolve via the full preloaded
-            identifier cache instead of targeted SQL.
         force_reload: Force cache reload (passed through to resolve).
 
     Returns:
@@ -380,21 +325,12 @@ def resolve_resource_ids_for_upsert(
     logger = dg.get_dagster_logger()
     logger.info(f"Resolving IDs for {len(resources)} {resource_type} resources")
 
-    if use_cache_resolution:
-        index_to_id = _resolve_via_preloaded_cache(
-            resources=resources,
-            fhir_database=fhir_database,
-            resource_type=resource_type,
-            preferred_id_systems=preferred_id_systems,
-            force_reload=force_reload,
-        )
-    else:
-        index_to_id = fhir_database.resolve_resource_ids(
-            resources=resources,
-            resource_type=resource_type,
-            preferred_systems=preferred_id_systems,
-            force_reload=force_reload,
-        )
+    index_to_id = fhir_database.resolve_resource_ids(
+        resources=resources,
+        resource_type=resource_type,
+        preferred_systems=preferred_id_systems,
+        force_reload=force_reload,
+    )
 
     for idx, fhir_id in index_to_id.items():
         if idx < len(resources):
@@ -417,9 +353,7 @@ def prepare_resources_for_upsert(
     preferred_id_systems: list[str],
     reference_configs: list[ReferenceFieldConfig] | None = None,
     nested_reference_configs: list[NestedReferenceFieldConfig] | None = None,
-    reference_resolve_fn: ResolveValuesFn | None = None,
     reference_fallback_fn: ResolveValuesFn | None = None,
-    use_cache_resolution: bool = False,
     force_reload: bool = False,
     logger: Any | None = None,
 ) -> list[Resource]:
@@ -430,17 +364,10 @@ def prepare_resources_for_upsert(
     business identifier systems; the resolution mechanics stay here.
 
     Args:
-        reference_resolve_fn: Optional resolver for configured references.
-            Leave unset for the default DB path. Partition-scoped callers can
-            pass a preloaded reference resolver without changing self-ID lookup.
         reference_fallback_fn: Optional secondary resolver tried only for
             references the primary lookup left unresolved (e.g. the patient-id →
             CPR bridge from ``build_patient_cpr_fallback``). Self-filtering, so
             it is safe to pass regardless of which references a resource has.
-        use_cache_resolution: When True, resolve self-IDs via the full
-            preloaded identifier cache (SharedIdentifierCache / SQLite)
-            instead of targeted SQL.  See
-            :func:`resolve_resource_ids_for_upsert` for details.
         force_reload: Force cache reload (passed through to resolve).
     """
     log = logger or dg.get_dagster_logger()
@@ -451,7 +378,6 @@ def prepare_resources_for_upsert(
             reference_configs=reference_configs or [],
             fhir_database=fhir_database,
             nested_reference_configs=nested_reference_configs,
-            resolve_fn=reference_resolve_fn,
             force_reload=force_reload,
             fallback_resolve_fn=reference_fallback_fn,
         )
@@ -474,7 +400,6 @@ def prepare_resources_for_upsert(
         fhir_database=fhir_database,
         resource_type=resource_type,
         preferred_id_systems=preferred_id_systems,
-        use_cache_resolution=use_cache_resolution,
         force_reload=force_reload,
     )
 

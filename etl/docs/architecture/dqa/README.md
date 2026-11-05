@@ -32,7 +32,7 @@ across the pipeline's layers?* — and runs as a Dagster `@asset_check`, so resu
   (no orphaned reference after a duplicate patient was deleted)? — `referential_integrity`
 - Does every `DW_EK_Kreditor` on `fct.Faktura` resolve to a row in `dim.Kreditor`? — `referential_integrity`
 - Did each month's invoice lines flow all the way Source → DSA → DSO without loss? — `completeness`
-- Is every record in `arc.encounter_ifdb` present (and delete-consistent) in flat `fhir.Encounter`? — `source_reconciliation`
+- Is every record in `arc.ifdb_encounter` present (and delete-consistent) in flat `fhir.Encounter`? — `archive_fhir_reconciliation`
 - Are there flat `fhir.*` rows whose resource was deleted on the FHIR server but never propagated? — `fhir_server_reconciliation`
 - After the DSO-sync, does each DSA table match its DSO copy row-for-row? — `dso_reconciliation`
 - Any duplicate business keys? — `uniqueness`
@@ -43,11 +43,11 @@ across the pipeline's layers?* — and runs as a Dagster `@asset_check`, so resu
 ```
   Source systems:  IFDB (Oracle)  ·  ERP (MSSQL)
         │
-        │  archive_reconciliation  — arc.* holds every current source key; deletes propagated
+        │  source_archive_reconciliation  — arc.* holds every current source key; deletes propagated
         ▼
   arc.*  (archive, on DSA)
         │
-        │  source_reconciliation   — flat fhir.* business keys match arc.*
+        │  archive_fhir_reconciliation   — flat fhir.* business keys match arc.*
         ▼
   FHIR server (Aidbox)  ──▶  fhir_server_reconciliation  — flat rows for resources deleted on the server
         │
@@ -76,7 +76,7 @@ DqaSubject(
     deleted_column="is_deleted",  # row-level checks scope to active (non-deleted) rows
     checks=(
         CheckSpecification("uniqueness", Severity.ERROR, Cadence.DAILY, {"grain": "identifier_value"}, name_suffix="business_key"),
-        _reconcile_vs_archive("arc.encounter_ifdb", capture_replay=True),  # source_reconciliation vs the archive
+        _reconcile_vs_archive("arc.ifdb_encounter", capture_replay=True),  # archive_fhir_reconciliation
     ),
     # weekly referential_integrity checks are added automatically from the FHIR lineage FK-Targets
 )
@@ -156,9 +156,9 @@ The **Scope** column shows which track/layer each check applies to: **FHIR**
 | `sentinel_rate` | DWH | daily | rate of `-1` unknown-member values per `DW_EK_` FK column (NULL is impossible — DDL `NOT NULL DEFAULT -1`); observability until a cap is set in `dwh_subjects._SENTINEL_MAX_RATES` (per fact, or per column via a dict) |
 | `uniqueness` | Any | daily | a grain (single/composite) is unique (active rows*) |
 | `referential_integrity` | FHIR + DWH | weekly | every non-null child FK resolves to a parent row, same DB (active child rows*) |
-| `source_reconciliation` | FHIR | weekly | flat FHIR business-key set matches its `arc.*` source (incl. soft-delete agreement; a key is "live" if **any** non-deleted flat row exists, so a soft-deleted cleanup straggler sharing a business key doesn't false-flag) |
+| `archive_fhir_reconciliation` | FHIR | weekly | flat FHIR business-key set matches its `arc.*` source (incl. soft-delete agreement; a key is "live" if **any** non-deleted flat row exists, so a soft-deleted cleanup straggler sharing a business key doesn't false-flag) |
 | `completeness` | DWH | weekly | monthly row-count parity Source → DSA → DSO per fact |
-| `archive_reconciliation` | Archive | weekly | an `arc.*` archive matches its **DFM source** (cross-DB; source `dialect` = oracle/mssql + `source_resource` + `flow_start_state` are params — IFDB Oracle today, SydAX/MySupply-ready) |
+| `source_archive_reconciliation` | Archive | weekly | an `arc.*` archive matches its **DFM source** (cross-DB; source `dialect` = oracle/mssql + `source_resource` + `flow_start_state` are params — IFDB Oracle today, SydAX/MySupply-ready) |
 | `fhir_server_reconciliation` | FHIR | weekly | flat `fhir.*` matches the **FHIR server** (Aidbox/Postgres) — flags rows deleted on the server but not propagated (cross-DB) |
 | `dso_reconciliation` | DSO | dso | a **DSO** table matches its **DSA** (staging) source after the DSO-sync — diffs on the full PK + delete status over the `STAGING_LINK` linked server (runs on DSO, results to DSA) |
 | `patient_arc_integrity` | FHIR | weekly | dedup-aware Patient `ifdb_patient_id` → `arc` check (orphan / kept-deleted-dup / delete-mismatch) |
@@ -171,7 +171,7 @@ a correctly soft-deleted row (e.g. retired by `dqa_fhir_server_cleanup`) doesn't
 keep failing. `uniqueness` can opt out per check with an explicit
 `deleted_column=None` param (strict, all-rows) — used for the resource-id grains,
 where even a soft-deleted duplicate id would be a projection bug. The
-reconciliations (`source_`/`archive_reconciliation`) deliberately compare the
+reconciliations (`source_archive_reconciliation` / `archive_fhir_reconciliation`) deliberately compare the
 **full** key set incl. deleted rows, to verify delete *propagation*.
 `fhir_server_reconciliation` treats **0 live server ids** as an anomaly: the diff
 is skipped (no false 100%-stale) but the check **fails** at its severity so the
@@ -223,9 +223,9 @@ CheckSpecifications, so a subject config never hand-lists FKs.
   EpisodeOfCare, Patient, Organization, Location, Encounter_Location. Daily
   uniqueness (no not_null — PKs and required patient references are `NOT NULL` in
   the DDL); weekly lineage-driven referential + (where applicable)
-  `source_reconciliation` vs `arc.*`. **Patient** is special — it's deduped by CPR
+  `archive_fhir_reconciliation` vs `arc.*`. **Patient** is special — it's deduped by CPR
   in the ETL (one row per CPR), so instead of a `PATIENT_ID` reconciliation it has
-  a CPR `source_reconciliation` (`vs_arc_cpr`, person-level) plus the dedup-aware
+  a CPR `archive_fhir_reconciliation` (`vs_arc_cpr`, person-level) plus the dedup-aware
   `patient_arc_integrity` (`vs_arc_patient_id`) so dropped deleted duplicates
   aren't false gaps. **Location** is likewise deduped (the transform posts
   `DISTINCT LOCATION_SORCODE`), so its `vs_arc` keys on the SOR code
@@ -260,7 +260,7 @@ CheckSpecifications, so a subject config never hand-lists FKs.
   `dqa_arc_ifdb_weekly_job`) so future `arc.*` sources (KMD/ILS/Sydax/MySupply) get
   their own `dqa_arc_<source>_weekly_job` rather than being lumped together.
 
-### arc ↔ IFDB reconciliation (`archive_reconciliation`)
+### arc ↔ IFDB reconciliation (`source_archive_reconciliation`)
 
 The upstream half of the lineage `IFDB → arc → fhir`. Because it's cross-DB and
 the archives are large (`IFDB.LOCATION` ≈ 14.4M rows at grain), it **stages**
@@ -335,7 +335,7 @@ could race the sensor-chained 06:00 pipeline. Two mechanisms:
   the FHIR sensor waits for the pair (and the FHIR-domain DSO reconciliation rides
   the same trigger). The arc IFDB reconciliation is weekly-only (no daily) and
   triggers on the base job, because the `arc.*` tables — and the flow-start bound
-  `archive_reconciliation` reads — are settled exactly when the base job succeeds
+  `source_archive_reconciliation` reads — are settled exactly when the base job succeeds
   (a cron could race the archive merge).
 
 - **DSO staggered crons** (`schedules.py`) — the DSO↔DSA reconciliation is
@@ -416,14 +416,14 @@ Operator recipe: `docs/implementation/dfm_operations_guide.md` →
 
 ### Unposted / unpropagated arc rows (also fed to the replay)
 
-`source_reconciliation` can also feed the replay queue (param `capture_replay=True`,
+`archive_fhir_reconciliation` can also feed the replay queue (param `capture_replay=True`,
 enabled on `fhir_encounter` and `fhir_episode_of_care` — both key on `OBJECT_ID`,
 the `ReplaySpec.filter_column`). It captures arc keys that are **`missing_in_target`**
 (never posted) or an **arc-deleted `delete_status_mismatch`** (arc `DELETED=1` while
 the flat row is still active — a delete that never propagated, e.g. soft-deletes that
 weren't extracted). The reverse mismatch (arc active, flat deleted) is **not**
 captured — it may be a deliberate FHIR-server delete. Captured under
-`reference_column='source_reconciliation'`; replaying re-posts/tomb-stones the keys,
+`reference_column='archive_fhir_reconciliation'`; replaying re-posts/tomb-stones the keys,
 and the recheck resolves them optimistically (next weekly run re-captures if still
 broken). **Not** enabled for `fhir_patient` (its reconciliation keys on CPR, not the
 `PATIENT_ID` replay filter — the capture no-ops with a warning if mis-wired). A

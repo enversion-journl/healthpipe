@@ -228,7 +228,7 @@ class NestedReferenceFieldConfig:
 
 
 # =============================================================================
-# Core Resolution Functions (Memory Cache Only)
+# Core Resolution Functions
 # =============================================================================
 
 
@@ -238,22 +238,18 @@ def batch_resolve_references(
     identifier_system: str,
     fhir_database: FHIRDatabaseResource,
     force_reload: bool = False,
-    resolve_fn: ResolveValuesFn | None = None,
 ) -> dict[str, str]:
     """
     Batch resolve identifier values to FHIR server IDs.
 
-    Uses the targeted SQL filtering path by default. When ``resolve_fn`` is
-    provided, it is used instead of ``fhir_database.resolve_identifier_values``.
+    Uses the targeted SQL filtering path.
 
     Args:
         identifiers: Dictionary mapping identifier values to be resolved (values are placeholders)
         resource_type: Type of FHIR resource (e.g., "Patient", "EpisodeOfCare")
         identifier_system: Identifier system URI
-        fhir_database: FHIR database resource for the default backend
-        force_reload: Force a fresh lookup after upstream mutations. Ignored
-            when ``resolve_fn`` is supplied.
-        resolve_fn: Optional callable matching ``resolve_identifier_values``.
+        fhir_database: FHIR database resource
+        force_reload: Force a fresh lookup after upstream mutations.
 
     Returns:
         Dictionary mapping identifier values to resolved FHIR server IDs
@@ -266,19 +262,12 @@ def batch_resolve_references(
 
     logger.info(f"Resolving {len(identifier_values)} {resource_type} references")
 
-    if resolve_fn is not None:
-        resolved_ids = resolve_fn(
-            resource_type=resource_type,
-            identifier_system=identifier_system,
-            values=identifier_values,
-        )
-    else:
-        resolved_ids = fhir_database.resolve_identifier_values(
-            resource_type=resource_type,
-            identifier_system=identifier_system,
-            values=identifier_values,
-            force_reload=force_reload,
-        )
+    resolved_ids = fhir_database.resolve_identifier_values(
+        resource_type=resource_type,
+        identifier_system=identifier_system,
+        values=identifier_values,
+        force_reload=force_reload,
+    )
 
     resolved_count = len(resolved_ids)
     unresolved_count = len(identifier_values) - resolved_count
@@ -537,7 +526,6 @@ def resolve_and_apply_reference(
     resources: Sequence[Resource],
     config: ReferenceFieldConfig,
     fhir_database: FHIRDatabaseResource,
-    resolve_fn: ResolveValuesFn | None = None,
     force_reload: bool = False,
     fallback_resolve_fn: ResolveValuesFn | None = None,
 ) -> ReferenceResolutionResult:
@@ -548,8 +536,6 @@ def resolve_and_apply_reference(
         resources: List of FHIR resources
         config: Reference field configuration
         fhir_database: FHIR database resource
-        resolve_fn: Optional partition-scoped resolver; see
-            :func:`batch_resolve_references`.
         force_reload: Force a fresh lookup after upstream mutations (e.g.
             dependency resolution persisted new identifiers via CPR-bridge).
         fallback_resolve_fn: Optional secondary resolver tried only for
@@ -588,7 +574,6 @@ def resolve_and_apply_reference(
         resource_type=config.target_resource_type,
         identifier_system=config.identifier_system,
         fhir_database=fhir_database,
-        resolve_fn=resolve_fn,
         force_reload=force_reload,
     )
 
@@ -891,7 +876,6 @@ def resolve_and_apply_nested_references(
     resources: Sequence[Resource],
     config: NestedReferenceFieldConfig,
     fhir_database: FHIRDatabaseResource,
-    resolve_fn: ResolveValuesFn | None = None,
     force_reload: bool = False,
     fallback_resolve_fn: ResolveValuesFn | None = None,
 ) -> NestedReferenceResolutionResult:
@@ -910,8 +894,6 @@ def resolve_and_apply_nested_references(
         resources: List of FHIR resources
         config: Nested reference field configuration
         fhir_database: FHIR database resource
-        resolve_fn: Optional partition-scoped resolver; see
-            :func:`batch_resolve_references`.
         force_reload: Force a fresh lookup after upstream mutations.
 
     Returns:
@@ -955,7 +937,6 @@ def resolve_and_apply_nested_references(
             resource_type=target_type,
             identifier_system=identifier_system,
             fhir_database=fhir_database,
-            resolve_fn=resolve_fn,
             force_reload=force_reload,
         )
 
@@ -984,7 +965,6 @@ def resolve_and_apply_all_references(
     reference_configs: list[ReferenceFieldConfig],
     fhir_database: FHIRDatabaseResource,
     nested_reference_configs: list[NestedReferenceFieldConfig] | None = None,
-    resolve_fn: ResolveValuesFn | None = None,
     force_reload: bool = False,
     fallback_resolve_fn: ResolveValuesFn | None = None,
 ) -> AllReferencesResolutionResult:
@@ -995,7 +975,7 @@ def resolve_and_apply_all_references(
 
     Process:
     1. For each top-level reference config, collect identifiers from resources
-    2. Batch resolve identifiers to FHIR IDs using memory cache
+    2. Batch resolve identifiers to FHIR IDs
     3. Apply resolved IDs to references
     4. For each nested reference config, do the same with nested path navigation
     5. For required references, fail if any cannot be resolved
@@ -1006,8 +986,6 @@ def resolve_and_apply_all_references(
         reference_configs: List of top-level reference field configurations
         fhir_database: FHIR database resource
         nested_reference_configs: List of nested reference field configurations (optional)
-        resolve_fn: Optional partition-scoped resolver; see
-            :func:`batch_resolve_references`.
         force_reload: Force a fresh lookup after upstream mutations (e.g.
             dependency resolution persisted new identifiers via CPR-bridge).
             Propagated to all :func:`batch_resolve_references` calls.
@@ -1054,7 +1032,6 @@ def resolve_and_apply_all_references(
             resources=resources,
             config=config,
             fhir_database=fhir_database,
-            resolve_fn=resolve_fn,
             force_reload=force_reload,
             fallback_resolve_fn=fallback_resolve_fn,
         )
@@ -1073,7 +1050,6 @@ def resolve_and_apply_all_references(
                 resources=resources,
                 config=nested_config,
                 fhir_database=fhir_database,
-                resolve_fn=resolve_fn,
                 force_reload=force_reload,
                 fallback_resolve_fn=fallback_resolve_fn,
             )
@@ -1103,7 +1079,6 @@ def resolve_resource_fhir_ids(
     resource_type: str,
     identifier_system: str,
     fhir_database: FHIRDatabaseResource,
-    resolve_fn: ResolveValuesFn | None = None,
 ) -> dict[str, str]:
     """
     Resolve existing FHIR IDs for resources by their business identifiers.
@@ -1116,8 +1091,6 @@ def resolve_resource_fhir_ids(
         resource_type: Type of resource (e.g., "CarePlan", "EpisodeOfCare")
         identifier_system: The identifier system to look up
         fhir_database: FHIR database resource for direct queries
-        resolve_fn: Optional partition-scoped resolver; see
-            :func:`batch_resolve_references`.
 
     Returns:
         Dict mapping identifier values to existing FHIR UUIDs
@@ -1144,7 +1117,6 @@ def resolve_resource_fhir_ids(
         resource_type=resource_type,
         identifier_system=identifier_system,
         fhir_database=fhir_database,
-        resolve_fn=resolve_fn,
     )
 
     logger.info(f"  → Found {len(resolved_ids)} existing {resource_type} resources in database")
@@ -1208,7 +1180,6 @@ def resolve_and_apply_resource_ids(
     resource_type: str,
     identifier_system: str,
     fhir_database: FHIRDatabaseResource,
-    resolve_fn: ResolveValuesFn | None = None,
 ) -> ResourceResolutionResult:
     """
     Convenience function: Resolve and apply FHIR IDs for a batch of resources.
@@ -1220,8 +1191,6 @@ def resolve_and_apply_resource_ids(
         resource_type: Type of resource (e.g., "CarePlan")
         identifier_system: The identifier system to look up
         fhir_database: FHIR database resource
-        resolve_fn: Optional partition-scoped resolver; see
-            :func:`batch_resolve_references`.
 
     Returns:
         ResourceResolutionResult with counts
@@ -1231,7 +1200,6 @@ def resolve_and_apply_resource_ids(
         resource_type=resource_type,
         identifier_system=identifier_system,
         fhir_database=fhir_database,
-        resolve_fn=resolve_fn,
     )
 
     return apply_resolved_fhir_ids(

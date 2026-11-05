@@ -5,7 +5,3 @@
 # root for the full AGPL-3.0 license text.
 
 """SHAK-a-like -> SOR ConceptMap asset."""
-
-from .shakalike_to_sor import build_shakalike_to_sor_mappings, cm_shakalike_to_sor
-
-__all__ = ["cm_shakalike_to_sor", "build_shakalike_to_sor_mappings"]

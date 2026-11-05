@@ -118,7 +118,7 @@ organisation_cs_job = dg.define_asset_job(
         # --- DWH infrastructure + dimension (SOR only) ---
         "staging_infra_organisation",
         # NOTE: the legacy map_Organisation / dso_sync_map_organisation assets
-        # were removed with [internal ticket] (they read the retired stg_Organisation_sor
+        # were removed (they read the retired stg_Organisation_sor
         # download). The persisted map.Organisation table remains as the
         # one-time seed source for ref.Organisation (migration
         # 20260618_ref_organisation.sql reads the table, not an asset run);

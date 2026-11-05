@@ -16,7 +16,7 @@
 -- Drops the dependent view/procedure/function so the underlying tables can be
 -- renamed; recreation is handled by the end-state DDL files which run after
 -- this migration (CREATE OR ALTER on each):
---   - infrastructure/ddl/views/security/01_vw_dim_security.sql (vw_dim.Organisation, no ModifiedDate alias — [internal ticket])
+--   - infrastructure/ddl/views/security/01_vw_dim_security.sql (vw_dim.Organisation, no ModifiedDate alias)
 --   - infrastructure/ddl/tables/security/02_functions.sql      (sec.HentRBSikkerhed_v2)
 --   - infrastructure/ddl/tables/security/03_procedures.sql     (sec.PopulateBrugerOrganisation)
 -- Safe to re-run: every step is guarded.

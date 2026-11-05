@@ -9,13 +9,13 @@
 SDS drops full snapshots per (leverancetype, takstsystem) on the NGC share:
 `Region_1083_<DRG|DRGPSYK>_<T24|T25|T26>[_<M|U>]_<timestamp>.tar.bz2`. Files
 accumulate; the NEWEST file per (leverancetype, takstsystem) is authoritative
-regardless of cadence (decision on [internal ticket] — M and U are packaging
+regardless of cadence (decision — M and U are packaging
 cadences of the same LPR update track, but M covers THREE activity years and
 U only two, which the archive handles with year-scoped delete detection, see
 drg_archive.py).
 
-The share is a read-only SMB mount located through DRG_BASE_DIR — resolved
-per run, and an unset variable is a hard error, never a fallback (an
+The share is a read-only SMB mount, the ``drg_share`` resource bound to
+DRG_BASE_DIR — an unset variable is a hard error, never a fallback (an
 unmounted share and "no new deliveries" must not look alike).
 
 Each tar contains one folder (T2x/) with semicolon-separated, fully quoted
@@ -28,15 +28,14 @@ each archive: a mismatch is a delivery defect and fails the run.
 ext is a 1:1 mirror of the source INCLUDING the per-delivery integer IDs —
 they are needed for the intra-delivery UUID resolution views in
 drg_archive.py, and ext is the debugging surface for the latest delivery.
-The archive layer deliberately excludes them (review decision on [internal ticket]).
+The archive layer deliberately excludes them (review decision).
 
 Key columns are validated against their declared max width so the narrow
 archive keys can never abort a MERGE with a truncation error (the HAIBA
-lesson from [internal ticket]). GDPR: the files carry raw CPR — row contents are never
+lesson). GDPR: the files carry raw CPR — row contents are never
 logged or reported, only file names, counts and delivery dates.
 """
 
-import csv
 import os
 import re
 import tarfile
@@ -48,7 +47,8 @@ from typing import TypedDict, cast
 import dagster as dg
 from core.dfm_manager import DfmManager
 from core.dfm_source import share_connection
-from core.resources import MSSQLResource
+from core.file_delivery import DELIMITER, iter_members, open_member_csv
+from core.resources import FileShareResource, MSSQLResource
 from DSI.connectors.delivery_detection import (
     DELIVERY_SCHEMA,
     DELIVERY_TARGET_TYPE,
@@ -57,8 +57,6 @@ from DSI.connectors.delivery_detection import (
     is_new_delivery,
 )
 from DSI.csv_files._sds_tar import (
-    DEFAULT_ENCODING,
-    DELIMITER,
     INSERT_CHUNK_SIZE,
     ExtWriter,
     dataset_prefix,
@@ -66,14 +64,10 @@ from DSI.csv_files._sds_tar import (
     export_log_deviations,
     ext_create_sql,
     has_mojibake,
-    iter_members,
-    open_member_csv,
     parse_archive_timestamp,
     parse_export_log,
     run_writers,
     schema_drift,
-    source_dir,
-    source_encoding,
 )
 from DSI.csv_files.drg_datasets import (
     MIN_VALUE_WIDTH,
@@ -82,11 +76,6 @@ from DSI.csv_files.drg_datasets import (
     DrgDataset,
 )
 from pydantic import Field, field_validator
-
-# Injected by the Nomad job that mounts the SMB share (per-branch opt-in via
-# SMB_SHARE_BRANCHES on the acr-watcher). Points at .../Fra-SDS.
-BASE_DIR_ENV = "DRG_BASE_DIR"
-ENCODING_ENV = "DRG_FILE_ENCODING"
 
 TAKSTSYSTEM_COLUMN = "takstsystem"
 DELIVERY_COLUMN = "leverance_dato"
@@ -117,29 +106,6 @@ ARCHIVE_RE = re.compile(
 
 # Data member: T26_DRGKONTAKT_1083_20260823.csv / T26_Psyk_kontakt_1083_20260810.csv
 DATA_MEMBER_RE = re.compile(r"^T\d{2}_(?P<prefix>.+)_1083_\d{8}\.csv$")
-
-
-def drg_dir() -> str:
-    """The mounted delivery folder, or a hard failure.
-
-    Resolved per run rather than at import time: the mount appears with the
-    allocation, not with the code, and an unset variable must never fall back
-    to a plausible-looking local path.
-    """
-    return source_dir(
-        BASE_DIR_ENV,
-        hint_unset=(
-            "The DRG share is mounted per branch — this branch's slug must be "
-            "added to SMB_SHARE_BRANCHES on the acr-watcher before the "
-            "code-server gets /mnt/ftproot."
-        ),
-        hint_not_dir="The SMB share is probably not mounted in this allocation.",
-    )
-
-
-def drg_encoding() -> str:
-    """Per-source encoding from the environment; SDS delivers cp1252."""
-    return source_encoding(ENCODING_ENV, DEFAULT_ENCODING)
 
 
 @dataclass(frozen=True)
@@ -629,12 +595,6 @@ def _dataset_prefix(csv_filename: str) -> str | None:
 _parse_export_log = parse_export_log
 
 
-def _parse_metadata(text: str) -> list[str]:
-    return [
-        record["column_name"] for record in csv.DictReader(text.splitlines(), delimiter=DELIMITER)
-    ]
-
-
 def validate_member_schema(
     dataset: DrgDataset, columns: list[str], filename: str, takstsystem: str | None = None
 ) -> None:
@@ -881,12 +841,13 @@ def _read_checkpoints(
 def _run_extract(
     context: dg.AssetExecutionContext,
     mssql: MSSQLResource,
+    share: FileShareResource,
     datasets: tuple[DrgDataset, ...],
     leverancetype: str,
     config: DrgExtractConfig,
 ) -> dg.MaterializeResult:
-    root = drg_dir()
-    encoding = drg_encoding()
+    root = share.root()
+    encoding = share.encoding
     on_or_before = None
     if config.delivery_on_or_before:
         on_or_before = date.fromisoformat(config.delivery_on_or_before)
@@ -1003,7 +964,7 @@ def _run_extract(
 
         # run_writers discards the buffers on any exception, so a designed
         # (GDPR-safe) failure mid-load is the error that surfaces instead of a
-        # driver error from the doomed final INSERT (review F19, [internal ticket]).
+        # driver error from the doomed final INSERT (review F19).
         per_takst = run_writers(writers, _load_selected)
         conn.commit()
 
@@ -1076,9 +1037,12 @@ def _build_asset(leverancetype: str, datasets: tuple[DrgDataset, ...], descripti
     def _asset(
         context: dg.AssetExecutionContext,
         mssql_target_staging: MSSQLResource,
+        drg_share: FileShareResource,
         config: DrgExtractConfig,
     ) -> dg.MaterializeResult:
-        return _run_extract(context, mssql_target_staging, datasets, leverancetype, config)
+        return _run_extract(
+            context, mssql_target_staging, drg_share, datasets, leverancetype, config
+        )
 
     return _asset
 
@@ -1112,8 +1076,10 @@ ext_drgpsyk = _build_asset(
         "ingest run chose to load, so it reports whether or not anything loads."
     ),
 )
-def drg_leverance_freshness(context: dg.AssetExecutionContext) -> dg.MaterializeResult:
-    root = drg_dir()
+def drg_leverance_freshness(
+    context: dg.AssetExecutionContext, drg_share: FileShareResource
+) -> dg.MaterializeResult:
+    root = drg_share.root()
     archives = discover_archives(root, "DRG") + discover_archives(root, "DRGPSYK")
     problems, ages = evaluate_freshness(archives, date.today())
     for problem in problems:

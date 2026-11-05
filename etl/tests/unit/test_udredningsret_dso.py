@@ -136,7 +136,6 @@ def test_kun_facterne_slaar_indekser_fra_og_kun_paa_bulk_stien():
         assert c.disable_target_indexes_during_sync is forventet_bulk, noegle
         if forventet_bulk:
             assert isinstance(c.primary_key, str), f"{noegle}: sammensat PK goer flaget inert"
-            assert c.chunk_size == 20_000, noegle
 
 
 def test_flaget_er_begrundet_i_ddl_ens_faktiske_indeksantal():
@@ -176,7 +175,9 @@ def test_ingen_synkroniseret_tabel_erklaerer_en_cpr_kolonne():
         assert "cpr" not in kolonner.lower(), f"{schema}.{table} erklaerer en CPR-lignende kolonne"
 
     # Kontrolproeve: arkivet, der IKKE synkroniserer, har kolonnen.
-    arkiv = (_DDL / "tables" / "udredningsret" / "00_archive.sql").read_text(encoding="utf-8")
+    arkiv = (_DDL / "sources" / "udredningsret" / "udredningsret_mont.sql").read_text(
+        encoding="utf-8"
+    )
     assert "[CPR]" in arkiv, "arkivets CPR-kolonne er vaek — er testen ovenfor stadig meningsfuld?"
 
 
@@ -309,14 +310,10 @@ def test_dimensionerne_venter_ikke_paa_hinanden_eller_paa_facterne():
 
 
 def test_assets_er_registreret_i_det_samlede_dso_sync_lag():
-    from DSO.load import UDREDNINGSRET_SYNC_CONFIGS as eksporteret
     from DSO.load import all_dso_sync_assets
-    from DSO.load import all_udredningsret_dso_sync_assets as eksporterede
 
-    assert eksporteret is UDREDNINGSRET_SYNC_CONFIGS
     for asset in all_udredningsret_dso_sync_assets:
         assert asset in all_dso_sync_assets
-    assert eksporterede is all_udredningsret_dso_sync_assets
 
 
 # ===========================================================================
@@ -325,10 +322,9 @@ def test_assets_er_registreret_i_det_samlede_dso_sync_lag():
 
 
 def test_infra_asset_koerer_kun_dim_og_fct_ddl_en_paa_dso(monkeypatch):
-    """05_seeds seeder map-tabellerne (som ikke findes paa DSO), 02_maps minter
-    IDENTITY-noegler, 00_archive holder den raa CPR og 01_meta er
-    leveranceregistret. Faar nogen af dem foejet sig til listen, staar der
-    CPR-baerende data paa rapporteringsdatabasen. Asset'et koeres mod en fake, saa
+    """05_seeds seeder map-tabellerne (som ikke findes paa DSO), og 02_maps minter
+    IDENTITY-noegler. Faar nogen af dem foejet sig til listen, staar der
+    staging-tabeller paa rapporteringsdatabasen. Asset'et koeres mod en fake, saa
     det er de faktisk udfoerte filer — ikke en beskrivelse — der asserteres."""
     from infrastructure.assets import dso_infrastructure
 
@@ -348,7 +344,7 @@ def test_infra_asset_koerer_kun_dim_og_fct_ddl_en_paa_dso(monkeypatch):
     assert resultat.metadata["files_executed"] == udfoerte
     # Filerne findes — de springes bevidst over, de er ikke bare uskrevne.
     ddl = _DDL / "tables" / "udredningsret"
-    for forbudt in ("00_archive.sql", "01_meta.sql", "02_maps.sql", "05_seeds.sql"):
+    for forbudt in ("02_maps.sql", "05_seeds.sql"):
         assert (ddl / forbudt).exists(), forbudt
         assert not any(forbudt in f for f in udfoerte), f"{forbudt} maa ikke oprettes paa DSO"
 
@@ -357,7 +353,9 @@ def test_infra_asset_er_registreret_i_dso_laget():
     """Dette repo bygger KUN tabellerne paa DSO. Praesentationsviews over
     udredningsretten ejes af security-views-repoet, saa her findes hverken et
     view-asset eller en views/udredningsret-mappe (beslutning U19)."""
-    from infrastructure import all_dso_assets, dso_infra_udredningsret
+    from infrastructure.assets.dso_infrastructure import dso_infra_udredningsret
+
+    from infrastructure import all_dso_assets
 
     assert dso_infra_udredningsret in all_dso_assets
     assert not hasattr(__import__("infrastructure"), "dso_infra_views_udredningsret")

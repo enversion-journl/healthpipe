@@ -39,7 +39,6 @@ from tests.integration.test_udredningsret_dwh_e2e import (  # noqa: F401
 def test_parallelle_forloeb_bevarer_noegler_ved_sletning_indsaettelse_og_genoplivning(
     dwh_db,  # noqa: F811
     delivery_dir,  # noqa: F811
-    monkeypatch,
 ):
     r = dwh_db
 
@@ -69,7 +68,7 @@ def test_parallelle_forloeb_bevarer_noegler_ved_sletning_indsaettelse_og_genopli
             date,
             rows_a_dwh() + courses,
         )
-        run_extract(r, delivery_dir, monkeypatch)
+        run_extract(r, delivery_dir)
         run_archive(r)
         koer_kaeden(r, "full_load")
         koer_dwh(r, "full_load")

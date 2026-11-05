@@ -120,6 +120,11 @@ BEGIN
         -- Hospital with population responsibility for the current municipality
         -- (Type 1, from ref.KommuneToPopulationsansvar). Last, as on a migrated table.
         [populationsansvar]             NVARCHAR(50) NULL,
+        -- Parish is intentionally unknown until a source is agreed.
+        [sogn_id] VARCHAR(4) NULL,
+        [sognenavn] NVARCHAR(60) NULL,
+        -- Staging converts this to a persisted expression; DSO receives the source key.
+        [dw_ek_BorgerDemografi] CHAR(64) NULL,
         CONSTRAINT [PK_Dim_Borger] PRIMARY KEY CLUSTERED ([dw_sk_Borger] ASC),
         CONSTRAINT [CK_Dim_Borger_CurrentNotDeleted] CHECK (
             [dw_is_deleted] = 0 OR [dw_is_current] = 0

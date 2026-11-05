@@ -39,6 +39,7 @@ from DSI.csv_files._lpr3_keys import (
     simple_identity_select,
 )
 from DSI.csv_files._lpr3_run import owned_landing
+from DSI.csv_files._sds_tar import upsert_register
 from DSI.csv_files.lpr3 import DELIVERY_UNIT, MANIFEST_TABLE
 from DSI.csv_files.lpr3_datasets import (
     ARCHIVE_DATASETS,
@@ -383,25 +384,15 @@ def record_delivery(
             "genindlaesning_alarm": int(alarm),
             "sekunder": seconds,
         }
-        columns = list(values)
         cursor = conn.cursor()
         try:
-            cursor.execute(
-                "MERGE meta.LPR3Leverance AS tgt USING (SELECT "
-                + ",".join(f"? AS [{c}]" for c in columns)
-                + ") AS src "
-                "ON tgt.kildetabel=src.kildetabel AND tgt.leverance_tidsstempel=src.leverance_tidsstempel "
-                # A failed replay keeps the committed delivery's run_id, cutoff and audit.
-                + (
-                    "WHEN MATCHED THEN UPDATE SET "
-                    if result
-                    else "WHEN MATCHED AND tgt.status<>'archived' THEN UPDATE SET "
-                )
-                + ",".join(f"tgt.[{c}]=src.[{c}]" for c in columns[2:])
-                + ",tgt.dw_timestamp_update=CAST(SYSDATETIME() AS DATETIME2(0)) "
-                "WHEN NOT MATCHED THEN INSERT (" + ",".join(f"[{c}]" for c in columns) + ") "
-                "VALUES (" + ",".join(f"src.[{c}]" for c in columns) + ");",
-                tuple(values.values()),
+            # A failed replay keeps the committed delivery's run_id, cutoff and audit.
+            upsert_register(
+                cursor,
+                "LPR3Leverance",
+                ("kildetabel", "leverance_tidsstempel"),
+                values,
+                matched_condition=None if result else "tgt.[status] <> 'archived'",
             )
             conn.commit()
         finally:

@@ -21,6 +21,9 @@ from dagster import (
     RetryPolicy,
     asset,
 )
+from utils.sql.tax_id_sql import sql_ils_kreditor_cleancode
+
+ILS_KREDITOR_CC = sql_ils_kreditor_cleancode("lev.se_nr")
 
 
 @asset(
@@ -98,7 +101,7 @@ def pre_stg_Vareaftaler_ils(
 
                 # Create base staging table with all joins
                 cursor.execute(
-                    """
+                    f"""
                     SELECT
                         -- Primary identifiers
                         lafth.aftale,
@@ -106,11 +109,8 @@ def pre_stg_Vareaftaler_ils(
                         laftd.vnr,
 
                         -- Clean codes (generated inline from raw ext columns)
-                        CASE
-                            WHEN lev.se_nr IS NOT NULL AND LTRIM(RTRIM(CAST(lev.se_nr AS NVARCHAR(100)))) <> ''
-                            THEN 'CVR_' + CASE WHEN REPLACE(LTRIM(RTRIM(CAST(lev.se_nr AS NVARCHAR(100)))), ' ', '') LIKE 'DK[0-9]%' THEN SUBSTRING(REPLACE(LTRIM(RTRIM(CAST(lev.se_nr AS NVARCHAR(100)))), ' ', ''), 3, LEN(REPLACE(LTRIM(RTRIM(CAST(lev.se_nr AS NVARCHAR(100)))), ' ', ''))) ELSE REPLACE(LTRIM(RTRIM(CAST(lev.se_nr AS NVARCHAR(100)))), ' ', '') END
-                            ELSE NULL
-                        END AS clean_code_Kreditor,
+                        -- NULL for giro = 'Person' (se_nr is a birth date/CPR)
+                        {ILS_KREDITOR_CC} AS clean_code_Kreditor,
                         CASE
                             WHEN stam.[lvnr##1] IS NOT NULL AND LTRIM(RTRIM(stam.[lvnr##1])) <> ''
                             THEN 'LEVVARE_' + UPPER(LTRIM(RTRIM(REPLACE(stam.[lvnr##1], ' ', ''))))

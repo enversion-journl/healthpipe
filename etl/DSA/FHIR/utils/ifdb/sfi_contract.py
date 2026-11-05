@@ -119,21 +119,6 @@ def infer_sfi_datatype(element_type: str | None, element_value: str | None) -> s
     return "string"
 
 
-def questionnaire_item_type_for_sfi_datatype(datatype: str) -> str:
-    """Map shared SFI datatypes to FHIR Questionnaire.item.type."""
-    return {
-        "integer": "integer",
-        "decimal": "decimal",
-        "quantity": "quantity",
-        "boolean": "boolean",
-        "datetime": "dateTime",
-        "date": "date",
-        "coding": "choice",
-        "code": "choice",
-        "string": "string",
-    }.get(datatype, "string")
-
-
 def guess_unit_from_display(display: str, element_name: str | None) -> str:
     """Conservative unit inference used consistently across SFI builders."""
     combined = f"{display} {element_name or ''}".lower()

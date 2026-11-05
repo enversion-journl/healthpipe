@@ -9,7 +9,7 @@
 
 ONE source of truth for the extract (DSI/csv_files/udredningsret.py), the
 archive (DSI/csv_files/udredningsret_archive.py) and the arc DDL
-(infrastructure/ddl/tables/udredningsret/00_archive.sql — kept in lockstep by
+(infrastructure/ddl/sources/udredningsret/udredningsret_mont.sql — kept in lockstep by
 tests/unit/test_udredningsret_datasets_ddl.py).
 
 The columns are SDS' own Metadata_UdredningsretMont_1083_<dato>.csv schema
@@ -86,10 +86,6 @@ class UdredningsretDataset:
     def arc_columns(self) -> tuple[str, ...]:
         """Arc column order: computed keys first, then every source column."""
         return tuple(a.name for a in self.arc_added) + self.source_columns
-
-    @property
-    def added_names(self) -> tuple[str, ...]:
-        return tuple(a.name for a in self.arc_added)
 
 
 # The columns that make up a marker's CONTENT. Two rows with the same content

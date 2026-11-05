@@ -31,6 +31,7 @@ import tarfile
 
 import dagster as dg
 import pytest
+from core.resources import FileShareResource
 from DSI.csv_files import drg, drg_archive
 from DSI.csv_files.drg_datasets import DATASETS, PSYK_DATASETS, SOMATIK_DATASETS
 
@@ -310,14 +311,14 @@ def drg_db(real_mssql_target_staging_resource):
     return resource
 
 
-def run_extract(resource, base_dir, monkeypatch, on_or_before: str | None = None):
-    monkeypatch.setenv(drg.BASE_DIR_ENV, str(base_dir))
+def run_extract(resource, base_dir, on_or_before: str | None = None):
     context = dg.build_asset_context()
     config = drg.DrgExtractConfig(
         delivery_on_or_before=on_or_before,
         max_delivery_age_days=36500,  # fixturens leverancedatoer er statiske
     )
-    return drg._run_extract(context, resource, SOMATIK_DATASETS, "DRG", config)
+    share = FileShareResource(base_dir=str(base_dir))
+    return drg._run_extract(context, resource, share, SOMATIK_DATASETS, "DRG", config)
 
 
 def run_archive_all(resource):
@@ -331,9 +332,9 @@ def run_archive_all(resource):
 # ---------------------------------------------------------------------------
 
 
-def test_1_foerste_leverance_lander_i_arc(drg_db, tmp_path, monkeypatch):
+def test_1_foerste_leverance_lander_i_arc(drg_db, tmp_path):
     build_delivery_a(tmp_path)
-    run_extract(drg_db, tmp_path, monkeypatch)
+    run_extract(drg_db, tmp_path)
     assert scalar(drg_db, "SELECT COUNT(*) FROM ext.drg_kontakt") == 3
 
     run_archive_all(drg_db)
@@ -384,11 +385,11 @@ def test_1_foerste_leverance_lander_i_arc(drg_db, tmp_path, monkeypatch):
     )
 
 
-def test_2_aarsskive_scope_revision_og_soft_delete(drg_db, tmp_path, monkeypatch):
+def test_2_aarsskive_scope_revision_og_soft_delete(drg_db, tmp_path):
     """U-leverancen daekker kun 2025: 2024-aaret maa IKKE roeres; A's pris
     opdateres med revisionslog; B (udgaaet af 2025-skiven) soft-slettes."""
     build_delivery_b(tmp_path)
-    run_extract(drg_db, tmp_path, monkeypatch)
+    run_extract(drg_db, tmp_path)
     assert scalar(drg_db, "SELECT COUNT(*) FROM ext.drg_kontakt") == 1
 
     run_archive_all(drg_db)
@@ -431,9 +432,9 @@ def test_2_aarsskive_scope_revision_og_soft_delete(drg_db, tmp_path, monkeypatch
     )
 
 
-def test_3_genkoersel_er_noop(drg_db, tmp_path, monkeypatch):
+def test_3_genkoersel_er_noop(drg_db, tmp_path):
     build_delivery_b(tmp_path)
-    run_extract(drg_db, tmp_path, monkeypatch)
+    run_extract(drg_db, tmp_path)
     before = scalar(
         drg_db,
         "SELECT MAX(dw_timestamp_update) FROM arc.drg_kontakt WHERE KONTAKT_VAERDI = ?",
@@ -456,7 +457,7 @@ def test_3_genkoersel_er_noop(drg_db, tmp_path, monkeypatch):
     )
 
 
-def test_4_aeldre_leverance_springes_over_uden_at_roere_arkivet(drg_db, tmp_path, monkeypatch):
+def test_4_aeldre_leverance_springes_over_uden_at_roere_arkivet(drg_db, tmp_path):
     """En pinnet AELDRE leverance afvises ikke laengere haardt — den springes
     over pr. aarsskive, fordi dens datacap ikke er nyere end den, arkivet
     allerede afspejler. Det er den samme mekanisme, der goer en M efter en U
@@ -464,7 +465,7 @@ def test_4_aeldre_leverance_springes_over_uden_at_roere_arkivet(drg_db, tmp_path
     build_delivery_a(tmp_path)
     build_delivery_b(tmp_path)
     # pin extract til den aeldre M-leverance — arkivet afspejler allerede B
-    run_extract(drg_db, tmp_path, monkeypatch, on_or_before="2026-08-18")
+    run_extract(drg_db, tmp_path, on_or_before="2026-08-18")
 
     before = scalar(
         drg_db, "SELECT TOTALPRIS_DRG FROM arc.drg_kontakt WHERE KONTAKT_VAERDI = ?", UUID_A
@@ -477,7 +478,7 @@ def test_4_aeldre_leverance_springes_over_uden_at_roere_arkivet(drg_db, tmp_path
     assert str(before) == str(after), "den aeldre leverance maa ikke overskrive arkivet"
 
 
-def test_7_paritetsguard_fanger_uoploeselig_reference(drg_db, tmp_path, monkeypatch):
+def test_7_paritetsguard_fanger_uoploeselig_reference(drg_db, tmp_path):
     """En diagnose der peger paa en kontakt uden for leverancen taber raekken
     LYDLOEST i INNER JOIN-viewet — paritetsguarden skal fejle koerslen, foer
     mergen soft-sletter dens arkivmodstykke."""
@@ -523,7 +524,7 @@ def test_7_paritetsguard_fanger_uoploeselig_reference(drg_db, tmp_path, monkeypa
             "LEVERANCEINFO": [["DRG", "2026-08-24"]],
         },
     )
-    run_extract(drg_db, tmp_path, monkeypatch)
+    run_extract(drg_db, tmp_path)
     diagnose = DATASETS_BY_PREFIX["DIAGNOSER"]
     with pytest.raises(ValueError, match="tabt"):
         drg_archive._run_archive(
@@ -635,13 +636,13 @@ def run_psyk_archive_all(resource):
         drg_archive._run_archive(context, resource, dataset, drg_archive.DrgArchiveConfig())
 
 
-def test_8_psyk_sporet_e2e(drg_db, tmp_path, monkeypatch):
+def test_8_psyk_sporet_e2e(drg_db, tmp_path):
     """Psyk-viewsene (ID_INT/DW_EK-joins) eksekveret mod rigtig SQL."""
     build_psyk_delivery(tmp_path)
-    monkeypatch.setenv(drg.BASE_DIR_ENV, str(tmp_path))
     context = dg.build_asset_context()
     config = drg.DrgExtractConfig(max_delivery_age_days=36500)
-    drg._run_extract(context, drg_db, PSYK_DATASETS, "DRGPSYK", config)
+    share = FileShareResource(base_dir=str(tmp_path))
+    drg._run_extract(context, drg_db, share, PSYK_DATASETS, "DRGPSYK", config)
     assert scalar(drg_db, "SELECT COUNT(*) FROM ext.drgpsyk_kontakt") == 2
 
     run_psyk_archive_all(drg_db)
@@ -682,7 +683,7 @@ def test_8_psyk_sporet_e2e(drg_db, tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_9_byte_identiske_kildedubletter_dedupes(drg_db, tmp_path, monkeypatch):
+def test_9_byte_identiske_kildedubletter_dedupes(drg_db, tmp_path):
     """Samme diagnoseraekke leveret to gange: mergen skal lykkes med én raekke
     i arkivet — at fejle hele tabellen over en identisk kopi ville arkivere
     ingenting. Maalt i dev: SDS leverede ét saadant par i T24 psyk."""
@@ -693,10 +694,10 @@ def test_9_byte_identiske_kildedubletter_dedupes(drg_db, tmp_path, monkeypatch):
         filename="Region_1083_DRGPSYK_T26_M_20260901120000.tar.bz2",
         Psyk_Diagnose=[identisk, list(identisk)],  # praecis samme raekke to gange
     )
-    monkeypatch.setenv(drg.BASE_DIR_ENV, str(tmp_path))
     drg._run_extract(
         dg.build_asset_context(),
         drg_db,
+        FileShareResource(base_dir=str(tmp_path)),
         PSYK_DATASETS,
         "DRGPSYK",
         drg.DrgExtractConfig(max_delivery_age_days=36500),
@@ -716,7 +717,7 @@ def test_9_byte_identiske_kildedubletter_dedupes(drg_db, tmp_path, monkeypatch):
     )
 
 
-def test_10_konfliktende_kildedubletter_fejler(drg_db, tmp_path, monkeypatch):
+def test_10_konfliktende_kildedubletter_fejler(drg_db, tmp_path):
     """Samme noegle, forskellige vaerdier: her ville en dedup afgoere hvad
     arkivet tror paa — koerslen skal fejle.
 
@@ -748,10 +749,10 @@ def test_10_konfliktende_kildedubletter_fejler(drg_db, tmp_path, monkeypatch):
         filename="Region_1083_DRGPSYK_T26_M_20260902120000.tar.bz2",
         Psyk_kontakt=[a, b],
     )
-    monkeypatch.setenv(drg.BASE_DIR_ENV, str(tmp_path))
     drg._run_extract(
         dg.build_asset_context(),
         drg_db,
+        FileShareResource(base_dir=str(tmp_path)),
         PSYK_DATASETS,
         "DRGPSYK",
         drg.DrgExtractConfig(max_delivery_age_days=36500),
@@ -765,7 +766,7 @@ def test_10_konfliktende_kildedubletter_fejler(drg_db, tmp_path, monkeypatch):
         )
 
 
-def test_11_registreringsid_dubletter_er_identiske(drg_db, tmp_path, monkeypatch):
+def test_11_registreringsid_dubletter_er_identiske(drg_db, tmp_path):
     """To diagnoseraekker der kun afviger paa kildens raekke-uuid er samme
     registrering gentaget — mergen skal lykkes med én raekke, deterministisk
     vinder."""
@@ -829,7 +830,7 @@ def test_11_registreringsid_dubletter_er_identiske(drg_db, tmp_path, monkeypatch
             "LEVERANCEINFO": [["DRG", "2026-09-03"]],
         },
     )
-    run_extract(drg_db, tmp_path, monkeypatch)
+    run_extract(drg_db, tmp_path)
     assert scalar(drg_db, "SELECT COUNT(*) FROM ext.drg_diagnose") == 2
 
     result = drg_archive._run_archive(

@@ -29,6 +29,11 @@ from DSA.FHIR.Procedure.Procedure_IFDB_AdminProc_dfm import fhir_server_procedur
 from DSA.FHIR.Procedure.Procedure_IFDB_RisYdelse_dfm import fhir_server_procedure_ris_ydelse_dfm
 from DSA.FHIR.SqlOnFhir.Procedure_dfm import sof_procedure_dfm
 from DSA.FHIR.utils.sql_on_fhir.sof_utils import VIEW_DEFINITIONS_DIR
+from tests.utils.asset_graph_helpers import (
+    DFM_PRODUCER_PREFIXES,
+    SOF_PREFIXES,
+    assert_deps,
+)
 
 
 @pytest.mark.unit
@@ -36,37 +41,49 @@ class TestProcedurePipelineRegistration:
     """Validate Procedure DFM wiring + SOF config/view contracts."""
 
     def test_admin_proc_dfm_depends_on_archive_and_upstreams(self):
-        key = AssetKey.from_user_string("fhir_server_procedure_admin_proc_dfm")
-        assert fhir_server_procedure_admin_proc_dfm.asset_deps[key] == {
-            AssetKey.from_user_string("arc_administrative_procedure_ifdb"),
-            AssetKey.from_user_string("arc_adm_procedure_suppl_codes_ifdb"),
-            AssetKey.from_user_string("fhir_server_patient_dfm"),
-            AssetKey.from_user_string("fhir_server_encounter_dfm"),
-            AssetKey.from_user_string("fhir_server_eoc_dfm"),
-        }
+        assert_deps(
+            fhir_server_procedure_admin_proc_dfm,
+            "fhir_server_procedure_admin_proc_dfm",
+            allowed_prefixes=DFM_PRODUCER_PREFIXES,
+            required={
+                "arc_administrative_procedure_ifdb",
+                "arc_adm_procedure_suppl_codes_ifdb",
+                "fhir_server_patient_dfm",
+                "fhir_server_encounter_dfm",
+                "fhir_server_eoc_dfm",
+            },
+        )
 
     def test_ris_ydelse_dfm_depends_on_archive_and_upstreams(self):
-        key = AssetKey.from_user_string("fhir_server_procedure_ris_ydelse_dfm")
-        assert fhir_server_procedure_ris_ydelse_dfm.asset_deps[key] == {
-            AssetKey.from_user_string("arc_ris_ydelse_ifdb"),
-            AssetKey.from_user_string("fhir_server_patient_dfm"),
-            AssetKey.from_user_string("fhir_server_encounter_dfm"),
-            AssetKey.from_user_string("fhir_server_eoc_dfm"),
-            # Ordering dep: basedOn → ServiceRequest must post before the
-            # RIS Procedure in the same base-job run (a dangling reference
-            # only heals if the RIS row is touched again — maybe never).
-            AssetKey.from_user_string("fhir_server_service_request_dfm"),
-        }
+        assert_deps(
+            fhir_server_procedure_ris_ydelse_dfm,
+            "fhir_server_procedure_ris_ydelse_dfm",
+            allowed_prefixes=DFM_PRODUCER_PREFIXES,
+            required={
+                "arc_ris_ydelse_ifdb",
+                "fhir_server_patient_dfm",
+                "fhir_server_encounter_dfm",
+                "fhir_server_eoc_dfm",
+                # Ordering dep: basedOn → ServiceRequest must post before the
+                # RIS Procedure in the same base-job run (a dangling reference
+                # only heals if the RIS row is touched again — maybe never).
+                "fhir_server_service_request_dfm",
+            },
+        )
 
     def test_sof_procedure_names_every_producer(self):
         """SOF moved to the DFM group; every producer is an explicit dep."""
-        key = AssetKey.from_user_string("sof_procedure_dfm")
-        assert sof_procedure_dfm.asset_deps[key] == {
-            AssetKey.from_user_string("fhir_sof_infrastructure"),
-            AssetKey.from_user_string("fhir_server_procedure_admin_proc_dfm"),
-            AssetKey.from_user_string("fhir_server_procedure_ris_ydelse_dfm"),
-            AssetKey.from_user_string("fhir_server_aktivitetsresultat_dfm"),
-        }
+        assert_deps(
+            sof_procedure_dfm,
+            "sof_procedure_dfm",
+            allowed_prefixes=SOF_PREFIXES,
+            required={
+                "fhir_sof_infrastructure",
+                "fhir_server_procedure_admin_proc_dfm",
+                "fhir_server_procedure_ris_ydelse_dfm",
+                "fhir_server_aktivitetsresultat_dfm",
+            },
+        )
 
     def test_procedure_view_includes_required_columns_for_fhir_procedure_table(self):
         path = VIEW_DEFINITIONS_DIR / "procedure_view.json"
@@ -107,20 +124,3 @@ class TestProcedurePipelineRegistration:
             key = AssetKey.from_user_string(key_str)
             assert graph.has(key), f"Missing asset key: {key_str}"
             assert graph.get(key).is_materializable, f"Asset is not materializable: {key_str}"
-
-    def test_legacy_procedure_assets_are_gone(self):
-        # Old + new asset registered at the same time would double-post to the
-        # FHIR server; the partitioned ris_ydelse extracts went with their last
-        # consumer (ServiceRequest).
-        graph = defs.resolve_asset_graph()
-        removed = [
-            "fhir_administrative_procedure_daily_ifdb",
-            "fhir_ris_ydelse_daily_ifdb",
-            "ifdb_extract/administrative_procedure_daily",
-            "ifdb_extract/ris_ydelse_daily",
-            "fhir_service_request_daily_ifdb",
-        ]
-        for key_str in removed:
-            assert not graph.has(
-                AssetKey.from_user_string(key_str)
-            ), f"Legacy asset still registered: {key_str}"

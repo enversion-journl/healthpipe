@@ -12,7 +12,7 @@ import dagster as dg
 import pytest
 from core.resources import FHIRDatabaseResource, MSSQLResource
 from DSA.FHIR.Patient import Patient_HAIBA, Patient_Udredningsret, cpr_stub_asset
-from DSA.FHIR.Patient.field_ownership import SOURCE_HAIBA, SOURCE_UDRED
+from DSA.FHIR.Patient.patient_ownership import SOURCE_HAIBA, SOURCE_UDRED
 from DSA.FHIR.Patient.patient_service import EnsureResult
 
 pytestmark = pytest.mark.unit

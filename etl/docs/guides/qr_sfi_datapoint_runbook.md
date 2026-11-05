@@ -11,8 +11,7 @@
 Operationel runbook for QR → SFI-datapunkt-kæden (`fhir.QuestionnaireResponse`
 → `fhir.SFI_datapoint_build` → `fhir.SFI_datapoint_store`): DQ preflight,
 reconciliation efter schema-/view-/key-ændringer, verifikationsqueries og
-rollback. Designbaggrunden ligger i den arkiverede plan
-[qr_sfi_join_key_hardening_plan.md](../archive/qr_sfi_join_key_hardening_plan.md)
+rollback. Designbaggrunden ligger i en arkiveret plan, som ikke er offentlig
 (migration `20260608_qr_sfi_join_key_hardening.sql` + preflight i
 `refresh_sfi_datapoint.py`); dette dokument er det autoritative sted for
 driftsprocedurerne.
@@ -241,4 +240,4 @@ Run-tags til målekørsler:
 | `dso_sync/index_disable_min_rows`, `dso_sync/index_disable_min_ratio` | DSO-synkens indeks-frakobling |
 
 Status: `dso_sfi_store_partition_status`. Målebænke: `sfi_store_layout_benchmark_job` og
-`sof_merge_benchmark_job` (kopier, der droppes igen).
+`sof_merge_benchmark_job` (kopier, der droppes igen). Statusassettet og de to jobs ligger i `etl/adhoc/`.

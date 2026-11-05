@@ -8,7 +8,7 @@
 DQA subjects for the IFDB archive tables (arc.* on the Staging server / DSA).
 
 Each arc table is reconciled weekly against its IFDB Oracle source via the
-source-generic ``archive_reconciliation`` check (pinned here with
+source-generic ``source_archive_reconciliation`` check (pinned here with
 ``dialect="oracle"`` / ``source_resource="ifdb_oracle"``): every current IFDB
 merge key must be archived (missing_in_arc = archive gap), and arc keys absent
 from IFDB must be soft-deleted (dw_is_deleted) rather than left stale. This is
@@ -350,7 +350,7 @@ def _arc(
         "source_table": source_table,
         "key_columns": key_columns,
         "deleted_column": _DELETED,
-        # archive_reconciliation is source-generic; these pin it to IFDB Oracle.
+        # source_archive_reconciliation is source-generic; these pin it to IFDB Oracle.
         # A future arc source (SydAX/MySupply/...) passes dialect="mssql" + its
         # own source_resource in its arc_<source>_subjects.py.
         "dialect": "oracle",
@@ -394,7 +394,7 @@ def _arc(
         identity_column=key_columns[0],
         checks=(
             CheckSpecification(
-                check_type="archive_reconciliation",
+                check_type="source_archive_reconciliation",
                 severity=Severity.ERROR,
                 cadence=Cadence.WEEKLY,
                 params=params,

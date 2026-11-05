@@ -4,7 +4,7 @@
 # This file is part of Healthpipe. See the LICENSE file in the project
 # root for the full AGPL-3.0 license text.
 
-"""Structural test: the 4 budget arc tables exist in the erp archive DDL."""
+"""Structural test: the 4 budget arc tables exist in the SydAX archive DDL."""
 
 from pathlib import Path
 
@@ -12,14 +12,14 @@ import pytest
 
 pytestmark = pytest.mark.unit
 
-DDL = (
-    Path(__file__).parent.parent.parent
-    / "infrastructure"
-    / "ddl"
-    / "tables"
-    / "erp"
-    / "00_archive.sql"
-).read_text(encoding="utf-8")
+DDL = "\n".join(
+    p.read_text(encoding="utf-8")
+    for p in sorted(
+        (Path(__file__).parent.parent.parent / "infrastructure" / "ddl" / "sources" / "sydax").glob(
+            "*.sql"
+        )
+    )
+)
 
 
 def test_four_budget_arc_tables_present():

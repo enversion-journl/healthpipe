@@ -4,12 +4,14 @@
 # This file is part of Healthpipe. See the LICENSE file in the project
 # root for the full AGPL-3.0 license text.
 
-"""Invariant tests for the EPJI location archive layer (arc.epji_location)."""
+"""Invariant tests for the EPJI archive layer (arc.epji_*)."""
 
 from __future__ import annotations
 
 import re
+from contextlib import contextmanager
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -73,7 +75,7 @@ def test_arc_epji_shakalike_depends_on_extract():
 
     dep_keys = {key.to_user_string() for key in arc_epji_shakalike.dependency_keys}
     assert "ext_epji_location" in dep_keys
-    assert "staging_infra_epji_archive" in dep_keys
+    assert "staging_infra_source_epji" in dep_keys
 
 
 def test_arc_epji_shakalike_registered_in_organisation_cs_job():
@@ -85,31 +87,44 @@ def test_arc_epji_shakalike_registered_in_organisation_cs_job():
     assert "cs_shakalike" in selection_str
 
 
-def test_ddl_column_lists_match_non_key_columns(archive_config):
-    """arc.epji_location's CREATE TABLE block must contain exactly the
-    columns declared in EPJI_LOCATION_ARCHIVE_CONFIG.non_key_columns (plus
-    the merge key, the soft-delete flag, and the standard audit columns).
+@pytest.mark.parametrize(
+    "config_name",
+    [
+        "EPJI_LOCATION_ARCHIVE_CONFIG",
+        "EPJI_PRACTITIONER_ARCHIVE_CONFIG",
+        "EPJI_PRACTITIONER_IDENTIFIER_ARCHIVE_CONFIG",
+        "EPJI_PRACTITIONER_ROLE_ARCHIVE_CONFIG",
+    ],
+)
+def test_ddl_column_lists_match_non_key_columns(config_name):
+    """Each arc.epji_* CREATE TABLE block must contain exactly the archive
+    config's merge keys and non_key_columns, plus the soft-delete flag and
+    the standard audit columns, and its primary key must be the merge keys.
 
-    Guards against silent column-list drift between the DDL and the MERGE.
+    Guards against silent column-list and key drift between the DDL and the MERGE.
     """
+    import DSI.oracle.epji_archive as epji_archive
+
+    archive_config = getattr(epji_archive, config_name)
+    table = archive_config.target_table
     ddl_path = (
         Path(__file__).resolve().parents[2]
         / "infrastructure"
         / "ddl"
-        / "tables"
-        / "epji_archive"
-        / "00_archive.sql"
+        / "sources"
+        / "epji"
+        / f"{table}.sql"
     )
     ddl = ddl_path.read_text(encoding="utf-8")
 
     audit_cols = {"dw_timestamp_insert", "dw_timestamp_update", "dw_is_deleted"}
 
     pattern = re.compile(
-        r"CREATE TABLE \[arc\]\.\[epji_location\](.*?)\bEND\b",
+        rf"CREATE TABLE \[arc\]\.\[{table}\](.*?)\bEND\b",
         re.DOTALL,
     )
     match = pattern.search(ddl)
-    assert match, "No CREATE TABLE block found for arc.epji_location"
+    assert match, f"No CREATE TABLE block found for arc.{table}"
 
     body = match.group(1)
     col_names = set(re.findall(r"\[([^\]]+)\]", body))
@@ -118,7 +133,67 @@ def test_ddl_column_lists_match_non_key_columns(archive_config):
 
     expected = set(archive_config.non_key_columns) | set(archive_config.merge_keys)
     assert col_names == expected, (
-        f"DDL drift for arc.epji_location:\n"
+        f"DDL drift for arc.{table}:\n"
         f"  missing in DDL: {expected - col_names}\n"
         f"  extra in DDL:   {col_names - expected}"
     )
+
+    primary_key = re.search(r"PRIMARY KEY CLUSTERED\s*\(([^)]*)\)", body)
+    assert primary_key, f"No clustered primary key in arc.{table}"
+    assert tuple(re.findall(r"\[([^\]]+)\]", primary_key.group(1))) == archive_config.merge_keys
+
+
+@pytest.mark.parametrize(
+    ("pending_above_cap", "override_above_cap", "merged"),
+    [(1, None, False), (0, None, True), (1, 1, True)],
+    ids=["above_cap_fails_before_merge", "at_cap_merges", "run_override_lifts_cap"],
+)
+def test_practitioner_archive_checks_soft_delete_cap_before_merge(
+    monkeypatch, pending_above_cap, override_above_cap, merged
+):
+    import dagster as dg
+    import DSI.oracle.epji_archive as epji_archive
+    from core.archive_merge import ArchiveMergeResult
+    from core.dfm_config import RunModeConfig
+    from core.etl_thresholds import get_soft_delete_threshold
+
+    cap = get_soft_delete_threshold("arc.epji_practitioner")
+    override = None if override_above_cap is None else cap + override_above_cap
+
+    @contextmanager
+    def connection():
+        conn = MagicMock()
+        conn.cursor.return_value.fetchone.return_value = (cap + pending_above_cap,)
+        yield conn
+
+    resource = MagicMock()
+    resource.get_connection = connection
+    merge_calls = []
+
+    def fake_merge(*args):
+        merge_calls.append(args)
+        return ArchiveMergeResult(
+            row_count=0,
+            new_checkpoint=None,
+            detect_deletes=True,
+            update_only_on_change=True,
+            strategy="upsert",
+            upstream_is_full_load=True,
+        )
+
+    monkeypatch.setattr(epji_archive, "execute_archive_merge", fake_merge)
+
+    def run():
+        return epji_archive._run_practitioner_archive(
+            MagicMock(),
+            resource,
+            RunModeConfig(soft_delete_threshold=override),
+            epji_archive.EPJI_PRACTITIONER_ARCHIVE_CONFIG,
+        )
+
+    if merged:
+        run()
+    else:
+        with pytest.raises(dg.Failure):
+            run()
+    assert bool(merge_calls) is merged

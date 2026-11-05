@@ -6,32 +6,5 @@
 
 """Questionnaire resource builders for IFDB AKTIVITETSRESULTAT data.
 
-This package exposes the public builder API. Dagster asset registration lives
-in the IFDB AKTIVITETSRESULTAT domain package to avoid duplicate wiring.
+Dagster asset registration lives in the IFDB AKTIVITETSRESULTAT domain package.
 """
-
-from DSA.FHIR.Questionnaire.Questionnaire_IFDB import (
-    QUESTIONNAIRE_CANONICAL_PREFIX,
-    QUESTIONNAIRE_IDENTIFIER_SYSTEM,
-    build_questionnaire_canonical,
-    build_questionnaire_dict,
-    build_questionnaire_from_xml,
-    build_questionnaire_identifier_value,
-    build_questionnaire_items_dict,
-    build_questionnaire_version_pinned_reference,
-)
-
-# Pipelinen produceres i DSA/FHIR/Aktivitetsresultat/; tom ``all_assets`` undgår dobbelt wiring.
-all_assets: list = []
-
-__all__ = [
-    "QUESTIONNAIRE_CANONICAL_PREFIX",
-    "QUESTIONNAIRE_IDENTIFIER_SYSTEM",
-    "all_assets",
-    "build_questionnaire_canonical",
-    "build_questionnaire_dict",
-    "build_questionnaire_from_xml",
-    "build_questionnaire_identifier_value",
-    "build_questionnaire_items_dict",
-    "build_questionnaire_version_pinned_reference",
-]

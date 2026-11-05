@@ -6,7 +6,7 @@
 
 """Guard: the DRG archive DDL must match the dataset specification.
 
-The DDL (infrastructure/ddl/tables/drg/00_archive.sql) is generated from
+The DDL (infrastructure/ddl/sources/drg/) is generated from
 DSI/csv_files/drg_datasets.py. This test keeps the two in lockstep: columns
 (name + order), primary keys, NOT NULL on key columns, and that dropped
 volatile IDs NEVER appear in arc (they go out of sync across tables after a
@@ -21,14 +21,7 @@ from DSI.csv_files.drg_datasets import DATASETS
 
 pytestmark = pytest.mark.unit
 
-DDL_PATH = (
-    Path(__file__).resolve().parents[2]
-    / "infrastructure"
-    / "ddl"
-    / "tables"
-    / "drg"
-    / "00_archive.sql"
-)
+DDL_DIR = Path(__file__).resolve().parents[2] / "infrastructure" / "ddl" / "sources" / "drg"
 
 TAIL_COLUMNS = ("leverance_dato", "dw_is_deleted", "dw_timestamp_insert", "dw_timestamp_update")
 
@@ -60,9 +53,13 @@ def _parse_tables(sql: str) -> dict[str, dict]:
     return tables
 
 
+def _archive_sql() -> str:
+    return "\n".join(p.read_text(encoding="utf-8") for p in sorted(DDL_DIR.glob("*.sql")))
+
+
 @pytest.fixture(scope="module")
 def ddl_tables() -> dict[str, dict]:
-    return _parse_tables(DDL_PATH.read_text(encoding="utf-8"))
+    return _parse_tables(_archive_sql())
 
 
 def test_alle_datasaet_har_en_arc_tabel(ddl_tables):
@@ -105,7 +102,7 @@ def test_droppede_idkolonner_findes_ikke_i_arc(ddl_tables):
 
 def test_default_constraints_er_navngivet():
     """DEFAULT constraints must be named DF_<table>_<column>, not auto-generated."""
-    sql = DDL_PATH.read_text(encoding="utf-8")
+    sql = _archive_sql()
     assert "NOT NULL DEFAULT (0)" not in sql
     assert "NOT NULL DEFAULT SYSDATETIME()" not in sql
     assert "CONSTRAINT [DF_drg_kontakt_dw_is_deleted]" in sql
