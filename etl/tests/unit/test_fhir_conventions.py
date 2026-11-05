@@ -32,10 +32,13 @@ SANCTIONED_GROUP_KEY_PATTERNS: dict[str, str] = {
     "fhir_ifdb_full_load": r"fhir_[a-z0-9_]+_full_load_ifdb",
     "fhir_ifdb_dfm": r"fhir_server_[a-z0-9_]+_dfm",
     # SilkeborgData is a separate source system, so its assets stay out of the
-    # IFDB groups and cadence: silkeborgdata_daily_job selects these groups and
+    # IFDB groups and cadence: practitioner_daily_job selects this group and
     # runs archive -> resources -> SOF as one dependency-ordered chain.
     "fhir_silkeborgdata_dfm": r"fhir_server_[a-z0-9_]+_dfm",
-    "fhir_silkeborgdata_sof": r"sof_[a-z0-9_]+_dfm",
+    # EPJI likewise, in the same practitioner_daily_job.
+    "fhir_epji_dfm": r"fhir_server_[a-z0-9_]+_dfm",
+    # Practitioner SOF, shared by SilkeborgData and EPJI, in the same job.
+    "fhir_practitioner_sof": r"sof_[a-z0-9_]+_dfm",
     "fhir_sof_daily": r"sof_[a-z0-9_]+_daily",
     "fhir_sof_monthly": r"sof_[a-z0-9_]+_monthly",
     "fhir_sof_dfm": r"sof_[a-z0-9_]+_dfm",
@@ -55,7 +58,6 @@ HL7_TERMINOLOGY_PREFIX = "http://terminology.hl7.org/"
 # New URIs belong in utils/fhir/identifier_systems.py or utils/fhir/fhir_extensions.py.
 LEGACY_MODULE_URI_LITERALS = frozenset(
     {
-        ("Location/Location_SOR_IFDB_dfm.py", "urn:source:bom_ifdb:org_type"),
         ("Observation/observation_dict_builder.py", "urn:source:ifdb:aktivitettype_category"),
         (
             "Procedure/Procedure_IFDB_RisYdelse_dfm.py",
@@ -67,8 +69,6 @@ LEGACY_MODULE_URI_LITERALS = frozenset(
             "ServiceRequest/ServiceRequest_IFDB_dfm.py",
             "http://example.org/fhir/CodeSystem/service-request-category",
         ),
-        ("utils/fhir_utils.py", "urn:enversion:source-system"),
-        ("utils/fhir_utils.py", "urn:enversion:source"),
     }
 )
 

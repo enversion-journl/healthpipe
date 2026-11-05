@@ -6,9 +6,9 @@
 
 """ILS DFM archive configs and factory-generated assets.
 
-24 UPSERT archives from ext.ils_* into arc.ils_* (source-prefixed naming).
+25 UPSERT archives from ext.ils_* into arc.ils_* (source-prefixed naming).
 
-A config-driven factory generates the 22 Progress Pro2 archives, mirroring the
+A config-driven factory generates the 23 Progress Pro2 archives, mirroring the
 convention on the extract side (DSI/mssql/extract/ils_extract_configs.py), plus
 one manual-list archive (ils_rekvundtagne) keyed on (sgh, rnr) and the
 append-only changelog archive (ils_changelog) checkpointed on Dato.
@@ -23,11 +23,18 @@ in extract_configs.py):
   A) Full load (15): vareart, varegrp, varetype, varetype2, projekt, moms, lev,
      sgh, lgr, rekv, rekvgrp, postdi, lafth, lafthsgh, zz_oper — upstream DFM
      extract truncates and reloads each run.
-  B) Delta on [sysdato] (7): laftdpris, laftdstam, laftd, udlev, lgrvare,
-     pmdm, indkfak — checkpoint is MAX(sysdato) from the arc table.
+  B) Delta on [sysdato] (8): laftdpris, laftdstam, laftd, udlev, lgrvare,
+     pmdm, indkfak, ordh — checkpoint is MAX(sysdato) from the arc table; the
+     extract subtracts its lookback from it, so the last days are re-read.
   C) Manual full load (1): rekvundtagne — grain (sgh, rnr), no prrowid.
   D) Delta on [Dato] (1): changelog — append-only, no sysdato; checkpoint is
      MAX(Dato) from the arc table.
+
+The factory archives re-read rows they already hold (A every run, B and D
+through the lookback), so their change guard leaves out the replication stamps
+that never compare equal again — see _PRO2_STAMPS. arc_ils_unspsc and
+arc_ils_vare re-read through the lookback too, but hold the stamps as
+DATETIME2 like ext and need no carve-out.
 """
 
 import dagster as dg
@@ -891,26 +898,17 @@ _NON_KEY_COLUMNS: dict[str, tuple[str, ...]] = {
         "miljo8",
         "miljo9",
         "miljo10",
-        "enhedstypemindste",
-        "enhedstypeinder",
-        "enhedstypeyder",
-        "enhedstypepalle",
         "enheduommindste",
         "enheduominder",
         "enheduomyder",
         "enheduompalle",
         "gtinmindste",
         "gtininder",
-        "gtinydre",
         "gtinpalle",
         "hojdemindste",
         "hojdeinder",
         "hojdeyder",
         "hojdepalle",
-        "bredemindste",
-        "bredeinder",
-        "bredeyder",
-        "bredepalle",
         "langdemindste",
         "langdeinder",
         "langdeyder",
@@ -926,13 +924,6 @@ _NON_KEY_COLUMNS: dict[str, tuple[str, ...]] = {
         "prisgnsl",
         "ordreuom",
         "fakturauom",
-        "aftale",
-        "aftalenavn",
-        "aftdto",
-        "aftstart",
-        "aftslut",
-        "afttype",
-        "aftansvar",
         "mangdeenhed",
         "mindstekob",
         "faktor",
@@ -948,8 +939,6 @@ _NON_KEY_COLUMNS: dict[str, tuple[str, ...]] = {
         "leverandornavn",
         "startdatotid",
         "slutdatotid",
-        "liniestartdatotid",
-        "linieslutdatotid",
         "begrundelse",
         "kontaktperson",
         "sidstopdpmdm",
@@ -1028,6 +1017,61 @@ _NON_KEY_COLUMNS: dict[str, tuple[str, ...]] = {
         "pro2created",
         "pro2modified",
     ),
+    "ordh": (
+        "sgh",
+        "lgr",
+        "ordre",
+        "lnr",
+        "orddto",
+        "ordstat",
+        "afstyp",
+        "edi_status",
+        "edi_ref_ordre",
+        "ordtxt",
+        "levadr",
+        "bet",
+        "sw_org_mgl",
+        "sw_kopi_mgl",
+        "bd_oprid",
+        "sysdato",
+        "bruger",
+        "seqnr",
+        "ean_lokation",
+        "refnr",
+        "fakadr",
+        "txt1",
+        "txt2",
+        "sw_tilbageholdt",
+        "sw_stoppet",
+        "bemstoppet",
+        "tilbdato",
+        "tilbbruger",
+        "levref",
+        "indkober",
+        "dokkode",
+        "txt3",
+        "txt4",
+        "accept",
+        "ac_bruger",
+        "ac_dato",
+        "ac_kl",
+        "ac_txt",
+        "adr1",
+        "adr2",
+        "adr3",
+        "adr4",
+        "adr5",
+        "konsig",
+        "xml_filnavn",
+        "fragtbel",
+        "gebyrbel",
+        "sw_stopryk",
+        "ordretype",
+        "Pro2SrcPDB",
+        "pro2created",
+        "pro2modified",
+        "sendt_wms",
+    ),
 }
 
 # ---------------------------------------------------------------------------
@@ -1061,7 +1105,35 @@ _SYSDATO_TABLES = (
     "lgrvare",
     "pmdm",
     "indkfak",
+    "ordh",
 )
+
+
+# ---------------------------------------------------------------------------
+# Change detection
+# ---------------------------------------------------------------------------
+
+# ext lands every datetime column as DATETIME2 with whole milliseconds, while
+# the arc tables hold datetime, which stores 1/300 s: .003 is really
+# .0033333 and never compares equal to the .0030000 in ext again. A re-read
+# row therefore differs on a pro2 stamp ~2/3 of the time per column (~90 % of
+# the rows on dev, 2026-11-03), which would bump dw_timestamp_update on rows
+# that did not change and restage them downstream every night. The stamps are
+# still written; they just do not count as a change on their own.
+_PRO2_STAMPS = ("pro2created", "pro2modified")
+
+# Per-table stamps with sub-second times and the same datetime mismatch.
+# pmdm's "last updated in PMDM/ILS" stamps hit 79 % of its rows on dev; no
+# DSA asset reads them.
+_TABLE_STAMPS: dict[str, tuple[str, ...]] = {
+    "pmdm": ("sidstopdpmdm", "sidstopdils"),
+}
+
+
+def _change_detect_columns(table: str) -> tuple[str, ...]:
+    """The non-key columns minus the stamps that never compare equal."""
+    ignored = _PRO2_STAMPS + _TABLE_STAMPS.get(table, ())
+    return tuple(c for c in _NON_KEY_COLUMNS[table] if c not in ignored)
 
 
 # ---------------------------------------------------------------------------
@@ -1078,6 +1150,7 @@ def _full_load_config(table: str) -> ArchiveMergeConfig:
         target_table=f"ils_{table}",
         merge_keys=("prrowid",),
         non_key_columns=_NON_KEY_COLUMNS[table],
+        change_detect_columns=_change_detect_columns(table),
         strategy="upsert",
         update_only_on_change=True,
         detect_deletes=False,
@@ -1100,6 +1173,7 @@ def _sysdato_config(table: str) -> ArchiveMergeConfig:
         ),
         merge_keys=("prrowid",),
         non_key_columns=_NON_KEY_COLUMNS[table],
+        change_detect_columns=_change_detect_columns(table),
         strategy="upsert",
         update_only_on_change=True,
         detect_deletes=False,
@@ -1108,8 +1182,8 @@ def _sysdato_config(table: str) -> ArchiveMergeConfig:
 
 
 # ---------------------------------------------------------------------------
-# Aggregated config list (15 full-load + 7 sysdato + 1 rekvundtagne
-# + 1 changelog = 24)
+# Aggregated config list (15 full-load + 8 sysdato + 1 rekvundtagne
+# + 1 changelog = 25)
 # ---------------------------------------------------------------------------
 
 REKVUNDTAGNE_ARCHIVE_CONFIG = ArchiveMergeConfig(
@@ -1141,10 +1215,6 @@ _CHANGELOG_NON_KEY_COLUMNS = (
     "pro2created",
     "pro2modified",
 )
-# ext lands pro2created/pro2modified as DATETIME2, arc holds datetime: a datetime
-# ending in .xx3/.xx7 ms compares as .xx33333/.xx66667, so these replication
-# stamps would flag ~2/3 of the re-read lookback rows as changed every run.
-_CHANGELOG_PRO2_STAMPS = ("pro2created", "pro2modified")
 
 CHANGELOG_ARCHIVE_CONFIG = ArchiveMergeConfig(
     source_schema="ext",
@@ -1156,9 +1226,7 @@ CHANGELOG_ARCHIVE_CONFIG = ArchiveMergeConfig(
     checkpoint_query="SELECT CONVERT(NVARCHAR(50), MAX([Dato]), 121) FROM [arc].[ils_changelog]",
     merge_keys=("prrowid",),
     non_key_columns=_CHANGELOG_NON_KEY_COLUMNS,
-    change_detect_columns=tuple(
-        c for c in _CHANGELOG_NON_KEY_COLUMNS if c not in _CHANGELOG_PRO2_STAMPS
-    ),
+    change_detect_columns=tuple(c for c in _CHANGELOG_NON_KEY_COLUMNS if c not in _PRO2_STAMPS),
     strategy="upsert",
     update_only_on_change=True,
     detect_deletes=False,
@@ -1245,7 +1313,7 @@ ils_dfm_archive_assets: list[AssetsDefinition] = [
 # ---------------------------------------------------------------------------
 # Standalone ILS archives: unspsc, vare
 #
-# These two are NOT part of the 24-table factory above. Their upstream extract
+# These two are NOT part of the 25-table factory above. Their upstream extract
 # is DSI/mssql/extract/ils_extract_configs.ILS_EXTRACT_CONFIGS, which writes
 # ext.ils_unspsc / ext.ils_vare. They archive into arc.ils_unspsc /
 # arc.ils_vare with their own column lists, so they are defined explicitly
@@ -1275,6 +1343,10 @@ UNSPSC_ILS_ARCHIVE_CONFIG = ArchiveMergeConfig(
     # ("Jun 23 2026 12:00AM"), which the checkpoint validator rejects.
     checkpoint_query="SELECT CONVERT(NVARCHAR(50), MAX([sysdato]), 121) FROM [arc].[ils_unspsc]",
     strategy="upsert",
+    # The extract's lookback re-reads rows arc already holds; without the guard
+    # each one would bump dw_timestamp_update. No _PRO2_STAMPS carve-out: this
+    # arc table holds DATETIME2 like ext, so the stamps compare equal.
+    update_only_on_change=True,
 )
 
 
@@ -1405,6 +1477,9 @@ VARE_ILS_ARCHIVE_CONFIG = ArchiveMergeConfig(
     # ("Jun 23 2026 12:00AM"), which the checkpoint validator rejects.
     checkpoint_query="SELECT CONVERT(NVARCHAR(50), MAX([sysdato]), 121) FROM [arc].[ils_vare]",
     strategy="upsert",
+    # Same as UNSPSC_ILS_ARCHIVE_CONFIG: the guard keeps lookback re-reads from
+    # bumping dw_timestamp_update, and DATETIME2 stamps need no carve-out.
+    update_only_on_change=True,
 )
 
 

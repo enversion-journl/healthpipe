@@ -68,7 +68,7 @@ Output
 **Fejlede medlemsopslag** (læses af ``load_healthpipe_ad_to_mssql.py``):
 
 - ``healthpipe_fejlede_opslag.jsonl`` — én linje pr. medlems-DN, hvis opslag fejlede; loaderen
-  lukker ingen rækker i historiktabellerne, når filen ikke er tom
+  afbryder uden at ændre en tabel, når filen ikke er tom
 
 Brug ``load_healthpipe_ad_to_mssql.py`` til at indlæse JSONL-data i MSSQL.
 
@@ -95,6 +95,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from core.resources import ActiveDirectoryLDAPResource
 from dotenv import load_dotenv
 from DSA.SQL.ref.kommune_to_populationsansvar import POPULATIONSANSVAR_BY_KOMMUNEKODE
 from ldap3 import ALL, BASE, NTLM, SIMPLE, SUBTREE, Connection, Server, Tls
@@ -189,17 +190,17 @@ def _load_dotenv_repo_root() -> None:
 
 
 # ---------------------------------------------------------------------------
-# LDAP connection (shared with v1)
+# LDAP connection
 # ---------------------------------------------------------------------------
 
 
-def _connect() -> tuple[Server, Connection]:
-    ldap_server = os.environ.get("LDAP_SERVER", "ldaps.example.org")
-    ldap_port = int(os.environ.get("LDAP_PORT", "636"))
-    ldap_bind_user = os.environ.get("LDAP_BIND_USER", r"EXAMPLE\svc-ldap")
-    ldap_password = os.environ.get("LDAP_PASSWORD", "")
-    ldap_use_ssl = os.environ.get("LDAP_USE_SSL", "true").lower() == "true"
-    ldap_auth = os.environ.get("LDAP_AUTH", "NTLM").upper()
+def _connect(ldap: ActiveDirectoryLDAPResource) -> tuple[Server, Connection]:
+    ldap_server = ldap.server
+    ldap_port = ldap.port
+    ldap_bind_user = ldap.bind_user
+    ldap_password = ldap.password
+    ldap_use_ssl = ldap.use_ssl.lower() == "true"
+    ldap_auth = ldap.auth.upper()
 
     if not ldap_password:
         raise ValueError("LDAP_PASSWORD er ikke sat")
@@ -806,9 +807,7 @@ def _read_rows(path: Path) -> list[dict]:
     return rows
 
 
-def run_export(verbose: bool = False) -> dict:
-    _load_dotenv_repo_root()
-
+def run_export(ldap: ActiveDirectoryLDAPResource, verbose: bool = False) -> dict:
     ou_dn = (os.environ.get("LDAP_HP_OU_DN") or "").strip() or _DEFAULT_OU_DN
     group_filter = (os.environ.get("LDAP_GROUP_FILTER") or "(objectCategory=group)").strip()
     group_page_size = max(1, _int_env("LDAP_GROUP_PAGE_SIZE", 200))
@@ -846,7 +845,7 @@ def run_export(verbose: bool = False) -> dict:
 
     # -- Connect ---------------------------------------------------------------
     try:
-        _server, conn = _connect()
+        _server, conn = _connect(ldap)
     except (
         ValueError,
         LDAPSocketOpenError,
@@ -1001,8 +1000,11 @@ def main() -> int:
         help="Vis detaljeret member-resolution info for debugging",
     )
     args = parser.parse_args()
+    _load_dotenv_repo_root()
     try:
-        run_export(verbose=args.verbose)
+        run_export(
+            ActiveDirectoryLDAPResource().process_config_and_initialize(), verbose=args.verbose
+        )
     except Exception as e:  # noqa: BLE001
         print(f"FEJL: {e}")
         return 1

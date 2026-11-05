@@ -11,9 +11,11 @@ The failure these guard against is silent at definition time and only shows up
 as "Invalid column name" partway through a multi-million-row MERGE.
 """
 
+import contextlib
 import dataclasses
 import re
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from core.archive_merge import build_archive_merge_sql
@@ -23,9 +25,8 @@ from DSI.csv_files.haiba_archive import (
     AGG_ORTOPAEDI_CONFIG,
     CASES_INFEKTION_CONFIG,
     CASES_SSI_CONFIG,
-    LEVERANCE_COLUMNS,
-    build_leverance_sql,
     build_revision_sql,
+    record_delivery,
 )
 
 pytestmark = pytest.mark.unit
@@ -37,19 +38,12 @@ CONFIGS = {
     "haiba_cases_ssi": CASES_SSI_CONFIG,
 }
 
-DDL_PATH = (
-    Path(__file__).resolve().parents[2]
-    / "infrastructure"
-    / "ddl"
-    / "tables"
-    / "haiba"
-    / "00_archive.sql"
-)
+DDL_DIR = Path(__file__).resolve().parents[2] / "infrastructure" / "ddl" / "sources" / "haiba"
 
 
 def _ddl_columns(table: str) -> set[str]:
     """Column names declared in one CREATE TABLE block of the archive DDL."""
-    sql = DDL_PATH.read_text(encoding="utf-8")
+    sql = (DDL_DIR / f"{table}.sql").read_text(encoding="utf-8")
     match = re.search(
         rf"CREATE TABLE \[arc\]\.\[{re.escape(table)}\] \((.*?)\n    \);",
         sql,
@@ -83,7 +77,7 @@ def test_merge_keys_are_not_null_in_arc_ddl(schema):
     """Key columns must be NOT NULL: SQL Server rejects NULL in a primary key,
     and a NULL never matches itself in the MERGE ON clause, so the row would be
     re-inserted every run. SORIdentifier is empty on up to 85% of rows."""
-    sql = DDL_PATH.read_text(encoding="utf-8")
+    sql = (DDL_DIR / f"{schema.ext_table}.sql").read_text(encoding="utf-8")
     block = re.search(
         rf"CREATE TABLE \[arc\]\.\[{re.escape(schema.ext_table)}\] \((.*?)\n    \);",
         sql,
@@ -237,7 +231,26 @@ def test_change_detection_defaults_to_every_non_key_column():
     assert "leverance_dato" in _change_guard(default)
 
 
-META_DDL_PATH = DDL_PATH.with_name("03_meta.sql")
+META_DDL_PATH = DDL_DIR / "HAIBALeverance.sql"
+
+
+class _RecordingCursor:
+    def __init__(self):
+        self.executed: list[str] = []
+
+    def execute(self, sql, *params):
+        self.executed.append(sql)
+
+    def close(self):
+        pass
+
+
+def _register_upsert() -> str:
+    cursor = _RecordingCursor()
+    conn = SimpleNamespace(cursor=lambda: cursor, commit=lambda: None)
+    mssql = SimpleNamespace(get_connection=lambda: contextlib.nullcontext(conn))
+    record_delivery(mssql, "haiba_agg_infektion", "COHA", "2026-01-01", "merge")
+    return cursor.executed[0]
 
 
 def test_register_columns_match_the_control_table_ddl():
@@ -245,8 +258,11 @@ def test_register_columns_match_the_control_table_ddl():
     the SQL surfaces as "Invalid column name" at runtime, not at import."""
     sql = META_DDL_PATH.read_text(encoding="utf-8")
     declared = set(re.findall(r"^\s{8}\[(\w+)\]\s+\w", sql, re.MULTILINE))
+    insert = re.search(r"INSERT \((.*?)\)", _register_upsert()).group(1)
+    written = set(re.findall(r"\[(\w+)\]", insert))
 
-    assert set(LEVERANCE_COLUMNS) <= declared, sorted(set(LEVERANCE_COLUMNS) - declared)
+    assert written, "INSERT column scan found nothing"
+    assert written <= declared, sorted(written - declared)
     assert "dw_timestamp_update" in declared
 
 
@@ -254,12 +270,10 @@ def test_register_upsert_keys_match_the_primary_key():
     """The MERGE's ON clause and the PK must be the same triple, or a re-run of
     one delivery of a type either duplicates its row or violates the key."""
     ddl = META_DDL_PATH.read_text(encoding="utf-8")
-    upsert = build_leverance_sql()
+    on_clause = re.search(r" ON (.*?) WHEN ", _register_upsert()).group(1)
 
     assert "PRIMARY KEY CLUSTERED ([kildetabel], [hai_type], [leverance_dato])" in ddl
-    assert "tgt.[kildetabel] = src.[kildetabel]" in upsert
-    assert "tgt.[hai_type] = src.[hai_type]" in upsert
-    assert "tgt.[leverance_dato] = src.[leverance_dato]" in upsert
+    assert re.findall(r"tgt\.\[(\w+)\]", on_clause) == ["kildetabel", "hai_type", "leverance_dato"]
 
 
 def test_the_register_is_a_control_table_not_an_archive_table():
@@ -269,4 +283,4 @@ def test_the_register_is_a_control_table_not_an_archive_table():
 
     assert "[meta].[HAIBALeverance]" in sql
     assert "[arc]." not in sql
-    assert "[meta]." in build_leverance_sql()
+    assert "[meta]." in _register_upsert()

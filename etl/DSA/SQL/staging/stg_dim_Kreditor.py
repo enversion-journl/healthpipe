@@ -31,7 +31,7 @@ from dagster import AssetExecutionContext, AssetKey, MaterializeResult, asset
 from utils.sql.tax_id_sql import (
     sql_cvr_cleancode_from_column,
     sql_cvr_cleancode_from_juridisk_enhed,
-    sql_cvr_cleancode_from_se_nr,
+    sql_ils_kreditor_cleancode,
 )
 
 
@@ -77,9 +77,10 @@ def _build_stg_sql(checkpoint: str | None) -> str:
 
         UNION ALL
 
-        -- ILS: CVR from lev.se_nr (spaces removed, DK prefix stripped)
+        -- ILS: CVR from lev.se_nr (spaces removed, DK prefix stripped). giro =
+        -- 'Person' rows yield NULL (se_nr is a birth date/CPR) and drop out below.
         SELECT DISTINCT
-            {sql_cvr_cleancode_from_se_nr("lev.se_nr")} AS clean_code_Kreditor,
+            {sql_ils_kreditor_cleancode("lev.se_nr")} AS clean_code_Kreditor,
             0, 1, 0
         FROM [arc].[ils_lev] lev
         WHERE lev.se_nr IS NOT NULL

@@ -374,9 +374,9 @@ def test_fhir_cpr_sql_daekker_begge_leverancetyper_og_ekskluderer_slettede():
 def test_fhir_stub_baerer_kun_cpr_og_kildetag():
     """Stubben skrives gennem Patient-indgangen: kun personnummer, og byggeren sætter
     proveniensen — meta.source er byggerens URI, kildetagget er SDSDRG."""
-    from DSA.FHIR.Patient.field_ownership import SOURCE_DRG
     from DSA.FHIR.Patient.patient_builder import build
     from DSA.FHIR.Patient.patient_contributions import stub_contribution
+    from DSA.FHIR.Patient.patient_ownership import SOURCE_DRG
     from utils.fhir.identifier_systems import SOURCE_PATIENT_BUILDER
 
     assert SOURCE_DRG == "SDSDRG"

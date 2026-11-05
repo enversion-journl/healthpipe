@@ -22,7 +22,7 @@ single-key SQL is unchanged. Rows where ANY key part is NULL are skipped -- the
 arc primary key is NOT NULL, so they cannot correspond to an archived row.
 
 Used by ``dqa_arc_ifdb_vanished_cleanup`` (soft-delete arc rows that vanished from
-IFDB). ``archive_reconciliation`` keeps its own composite-key staging inline.
+IFDB). ``source_archive_reconciliation`` keeps its own composite-key staging inline.
 """
 
 from __future__ import annotations

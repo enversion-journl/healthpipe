@@ -306,63 +306,6 @@ def child_affected_encounter_count_sql(checkpoint: str) -> str:
     return f"SELECT COUNT(*) FROM ({child_affected_encounter_ids_sql(checkpoint)}) AS [affected]"
 
 
-def child_backfill_slice_sql(cursor_value: str | None, slice_size: int) -> str:
-    """Naeste skive af efterslaebet: distinkte OBJECT_ID efter ``cursor_value``.
-
-    Efterslaebet er ENGANGS pr. miljoe, men det koeres i skiver, saa en
-    afbrudt koersel ikke efterlader et hul. Ordningen er total og
-    deterministisk (OBJECT_ID ASC), saa markoeren «sidste behandlede
-    OBJECT_ID» daekker praecis det, der er gjort: intet kan springes over, og
-    intet behandles to gange. Derfor sorteres paa noeglen frem for paa et
-    tidsstempel -- arkivets timestamps er ens for hele bulk-loadet og kan ikke
-    ordne raekkerne.
-
-    BETINGELSEN, fuldstaendigheden hviler paa: OBJECT_ID er NVARCHAR, saa
-    ``>`` bruger databasens kollation. Det farlige er ikke omordning -- ordningen
-    er total under enhver kollation -- men UAFGJORTE sammenligninger: under en
-    case-/accent-insensitiv kollation kan to forskellige noegler sammenlignes
-    ens, og saa springer ``> markoer`` den over, der staar lige med markoeren.
-    Det forsvinder, naar noeglerne er RENE CIFRE: cifre har hverken versaler
-    eller accenter, saa to forskellige noegler kan ikke gaa lige. Bredden maa
-    gerne variere -- saa er leksikografisk orden blot ikke numerisk orden
-    ('9' > '10'), og det er ligegyldigt her, hvor ordningen kun skal vaere
-    total og fri for uafgjorte. Maalt paa dev's fulde arkiver (sengeophold og
-    fravaer): 0 noegler med ikke-cifre (``LIKE '%[^0-9]%'``), laengde 10-12
-    tegn -- altsaa netop IKKE fast bredde. Hverken eksplicit COLLATE (hardcodet
-    kollation, som repoet har en regel imod) eller numerisk cast (kaster paa
-    foerste ikke-numeriske noegle og goer praedikatet ikke-SARGable) er svaret.
-
-    Ingen ``dw_is_deleted``-filtrering: en soft-slettet child-raekke skal ogsaa
-    faa sin kontakt re-emitteret, saa extension-listen bliver skrevet om.
-    """
-    if slice_size < 1:
-        raise ValueError(f"slice_size skal vaere mindst 1, fik {slice_size}")
-    parts = []
-    for table in CHILD_AFFECTED_ENCOUNTER_TABLES:
-        where = ""
-        if cursor_value is not None:
-            safe = cursor_value.replace("'", "''")
-            where = f" WHERE [OBJECT_ID] > '{safe}'"
-        parts.append(f"SELECT [OBJECT_ID] FROM {safe_table_ref(table)}{where}")
-    union = " UNION ".join(parts)
-    return (
-        f"SELECT TOP ({int(slice_size)}) [OBJECT_ID] FROM ({union}) AS [child] "
-        f"ORDER BY [OBJECT_ID] ASC"
-    )
-
-
-def child_backfill_remaining_sql(cursor_value: str | None) -> str:
-    """Hvor mange kontakter efterslaebet har tilbage efter ``cursor_value``."""
-    parts = []
-    for table in CHILD_AFFECTED_ENCOUNTER_TABLES:
-        where = ""
-        if cursor_value is not None:
-            safe = cursor_value.replace("'", "''")
-            where = f" WHERE [OBJECT_ID] > '{safe}'"
-        parts.append(f"SELECT [OBJECT_ID] FROM {safe_table_ref(table)}{where}")
-    return f"SELECT COUNT(*) FROM ({' UNION '.join(parts)}) AS [child]"
-
-
 def admenhed_dictionary_sql() -> str:
     """ADMENHED_KODE → SOR harvest from the bed-stay archive.
 

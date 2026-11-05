@@ -46,7 +46,6 @@ from DSA.FHIR.utils.ifdb.sfi_extraction import (
 from DSA.FHIR.utils.ifdb.value_mapping import (
     SfiValueTypeMismatch,
     map_sfi_value_to_fhir,
-    project_sfi_value_to_sql,
 )
 from DSA.FHIR.utils.ifdb.xml_aktivitetsresultat import (
     AktivitetsresultatRow,
@@ -265,19 +264,6 @@ class TestValueMapping:
     def test_boolean_mismatch_raises(self) -> None:
         with pytest.raises(SfiValueTypeMismatch):
             map_sfi_value_to_fhir("AT_RISK", "boolean", "maybe")
-
-    def test_sql_projection_integer(self) -> None:
-        out = project_sfi_value_to_sql("BT_SYS", "integer", "142")
-        assert out["value_type"] == "integer"
-        assert out["value_int"] == 142
-        assert out["value_dec"] is None
-        assert out["value_string"] is None
-
-    def test_sql_projection_quantity(self) -> None:
-        out = project_sfi_value_to_sql("BT_SYS", "quantity", "142", unit="mmHg")
-        assert out["value_type"] == "quantity"
-        assert out["value_quantity"] == 142.0
-        assert out["value_unit"] == "mmHg"
 
 
 # ---------------------------------------------------------------------------

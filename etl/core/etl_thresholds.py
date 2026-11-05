@@ -5,10 +5,12 @@
 # root for the full AGPL-3.0 license text.
 
 """
-Soft-delete threshold guard for the borger tables.
+Soft-delete threshold guard.
 
-ref.PatientToBorger, ref.Patient_Address_To_Borger and dim.Borger fail via
-dagster.Failure when one run soft-deletes more rows than their cap.
+ref.PatientToBorger, ref.Patient_Address_To_Borger, dim.Borger and the three
+arc.epji_practitioner* archives fail via dagster.Failure when one run soft-deletes
+more rows than their cap. The archives count before their MERGE, so nothing is
+written.
 """
 
 import dagster as dg
@@ -19,6 +21,11 @@ SOFT_DELETE_THRESHOLDS: dict[str, int] = {
     # CPR delivery gives about a thousand of them.
     "ref.Patient_Address_To_Borger": 10000,
     "dim.Borger": 10000,
+    # Full EPJI snapshots. An EPJ account changes state rather than disappearing,
+    # each account carries four identifier rows, and the role catalogue is static.
+    "arc.epji_practitioner": 100,
+    "arc.epji_practitioner_identifier": 400,
+    "arc.epji_practitioner_role": 10,
 }
 
 # Dagster op names for the per-run override path. The threshold dict is keyed
@@ -27,6 +34,9 @@ SOFT_DELETE_OPS: dict[str, str] = {
     "ref.PatientToBorger": "ref_patient_borger",
     "ref.Patient_Address_To_Borger": "ref_patient_address_borger",
     "dim.Borger": "dim_Borger",
+    "arc.epji_practitioner": "arc_epji_practitioner",
+    "arc.epji_practitioner_identifier": "arc_epji_practitioner_identifier",
+    "arc.epji_practitioner_role": "arc_epji_practitioner_role",
 }
 
 DEFAULT_THRESHOLD = 1000

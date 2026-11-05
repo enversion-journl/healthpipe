@@ -19,8 +19,7 @@ import logging
 
 import dagster as dg
 import pytest
-from definitions import defs
-from infrastructure.assets.sfi_genkoersel_nulstilling import (
+from adhoc.sfi_genkoersel_nulstilling import (
     AIDBOX_RESSOURCETABELLER,
     FHIR_SERVER_CHECKPOINTS,
     FHIR_SERVER_CHECKPOINTS_UDEN_SEED,
@@ -34,6 +33,7 @@ from infrastructure.assets.sfi_genkoersel_nulstilling import (
     pg_truncate_statement,
     sfi_genkoersel_nulstilling,
 )
+from definitions import defs
 
 pytestmark = pytest.mark.unit
 

@@ -46,7 +46,7 @@ from DSI.csv_files.lpr3_archive import (
     source_index_sql,
 )
 from DSI.csv_files.lpr3_datasets import ARCHIVE_DATASETS, ARCHIVES_BY_TABLE, SOURCES_BY_PREFIX
-from infrastructure.utils.ddl_loader import execute_sql_file
+from infrastructure.utils.ddl_loader import execute_sql_files_from_directory
 from tests.fixtures.lpr3 import build_delivery, extract, source_row
 
 pytestmark = pytest.mark.integration
@@ -75,7 +75,7 @@ def prepare_source(conn, dataset):
 
 
 def test_all_38_archive_tables_ddl_is_idempotent_and_matches_spec(archive_db):
-    execute_sql_file(archive_db, "tables/lpr3/00_archive.sql")
+    execute_sql_files_from_directory(archive_db, "sources/lpr3", pattern="lpr3_*.sql")
     with archive_db.get_connection() as conn:
         cursor = conn.cursor()
         for dataset in ARCHIVE_DATASETS:

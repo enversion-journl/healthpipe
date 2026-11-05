@@ -5,9 +5,3 @@
 # root for the full AGPL-3.0 license text.
 
 """IFDB's egne administrative kodelister som ét CodeSystem."""
-
-from DSA.CodeSystem.ifdb.ifdb import KODELISTE_FELTER, cs_ifdb_kodelister
-
-all_assets = [cs_ifdb_kodelister]
-
-__all__ = ["KODELISTE_FELTER", "all_assets", "cs_ifdb_kodelister"]

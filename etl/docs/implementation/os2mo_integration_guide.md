@@ -8,7 +8,7 @@
 
 # OS2mo-integration (Magenta)
 
-Basismodellens kodesystemer — i dag **SOR** og **Okosted**, flere på vej — afleveres
+Basismodellens kodesystemer — i dag **SOR**, **Okosted**, **EAN** og **Lager**, flere på vej — afleveres
 hver dag til Magentas OS2mo som full-load **CSV-filer**, uploadet gennem OS2mos
 GraphQL-mutation `upload_file`. Magentas import læser filerne derfra. OS2mos
 organisation læses desuden tilbage i basismodellen. Begge retninger går gennem den
@@ -94,7 +94,7 @@ så en lukket enhed arkiveres som lukket i stedet for at blive soft-deleted.
 
 ## Konfiguration
 
-Credentials håndteres som databaseforbindelserne: **Nomad-variabler** i produktion,
+Credentials håndteres som databaseforbindelserne: **variabler i deploymentet** i produktion,
 `.env` i devcontaineren. Ingen secrets i repoet.
 
 | Variabel | Kode-mønster | Beskrivelse |
@@ -113,9 +113,8 @@ Tre steder skal holdes i sync:
 1. `.env.template` — tomme defaults, `OS2MO_ENABLED=false`.
 2. `.gitlab-ci.yml` (`.prod-db-env`) — `placeholder`-værdier, så
    `dagster definitions validate` kan indlæse code location'en.
-3. **`healthpipe-infrastructure`** (søster-repo) — nøglerne i Nomad-jobbets env-blok, og
-   værdierne seedet som Nomad-variabler (samme flow som `seed-watcher-nomad-var.sh`).
-   Secrets kommer fra Bitwarden.
+3. **Deploymentet** — nøglerne i deploymentets environment, og værdierne som
+   variabler i deploymentet. Secrets kommer fra jeres secret store.
 
 En manglende variabel giver en `OS2moConfigurationError`, der navngiver variablen —
 ikke et uforklarligt 401.
@@ -169,21 +168,22 @@ kode;kode_parent;gyldig_fra;gyldig_til;navn;type;niveau;aktiv;dw_is_deleted;dw_t
 | :--- | :--- | :--- |
 | `kode` | `user_key` | Koden |
 | `kode_parent` | `parent` | Forælderens kode i det **leverede** træ. OS2mos `parent` tager et UUID, som kun OS2mo kender, så filen navngiver forælderen ved dens `kode`. En rod har tom værdi — også hvis kodesystemet selv giver den en forælder uden for det leverede sæt: filen må ikke pege på en kode, den ikke indeholder |
-| `gyldig_fra` / `gyldig_til` | `validity { from to }` | ISO-datoer (`YYYY-MM-DD`). Tom `gyldig_til` = åben, ligesom `null` i OS2mo. En kildeslutdato i år 9000 eller senere er en "slutter aldrig"-sentinel og bliver også tom |
+| `gyldig_fra` / `gyldig_til` | `validity { from to }` | ISO-datoer (`YYYY-MM-DD`), **altid udfyldt**. Angiver kilden ingen startdato, er `gyldig_fra` `1900-01-01`; angiver den ingen slutdato, er `gyldig_til` `9999-12-31` = åben, ligesom `null` i OS2mo. En kildeslutdato i år 9000 eller senere er en "slutter aldrig"-sentinel og bliver også `9999-12-31` |
 | `navn` | `name` | Kodens display |
-| `type` | `org_unit_type` | Klassens user_key: SOR's `entityType`-værdier (fx `region`, `hospital`, `klinisk enhed`), Okosteds `enhedstype`-værdier (`juridisk enhed` / `virksomhedsenhed` / `afdeling` / `omkostningssted` / `Ukendt`). En kode uden typeværdi renderes tom og tælles i asset-metadataens `codes_without_type` |
+| `type` | `org_unit_type` | Klassens user_key: SOR's `entityType`-værdier (fx `region`, `hospital`, `klinisk enhed`), Okosteds `enhedstype`-værdier (`juridisk enhed` / `virksomhedsenhed` / `afdeling` / `omkostningssted` / `Ukendt`), Lagers `entityType`-værdier (`region` / `sygehus` / `lager`). En kode uden typeværdi renderes tom og tælles i asset-metadataens `codes_without_type` |
 | `niveau` | — | Kodens dybde i det **leverede** træ: en rod er `1`, et barn er forælderens niveau plus 1. Beregnes af den bredde-først-gennemgang, der også ordner filen — ikke læst fra kilden — så den altid matcher det træ, filen rent faktisk afleverer |
 | `aktiv` / `dw_is_deleted` | — | Kodens statusflag, `true`/`false`, eller tom, hvor kodesystemet ikke har flaget |
 | `dw_timestamp_insert` / `dw_timestamp_update` | — | Basismodellens egne tidsstempler (ISO 8601, lokal tid, sekunder) — se nedenfor |
 
 `dw_timestamp_insert` er, hvornår koden kom ind i `codesystem.<Navn>Concept`.
 `dw_timestamp_update` er, hvornår kodens række i filen sidst ændrede sig: dens
-concept-række, en af dens egenskaber eller dens forælder. De gør det muligt for
-Magentas integration kun at behandle de rækker, hvor en af disse kolonner er
-ændret siden sidst.
+concept-række, en af dens egenskaber eller dens forælder. Magentas integration
+bruger ikke tidsstemplerne: den håndterer selv delta, jf.
+[Kontrakten](#kontrakten). De er basismodellens egen oplysning om koden.
 
-Tidsstemplerne betyder kun "ændret", fordi begge kodesystemer merges med
-`update_only_on_change=True` og sletter forældede egenskaber og forælderkanter. En
+Tidsstemplerne betyder kun "ændret", fordi SOR, Okosted og Lager merges med
+`update_only_on_change=True` og sletter forældede egenskaber og forælderkanter
+(EAN upserter kun — se [Kodesystemerne](#kodesystemerne)). En
 sletning flytter concept-rækkens `dw_timestamp_update`. Ændringsvagten sammenligner
 binært og med `DATALENGTH`, så en rettelse, der kun består i store/små bogstaver
 eller efterstillede mellemrum, også registreres.
@@ -228,19 +228,22 @@ tabellen har desuden `codesystem`. Den bærer ingen mapninger længere.
 
 ## Kodesystemerne
 
-| | SOR | Okosted |
-| :--- | :--- | :--- |
-| Kilde | `codesystem.SOR*` (`cs_sor`) | `codesystem.Okosted*` (`cs_okosted`) |
-| Afgrænsning | `rsdOrganization = true` (filtreret i SQL) — se nedenfor | **Hele kodesystemet** |
-| Rod | `6101000016001` (Example Region) | Alle koder uden forælder (niveau-1-knuderne, de 9 toppe) |
-| `gyldig_fra` / `gyldig_til` | `openingDate` / `closingDate` | `startsdate` / `enddate` |
-| `type` | `entityType` | `enhedstype` (udfyldt) |
-| `aktiv` / `dw_is_deleted` | `activeOwnOrganization` / tom | SydAX' `Aktiv` / `Slettet` |
-| Mapninger | ingen — vedligeholdes manuelt i OS2mo | ingen — vedligeholdes manuelt i OS2mo |
-| Fil | `rsyd_sor_<YYYYMMDD_HHMMSS>.csv` | `rsyd_okosted_<YYYYMMDD_HHMMSS>.csv` |
+| | SOR | Okosted | EAN | Lager |
+| :--- | :--- | :--- | :--- | :--- |
+| Kilde | `codesystem.SOR*` (`cs_sor`) | `codesystem.Okosted*` (`cs_okosted`) | Fakturamodtagerne (`RegningsModtagerID`) i `arc.mysupply_statistic_invoice_header`, navngivet fra `codesystem.EAN*` (`cs_ean`, NemHandelsregisteret) | `codesystem.Lager*` (`cs_lager`, ILS' `dbo.sgh` og `dbo.lgr`) |
+| Afgrænsning | `rsdOrganization = true` (filtreret i SQL) — se nedenfor | **Hele kodesystemet** | **Alle fakturamodtagere** i MySupply-arkivet | **Hele kodesystemet** |
+| Rod | `6101000016001` (Example Region) | Alle koder uden forælder (niveau-1-knuderne, de 9 toppe) | Alle koder — fladt, alle på `niveau = 1` | `REGION_SYD` — sygehus på niveau 2, lager på niveau 3 |
+| `gyldig_fra` / `gyldig_til` | `openingDate` / `closingDate` | `startsdate` / `enddate` | `1900-01-01` / `9999-12-31` — kilden har ingen datoer | `1900-01-01` / `9999-12-31` — kilden har ingen datoer |
+| `type` | `entityType` | `enhedstype` (udfyldt) | tom | `entityType` (`region` / `sygehus` / `lager`) |
+| `aktiv` / `dw_is_deleted` | `activeOwnOrganization` / tom | SydAX' `Aktiv` / `Slettet` | tomme | ILS' `aktiv` på sygehuset eller lageret / tom |
+| `navn` | display | display | `participantName` (tom, hvis koden mangler i NemHandel) | display (ILS' `navn`) |
+| Mapninger | ingen — vedligeholdes manuelt i OS2mo | ingen — vedligeholdes manuelt i OS2mo | ingen — vedligeholdes manuelt i OS2mo | ingen — vedligeholdes manuelt i OS2mo |
+| Fil | `rsyd_sor_<YYYYMMDD_HHMMSS>.csv` | `rsyd_okosted_<YYYYMMDD_HHMMSS>.csv` | `rsyd_ean_<YYYYMMDD_HHMMSS>.csv` | `rsyd_lager_<YYYYMMDD_HHMMSS>.csv` |
 
-Begge kodesystemer og `cm_okosted_to_sor` bygges af `organisation_cs_job`.
-`os2mo_delivery_sensor` starter leverancen, når det job er lykkedes.
+Alle fire kodesystemer og `cm_okosted_to_sor` bygges af `organisation_cs_job`.
+`os2mo_delivery_sensor` starter leverancen, når det job er lykkedes. EAN-filens
+kodemængde, `arc.mysupply_statistic_invoice_header`, bygges af MySupply-kæden
+og læses, som den står ved leverancen.
 
 SOR-filen indeholder alle enheder, `cs_sor` markerer som `rsdOrganization`:
 enheder, der kan nås fra roden `6101000016001`, uanset om de er åbne, lukkede
@@ -281,7 +284,8 @@ status.
 
 Koder, der er forsvundet fra SydAX, har ingen egenskaber tilbage i kodesystemet og
 udelades (`codes_gone` i metadata). Datoer og flag, der findes men ikke kan læses,
-bliver tomme i filen og tælles i `unreadable_values` og en advarsel i loggen. En
+tælles i `unreadable_values` og en advarsel i loggen; i filen får en sådan dato
+standardværdien (`1900-01-01` / `9999-12-31`), og et sådant flag bliver tomt. En
 kode uden typeværdi (`type` tom) tælles tilsvarende i `codes_without_type` og
 logger en advarsel.
 
@@ -297,11 +301,56 @@ træet — tælles i stedet som `parent_conflicts` og `path_gaps` i `cs_okosted`
 egen metadata, og en knude uden typet id-kolonne tælles som
 `unknown_enhedstype`.
 
+EAN-filen indeholder Example Regions egne EAN-numre: alle fakturamodtagere
+(`RegningsModtagerID`) i `arc.mysupply_statistic_invoice_header` — samme
+mængde som `dim.EAN` — og ikke hele NemHandels landsdækkende GLN-liste.
+Arkivet beholder alle fakturahoveder, så en kode forsvinder aldrig fra filen,
+og `codes_gone` er altid 0. Mængden læses af sin egen forespørgsel
+(`build_code_source_query`, spec'ens `code_source`), ikke fra `EANConcept`.
+
+Der er ingen datoer, typer eller statusflag, så filen bærer kun `kode`,
+`navn`, `niveau` (altid `1`), de to tidsstempler og standardgyldigheden
+`1900-01-01` → `9999-12-31`; `kode_parent` er tom.
+`navn` er kodens `participantName` i `codesystem.EANProperties`, og tom, hvis
+NemHandel ikke kender koden. `dw_timestamp_insert` er første gang koden er set
+i arkivet (tidligste `dw_timestamp_insert`), og `dw_timestamp_update` er det
+seneste af det og `participantName`s `dw_timestamp_update`, så en navneændring
+også flytter tidsstemplet.
+
+`cs_ean` upserter kun: intet slettes, så et halvt NemHandel-svar fjerner ikke
+navnene på de GLN'er, det mangler. Begge egenskaber skrives altid (NULL, når
+værdien mangler), så et navn, NemHandel selv tømmer, slår igennem, og
+`update_only_on_change` holder `dw_timestamp_update` til reelle ændringer.
+
+Lager-filen er ILS' lagerorganisation i kodesystemets egne tre niveauer:
+`REGION_SYD` (niveau 1), et sygehus fra `dbo.sgh` (niveau 2, kode
+`SGH_<sgh>`) og et lager fra `dbo.lgr` (niveau 3, kode `SGH_<sgh>_LGR_<lgr>`)
+under sit sygehus. Koden er den samme som i `codesystem.Lager*` og `dim.Lager`.
+Hele kodesystemet leveres, aktive og inaktive enheder, og Magentas integration
+afgør, hvad den importerer. `aktiv` er enhedens eget flag i ILS:
+`dbo.lgr.aktiv` for et lager og `dbo.sgh.aktiv` for et sygehus. Det er tomt for
+regionen og for enhver enhed, hvor ILS ikke angiver flaget. Tomt betyder "ingen
+status", ikke "inaktiv". ILS har ingen gyldighedsdatoer, så `gyldig_fra` og
+`gyldig_til` er `1900-01-01` og `9999-12-31`. Uden `REGION_SYD` i kodesystemet
+bygges ingen fil.
+
+`cs_lager` læser hele `arc.ils_sgh` og `arc.ils_lgr` hver gang, så bygningen er
+et fuldt øjebliksbillede: merge'en sletter forældede egenskaber og
+forælderkanter og rører kun rækker, der er ændret. Er en af de to arkivtabeller
+tom, nægter `cs_lager` at bygge, så en tom læsning ikke sletter alle
+egenskaber.
+
+Arkivet opdager ikke sletninger i ILS (`detect_deletes=False`), så en enhed, der
+slettes i ILS, forsvinder aldrig fra filen. Den leveres fortsat med det `aktiv`,
+arkivet sidst har for den.
+
 ## Et nyt kodesystem
 
 1. Tilføj en `CodesystemExportSpec` i `DSO/export/os2mo/codesystems.py` og læg den
    i `CODESYSTEM_EXPORTS`. Det er det hele: assets, jobbets udvælgelse, sensorens
-   `dry_run: false` og eksporttabellen følger af tuplen.
+   `dry_run: false` og eksporttabellen følger af tuplen. Datoer, type og flag er
+   valgfrie, som for EAN: `None` giver tomme kolonner for type og flag og
+   `1900-01-01` / `9999-12-31` for datoerne.
 2. `source_deps` skal navngive de assets, der bygger kodesystemet, og de skal
    ligge i `organisation_cs_job`, som sensoren venter på.
 3. Mapninger til andre kodesystemer er ikke en del af et nyt kodesystems
@@ -366,7 +415,7 @@ python etl/scripts/os2mo_render_csv.py --codesystem okosted --out ~/os2mo
 
 1. `cd etl && pytest tests/unit/ -k os2mo -v`
 2. `dagster definitions validate`
-3. Materialisér `os2mo_sor_export` og `os2mo_okosted_export`. Tjek
+3. Materialisér `os2mo_sor_export`, `os2mo_okosted_export`, `os2mo_ean_export` og `os2mo_lager_export`. Tjek
    `export.CodesystemToOs2mo` pr. `codesystem`, og at CSV'erne under
    `DATA_DIR/os2mo/` har forventet header og rækketal. Kør dem igen: rækketallet
    er det samme og `dw_timestamp_insert` er flyttet.

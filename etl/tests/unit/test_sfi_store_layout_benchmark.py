@@ -15,8 +15,8 @@ Fejl disse tests fanger:
 from __future__ import annotations
 
 import pytest
+from adhoc import sfi_store_layout_benchmark as b
 from DSO.load import sfi_store_partitioning as p
-from infrastructure.assets import sfi_store_layout_benchmark as b
 
 pytestmark = pytest.mark.unit
 

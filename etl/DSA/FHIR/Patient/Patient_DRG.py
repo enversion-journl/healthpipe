@@ -31,7 +31,7 @@ import dagster as dg
 from core.resources import MSSQLResource
 from DSA.FHIR.Patient.cpr_stub_asset import CprStubConfig, build_cpr_stub_asset
 from DSA.FHIR.Patient.cpr_stub_asset import classify_cprs as _classify_cprs
-from DSA.FHIR.Patient.field_ownership import SOURCE_DRG
+from DSA.FHIR.Patient.patient_ownership import SOURCE_DRG
 from DSI.csv_files.drg_archive import read_manifest_by_type
 
 # One per leverancetype: they come from different files, run in different jobs

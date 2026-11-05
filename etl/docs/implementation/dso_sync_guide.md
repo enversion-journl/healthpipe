@@ -11,7 +11,7 @@
 Reference documentation for the DSO (Data Staging Out) synchronization framework.
 Covers architecture, configuration, delta sync, performance tuning, and troubleshooting.
 
-**Which tables are synced?** The authoritative list lives in `DSO/load/sync_configs.py`. This guide describes the *logic* — modes, watermarks, fallbacks — not the concrete table inventory, which changes as domains evolve.
+**Which tables are synced?** The authoritative list lives in `DSO/load/sync_configs.py`. This guide describes the *logic* — modes and watermarks — not the concrete table inventory, which changes as domains evolve.
 
 ---
 
@@ -22,7 +22,7 @@ Covers architecture, configuration, delta sync, performance tuning, and troubles
 ```
 DSA (Staging DB)                              DSO (Reporting DB)
 +------------------------+                    +------------------------+
-| map.*                  |                    | map.*                  |
+| map.*                  |                    |                        |
 | dim.*                  | --STAGING_LINK-->  | dim.*                  |
 | fct.*                  |     (MERGE)        | fct.*                  |
 +------------------------+                    +------------------------+
@@ -34,17 +34,16 @@ DSA (Staging DB)                              DSO (Reporting DB)
                                               +------------------------+
 ```
 
-The sync framework moves data from DSA (staging) to DSO (reporting) in three conceptual layers:
+The sync framework moves data from DSA (staging) to DSO (reporting) in two conceptual layers:
 
-1. **map tables** — clean_code mapping tables (IDENTITY on DW_EK, business key is clean_code)
-2. **dim tables** — Dimension tables (DW_EK is PK)
-3. **fct tables** — Fact tables (various PKs, may have IDENTITY columns)
+1. **dim tables** — Dimension tables (DW_EK is PK)
+2. **fct tables** — Fact tables (various PKs, may have IDENTITY columns)
 
-Not all domains sync all layers. Some domains sync map → dim → fct; others skip map and sync dim/fct only. See `sync_configs.py` for the per-domain configuration.
+The `map` tables stay on staging: the DSO database has no `ext`, `arc`, `map` or `stg` schema. See `sync_configs.py` for the per-domain configuration.
 
-Dagster assets enforce the ordering: `map -> dim -> fct` where map exists. Each sync asset depends on its upstream staging asset completing first.
+Dagster assets enforce the ordering: `dim -> fct`. Each sync asset depends on its upstream staging asset completing first.
 
-### 1.2 Linked Server vs Python Fallback
+### 1.2 Linked Server Sync
 
 `sync_table_via_linked_server()` is the main entry point.  It uses a decision cascade:
 
@@ -58,23 +57,20 @@ sync_table_via_linked_server()
   │
   └── Validate linked server
         │
-        ├── Available?  ──yes──>  _sync_via_linked_server()   [preferred]
+        ├── Available?    ──yes──>  _sync_via_linked_server()
         │
-        └── Unavailable + staging reachable?
-              ──yes──>  Fallback allowed? (default yes) ──yes──>  _sync_via_python() [fallback, logged as ERROR]
-              │         Set DSO_SYNC_ALLOW_PYTHON_FALLBACK=false ──no──>  ERROR (fail run)
-              ──no───>  ERROR
+        └── Unavailable   ──────>  ERROR (names the linked server and the table)
 ```
 
 **Linked server path** (`_sync_via_linked_server`): Executes MERGE entirely on DSO via 4-part naming (`[STAGING_LINK].[DW].[schema].[table]`).  Zero data flows through Python.  Supports all three modes: `merge`, `watermark`, and `truncate_insert`.
 
-**Python fallback** (`_sync_via_python`): Reads from staging via `fetchmany()` in configurable chunks and inserts into DSO via `executemany()`.  Always uses TRUNCATE + INSERT regardless of the configured mode.  Keeps memory constant via streaming.
+A failed linked server fails the sync. The checkpoint does not move, so the next run after the repair catches up.
 
 ### 1.3 Sync Modes
 
 | Mode | SQL Pattern | Use Case |
 |------|-------------|----------|
-| `merge` | Full `MERGE` of all rows | Map tables, small reference tables |
+| `merge` | Full `MERGE` of all rows | Small reference tables |
 | `watermark` | Delta `MERGE` filtered by watermark column | Dimension and fact tables |
 | `truncate_insert` | `TRUNCATE` + `INSERT` | Type 2 SCD dimensions, security tables |
 
@@ -107,7 +103,7 @@ The complete list of synced tables lives here. Add a new `SyncTableConfig`:
     name="dso_sync_dim_nytabel",
     group_name="<domain>_dso_sync",
     compute_kind="mssql",
-    deps=["dim_nytabel", "dso_sync_map_nytabel"],  # include map dep if domain syncs map
+    deps=["dim_nytabel"],
     tags={"domain": "<domain>", "layer": "dso_sync", "type": "dimension"},
     description="Sync dim.NyTabel from staging to DSO database",
 )
@@ -139,7 +135,7 @@ def dso_sync_dim_nytabel(
 
 ### Step 3: Register the asset
 
-Add it to the appropriate `all_*_dso_sync_assets` list in the same file, and export it from `DSO/load/__init__.py`.
+Add it to the appropriate list in the same file. For a new file, import its list in `DSO/load/__init__.py` and add it to `all_dso_sync_assets`. Lists in `sync_fhir.py` are imported directly in `definitions.py`.
 
 ### Step 4: Create the view (optional)
 
@@ -149,15 +145,14 @@ If the table needs a view, add the `CREATE OR ALTER VIEW` DDL to the appropriate
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `schema` | `str` | *required* | Target schema (`dim`, `fct`, `map`, `sec`) |
+| `schema` | `str` | *required* | Target schema (`dim`, `fct`, `sec`) |
 | `table` | `str` | *required* | Target table name |
 | `primary_key` | `str \| list[str]` | *required* | PK column(s) used in MERGE ON clause |
 | `mode` | `Literal` | `"merge"` | Sync mode: `"merge"`, `"watermark"`, or `"truncate_insert"` |
-| `exclude_columns` | `list[str]` | `[]` | Columns to exclude from sync (e.g. IDENTITY columns on map tables) |
+| `exclude_columns` | `list[str]` | `[]` | Columns to exclude from sync (e.g. IDENTITY columns) |
 | `insert_only_columns` | `list[str]` | `["dw_timestamp_insert"]` | Columns set only on INSERT, not UPDATE |
 | `identity_insert` | `bool` | `False` | Enable `SET IDENTITY_INSERT ON` (when PK is IDENTITY) |
 | `watermark_column` | `str \| None` | `None` | Column for delta filter; required when `mode="watermark"` |
-| `chunk_size` | `int` | `5000` | Rows per chunk in Python fallback path |
 
 ---
 
@@ -263,7 +258,7 @@ empty); after success, checkpoint = `max_now`.
 
 | Mode | Use When | Typical Tables |
 |------|----------|----------------|
-| `merge` | Small reference/map tables where full scan is cheap | map.* (where domain syncs map), sec.* reference tables |
+| `merge` | Small reference tables where full scan is cheap | sec.* reference tables |
 | `watermark` | Dimension and fact tables that grow over time | dim.*, fct.* |
 | `truncate_insert` | Type 2 SCD tables or full-refresh security tables | SCD2 dimensions, sec.* full-refresh tables |
 
@@ -280,46 +275,24 @@ See `sync_configs.py` for the actual column used per table.
 
 ## 4. Performance Tuning
 
-### 4.1 Chunk Size (Python Fallback)
+### 4.1 Linked Server Optimisation
 
-The `chunk_size` field controls how many rows `fetchmany()` retrieves per iteration in the Python fallback path.  Memory usage stays constant regardless of table size.
-
-```python
-SyncTableConfig(
-    schema="fct",
-    table="ExampleFact",
-    primary_key="DW_EK_ExampleFact",
-    mode="watermark",
-    watermark_column="dw_timestamp_update",
-    chunk_size=10000,  # larger chunks for high-throughput tables
-)
-```
-
-Guidelines:
-- Default `5000` works well for most tables
-- Increase to `10000-20000` for large fact tables with simple column types
-- Decrease to `2000-3000` for tables with wide rows (many NVARCHAR(MAX) columns)
-- Progress is logged every 10 chunks
-
-### 4.2 Linked Server Optimisation
-
-The linked server path is always preferred because:
+The linked server path is the only write path. It gives:
 - Zero data flows through Python; the MERGE executes entirely on SQL Server
 - SQL Server optimises the join/filter at the engine level
 - Network overhead is minimal (server-to-server within the same network)
 
 Ensure `STAGING_LINK` is configured with the correct security context and that the DSO server has network access to the staging server.
 
-### 4.3 Monitoring via Dagster UI
+### 4.2 Monitoring via Dagster UI
 
 Every sync asset returns `MaterializeResult` metadata visible in the Dagster UI:
 
 | Key | Description |
 |-----|-------------|
 | `rows_affected` | Rows inserted or updated by the MERGE |
-| `sync_mode` | Effective mode used: `merge`, `watermark_delta`, `watermark_full`, `truncate_insert`, `same_database`, `python_*` |
-| `sync_engine` | Engine used: `linked_server`, `python_fallback`, `same_database`, `local_dev_skip`. Use to filter runs. |
-| `fallback_reason` | Set only when `sync_engine=python_fallback`: `linked_server_not_available`, `linked_server_validation_failed`, `connectivity` |
+| `sync_mode` | Effective mode used: `merge`, `watermark_delta`, `watermark_full`, `truncate_insert`, `same_database` |
+| `sync_engine` | Engine used: `linked_server`, `same_database`, `local_dev_skip`. Use to filter runs. |
 | `sync_duration_seconds` | Wall-clock time of the sync operation in seconds (all paths) |
 | `rows_per_second` | Throughput: `rows_affected / sync_duration_seconds` (0.0 when no rows or no-op) |
 | `staging_count` | Row count in staging after sync |
@@ -352,7 +325,7 @@ EXEC sp_testlinkedserver @servername = N'STAGING_LINK';
 
 **Symptom:** Linked server exists but is not accessible.
 
-**Fix:** Check network connectivity, credentials, and firewall rules between DSO and staging servers.  In local dev (Azure SQL Edge), linked servers are unsupported; set `DSO_SYNC_ALLOW_PYTHON_FALLBACK=true` and ensure `mssql_source_staging` is provided to allow Python fallback (see §6).
+**Fix:** Check network connectivity, credentials, and firewall rules between DSO and staging servers.
 
 ### Schema Mismatch
 
@@ -372,7 +345,6 @@ Schema validation runs automatically when `validate_schemas=True` (the default).
 **Possible causes:**
 - Staging had rows inserted between the MERGE and the count check
 - Table has an IDENTITY sentinel row (`DW_EK = -1`) counted differently in staging vs DSO
-- Python fallback was used and an error occurred mid-transfer
 - DSO has more rows: MERGE does not delete DSO-only rows
 
 **Fix:** Re-run the sync.  If it fails again, run the table's DSO sync asset with `mode: full_load` (see "Checkpoint Reset" below).
@@ -383,11 +355,7 @@ To force a full sync for a specific table, run its DSO sync asset with `mode: fu
 or move its checkpoint on staging with `usp_dfm_reset` (`@scope = 'dso'`); see
 `dfm_operations_guide.md` §10.
 
-### Python Fallback Issues
-
-**Symptom:** `OutOfMemoryError` during Python fallback sync.
-
-**Fix:** This should not happen with the chunked `fetchmany()` approach.  If it does, reduce `chunk_size` in the table's `SyncTableConfig`.
+### Same-Database Mode
 
 **Symptom:** Sync returns `mode: "same_database"` and `rows_affected: 0`.
 
@@ -395,64 +363,11 @@ or move its checkpoint on staging with `usp_dfm_reset` (`@scope = 'dso'`); see
 
 ---
 
-## 6. Runtime policy: sync engine and fallback
+## 6. Runtime policy: sync engine
 
-Normal operation must use **linked server** (SQL server-side sync). Python fallback is a **controlled contingency** only.
+Every sync uses the **linked server** (SQL server-side sync). When the linked server does not exist or does not answer, the sync fails with an error that names the linked server and the table. An integrity error during the MERGE (SQLSTATE 23000: a unique-key, foreign-key or NOT NULL violation) triggers one TRUNCATE + INSERT recovery over the linked server. Any other error during the transfer fails the sync. The checkpoint does not move, so the next run after the repair catches up.
 
-### 6.1 Metadata: sync_engine and fallback_reason
-
-Every sync asset returns:
-
-| Key | Description |
-|-----|-------------|
-| `sync_engine` | `linked_server` \| `python_fallback` \| `same_database` \| `local_dev_skip` |
-| `fallback_reason` | Present only when `sync_engine=python_fallback`. One of: `linked_server_not_available`, `linked_server_validation_failed`, `connectivity` |
-
-Drift can **filter runs by engine type** (e.g. only runs where `sync_engine != 'linked_server'`) to detect or alarm on fallback use.
-
-### 6.2 Python fallback performance
-
-The Python fallback streams data from staging to DSO in chunks via `fetchmany()`.
-
-**Watermark-delta mode** uses a temp table + set-based MERGE per chunk:
-
-1. `SELECT TOP 0 ... INTO #_sync_<schema>_<table>` (create empty temp table matching target schema)
-2. Per chunk: `executemany(INSERT INTO #temp)` → single `MERGE target USING #temp` → `TRUNCATE #temp`
-3. Temp table dropped in `finally` block
-
-This replaces the previous row-level `MERGE ... USING (VALUES (?,...))` which compiled a plan per row. The set-based approach lets SQL Server optimise the join and reduces round-trips from N to N/chunk_size.
-
-**Prerequisite:** The Dagster DSO service account needs `CREATE TABLE` permission in `tempdb` to use the temp-table strategy. Most SQL Server logins have this via the `public` role by default. If the permission is missing, the code falls back gracefully to row-level `MERGE ... USING (VALUES)` with a logged warning — no data loss, just slower throughput.
-
-**Full-sync modes** (truncate_insert, merge first-run, watermark first-run) use `TRUNCATE` + `executemany(INSERT)` per chunk — no MERGE overhead.
-
-**Recommended chunk_size:**
-
-| Table type | chunk_size | Memory per chunk | Rationale |
-|-----------|-----------|-----------------|-----------|
-| Dimensions (broad, NVARCHAR(MAX), ~100k rows) | 5,000 (default) | ~7-8 MB | Wide rows with MAX fields; keeps memory <10 MB per chunk |
-| Dimensions (narrow, no MAX fields, up to 1M rows) | 5,000–10,000 | ~5-10 MB | Override to 10k if row width allows and round-trips dominate |
-| Facts (narrow, FK+measures, many rows) | 20,000 | ~7-14 MB | ~0.5-0.7 KB/row; large batches amortise MERGE and network cost |
-| Map tables (small, merge mode) | 5,000 (default) | <5 MB | Small tables; chunk_size rarely matters |
-
-Memory budget: keep each chunk under ~15 MB to stay safe in workers with 512 MB–1 GB RAM.
-Multiple chunks are never held simultaneously (fetchmany + process + discard).
-
-Tune by measuring `rows_per_second` in asset metadata. Set `chunk_size` in `SyncTableConfig` per table.
-
-### 6.3 Fallback is default; require linked server in higher environments
-
-- **Default:** Python fallback is **allowed** when the linked server is unavailable (env unset or `true`).
-- **Env var:** `DSO_SYNC_ALLOW_PYTHON_FALLBACK`. Set to `false` or `0` to **forbid** fallback and fail the run if the linked server is unavailable (use this in closed/production-like environments to enforce linked-server-only).
-- **Local dev (e.g. Azure SQL Edge):** No change needed; fallback is default.
-
-When fallback is disabled (`DSO_SYNC_ALLOW_PYTHON_FALLBACK=false`) and the linked server is unavailable, the asset fails with a clear error.
-
-### 6.4 Monitoring: fallback always alarms
-
-- When Python fallback is used, the code logs at **ERROR** level with prefix `DSO_SYNC_FALLBACK_ACTIVE` and the `fallback_reason`.
-- Asset metadata always includes `sync_engine`; when fallback is used, `fallback_reason` is also set.
-- Configure alerting (e.g. on log pattern `DSO_SYNC_FALLBACK_ACTIVE` or on metadata `sync_engine=python_fallback`) so that fallback use is never silent.
+Every sync asset returns `sync_engine` in its metadata: `linked_server` \| `same_database` \| `local_dev_skip`.
 
 ---
 
@@ -471,7 +386,6 @@ Documented in detail in `etl/docs/architecture/dso_delta_load_strategy.md`.
 - `COALESCE(watermark_col, dw_timestamp_insert)` in the WHERE clause ensures rows with NULL watermark columns are still captured.
 - `SYSDATETIME()` is used server-side for watermark timestamps to avoid clock skew.
 - First run (no watermark) automatically falls back to full MERGE, so no manual initialisation is needed.
-- Map tables (where synced) remain on `mode="merge"` because they are small and do not benefit from delta logic.
 - Type 2 SCD dimensions with IDENTITY surrogate key use `truncate_insert`.
 
 ---

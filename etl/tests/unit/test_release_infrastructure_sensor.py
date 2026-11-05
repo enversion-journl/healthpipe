@@ -47,6 +47,15 @@ def _decorated_schedule(context: dg.ScheduleEvaluationContext):
     return dg.RunRequest(run_key="nightly", tags={"cycle": "2026-10-22"})
 
 
+class _Share(dg.ConfigurableResource):
+    root: str
+
+
+@dg.schedule(name="resource_schedule", cron_schedule="0 6 * * *", job=_nightly_job)
+def _resource_schedule(context: dg.ScheduleEvaluationContext, share: _Share):
+    return dg.RunRequest(run_key=share.root)
+
+
 def _add_run(instance: dg.DagsterInstance, status: dg.DagsterRunStatus, release: str) -> None:
     instance.add_run(
         DagsterRun(
@@ -63,7 +72,7 @@ def _stale_limit_exceeded(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("schedule", [_cron_schedule, _decorated_schedule])
+@pytest.mark.parametrize("schedule", [_cron_schedule, _decorated_schedule, _resource_schedule])
 @pytest.mark.parametrize(
     "runs,expected",
     [
@@ -89,7 +98,9 @@ def test_gate_opens_only_on_a_successful_run_for_this_release(
                 continue
             status, run_release = run if isinstance(run, tuple) else (run, release)
             _add_run(instance, status, run_release)
-        context = dg.build_schedule_context(instance=instance)
+        context = dg.build_schedule_context(
+            instance=instance, resources={"share": _Share(root="x")}
+        )
 
         if expected == "raise":
             with pytest.raises(dg.DagsterInvariantViolationError, match=release):

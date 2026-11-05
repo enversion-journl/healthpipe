@@ -169,6 +169,8 @@ flowchart TD
 Opret map-, dim- og fact-tabellerne i `infrastructure/ddl/tables/{domæne}/`.
 Er domænet nyt, skal DDL-mappen også registreres som et infrastruktur-asset
 (både `staging_infra_*` og `dso_infra_*`, da dim/fct skal synkroniseres til DSO).
+Et nyt `dso_infra_*`-asset indlæser en eksplicit liste med kun de filer, DSO skal have
+(dim, fct, bridge) — se [infrastrukturguiden](../implementation/infrastructure_guide.md#4-staging-and-dso).
 
 ### 2. Pre-staging — kun hvis logikken skal deles
 
@@ -292,8 +294,9 @@ Disse får den første kørsel til at fejle eller til ikke at gøre noget — ud
   tidspunkt, hvor skemaet er nået videre. `IF EXISTS`-guards hjælper ikke: T-SQL
   validerer kolonnenavne ved compile-time for hele batchen, også i grene der aldrig
   eksekveres.
-- **Brug aldrig CURSOR eller procedurale batches** — de bliver droppet uden en fejlbesked, og
-  trackeren registrerer så en kørsel, der ikke har gjort noget, som gennemført.
+- **En `DECLARE ... CURSOR`-løkke er tilladt.** `execute_sql` læser alle resultatsæt i
+  en batch, så hele løkken kører, og en fejl i et gennemløb får batchen til at fejle.
+  Brug flade guardede `IF ... EXEC`-blokke, når de er nok.
 - **Navngiv altid DEFAULT-constraints eksplicit**
   (`CONSTRAINT [DF_<Tabel>_<kolonne>] DEFAULT …`). Et auto-navngivet constraint får et
   genereret navn per database og kan derfor ikke droppes forudsigeligt — og en kolonne
@@ -303,7 +306,7 @@ Disse får den første kørsel til at fejle eller til ikke at gøre noget — ud
   DSO-databasen.**
 
 Fuld gennemgang med eksempler:
-[sql_etl_guide.md, afsnittet SQL Migration Patterns](../implementation/sql_etl_guide.md#sql-migration-patterns).
+[infrastrukturguiden, afsnittet Migrations](../implementation/infrastructure_guide.md#5-migrations).
 
 ## Fire performance-regler
 

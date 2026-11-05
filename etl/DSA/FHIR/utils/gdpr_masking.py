@@ -181,29 +181,3 @@ def mask_identifier_for_logging(identifier: str, identifier_system: str) -> str:
     else:
         # For other systems, mask CPR numbers just in case
         return mask_cpr_numbers(identifier)
-
-
-def create_masked_log_message(message_template: str, *args, **kwargs) -> str:
-    """
-    Create a log message with sensitive data masked.
-
-    Args:
-        message_template: String template for the message
-        *args: Positional arguments to format into template
-        **kwargs: Keyword arguments to format into template
-
-    Returns:
-        Formatted message with sensitive data masked
-    """
-    # First format the message
-    if args:
-        message = message_template % args
-    else:
-        message = message_template
-
-    # Then mask any sensitive data in the result
-    message = mask_cpr_numbers(message)
-    message = mask_names(message)
-    message = mask_addresses(message)
-
-    return message

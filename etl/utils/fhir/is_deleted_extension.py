@@ -13,6 +13,8 @@ set valueInteger=1 for orphans. Kept separate from fhir_extensions.py (URL-only 
 
 from __future__ import annotations
 
+from typing import Any
+
 from fhir.resources.R4B.extension import Extension
 
 # valueInteger: 0 = not deleted, 1 = deleted (IFDB flag or quality-check orphan).
@@ -24,6 +26,6 @@ def build_is_deleted_extension(deleted: int) -> Extension:
     return Extension(url=EXTENSION_FHIR_IS_DELETED, valueInteger=int(deleted))
 
 
-def build_is_deleted_extension_dict(deleted: int) -> dict:
+def build_is_deleted_extension_dict(deleted: int) -> dict[str, Any]:
     """Build the unified isDeleted extension as a plain dict for dict-based pipelines."""
     return {"url": EXTENSION_FHIR_IS_DELETED, "valueInteger": int(deleted)}

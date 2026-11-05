@@ -34,7 +34,7 @@ from DSA.FHIR.utils.sql_on_fhir.sof_utils import (
 
 @dg.asset(
     name="fhir_sof_infrastructure",
-    group_name="staging_infrastructure",
+    group_name="fhir_infrastructure",
     compute_kind="fhir",
     # Gate the entire SOF chain on the staging MSSQL target tables + their
     # migrations. Every sof_* asset depends on this one, so this single dep

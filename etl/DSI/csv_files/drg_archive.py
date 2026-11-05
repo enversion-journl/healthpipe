@@ -58,6 +58,7 @@ from DSI.connectors.delivery_detection import (
     DELIVERY_TARGET_TYPE,
     delivery_identity,
 )
+from DSI.csv_files._sds_tar import upsert_register
 from DSI.csv_files.drg import CAP_DERIVED, CAP_REAL, drg_delivery_unit, manifest_table
 from DSI.csv_files.drg_datasets import DATASETS, DrgDataset
 from utils.sql_safety import safe_bracket_quote
@@ -65,7 +66,7 @@ from utils.sql_safety import safe_bracket_quote
 LEVERANCE_TABLE = "DRGLeverance"
 # meta.DRGLeverance.aktivitetsaar is NVARCHAR(4) — a key column, deliberately
 # narrow. ext's year column is NVARCHAR(500) and validated by nothing, so the
-# width is checked before anything is merged (the [internal ticket] lesson).
+# width is checked before anything is merged (the lesson).
 MAX_AKTIVITETSAAR_WIDTH = 4
 REVISION_TABLE = "drg_pris_revision"
 
@@ -415,7 +416,7 @@ def build_slice_predicate(
 
 
 # ---------------------------------------------------------------------------
-# Delivery manifest and the slice-level cap decision ([internal ticket] tier 2)
+# Delivery manifest and the slice-level cap decision (tier 2)
 # ---------------------------------------------------------------------------
 
 
@@ -835,53 +836,24 @@ def record_delivery(
     try:
         for takstsystem, aktivitetsaar in rows:
             entry = manifest[takstsystem]
-            cursor.execute(
-                f"""
-                MERGE [meta].[{LEVERANCE_TABLE}] AS tgt
-                USING (SELECT ? AS kildetabel, ? AS takstsystem, ? AS aktivitetsaar,
-                              ? AS leverance_ts) AS src
-                ON tgt.[kildetabel] = src.kildetabel
-                   AND tgt.[takstsystem] = src.takstsystem
-                   AND tgt.[aktivitetsaar] = src.aktivitetsaar
-                   AND tgt.[leverance_ts] = src.leverance_ts
-                WHEN MATCHED THEN UPDATE SET
-                    tgt.[kadence] = ?,
-                    tgt.[leverance_dato] = ?,
-                    tgt.[lpropdateringsdato] = ?,
-                    tgt.[cap_kilde] = ?,
-                    tgt.[indlaesningstype] = ?,
-                    tgt.[raekker_indsat] = ?,
-                    tgt.[raekker_opdateret] = ?,
-                    tgt.[raekker_soft_slettet] = ?,
-                    tgt.[dw_timestamp_update] = CAST(SYSDATETIME() AS DATETIME2(0))
-                WHEN NOT MATCHED THEN INSERT
-                    ([kildetabel], [takstsystem], [aktivitetsaar], [leverance_ts],
-                     [kadence], [leverance_dato], [lpropdateringsdato], [cap_kilde],
-                     [indlaesningstype], [raekker_indsat], [raekker_opdateret],
-                     [raekker_soft_slettet])
-                    VALUES (src.kildetabel, src.takstsystem, src.aktivitetsaar,
-                            src.leverance_ts, ?, ?, ?, ?, ?, ?, ?, ?);
-                """,
-                dataset.ext_table,
-                takstsystem,
-                aktivitetsaar,
-                entry.leverance_ts,
-                entry.kadence,
-                entry.leverance_dato,
-                entry.cap,
-                entry.cap_kilde,
-                "merge",
-                result.rows_inserted if single else None,
-                result.rows_updated if single else None,
-                result.rows_soft_deleted if single else None,
-                entry.kadence,
-                entry.leverance_dato,
-                entry.cap,
-                entry.cap_kilde,
-                "merge",
-                result.rows_inserted if single else None,
-                result.rows_updated if single else None,
-                result.rows_soft_deleted if single else None,
+            upsert_register(
+                cursor,
+                LEVERANCE_TABLE,
+                ("kildetabel", "takstsystem", "aktivitetsaar", "leverance_ts"),
+                {
+                    "kildetabel": dataset.ext_table,
+                    "takstsystem": takstsystem,
+                    "aktivitetsaar": aktivitetsaar,
+                    "leverance_ts": entry.leverance_ts,
+                    "kadence": entry.kadence,
+                    "leverance_dato": entry.leverance_dato,
+                    "lpropdateringsdato": entry.cap,
+                    "cap_kilde": entry.cap_kilde,
+                    "indlaesningstype": "merge",
+                    "raekker_indsat": result.rows_inserted if single else None,
+                    "raekker_opdateret": result.rows_updated if single else None,
+                    "raekker_soft_slettet": result.rows_soft_deleted if single else None,
+                },
             )
         conn.commit()
     finally:

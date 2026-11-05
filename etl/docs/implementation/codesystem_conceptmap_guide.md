@@ -368,7 +368,7 @@ Staging assets should depend on the relevant `cs_*` and `cm_*` assets:
 | `staging_infra_codesystem` | `staging_infrastructure` | Execute codesystem DDL |
 | `staging_infra_conceptmap` | `staging_infrastructure` | Execute conceptmap DDL |
 
-These depend on `staging_infra_schemas` and are included in the standard `full_infrastructure_job`.
+These depend on `staging_infra_schemas` and are included in the standard `full_infrastructure_job`. See the [infrastructure guide](infrastructure_guide.md).
 
 ## Adding a New CodeSystem
 

@@ -47,13 +47,6 @@ from decimal import Decimal, InvalidOperation
 import dagster as dg
 from mssql_python import SQL_DECIMAL, SQL_TYPE_DATE, SQL_WVARCHAR
 
-# Injected into the code-server by the Nomad job that mounts the SMB share.
-# dev/QA: "/mnt/ftproot/LØN/arkiv/E26". Never defaulted — see module docstring.
-BASE_DIR_ENV = "SILKEBORGDATA_BASE_DIR"
-ENCODING_ENV = "SILKEBORGDATA_FILE_ENCODING"
-
-# DOS-Nordic, NOT cp1252. Per-source by design; see module docstring.
-DEFAULT_ENCODING = "cp865"
 DELIMITER = ";"
 
 # Delivery folders are named YYYYMMDD, e.g. "20260730".
@@ -87,60 +80,6 @@ class Delivery:
     delivery_date: date
     folder: str
     path: str
-
-
-def silkeborgdata_dir() -> str:
-    """The mounted delivery folder, or a hard failure.
-
-    Resolved per run rather than at import time: the mount appears with the
-    allocation, not with the code, so a module constant would freeze a value
-    from before the mount existed. An unset variable must NOT fall back to a
-    plausible-looking local path.
-
-    An existing but EMPTY directory is also an error: a Docker bind mount whose
-    source is missing silently creates one, and it would otherwise look exactly
-    like "no new deliveries".
-
-    Note the limit of that guard. A share pointed one level too high — at
-    .../arkiv rather than .../arkiv/E26 — is NOT empty, so it passes here and
-    then yields no matching delivery folders, which is a legitimate green no-op
-    by design (a directory with entries but no YYYYMMDD folder holding the file
-    genuinely means "nothing new"). Nothing stops a run in that state. The
-    checkpoint_not_stalled asset check reports it downstream, but it is
-    non-blocking and only warns, so the run still goes green and someone has to
-    read the warning for it to have any effect.
-    """
-    root = os.getenv(BASE_DIR_ENV, "").strip()
-    if not root:
-        raise ValueError(
-            f"{BASE_DIR_ENV} is unset or empty. The SilkeborgData share is mounted "
-            f"per branch — this branch's slug must be added to SMB_SHARE_BRANCHES "
-            f"on the acr-watcher before the code-server gets /mnt/ftproot. Locally, "
-            f"point it at a manual copy or run against dev/QA."
-        )
-    if not os.path.isdir(root):
-        raise ValueError(
-            f"{BASE_DIR_ENV}={root!r} is not a directory. The SMB share is probably "
-            f"not mounted in this allocation."
-        )
-    with os.scandir(root) as entries:
-        if next(entries, None) is None:
-            raise ValueError(
-                f"{BASE_DIR_ENV}={root!r} is an empty directory. That is an unmounted "
-                f"or wrongly pointed share, not an absence of deliveries — a bind "
-                f"mount with a missing source creates exactly this. Refusing to "
-                f"report 'no new deliveries'."
-            )
-    return root
-
-
-def silkeborgdata_encoding() -> str:
-    """Per-source encoding, from the environment.
-
-    SilkeborgData is DOS-Nordic cp865; HAIBA on the same mount is cp1252. One
-    shared constant would corrupt one of them.
-    """
-    return os.getenv(ENCODING_ENV, "").strip() or DEFAULT_ENCODING
 
 
 def parse_delivery_date(dir_name: str) -> date | None:
@@ -533,11 +472,8 @@ def write_to_ext_table(
 
 
 __all__ = [
-    "BASE_DIR_ENV",
-    "DEFAULT_ENCODING",
     "DELIMITER",
     "DELIVERY_SUBDIR_FMT",
-    "ENCODING_ENV",
     "INSERT_CHUNK_SIZE",
     "LEVERANCE_COLUMNS",
     "MIN_FILE_AGE_MINUTES",
@@ -552,7 +488,5 @@ __all__ = [
     "parse_sd_decimal",
     "read_delivery_rows",
     "select_deliveries",
-    "silkeborgdata_dir",
-    "silkeborgdata_encoding",
     "write_to_ext_table",
 ]

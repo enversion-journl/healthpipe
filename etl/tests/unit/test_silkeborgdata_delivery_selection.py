@@ -20,9 +20,6 @@ from datetime import date, timedelta
 
 import pytest
 from DSI.csv_files.silkeborgdata import (
-    BASE_DIR_ENV,
-    DEFAULT_ENCODING,
-    ENCODING_ENV,
     Delivery,
     discover_deliveries,
     is_delivery_settled,
@@ -30,8 +27,6 @@ from DSI.csv_files.silkeborgdata import (
     parse_delivery_date,
     partition_settled_deliveries,
     select_deliveries,
-    silkeborgdata_dir,
-    silkeborgdata_encoding,
 )
 
 pytestmark = pytest.mark.unit
@@ -350,71 +345,3 @@ def test_partition_returns_newest_first(tmp_path):
     assert [d.delivery_date for d in loadable] == sorted(
         (d.delivery_date for d in loadable), reverse=True
     )
-
-
-# ---------------------------------------------------------------------------
-# silkeborgdata_dir — an unmounted share must never look like "no deliveries"
-# ---------------------------------------------------------------------------
-
-
-def test_silkeborgdata_dir_fails_when_unset(monkeypatch):
-    monkeypatch.delenv(BASE_DIR_ENV, raising=False)
-    with pytest.raises(ValueError, match=BASE_DIR_ENV):
-        silkeborgdata_dir()
-
-
-def test_silkeborgdata_dir_error_mentions_the_branch_opt_in(monkeypatch):
-    """The most common cause is not a missing config but a branch that is not
-    opted in — the message has to say so, or a red run looks like a code bug."""
-    monkeypatch.setenv(BASE_DIR_ENV, "   ")
-    with pytest.raises(ValueError, match="SMB_SHARE_BRANCHES"):
-        silkeborgdata_dir()
-
-
-def test_silkeborgdata_dir_fails_on_a_missing_path(monkeypatch, tmp_path):
-    monkeypatch.setenv(BASE_DIR_ENV, str(tmp_path / "findes-ikke"))
-    with pytest.raises(ValueError, match="not a directory"):
-        silkeborgdata_dir()
-
-
-def test_silkeborgdata_dir_fails_on_an_empty_directory(monkeypatch, tmp_path):
-    """A bind mount with a missing source silently creates an empty directory —
-    the quietest failure in the whole solution."""
-    monkeypatch.setenv(BASE_DIR_ENV, str(tmp_path))
-    with pytest.raises(ValueError, match="empty directory"):
-        silkeborgdata_dir()
-
-
-def test_silkeborgdata_dir_accepts_a_populated_directory(monkeypatch, tmp_path):
-    (tmp_path / "20260730").mkdir()
-    monkeypatch.setenv(BASE_DIR_ENV, str(tmp_path))
-    assert silkeborgdata_dir() == str(tmp_path)
-
-
-def test_silkeborgdata_dir_strips_whitespace(monkeypatch, tmp_path):
-    (tmp_path / "20260730").mkdir()
-    monkeypatch.setenv(BASE_DIR_ENV, f"  {tmp_path}  ")
-    assert silkeborgdata_dir() == str(tmp_path)
-
-
-# ---------------------------------------------------------------------------
-# silkeborgdata_encoding — per source, never shared with HAIBA
-# ---------------------------------------------------------------------------
-
-
-def test_encoding_defaults_to_dos_nordic(monkeypatch):
-    """HAIBA on the same mount is cp1252; one shared constant would corrupt one
-    of the two, and neither would raise."""
-    monkeypatch.delenv(ENCODING_ENV, raising=False)
-    assert silkeborgdata_encoding() == "cp865"
-    assert DEFAULT_ENCODING == "cp865"
-
-
-def test_encoding_override_wins(monkeypatch):
-    monkeypatch.setenv(ENCODING_ENV, "cp1252")
-    assert silkeborgdata_encoding() == "cp1252"
-
-
-def test_blank_encoding_override_falls_back_to_the_default(monkeypatch):
-    monkeypatch.setenv(ENCODING_ENV, "   ")
-    assert silkeborgdata_encoding() == "cp865"

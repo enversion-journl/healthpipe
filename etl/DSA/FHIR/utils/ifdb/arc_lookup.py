@@ -50,6 +50,7 @@ def _execute_chunked(
     mssql: MSSQLResource,
     chunk_size: int,
     include_deleted: bool,
+    distinct: bool = False,
 ) -> Iterator[dict[str, Any]]:
     if chunk_size <= 0 or chunk_size > MSSQL_IN_CHUNK_LIMIT:
         raise ValueError(f"chunk_size={chunk_size} must be in 1..{MSSQL_IN_CHUNK_LIMIT}")
@@ -70,7 +71,7 @@ def _execute_chunked(
             for chunk in chunks:
                 placeholders = ", ".join("?" for _ in chunk)
                 query = (
-                    f"SELECT {cols_sql} FROM {table_sql} "
+                    f"SELECT {'DISTINCT ' if distinct else ''}{cols_sql} FROM {table_sql} "
                     f"WHERE {where_sql} IN ({placeholders}){deleted_filter}"
                 )
                 cursor.execute(query, chunk)
@@ -90,6 +91,7 @@ def chunked_in_fetch(
     mssql: MSSQLResource,
     chunk_size: int = MSSQL_IN_CHUNK_LIMIT,
     include_deleted: bool = False,
+    distinct: bool = False,
 ) -> list[dict[str, Any]]:
     """Fetch archive rows by chunked IN-clause; return a flat list of dicts.
 
@@ -107,6 +109,7 @@ def chunked_in_fetch(
             mssql=mssql,
             chunk_size=chunk_size,
             include_deleted=include_deleted,
+            distinct=distinct,
         )
     )
 

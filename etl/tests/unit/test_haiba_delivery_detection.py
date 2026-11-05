@@ -19,6 +19,7 @@ from unittest.mock import MagicMock
 
 import dagster as dg
 import pytest
+from core.resources import FileShareResource
 from DSI.connectors.delivery_detection import delivery_identity
 from DSI.csv_files import haiba, haiba_archive
 from DSI.csv_files.haiba import HaibaExtractConfig, file_mtime
@@ -88,7 +89,6 @@ class TestExtractShortCircuit:
     def _setup(self, tmp_path, monkeypatch):
         agg_dir = tmp_path / "HAIBAagg"
         agg_dir.mkdir()
-        monkeypatch.setenv("HAIBA_BASE_DIR", str(tmp_path))
         written = {"rows": [], "manifest": [], "ddl": []}
 
         def _capture_ext(conn, schema, rows, ctx):
@@ -114,7 +114,11 @@ class TestExtractShortCircuit:
         monkeypatch.setattr(haiba, "_read_checkpoints", lambda *a, **k: {"UTI": identity})
 
         result = haiba._extract_schema(
-            MagicMock(), MagicMock(), haiba.AGG_INFEKTION, HaibaExtractConfig()
+            MagicMock(),
+            MagicMock(),
+            FileShareResource(base_dir=str(tmp_path)),
+            haiba.AGG_INFEKTION,
+            HaibaExtractConfig(),
         )
 
         assert result.metadata["besluttet"].value == "intet nyt"
@@ -140,7 +144,11 @@ class TestExtractShortCircuit:
         )
 
         result = haiba._extract_schema(
-            MagicMock(), MagicMock(), haiba.AGG_INFEKTION, HaibaExtractConfig()
+            MagicMock(),
+            MagicMock(),
+            FileShareResource(base_dir=str(tmp_path)),
+            haiba.AGG_INFEKTION,
+            HaibaExtractConfig(),
         )
 
         assert result.metadata["besluttet"].value == "indlaest"
@@ -158,7 +166,11 @@ class TestExtractShortCircuit:
         monkeypatch.setattr(haiba, "_read_checkpoints", _fail)
 
         result = haiba._extract_schema(
-            MagicMock(), MagicMock(), haiba.AGG_INFEKTION, HaibaExtractConfig(force_reload=True)
+            MagicMock(),
+            MagicMock(),
+            FileShareResource(base_dir=str(tmp_path)),
+            haiba.AGG_INFEKTION,
+            HaibaExtractConfig(force_reload=True),
         )
 
         assert result.metadata["besluttet"].value == "indlaest"
@@ -176,6 +188,7 @@ class TestExtractShortCircuit:
             haiba._extract_schema(
                 MagicMock(),
                 MagicMock(),
+                FileShareResource(base_dir=str(tmp_path)),
                 haiba.AGG_INFEKTION,
                 HaibaExtractConfig(force_reload=True),
             )

@@ -28,14 +28,15 @@ from datetime import date
 
 import pytest
 import requests
-from core.resources import FHIRServerResource, MSSQLResource
+from core.resources import FHIRServerResource, MSSQLResource, file_delivery_defs
 from DSA.CodeSystem.sks.sks import build_sks_codesystem
 from DSA.CodeSystem.utils import merge_codesystem_tables
 from DSI.csv_files.sks_register import (
     EXT_COLUMNS,
     KNOWN_PREFIXES,
-    SKS_COMPLETE_URL,
+    SKS_COMPLETE_PATH,
     _build_hierarchy,
+    _decode_sks_bytes,
     _deduplicate_newest,
     _parse_sks_lines,
 )
@@ -62,13 +63,8 @@ pytestmark = [
 # ---------------------------------------------------------------------------
 def _fetch_sks_complete() -> str:
     """Download SKScomplete.txt from Sundhedsdatastyrelsen."""
-    resp = requests.get(
-        SKS_COMPLETE_URL,
-        headers={"User-Agent": "Mozilla/5.0 (compatible; Dagster-SKS-Loader/2.0)"},
-        timeout=300,
-    )
-    resp.raise_for_status()
-    return resp.content.decode("latin-1")
+    download = file_delivery_defs().resources["sks_download"]
+    return _decode_sks_bytes(download.fetch(SKS_COMPLETE_PATH))
 
 
 def _build_ext_rows(

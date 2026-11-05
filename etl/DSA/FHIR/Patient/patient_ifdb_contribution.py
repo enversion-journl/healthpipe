@@ -12,8 +12,8 @@ from typing import Any
 
 import dagster as dg
 import oracledb
-from DSA.FHIR.Patient.field_ownership import USE_OFFICIAL
 from DSA.FHIR.Patient.patient_identity import order_rows, row_cpr
+from DSA.FHIR.Patient.patient_ownership import USE_OFFICIAL
 from DSA.FHIR.utils.fhir_utils import fhir_date
 from DSA.FHIR.utils.ifdb.transforms import (
     is_true_flag,

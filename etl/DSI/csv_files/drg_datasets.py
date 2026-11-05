@@ -8,7 +8,7 @@
 
 EN kilde til sandhed for extract (DSI/csv_files/drg.py), arkiv
 (DSI/csv_files/drg_archive.py) og arc-DDL
-(infrastructure/ddl/tables/drg/00_archive.sql — genereret herfra og
+(infrastructure/ddl/sources/drg/ — genereret herfra og
 holdt i sync af tests/unit/test_drg_datasets_ddl.py).
 
 Kolonnerne er UNIONEN af SDS' egne Metadata_*-skemaer fra T24/T25/T26

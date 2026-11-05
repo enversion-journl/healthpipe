@@ -9,14 +9,22 @@ CodeSystem Asset: Lager
 
 Reads Lager source data from the ILS DFM archive (arc.ils_sgh, arc.ils_lgr),
 builds codesystem hierarchy, and MERGEs into persistent tables:
-codesystem.lager_concept, _properties, _hierarchy.
+codesystem.LagerConcept, LagerProperties, LagerHierarchy.
+
+The build is a full snapshot of the archive, so the merge deletes properties and
+parent edges the build no longer emits, and only touches rows that changed.
+That makes dw_timestamp_update a real change signal — the OS2mo Lager delivery
+carries it as the row's "last changed".
 """
 
 from datetime import datetime
 
 import dagster as dg
 from core.resources import MSSQLResource
-from DSA.CodeSystem.utils import merge_codesystem_tables
+from DSA.CodeSystem.utils import merge_codesystem_tables, touch_concepts
+
+# The codesystem's single root; every sygehus hangs directly under it.
+LAGER_ROOT = "REGION_SYD"
 
 
 def _safe_strip(value) -> str:
@@ -108,7 +116,7 @@ def build_lager_hierarchy(
     properties: list[dict] = []
     hierarchy: list[dict] = []
 
-    root_code = "REGION_SYD"
+    root_code = LAGER_ROOT
     concepts.append({"CODE": root_code, "DISPLAY": "Example Region"})
     _add_property(properties, root_code, "entityType", "region")
 
@@ -123,6 +131,9 @@ def build_lager_hierarchy(
         concepts.append({"CODE": sgh_code, "DISPLAY": navn or f"Sygehus {sgh}"})
         _add_property(properties, sgh_code, "entityType", "sygehus")
         _add_property(properties, sgh_code, "sgh", sgh)
+        # The hospital's own active flag in dbo.sgh — same key as a warehouse's,
+        # so one property carries both levels' status. NULL writes nothing.
+        _add_optional_property(properties, sgh_code, "aktiv", sgh_row.get("aktiv"), "Boolean")
         hierarchy.append({"CODE": sgh_code, "PARENT_CODE": root_code})
 
     seen_lgr: set[str] = set()
@@ -167,9 +178,7 @@ def _ensure_dicts(rows: list) -> list[dict]:
     group_name="codesystem",
     compute_kind="mssql",
     tags={"domain": "codesystem", "layer": "codesystem", "module": "lager"},
-    description=(
-        "Build Lager codesystem from arc.ils_* archive " "and MERGE into codesystem.lager_*"
-    ),
+    description="Build Lager codesystem from arc.ils_* archive and MERGE into codesystem.Lager*",
 )
 def cs_lager(
     context: dg.AssetExecutionContext,
@@ -188,6 +197,15 @@ def cs_lager(
 
             context.log.info(f"Read from arc.ils_*: {len(sgh_rows)} sgh, {len(lgr_rows)} lgr")
 
+            # The merge deletes what the build no longer emits, so an empty
+            # read would strip every hospital's or warehouse's properties.
+            for table, rows in (("arc.ils_sgh", sgh_rows), ("arc.ils_lgr", lgr_rows)):
+                if not rows:
+                    raise dg.Failure(
+                        description=f"{table} is empty — refusing to rebuild codesystem.Lager* "
+                        "from it."
+                    )
+
             concepts, properties, hierarchy = build_lager_hierarchy(
                 sgh_rows, lgr_rows, sgh_cols, lgr_cols
             )
@@ -197,7 +215,22 @@ def cs_lager(
                 f"{len(hierarchy)} hierarchy entries"
             )
 
-            result = merge_codesystem_tables(cursor, "lager", concepts, properties, hierarchy)
+            result = merge_codesystem_tables(
+                cursor,
+                "lager",
+                concepts,
+                properties,
+                hierarchy,
+                # The build is a full snapshot, so what it no longer emits is gone.
+                delete_stale_properties=True,
+                delete_stale_hierarchy=True,
+                update_only_on_change=True,
+                collect_deleted_codes=True,
+            )
+            deleted_codes = result.pop("deleted_codes", [])
+            if deleted_codes:
+                touch_concepts(cursor, "lager", deleted_codes)
+                result["concepts_touched_for_deletes"] = len(deleted_codes)
             conn.commit()
         finally:
             cursor.close()
@@ -205,8 +238,10 @@ def cs_lager(
     context.log.info(
         f"codesystem.lager: "
         f"concepts({result['concepts_inserted']}i/{result['concepts_updated']}u), "
-        f"properties({result['properties_inserted']}i/{result['properties_updated']}u), "
-        f"hierarchy({result['hierarchy_inserted']}i/{result['hierarchy_updated']}u)"
+        f"properties({result['properties_inserted']}i/{result['properties_updated']}u"
+        f"/{result.get('properties_deleted', 0)}d), "
+        f"hierarchy({result['hierarchy_inserted']}i/{result['hierarchy_updated']}u"
+        f"/{result.get('hierarchy_deleted', 0)}d)"
     )
 
     return dg.MaterializeResult(metadata=result)

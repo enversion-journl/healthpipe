@@ -220,5 +220,5 @@ for _cfg in MYSUPPLY_DFM_EXTRACT_CONFIGS:
         group_name="mysupply_archive",
         domain_tag="erp",
         dialect="mssql",
-        deps=["staging_infra_erp", _flow_start_asset_name],
+        deps=["staging_infra_source_mysupply", _flow_start_asset_name],
     )

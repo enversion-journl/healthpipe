@@ -9,10 +9,9 @@ DSA FHIR utilities.
 
 Sub-modules:
 - code_normalization  -- SHAK/SOR/SKS code helpers
-- fhir_utils          -- FHIR date/time formatting, source tagging
+- fhir_utils          -- FHIR date/time formatting
 - partition_utils     -- partition date-range helpers
 - reference_resolver  -- batch reference resolution and application
-- reference_utils     -- identifier reference helpers
 - status_mapping      -- FHIR status mapping
 - ifdb/               -- IFDB/Oracle-specific utilities
 - sql_on_fhir/        -- SQL-on-FHIR utilities

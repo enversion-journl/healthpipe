@@ -16,6 +16,7 @@ from DSA.FHIR.SqlOnFhir.QuestionnaireResponse_dfm import (
 from DSO.load.sync_configs import FHIR_SYNC_CONFIGS
 from DSO.load.sync_fhir import all_fhir_dso_sync_dfm_assets
 from infrastructure.assets.fhir_sof_infrastructure import fhir_sof_infrastructure
+from tests.utils.asset_graph_helpers import DSO_SYNC_PREFIXES, assert_deps
 
 
 def _selected_asset_keys(job_name: str) -> set[str]:
@@ -41,7 +42,6 @@ def test_sof_infrastructure_waits_for_staging_fhir_tables() -> None:
     "job_name",
     [
         "ifdb_dfm_daily_job",
-        "ifdb_dfm_full_job",
         "fhir_sof_dfm_job",
     ],
 )
@@ -72,10 +72,12 @@ def test_questionnaire_response_waits_for_model_name_join_target() -> None:
 def test_condition_referrals_reach_dso_in_daily_job() -> None:
     key = AssetKey("dso_sync_fhir_condition_henvisning_dfm")
     (asset,) = [a for a in all_fhir_dso_sync_dfm_assets if key in a.keys]
-    assert asset.asset_deps[key] == {
-        AssetKey("sof_condition_henvisning_dfm"),
-        AssetKey("dso_infra_fhir"),
-    }
+    assert_deps(
+        asset,
+        "dso_sync_fhir_condition_henvisning_dfm",
+        allowed_prefixes=DSO_SYNC_PREFIXES,
+        required={"sof_condition_henvisning_dfm", "dso_infra_fhir"},
+    )
     keys = _selected_asset_keys("ifdb_dfm_daily_job")
     assert {key.to_user_string(), "sof_condition_henvisning_dfm"} <= keys
 
@@ -117,10 +119,14 @@ def test_questionnaire_dso_sync_assets_depend_on_matching_sof_assets() -> None:
     ):
         dso_name = f"dso_sync_fhir_{sof_name}_dfm"
         assert dso_name in dfm_assets, f"Missing DFM DSO sync asset: {dso_name}"
-        key = AssetKey.from_user_string(dso_name)
-        assert dfm_assets[dso_name].asset_deps[key] == {
-            AssetKey.from_user_string(f"sof_{sof_name}_dfm"),
-            # Gates the MERGE on the DSO fhir.* tables + their migrations, so it
-            # never runs against a stale target schema/PK.
-            AssetKey.from_user_string("dso_infra_fhir"),
-        }
+        assert_deps(
+            dfm_assets[dso_name],
+            dso_name,
+            allowed_prefixes=DSO_SYNC_PREFIXES,
+            required={
+                f"sof_{sof_name}_dfm",
+                # Gates the MERGE on the DSO fhir.* tables + their migrations, so
+                # it never runs against a stale target schema/PK.
+                "dso_infra_fhir",
+            },
+        )

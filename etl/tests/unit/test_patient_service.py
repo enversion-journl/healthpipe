@@ -12,8 +12,6 @@ from unittest.mock import MagicMock
 import dagster as dg
 import pytest
 from DSA.FHIR.Patient import patient_service as modul
-from DSA.FHIR.Patient.field_ownership import SOURCE_CPR, SOURCE_HAIBA, SOURCE_IFDB
-from DSA.FHIR.Patient.patient_builder import NotOwner
 from DSA.FHIR.Patient.patient_contributions import (
     USE_OLD,
     USE_SECONDARY,
@@ -23,6 +21,8 @@ from DSA.FHIR.Patient.patient_contributions import (
     with_additional_epj_ids,
 )
 from DSA.FHIR.Patient.patient_identity import IdentityResolution, Person
+from DSA.FHIR.Patient.patient_ownership import SOURCE_CPR, SOURCE_HAIBA, SOURCE_IFDB
+from DSA.FHIR.utils.field_ownership import NotOwner
 from fhir.resources.R4B.identifier import Identifier
 from utils.fhir.identifier_systems import (
     SOURCE_PATIENT_BUILDER,
@@ -123,9 +123,9 @@ def _ids(patient, system):
 
 def test_stub_contribution_carries_only_personal_number_and_source():
     c = stub_contribution(PNR_A, SOURCE_HAIBA)
-    assert c.kilde == SOURCE_HAIBA
-    assert _ids(c.patient, SYSTEM_CPR) == [(PNR_A, None)]
-    assert c.patient.name is None and c.patient.meta is None and c.patient.id is None
+    assert c.source == SOURCE_HAIBA
+    assert _ids(c.resource, SYSTEM_CPR) == [(PNR_A, None)]
+    assert c.resource.name is None and c.resource.meta is None and c.resource.id is None
 
 
 def test_stub_requires_a_source_that_owns_the_personal_number():
@@ -143,18 +143,18 @@ def test_bom_contribution_is_epjs_and_carries_oid_name_and_gender():
             "KOEN": "K",
         }
     )
-    assert c.kilde == SOURCE_IFDB
-    assert _ids(c.patient, SYSTEM_CPR) == [(PNR_A, None)]
-    assert [v for v, _ in _ids(c.patient, SYSTEM_BOM_IFDB_PATIENTINFO_OID)] == ["12345"]
-    assert c.patient.name[0].use == "official" and c.patient.gender == "female"
+    assert c.source == SOURCE_IFDB
+    assert _ids(c.resource, SYSTEM_CPR) == [(PNR_A, None)]
+    assert [v for v, _ in _ids(c.resource, SYSTEM_BOM_IFDB_PATIENTINFO_OID)] == ["12345"]
+    assert c.resource.name[0].use == "official" and c.resource.gender == "female"
     assert contribution_from_bom_patientinfo({"CPRNR": None}) is None
 
 
 def test_other_epj_ids_are_added_as_secondary_or_old():
     c = stub_contribution(PNR_A, SOURCE_IFDB)
-    c.patient.identifier.append(Identifier(system=SYSTEM_IFDB_PATIENT_ID, value="P1"))
+    c.resource.identifier.append(Identifier(system=SYSTEM_IFDB_PATIENT_ID, value="P1"))
     c2 = with_additional_epj_ids(c, ["P2", "P3", "P1"], deleted_ids=["P3"])
-    assert _ids(c2.patient, SYSTEM_IFDB_PATIENT_ID) == [
+    assert _ids(c2.resource, SYSTEM_IFDB_PATIENT_ID) == [
         ("P1", None),
         ("P2", USE_SECONDARY),
         ("P3", USE_OLD),
@@ -332,8 +332,8 @@ def test_register_identity_contribution_only_when_there_are_previous_numbers():
     assert register_identity_contribution(PNR_A, []) is None
     assert register_identity_contribution(PNR_A, [PNR_A, " "]) is None
     reg = register_identity_contribution(PNR_A, [PNR_B])
-    assert reg.kilde == SOURCE_CPR
-    assert [(i.value, i.use) for i in reg.patient.identifier] == [(PNR_A, None), (PNR_B, USE_OLD)]
+    assert reg.source == SOURCE_CPR
+    assert [(i.value, i.use) for i in reg.resource.identifier] == [(PNR_A, None), (PNR_B, USE_OLD)]
 
 
 def test_previous_number_is_on_the_resource_as_old(monkeypatch):

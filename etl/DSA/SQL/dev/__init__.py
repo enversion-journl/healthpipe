@@ -29,8 +29,4 @@ def get_dev_assets() -> list[AssetsDefinition]:
 
 all_assets = get_dev_assets()
 
-__all__ = [
-    "erp_faktura_reset_tables",
-    "get_dev_assets",
-    "all_assets",
-]
+__all__ = ["get_dev_assets", "all_assets"]

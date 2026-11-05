@@ -36,6 +36,7 @@ concurrency:
 jobs:
   analyze:
     name: analyze (python)
+    if: vars.CODE_SCANNING_ENABLED == 'true'
     runs-on: ubuntu-latest
     permissions:
       security-events: write # upload SARIF to code scanning

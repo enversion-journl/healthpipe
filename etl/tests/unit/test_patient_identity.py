@@ -406,151 +406,6 @@ def test_chain_of_numbers_becomes_one_person_with_the_last_as_current():
     assert res.persons[0].fhir_id == "f-1"
 
 
-# ------------------------------------------------------------------ the adapter
-#
-# The path that computes the union in rounds (``union=False``), for an environment where
-# ref.PatientIdentity is not built. The default lookup path is tested last.
-
-
-class _Opslag:
-    """Fake for archive, 022 and FHIR lookups; remembers what was asked for."""
-
-    def __init__(
-        self, archive_by_id, archive_by_cpr, history_by_pnr, history_by_pnrgaeld, fhir_epj, fhir_cpr
-    ):
-        self.kald: list[tuple] = []
-        self._svar = {
-            ("arc.ifdb_patient", "PATIENT_ID"): archive_by_id,
-            ("arc.ifdb_patient", "CPR"): archive_by_cpr,
-            ("arc.cpr_022_historisk_personnummer", "pnr"): history_by_pnr,
-            ("arc.cpr_022_historisk_personnummer", "pnrgaeld"): history_by_pnrgaeld,
-        }
-        self._fhir = {"urn:source:ifdb:patient_id": fhir_epj, "urn:dk:cpr": fhir_cpr}
-
-    def chunked_in_fetch(
-        self, ids, *, table, columns, where_column, mssql, include_deleted=False, **_
-    ):
-        self.kald.append(("arkiv", table, where_column, tuple(ids), include_deleted))
-        return [
-            r for r in self._svar[(table, where_column)] if str(r[where_column]).strip() in set(ids)
-        ]
-
-    def fetch_fhir_ids(self, fhir_database, system, values):
-        self.kald.append(("fhir", system, tuple(sorted(values))))
-        return {k: v for k, v in self._fhir[system].items() if k in set(values)}
-
-
-def _patch(monkeypatch, opslag):
-    from DSA.FHIR.Patient import patient_identity as modul
-
-    monkeypatch.setattr(modul, "chunked_in_fetch", opslag.chunked_in_fetch)
-    monkeypatch.setattr(modul, "fetch_fhir_ids", opslag.fetch_fhir_ids)
-    monkeypatch.setattr(
-        modul,
-        "fetch_fhir_aliases",
-        lambda db, ids: tuple(
-            {value: fid for value, fid in opslag._fhir[system].items() if fid in ids}
-            for system in ("urn:source:ifdb:patient_id", "urn:dk:cpr")
-        ),
-    )
-    monkeypatch.setattr(modul, "_archive_columns", lambda: ("PATIENT_ID", "CPR", "SLETTET"))
-    return modul
-
-
-def test_adapter_fetches_duplicates_and_previous_numbers_in_batch(monkeypatch):
-    """Asked for P1 alone, P1's duplicate P2 and the old number must come along."""
-    opslag = _Opslag(
-        archive_by_id=[_row("P1", PNR_A)],
-        archive_by_cpr=[_row("P1", PNR_A), _row("P2", PNR_A, slettet="1")],
-        history_by_pnr=[],
-        history_by_pnrgaeld=[{"pnr": PNR_A_OLD, "pnrgaeld": PNR_A}],
-        fhir_epj={"P1": "f-1"},
-        fhir_cpr={PNR_A: "f-1"},
-    )
-    modul = _patch(monkeypatch, opslag)
-
-    res = modul.resolve(
-        IdentityRequest.of(ifdb_patient_ids=["P1"]),
-        mssql=object(),
-        fhir_database=object(),
-        union=False,
-    )
-
-    person = res.persons[0]
-    assert person.epj_ids == ("P1", "P2")
-    assert person.cprs == (PNR_A, PNR_A_OLD)
-    assert person.fhir_id == "f-1"
-    # the archive is looked up with deleted rows, 022 both ways, FHIR on both systems
-    arkiv = [k for k in opslag.kald if k[0] == "arkiv"]
-    assert all(k[4] for k in arkiv if k[1] == "arc.ifdb_patient")
-    assert {(k[1], k[2]) for k in arkiv} >= {
-        ("arc.cpr_022_historisk_personnummer", "pnr"),
-        ("arc.cpr_022_historisk_personnummer", "pnrgaeld"),
-        ("arc.ifdb_patient", "CPR"),
-    }
-    fhir = [k for k in opslag.kald if k[0] == "fhir"]
-    assert {k[1] for k in fhir} == {"urn:source:ifdb:patient_id", "urn:dk:cpr"}
-    # the old number, first found through 022, is also looked up in FHIR
-    assert PNR_A_OLD in {v for k in fhir if k[1] == "urn:dk:cpr" for v in k[2]}
-
-
-def test_adapter_closes_the_chain_from_an_old_number(monkeypatch):
-    """Starting on H1, C, C's other historical number H2 and C's EPJ rows must come along."""
-    H1, H2, C = "0000000011", "0000000012", "0000000013"
-    opslag = _Opslag(
-        archive_by_id=[],
-        archive_by_cpr=[_row("P7", C), _row("P8", C, slettet="1")],
-        history_by_pnr=[{"pnr": H1, "pnrgaeld": C}, {"pnr": H2, "pnrgaeld": C}],
-        history_by_pnrgaeld=[{"pnr": H1, "pnrgaeld": C}, {"pnr": H2, "pnrgaeld": C}],
-        fhir_epj={},
-        fhir_cpr={},
-    )
-    modul = _patch(monkeypatch, opslag)
-    res = modul.resolve(
-        IdentityRequest.of(cprs=[H1]), mssql=object(), fhir_database=object(), union=False
-    )
-    person = res.persons[0]
-    assert person.cprs == (C, H1, H2)
-    assert person.epj_ids == ("P7", "P8")
-    # and the result is the same when starting on the current number
-    res2 = modul.resolve(
-        IdentityRequest.of(cprs=[C]), mssql=object(), fhir_database=object(), union=False
-    )
-    assert (res2.persons[0].cprs, res2.persons[0].epj_ids) == (person.cprs, person.epj_ids)
-
-
-def test_adapter_rejects_history_with_two_current_numbers(monkeypatch):
-    H, C1, C2 = "0000000021", "0000000022", "0000000023"
-    opslag = _Opslag([], [], [{"pnr": H, "pnrgaeld": C1}, {"pnr": H, "pnrgaeld": C2}], [], {}, {})
-    modul = _patch(monkeypatch, opslag)
-    with pytest.raises(IdentityConflict):
-        modul.resolve(
-            IdentityRequest.of(cprs=[H]), mssql=object(), fhir_database=object(), union=False
-        )
-
-
-def test_adapter_does_not_fetch_rows_it_already_has(monkeypatch):
-    """The producer has its rows; they are not looked up again on EPJ id."""
-    opslag = _Opslag([], [_row("P1", PNR_A)], [], [], {}, {})
-    modul = _patch(monkeypatch, opslag)
-    res = modul.resolve(
-        IdentityRequest.of(),
-        mssql=object(),
-        fhir_database=object(),
-        rows=[_row("P1", PNR_A)],
-        union=False,
-    )
-    assert res.persons[0].epj_ids == ("P1",)
-    assert not any(k[2] == "PATIENT_ID" for k in opslag.kald if k[0] == "arkiv")
-
-
-def test_no_identities_gives_no_lookups(monkeypatch):
-    opslag = _Opslag([], [], [], [], {}, {})
-    modul = _patch(monkeypatch, opslag)
-    res = modul.resolve(IdentityRequest.of(), mssql=object(), fhir_database=object(), union=False)
-    assert res.persons == [] and opslag.kald == []
-
-
 def _needle(value):
     return ("urn:source:ifdb:patient_id", value)
 
@@ -624,25 +479,6 @@ def test_fhir_lookup_reads_all_identifiers_and_rejects_two_resources():
     assert fetch_fhir_ids(_Db(cur), "urn:dk:cpr", []) == {}
 
 
-def test_stored_alias_expands_to_archive_and_number_history(monkeypatch):
-    # The old number and the EPJ id are only on the stored resource; they must still
-    # lead to the archive and 022.
-    opslag = _Opslag(
-        archive_by_id=[_row("P1", PNR_A_OLD)],
-        archive_by_cpr=[],
-        history_by_pnr=[{"pnr": PNR_A_OLD, "pnrgaeld": PNR_A}],
-        history_by_pnrgaeld=[],
-        fhir_epj={"P1": "f-1"},
-        fhir_cpr={PNR_A: "f-1", PNR_A_OLD: "f-1"},
-    )
-    modul = _patch(monkeypatch, opslag)
-    result = modul.resolve(IdentityRequest.of(cprs=[PNR_A]), None, None, union=False)
-    assert len(result.persons) == 1
-    assert result.persons[0].cprs == (PNR_A, PNR_A_OLD)
-    assert result.persons[0].epj_ids == ("P1",)
-    assert result.persons[0].primary_row == _row("P1", PNR_A_OLD)
-
-
 # ------------------------------------------------------------------ rule C
 
 
@@ -664,30 +500,6 @@ def test_membership_also_follows_a_previous_number():
     )
     (person,) = res.persons
     assert person.cprs == (PNR_A, PNR_A_OLD) and person.in_register
-
-
-def test_adapter_asks_for_membership_when_given_a_responder(monkeypatch):
-    opslag = _Opslag(
-        archive_by_id=[_row("P1", PNR_A)],
-        archive_by_cpr=[],
-        history_by_pnr=[],
-        history_by_pnrgaeld=[],
-        fhir_epj={},
-        fhir_cpr={},
-    )
-    modul = _patch(monkeypatch, opslag)
-    spurgt = []
-
-    def _members(cprs):
-        spurgt.append(set(cprs))
-        return {PNR_A}
-
-    result = modul.resolve(
-        IdentityRequest.of(ifdb_patient_ids=["P1"]), None, None, members=_members, union=False
-    )
-    assert spurgt == [{PNR_A}] and result.persons[0].in_register
-    uden = modul.resolve(IdentityRequest.of(ifdb_patient_ids=["P1"]), None, None, union=False)
-    assert not uden.persons[0].in_register
 
 
 # ------------------------------------------------------------------ the union is looked up

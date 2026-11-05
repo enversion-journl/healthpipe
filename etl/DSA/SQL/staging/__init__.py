@@ -21,6 +21,7 @@ from .pre_stg_Lagerbeholdning_ils import pre_stg_Lagerbeholdning_ils
 from .pre_stg_Leverandoervare_ILSVare_delta_entiteter import (
     pre_stg_Leverandoervare_ILSVare_delta_entiteter,
 )
+from .pre_stg_Ordre_ils import pre_stg_Ordre_ils
 from .pre_stg_Postering_sydax import pre_stg_Postering_sydax
 from .pre_stg_Udredningsforloeb import pre_stg_Udredningsforloeb
 from .pre_stg_Vareaftaler_ils import pre_stg_Vareaftaler_ils
@@ -51,6 +52,7 @@ from .stg_dim_Kreditor import stg_dim_Kreditor
 from .stg_dim_Lager import stg_dim_Lager
 from .stg_dim_LagerbeholdningEgenskaber_ils import stg_dim_LagerbeholdningEgenskaber_ils
 from .stg_dim_Leverandoervare import stg_dim_Leverandoervare
+from .stg_dim_Ordre_ils import stg_dim_Ordre_ils
 from .stg_dim_Postering_sydax import stg_dim_Postering_sydax
 from .stg_dim_Rekvirent import stg_dim_Rekvirent
 from .stg_dim_UdredningsretEgenskaber import stg_dim_UdredningsretEgenskaber
@@ -64,6 +66,7 @@ from .stg_fct_Faktura_mysupply import stg_fct_Faktura_mysupply
 from .stg_fct_Fakturalinje_mysupply import stg_fct_Fakturalinje_mysupply
 from .stg_fct_Finanskladdelinje_sydax import stg_fct_Finanskladdelinje_sydax
 from .stg_fct_Lagerbeholdning_ils import stg_fct_Lagerbeholdning_ils
+from .stg_fct_Ordre_ils import stg_fct_Ordre_ils
 from .stg_fct_Postering_sydax import stg_fct_Postering_sydax
 from .stg_fct_Udredningsforloeb import stg_fct_Udredningsforloeb
 from .stg_fct_UdredningsretMarkoer import stg_fct_UdredningsretMarkoer
@@ -96,6 +99,7 @@ staging_assets = [
     stg_fct_Udredningsforloeb,
     stg_dim_UdredningsretEgenskaber,
     pre_stg_Lagerbeholdning_ils,
+    pre_stg_Ordre_ils,
     pre_stg_AfdelingLagerbeholdning_ils,
     stg_bridge_Leverandoervare_ILSVare,
     stg_bridge_AftaleLager,
@@ -112,6 +116,7 @@ staging_assets = [
     stg_dim_Kontoplan_sydax,
     stg_dim_Finanskladde_sydax,
     stg_dim_Finanskladdelinje_sydax,
+    stg_dim_Ordre_ils,
     stg_dim_Postering_sydax,
     stg_dim_Vareudlevering_ils,
     stg_dim_LagerbeholdningEgenskaber_ils,
@@ -124,6 +129,7 @@ staging_assets = [
     stg_fct_Faktura_mysupply,
     stg_fct_Lagerbeholdning_ils,
     stg_fct_AfdelingLagerbeholdning_ils,
+    stg_fct_Ordre_ils,
     stg_fct_Postering_sydax,
     stg_fct_Finanskladdelinje_sydax,
     stg_fct_Vareudlevering_ils,
@@ -140,61 +146,4 @@ staging_assets = [
 
 all_assets = [*staging_assets]
 
-__all__ = [
-    "staging_assets",
-    "all_assets",
-    "pre_stg_Budget_sydax",
-    "pre_stg_Leverandoervare_ILSVare_delta_entiteter",
-    "pre_stg_Fakturalinje_mysupply",
-    "pre_stg_Finanskladdelinje_sydax",
-    "pre_stg_Postering_sydax",
-    "pre_stg_Vareudlevering_ils",
-    "pre_stg_Lagerbeholdning_ils",
-    "pre_stg_AfdelingLagerbeholdning_ils",
-    "pre_stg_Vareaftaler_ils",
-    "stg_bridge_Leverandoervare_ILSVare",
-    "stg_bridge_AftaleLager",
-    "stg_bridge_DRGKontaktDiagnose",
-    "stg_bridge_DRGKontaktProcedure",
-    "stg_DRGDiagnoseGruppe",
-    "stg_DRGProcedureGruppe",
-    "pre_stg_Helbredsforloeb",
-    "pre_stg_Udredningsforloeb",
-    "stg_dim_Forloebsmarkoer",
-    "stg_fct_UdredningsretMarkoer",
-    "stg_fct_Udredningsforloeb",
-    "stg_dim_UdredningsretEgenskaber",
-    "stg_dim_Aftale_ils",
-    "stg_dim_EAN",
-    "stg_dim_Faktura_mysupply",
-    "stg_dim_Fakturalinje_mysupply",
-    "stg_dim_BudgetEgenskaber_sydax",
-    "stg_dim_Kontoplan_sydax",
-    "stg_dim_Finanskladde_sydax",
-    "stg_dim_Finanskladdelinje_sydax",
-    "stg_dim_ILSBruger",
-    "stg_dim_ILSVare",
-    "stg_dim_ILSLeverandoer",
-    "stg_dim_Kreditor",
-    "stg_dim_Lager",
-    "stg_dim_Postering_sydax",
-    "stg_dim_Rekvirent",
-    "stg_dim_UNSPSC",
-    "stg_dim_Vareudlevering_ils",
-    "stg_dim_LagerbeholdningEgenskaber_ils",
-    "stg_dim_AfdelingLagerbeholdningEgenskaber_ils",
-    "stg_dim_Leverandoervare",
-    "stg_fct_AftaleVarePris_ils",
-    "stg_fct_Budget_sydax",
-    "stg_fct_Faktura_mysupply",
-    "stg_fct_Fakturalinje_mysupply",
-    "stg_fct_Lagerbeholdning_ils",
-    "stg_fct_AfdelingLagerbeholdning_ils",
-    "stg_fct_Postering_sydax",
-    "stg_fct_Finanskladdelinje_sydax",
-    "stg_fct_Vareudlevering_ils",
-    "stg_Okosted",
-    "stg_SHAK",
-    "stg_SHAKAlike",
-    "stg_Organisation_sydax",
-]
+__all__ = ["staging_assets", "all_assets"]

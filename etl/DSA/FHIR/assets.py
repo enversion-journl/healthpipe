@@ -23,8 +23,6 @@ from DSA.FHIR.Organization import all_assets as organization_assets
 from DSA.FHIR.Patient import all_assets as patient_assets
 from DSA.FHIR.Practitioner import all_assets as practitioner_assets
 from DSA.FHIR.Procedure import all_assets as procedure_assets
-from DSA.FHIR.Questionnaire import all_assets as questionnaire_assets
-from DSA.FHIR.QuestionnaireResponse import all_assets as questionnaire_response_assets
 from DSA.FHIR.ServiceRequest import all_assets as service_request_assets
 from DSA.FHIR.SqlOnFhir import all_assets as sql_on_fhir_assets
 
@@ -42,8 +40,6 @@ all_assets = [
     *service_request_assets,
     *practitioner_assets,
     *procedure_assets,
-    *questionnaire_assets,
-    *questionnaire_response_assets,
     *appointment_assets,
     *sql_on_fhir_assets,
 ]

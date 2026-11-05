@@ -11,6 +11,7 @@ Consolidated dimension update assets from all domains.
 """
 
 from .borger import dim_Borger
+from .dim_BorgerDemografi import dim_BorgerDemografi
 from .dim_AfdelingLagerbeholdningEgenskaber import (
     dim_AfdelingLagerbeholdningEgenskaber,
 )
@@ -36,6 +37,7 @@ from .dim_Lager import dim_Lager
 from .dim_LagerbeholdningEgenskaber import dim_LagerbeholdningEgenskaber
 from .dim_Leverandoervare import dim_Leverandoervare
 from .dim_Okosted import dim_Okosted
+from .dim_Ordre import dim_Ordre
 from .dim_Organisation import dim_Organisation
 from .dim_Postering import dim_Postering
 from .dim_Rekvirent import dim_Rekvirent
@@ -77,44 +79,11 @@ all_assets = [
     dim_AfdelingLagerbeholdningEgenskaber,
     dim_Organisation,
     dim_Okosted,
+    dim_Ordre,
     dim_SHAK,
     dim_SHAKAlike,
     dim_Borger,
+    dim_BorgerDemografi,
 ]
 
-__all__ = [
-    "dim_DRGProcedure",
-    "dim_DRGDiagnose",
-    "dim_DRGKontaktKlassifikation",
-    "dim_DRGKontaktEgenskaber",
-    "dim_UdredningsretKlassifikation",
-    "dim_UdredningsretEgenskaber",
-    "dim_Forloebsmarkoer",
-    "all_assets",
-    "dim_Aftale",
-    "dim_BudgetEgenskaber",
-    "dim_Dato",
-    "dim_EAN",
-    "dim_Faktura",
-    "dim_ILSBruger",
-    "dim_ILSVare",
-    "dim_ILSLeverandoer",
-    "dim_Fakturalinje",
-    "dim_Finanskladde",
-    "dim_Finanskladdelinje",
-    "dim_Kontoplan",
-    "dim_Kreditor",
-    "dim_Lager",
-    "dim_Postering",
-    "dim_Rekvirent",
-    "dim_UNSPSC",
-    "dim_Vareudlevering",
-    "dim_Leverandoervare",
-    "dim_LagerbeholdningEgenskaber",
-    "dim_AfdelingLagerbeholdningEgenskaber",
-    "dim_Organisation",
-    "dim_Okosted",
-    "dim_SHAK",
-    "dim_SHAKAlike",
-    "dim_Borger",
-]
+__all__ = ["all_assets"]

@@ -590,7 +590,7 @@ The ERP pipeline is organized in **layer groups** — one group per pipeline lay
 | `erp_daily_dfm_job` (`jobs/erp_daily_dfm_jobs.py`) | All archive groups + the full ERP transform chain (`erp_pre_staging` → … → `erp_dso_sync`) | `erp_daily_dfm_schedule`, daily 23:00 Europe/Copenhagen |
 | `ils_archive_job`, `sydax_archive_job`, `mysupply_archive_job`, `kmd_uddata_archive_job` | Archive layer for one source system | Ad-hoc |
 | `lager_dim_job` (`jobs/lager_jobs.py`) | Standalone Lager dimension refresh | Ad-hoc |
-| `erp_infrastructure_setup` (`jobs/erp_jobs.py`) | Infrastructure DDL (see `07-infrastructure-pipeline` rule / `full_infrastructure_job`) | Ad-hoc |
+| `erp_infrastructure_setup` (`jobs/erp_jobs.py`) | Infrastructure DDL (see [infrastructure_guide.md](infrastructure_guide.md)) | Ad-hoc |
 | `data_quality_job` (`jobs/data_quality_jobs.py`) | DQA checks | Scheduled per cadence |
 
 Individual groups can be run via `AssetSelection.groups(...)` for ad-hoc runs (e.g. re-run dimensions + facts without re-extracting). Groups collapse in the Dagster UI, keeping the asset graph navigable.
@@ -612,7 +612,7 @@ Declarative data-quality framework (see `etl/dqa/` and `docs/architecture/dqa/`)
 
 ## Testing Expectations
 
-Every test must be able to fail on a plausible bug — no config-assert or existence tests.
+Follow the test-value policy: every test must be able to fail on a plausible bug — no config-assert or existence tests.
 
 For a new or modified pipeline, the coverage that matters:
 
@@ -635,7 +635,7 @@ The view layer in DSO / DPA handles:
 3. **Filtering** - Apply `dw_is_deleted = 0` and validity filters
 4. **Datamart assembly** - Combine dimensions and facts for specific reporting needs
 
-View DDL lives in `infrastructure/ddl/views/{erp,security,fhir,codesystem,conceptmap,dqa,haiba}/` and uses `CREATE OR ALTER VIEW`.
+View DDL lives in `infrastructure/ddl/views/{erp,security,fhir,codesystem,conceptmap,dqa,drg,haiba}/` and uses `CREATE OR ALTER VIEW`.
 
 ### View Naming
 
@@ -719,110 +719,11 @@ Repeated MERGE runs fragment indexes on dim/fct tables. The `erp_index_maintenan
 
 ## SQL Migration Patterns
 
-Migration files in `infrastructure/ddl/migrations/` are applied at most once per DATABASE by the `staging_migrations` and `dso_migrations` assets, tracked by filename in `[meta].[MigrationHistory]` (see `execute_migrations` in `infrastructure/utils/ddl_loader.py`). The shared `migrations/` directory runs against BOTH the staging and DSO databases, each with its own tracker — a file must run cleanly (or no-op) on both. Idempotency is still required — defense in depth on servers that predate the tracker, and after a partial failure (the tracker row is written after the file's SQL commits, so a crash in between re-runs the whole file). Write them safe to re-run after applying, after columns are renamed by later migrations, and on fresh databases. Once applied to all environments, migration files can be removed — leftover tracker rows are harmless.
-
-Hard correctness rules (the FIRST run fails or silently no-ops without these):
-
-- Wrap column guards in a table-existence check (see "Table-existence guards" below).
-- Static DML referencing potentially-renamed columns fails at T-SQL compile time — use dynamic SQL (see "Compile-time column validation" below).
-- NEVER use T-SQL CURSOR/procedural batches — `execute_sql` silently drops them, and the tracker then records the no-op as applied. Keep migrations flat guarded `IF ... EXEC` blocks.
-- Drop auto-named DEFAULT constraints before dropping columns (see "DEFAULT constraint dependencies" below).
-
-### Every schema change lands in BOTH places
-
-A migration patches databases that already exist. The base DDL in `tables/{domain}/` is what a *fresh* database gets — `baseline_migrations()` stamps every migration as applied without executing it, precisely because the base DDL is assumed to already carry their net effect. So a column that lives in only one of the two places reaches only half the environments.
-
-ALWAYS change the migration and the `CREATE TABLE` in the same commit. See `test_ilsvare_columns_migration.py` for the per-change test pattern (`TestCreateDdl` + `TestMigration`), and `test_fhir_ddl_migration_parity.py` for the FHIR-wide invariant.
-
-### Table-existence guards
-
-Column guards alone do not imply the table exists: `COL_LENGTH`, `sys.columns` and `INFORMATION_SCHEMA.COLUMNS` all report "absent" for a table that is not there, so a bare column guard turns into an `ALTER TABLE` against a missing object. Wrap the whole guard:
-
-```sql
-IF OBJECT_ID(N'[fhir].[Condition]', 'U') IS NOT NULL
-   AND COL_LENGTH('[fhir].[Condition]', 'category_code') IS NULL
-BEGIN
-    ALTER TABLE [fhir].[Condition] ADD [category_code] NVARCHAR(100) NULL;
-END
-GO
-```
-
-### GO batch separation
-
-SQL Server parses an entire batch before execution. DDL that adds a column and DML that references it MUST be in separate `GO` batches:
-
-```sql
-IF NOT EXISTS (SELECT * FROM sys.columns
-    WHERE object_id = OBJECT_ID(N'[fct].[Postering]') AND name = 'clean_code_Postering')
-    ALTER TABLE [fct].[Postering] ADD [clean_code_Postering] NVARCHAR(100) NULL;
-GO
-
--- Separate batch — column now exists at parse time
-UPDATE f SET f.clean_code_Postering = 'SYDAX_' + CAST(f.ref_ledgertrans_id AS NVARCHAR(50))
-FROM [fct].[Postering] f WHERE f.clean_code_Postering IS NULL;
-GO
-```
-
-### Compile-time column validation
-
-`IF EXISTS` guards do NOT prevent compile-time validation. If a column was renamed by a later migration, static DML referencing the old name fails the entire batch. Use dynamic SQL for any DML touching potentially-renamed columns:
-
-```sql
--- BAD: fails at compile time if DW_EK_Date_Faktura was renamed
-UPDATE [fct].[Fakturalinje] SET [DW_EK_Date_Faktura] = -1 WHERE [DW_EK_Date_Faktura] IS NULL;
-
--- GOOD: dynamic SQL bypasses compile-time validation
-EXEC(N'UPDATE [fct].[Fakturalinje] SET [DW_EK_Date_Faktura] = -1 WHERE [DW_EK_Date_Faktura] IS NULL');
-```
-
-### sp_rename guards
-
-`sp_rename` raises a non-catchable error if the target name already exists. Always check both names:
-
-```sql
-IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'[fct].[T]') AND name = 'DW_EK_Organization')
-   AND NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'[fct].[T]') AND name = 'dw_ek_Organisation')
-    EXEC sp_rename '[fct].[T].[DW_EK_Organization]', 'dw_ek_Organisation', 'COLUMN';
-GO
-```
-
-"Add column" guards must also check for BOTH old and new names to prevent duplicates after a rename:
-
-```sql
-IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[fct].[T]')
-               AND name IN ('DW_EK_Organization', 'dw_ek_Organisation'))
-    ALTER TABLE [fct].[T] ADD [DW_EK_Organization] INT NOT NULL DEFAULT -1;
-GO
-```
-
-### DEFAULT constraint dependencies
-
-Drop auto-named DEFAULT constraints before dropping columns:
-
-```sql
-DECLARE @dc NVARCHAR(256);
-SELECT @dc = dc.name FROM sys.default_constraints dc
-JOIN sys.columns c ON dc.parent_object_id = c.object_id AND dc.parent_column_id = c.column_id
-WHERE c.object_id = OBJECT_ID(N'[fct].[T]') AND c.name = 'OldColumn';
-IF @dc IS NOT NULL EXEC(N'ALTER TABLE [fct].[T] DROP CONSTRAINT [' + @dc + N']');
-ALTER TABLE [fct].[T] DROP COLUMN [OldColumn];
-```
-
-### Migration checklist
-
-1. Column references in DML use dynamic SQL or a `sys.columns` lookup into a variable (no CURSOR batches)?
-2. Every `sp_rename` checks that the NEW name does NOT already exist?
-3. Every `ALTER TABLE ADD` checks for BOTH old and new column names?
-4. Table name guards handle both pre- and post-rename names (`COALESCE(OBJECT_ID(old), OBJECT_ID(new))`)?
-5. Auto-named DEFAULT constraints dropped before dropping columns?
-6. Runs cleanly against BOTH the staging and DSO databases (or no-ops where the objects don't exist)?
-7. Column guards wrapped in a table-existence check (`IF OBJECT_ID(...) IS NOT NULL AND ...`)?
-8. Schema change landed in BOTH the migration AND the base `tables/{domain}/` DDL, same commit?
-9. Run `staging_migrations` twice locally — the second run succeeds (skipped by the tracker, and the file stays re-runnable if the tracker row is ever cleared)?
+The migration rules and T-SQL patterns are in [infrastructure_guide.md](infrastructure_guide.md#5-migrations).
 
 ## Quick Reference: Creating a New Pipeline
 
-1. **Infrastructure DDL** (`infrastructure/ddl/tables/{domain}/`): map/dim/fct tables + registration chain.
+1. **Infrastructure DDL** (`infrastructure/ddl/tables/{domain}/`): map/dim/fct tables + registration chain — see "Add a new domain" in [infrastructure_guide.md](infrastructure_guide.md#8-add-a-new-domain).
 2. **Extract + archive** (`DSI/mssql/extract/{source}_extract_configs.py`, `DSI/mssql/archive/{source}_archive_configs.py`): add a `DfmExtractConfig` and archive config for each source table. 1:1 raw, no CleanCodes. See `dfm_extract_factory_guide.md`.
 3. **Pre-staging** (`DSA/SQL/staging/`): complex joins, dedup, CleanCode generation. Reads `arc.*`, writes `stg.pre_*`.
 4. **Staging** (`DSA/SQL/staging/`): staging tables with exact target columns and bk_* columns. Writes `stg.dim_*` / `stg.fct_*`.

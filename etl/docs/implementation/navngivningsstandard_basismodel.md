@@ -12,8 +12,8 @@ Her er alle navngivningsregler for basismodellen samlet ét sted — fra branch-
 og filer i repoet til Dagster-assets, tabeller, views, kolonner, indekser og
 FHIR-URI'er.
 
-Standarden gælder repoet `healthpipe-basismodel`. Datamart-teamets regler for repoet
-`datamarter` står i [navngivningsstandard.md](navngivningsstandard.md). De to
+Standarden gælder repoet `healthpipe-basismodel`. Reglerne for
+datamart-repositoriet står i [navngivningsstandard.md](navngivningsstandard.md). De to
 standarder bygger på de samme principper, men de to repositories har forskellig
 struktur, så enkelte regler er forskellige.
 
@@ -69,7 +69,7 @@ hedder dimensionen `dim.Aftale`, dens asset `dim_Aftale` og dens entity key
 
 | Element | Regel | Eksempel | Tjekkes af |
 | :--- | :--- | :--- | :--- |
-| **Branch** | `feature/` for nyt arbejde og `bugfix/` for fejlrettelser, efterfulgt af et kort, beskrivende navn i kebab-case. Præfikserne, og hvad de betyder for din code location på Dev, står i [docs/onboarding.md](../../../docs/onboarding.md), afsnit 3 | `feature/dim-ilsvare-kolonner` | GitLab afviser andre præfikser end `feature/`, `bugfix/`, `hotfix/` og `release/` |
+| **Branch** | `feature/` for nyt arbejde og `bugfix/` for fejlrettelser, efterfulgt af et kort, beskrivende navn i kebab-case. | `feature/dim-ilsvare-kolonner` | GitLab afviser andre præfikser end `feature/`, `bugfix/`, `hotfix/` og `release/` |
 | **Commit-besked** | Dansk. Starter med en conventional commit-type og evt. et scope. Hører ændringen til et work item i Azure DevOps, står `AB#<nummer>` først | `AB#<nummer> fix(security): registrér sec.*-DDL i security_daily_job` | |
 | **Merge request-titel** | Indeholder `AB#<nummer>`, når der merges til `development`, så pipelinen kan koble MR'en til work item'et i Azure Boards. Styres opgaven i ServiceNow, kan du skrive ServiceNow-id'et i titlen på samme måde | `AB#<nummer> docs: ret DSO-kapitlet` | |
 
@@ -91,7 +91,8 @@ kodekommentarer og docstrings.
 | **Kildetype og teknologi i DSI** | snake_case | `DSI/oracle/`, `DSI/mssql/`, `DSI/csv_files/` |
 | **FHIR-ressource** | PascalCase, præcis som ressourcetypen hedder i FHIR | `DSA/FHIR/Encounter/`, `DSA/FHIR/CarePlan/` |
 | **SQL-lag i DSA** | snake_case, én mappe per artefakttype | `DSA/SQL/staging/`, `DSA/SQL/map/`, `DSA/SQL/dim/`, `DSA/SQL/fct/`, `DSA/SQL/dm/` |
-| **DDL per domæne** | snake_case | `infrastructure/ddl/tables/ifdb_archive/`, `infrastructure/ddl/views/erp/` |
+| **DDL per domæne** | snake_case | `infrastructure/ddl/tables/erp/`, `infrastructure/ddl/views/erp/` |
+| **Arkiv-DDL per kilde** | Kildenavnet i snake_case | `infrastructure/ddl/sources/ifdb/`, `infrastructure/ddl/sources/kmd_uddata/` |
 | **Lineage per skema** | Skemanavnet | `data_lineage/dim/`, `data_lineage/fhir/` |
 
 ### Filer
@@ -103,7 +104,8 @@ kodekommentarer og docstrings.
 | **FHIR-transformation** | `<Ressource>_<KILDE>_dfm.py`, eller `<Ressource>_<KILDE>_<Kildetabel>_dfm.py`, når én ressource bygges fra flere kildetabeller | `Encounter_IFDB_dfm.py`, `DocumentReference_IFDB_Epikrise_dfm.py` | |
 | **SQL on FHIR-modul** | `<Ressource>[_<Del>]_dfm.py` | `Encounter_dfm.py`, `Encounter_Location_dfm.py` | |
 | **ViewDefinition** | `<ressource>[_<del>]_view.json` i snake_case. Filnavnet og feltet `name` i filen er det samme som nøglen i `SOF_RESOURCE_CONFIGS` | `encounter_view.json`, `encounter_location_view.json` | `test_each_view_definition_has_resource_config` (feltet `name`) |
-| **Tabel-DDL** | `NN_<beskrivelse>.sql` i `infrastructure/ddl/tables/<domæne>/`, hvor `NN` er to cifre, der styrer rækkefølgen, filerne køres i. Flade FHIR-tabeller står i `tables/fhir/01_tables.sql` | `00_archive.sql`, `02_dims.sql` | `test_sof_ddl_crosscheck` (FHIR-tabellerne) |
+| **Tabel-DDL** | `NN_<beskrivelse>.sql` i `infrastructure/ddl/tables/<domæne>/`, hvor `NN` er to cifre, der styrer rækkefølgen, filerne køres i. Flade FHIR-tabeller står i `tables/fhir/01_tables.sql` | `02_dims.sql`, `03_facts.sql` | `test_sof_ddl_crosscheck` (FHIR-tabellerne) |
+| **Arkiv-DDL** | `<tabel>.sql` i `infrastructure/ddl/sources/<kilde>/`: én fil per `arc`-tabel eller leverancelog. Filnavnet er tabelnavnet uden skema | `sydax_kreditor.sql`, `LPR3Leverance.sql` | `test_ddl_folder_conventions` |
 | **View-DDL** | `NN_vw_<skema>.sql` i `infrastructure/ddl/views/<domæne>/` | `01_vw_dim.sql`, `02_vw_fct.sql`, `01_vw_fhir.sql` | |
 | **Migration** | Starter med datoen: `ÅÅÅÅMMDD[bogstav]_<beskrivelse>.sql` i `infrastructure/ddl/migrations/`. Datoen styrer rækkefølgen; et bogstav efter datoen ordner flere filer fra samme dag. Beskrivelsen er snake_case og må gerne starte med work item-nummeret | `20260820c_drop_redundant_dw_ek_indexes.sql`, `20260903_02_reset_vareudlevering_checkpoints.sql` | |
 | **Lineage-fil** | `<skema>_<tabel>.yml` i snake_case. Filnavnet er kun til at finde filen — det er feltet `TableName` i filen, der gælder | `fct_afdeling_lagerbeholdning.yml`, `fhir_encounter.yml` | `test_lineage_matches_ddl` (indholdet) |
@@ -127,7 +129,8 @@ tabellens PascalCase; resten er snake_case.
 | **FHIR: transformation og post** | `fhir_server_<ressource>_dfm`. Skriv ressourcen ud | `fhir_server_encounter_dfm`, `fhir_server_patient_dfm` | `test_fhir_conventions` |
 | **FHIR: SQL on FHIR** | `sof_<view>_dfm` | `sof_encounter_dfm` | `test_fhir_conventions` |
 | **DSO-sync** | `dso_sync_<skema>_<Tabel>` i group `<domæne>_dso_sync`, med tabellens PascalCase ligesom `dim_<Tabel>`. FHIR-tabeller på DFM-sporet: `dso_sync_fhir_<navn>_dfm`, hvor `<navn>` er SoF-viewets kortnavn, bygget af factory'en i `DSO/load/sync_fhir.py` | `dso_sync_dim_UNSPSC`, `dso_sync_fhir_encounter_dfm` | |
-| **Tabel-DDL** | `staging_infra_<domæne>` og `dso_infra_<domæne>` | `staging_infra_ifdb_archive`, `dso_infra_fhir` | |
+| **Tabel-DDL** | `staging_infra_<domæne>` og `dso_infra_<domæne>` | `staging_infra_erp`, `dso_infra_fhir` | |
+| **Arkiv-DDL** | `staging_infra_source_<kilde>` — kører `sources/<kilde>/` på staging | `staging_infra_source_ifdb` | |
 | **View-DDL** | `dso_infra_views_<domæne>` — kører view-DDL'en for ét domæne på DSO | `dso_infra_views_haiba`, `dso_infra_views_erp` | |
 
 Alle assets under `DSA/FHIR` skal ligge i en godkendt group og hedde noget, der

@@ -53,17 +53,6 @@ class TestExtractResult:
         )
         assert result.row_count == 2
         assert result.column_names == ["a"]
-        assert not result.is_empty
-
-    def test_empty_result(self):
-        result = ExtractResult(data=[], columns_info=[], column_names=[], row_count=0)
-        assert result.is_empty
-
-    def test_is_empty_property(self):
-        empty = ExtractResult(data=[], columns_info=[], column_names=[], row_count=0)
-        non_empty = ExtractResult(data=[(1,)], columns_info=[], column_names=["a"], row_count=1)
-        assert empty.is_empty is True
-        assert non_empty.is_empty is False
 
 
 # ============================================================================
@@ -469,32 +458,6 @@ class TestTableConfigFKFields:
         assert config.parent_fk_column is None
         assert config.fk_cast is None
         assert config.fk_path == ()
-
-    def test_fk_fields_preserved_by_generate_partition_configs(self):
-        from DSI.connectors.mssql.models import generate_partition_configs
-
-        base = (
-            TableConfig(
-                output_name="test",
-                source_schema="dbo",
-                source_table="t",
-                target_table="t",
-                description="test",
-                fk_column="id",
-                parent_partition_col="dt",
-                parent_fk_column="parent_id",
-                fk_cast="VARCHAR(50)",
-                fk_path=(("bridge", "dbo", "join_col"),),
-            ),
-        )
-        result = generate_partition_configs(base, "daily")
-        cfg = result[0]
-        assert cfg.fk_column == "id"
-        assert cfg.parent_partition_col == "dt"
-        assert cfg.parent_fk_column == "parent_id"
-        assert cfg.fk_cast == "VARCHAR(50)"
-        assert cfg.fk_path == (("bridge", "dbo", "join_col"),)
-        assert cfg.output_name == "test_daily"
 
     def test_frozen_fk_fields(self):
         config = TableConfig(

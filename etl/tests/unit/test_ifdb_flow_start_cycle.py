@@ -219,6 +219,6 @@ def test_flow_start_depends_on_the_cycle_wait_in_every_ifdb_job():
     flow_start = next(k for name, k in keys.items() if name.startswith("dfm_ifdb_flow_start"))
 
     assert wait in graph.get(flow_start).parent_keys
-    for job_name in ("ifdb_archive_job", "ifdb_dfm_full_job", "ifdb_dfm_daily_job"):
+    for job_name in ("ifdb_archive_job", "ifdb_dfm_daily_job"):
         selected = defs.get_job_def(job_name).asset_layer.selected_asset_keys
         assert flow_start in selected and wait in selected, job_name

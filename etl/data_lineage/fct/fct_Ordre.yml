@@ -1,0 +1,40 @@
+# SPDX-FileCopyrightText: 2026 Enversion Journl ApS
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This file is part of Healthpipe. See the LICENSE file in the project
+# root for the full AGPL-3.0 license text.
+
+dso_lineage:
+  Type: fact
+  TableName: fct.Ordre
+  Domain: [ERP]
+  Description: "Ordrehoveder fra ILS på ordre-grain med de beløb, der hører til ordren som helhed: fragt og gebyr. Lagt på ordrelinjerne ville de blive talt med én gang pr. linje."
+  Grain: "Én række pr. ordre (sgh, lgr, ordre) fra ILS dbo.ordh"
+
+  SourceSystems:
+    - ils: [dbo.ordh]
+    - lager_codesystem: [codesystem.LagerConcept]
+
+  Columns:
+    dw_ek_Ordre:          { Type: PK, DataType: INT, FK-Target: dim.Ordre }
+    clean_code_Ordre:     { DataType: NVARCHAR(100), Expr: "ORDRE_{sgh}_{lgr}_{ordre}" }
+    bk_prrowid:           { DataType: NVARCHAR(100), Source: [ils.dbo.ordh.prrowid] }
+
+    dw_ek_Lager:
+      Type: FK
+      DataType: BIGINT
+      Source: [ils.dbo.ordh.sgh, ils.dbo.ordh.lgr]
+      Description: >
+        Oploeses via map.Lager paa noeglen SGH_{sgh}_LGR_{lgr}. Er lgr ikke
+        oplyst, oploeses noeglen til sygehus-medlemmet SGH_{sgh}; uden sgh er
+        noeglen NULL -> -1.
+    dw_ek_ILSLeverandoer: { Type: FK, DataType: INT, Source: [ils.dbo.ordh.lnr], Expr: "map.ILSLeverandoer paa ILSLEV_{UPPER(TRIM(lnr))}; ellers -1" }
+    dw_ek_Dato_ordre:     { Type: FK, DataType: INT, Source: [ils.dbo.ordh.orddto] }
+
+    fragt_beloeb:         { Type: Measure, DataType: DECIMAL(17,2), Source: [ils.dbo.ordh.fragtbel], Description: "Fragt på ordren (ILS 'Fragt')." }
+    gebyr_beloeb:         { Type: Measure, DataType: DECIMAL(17,2), Source: [ils.dbo.ordh.gebyrbel], Description: "Gebyr på ordren (ILS 'Gebyr')." }
+
+    dato_tid_ordre:       { DataType: DATETIME2, Source: [ils.dbo.ordh.orddto] }
+    dw_haendelsestidspunkt: { DataType: DATETIME2, Source: [ils.dbo.ordh.orddto] }
+  Notes:
+    - "Transaktionsdimension: dw_ek_Ordre er en delt nøgle med dim.Ordre (begge fra map.Ordre via clean_code_Ordre)."

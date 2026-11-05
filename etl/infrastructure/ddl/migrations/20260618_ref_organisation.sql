@@ -7,7 +7,7 @@
 -- ============================================================================
 -- ref.Organisation — create + seed from map.Organisation (preserve DW_EK).
 --
--- Part of [internal ticket] (fhir.Organization as the basis for dim.Organisation).
+-- fhir.Organization as the basis for dim.Organisation.
 -- ref.Organisation REPLACES map.Organisation as the source of the INT
 -- surrogate DW_EK_Organisation. To keep every existing fact / dim FK valid
 -- (sec.BrugerOrganisation, dim.Lager, dim.Rekvirent, fct.*), existing keys are

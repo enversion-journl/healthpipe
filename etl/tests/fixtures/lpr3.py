@@ -18,7 +18,7 @@ from DSI.csv_files.lpr3_datasets import (
     SOURCE_DATASETS,
     SOURCES_BY_PREFIX,
 )
-from infrastructure.utils.ddl_loader import execute_sql_file
+from infrastructure.utils.ddl_loader import execute_sql_file, execute_sql_files_from_directory
 
 
 def source_row(dataset, number=1, **overrides):
@@ -183,7 +183,6 @@ def archive_db(request):
             cursor.close()
 
     cleanup()
-    execute_sql_file(resource, "tables/lpr3/00_archive.sql")
-    execute_sql_file(resource, "tables/lpr3/01_meta.sql")
+    execute_sql_files_from_directory(resource, "sources/lpr3")
     yield resource
     cleanup()

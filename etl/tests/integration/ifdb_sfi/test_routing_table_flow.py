@@ -98,44 +98,6 @@ def test_routing_seed_covers_all_fixture_cases(sfi_routing_seed, sfi_expected_ca
     not _has_module("DSA.FHIR.utils.ifdb.routing"),
     reason="routing resolver import is unavailable.",
 )
-def test_resolver_returns_observation_for_active_observation_route(sfi_routing_seed):
-    """Resolver must return 'Observation' for a positively-listed active Observation route."""
-    pytest.skip(
-        "Requires resource-backed coverage: load seed into etl.IFDBAktivitetstypeRouting, then call "
-        "resolve_ifdb_target_resource('MaalingSaturation', ..., datetime(2026, 5, 1)) "
-        "and assert it returns 'Observation'."
-    )
-
-
-@pytest.mark.real_resources
-@pytest.mark.skipif(
-    not _has_module("DSA.FHIR.utils.ifdb.routing"),
-    reason="routing resolver import is unavailable.",
-)
-def test_resolver_returns_questionnaire_response_for_qr_route():
-    pytest.skip(
-        "Requires resource-backed coverage: assert resolve_ifdb_target_resource for 'VurdGlasgowCS' is "
-        "'QuestionnaireResponse'."
-    )
-
-
-@pytest.mark.real_resources
-@pytest.mark.skipif(
-    not _has_module("DSA.FHIR.utils.ifdb.routing"),
-    reason="routing resolver import is unavailable.",
-)
-def test_resolver_fails_hard_on_missing_route():
-    pytest.skip(
-        "Requires resource-backed coverage: assert resolve_ifdb_target_resource('NotInSeed', ...) raises "
-        "in production mode."
-    )
-
-
-@pytest.mark.real_resources
-@pytest.mark.skipif(
-    not _has_module("DSA.FHIR.utils.ifdb.routing"),
-    reason="routing resolver import is unavailable.",
-)
 def test_resolver_refuses_review_status_in_production_mode():
     pytest.skip(
         "Requires resource-backed coverage: assert that TOM (route_status=review) raises in production "

@@ -29,35 +29,24 @@ Documentation: https://sor-filer.sundhedsdata.dk/sor2_produktion/V1_00/docs/SOR2
 import csv
 import io
 import os
-import shutil
 import zipfile
 from collections.abc import Iterable, Iterator
-from urllib.request import Request, urlopen
 
 import dagster as dg
 from core.dfm_manager import DfmManager
 from core.dfm_source import http_source
-from core.org_config import DATA_DIR
-from core.resources import MSSQLResource
+from core.resources import HTTPDownloadResource, MSSQLResource
 from dagster import AssetExecutionContext
 from pydantic import Field
 from utils.sor_codes import clean_sor_id
 
-BASE_URL = "https://sor-filer.sundhedsdata.dk/sor2_produktion/V1_00"
-DAILY_CSV_URL = f"{BASE_URL}/data/SorEntity_daily.csv"
-COMPLETE_ZIP_URL = f"{BASE_URL}/data/Sor_complete.zip"
-
-PERSIST_DIR = os.path.join(DATA_DIR, "sor_raw")
+DAILY_CSV_PATH = "data/SorEntity_daily.csv"
+COMPLETE_ZIP_PATH = "data/Sor_complete.zip"
 
 LOAD_TYPE_CURRENT = "current"
 LOAD_TYPE_ALL_HISTORICAL = "all_historical"
 # Legacy aliases accepted for backwards-compatible run configs.
 _LOAD_TYPE_ALIASES = {"daily": LOAD_TYPE_CURRENT, "full": LOAD_TYPE_ALL_HISTORICAL}
-
-_DOWNLOAD_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (compatible; Dagster-SOR-Loader/1.0)",
-    "Accept": "*/*",
-}
 
 INSERT_CHUNK_SIZE = 1000
 
@@ -117,36 +106,29 @@ _SOR_ID_CSV_COLUMNS = {
 }
 
 
-def _download_to_file(url: str, file_path: str, timeout: int) -> int:
-    """Stream a URL to disk without holding the payload in memory. Returns size."""
-    os.makedirs(PERSIST_DIR, exist_ok=True)
-    req = Request(url, headers=_DOWNLOAD_HEADERS)
-    with urlopen(req, timeout=timeout) as response, open(file_path, "wb") as f:
-        shutil.copyfileobj(response, f)
-    return os.path.getsize(file_path)
-
-
-def _iter_daily_rows(context: dg.AssetExecutionContext) -> Iterator[dict[str, str]]:
+def _iter_daily_rows(
+    context: dg.AssetExecutionContext, download: HTTPDownloadResource
+) -> Iterator[dict[str, str]]:
     """Download SorEntity_daily.csv and yield parsed rows (streaming)."""
-    context.log.info(f"Downloading current SOR data from {DAILY_CSV_URL}")
-    file_path = os.path.join(PERSIST_DIR, "SorEntity_daily.csv")
-    size = _download_to_file(DAILY_CSV_URL, file_path, timeout=120)
-    context.log.info(f"Saved daily CSV to {file_path} ({size} bytes)")
+    context.log.info(f"Downloading current SOR data from {download.url(DAILY_CSV_PATH)}")
+    file_path = download.download_to_file(DAILY_CSV_PATH)
+    context.log.info(f"Saved daily CSV to {file_path} ({os.path.getsize(file_path)} bytes)")
 
     with open(file_path, encoding="utf-8-sig", newline="") as f:
         yield from csv.DictReader(f, delimiter=";")
 
 
-def _iter_complete_rows(context: dg.AssetExecutionContext) -> Iterator[dict[str, str]]:
+def _iter_complete_rows(
+    context: dg.AssetExecutionContext, download: HTTPDownloadResource
+) -> Iterator[dict[str, str]]:
     """Download Sor_complete.zip and yield SOREntity.csv rows (streaming).
 
     The CSV is read directly out of the zip member — it is never decompressed
     to a string or materialized as a row list.
     """
-    context.log.info(f"Downloading complete SOR dataset from {COMPLETE_ZIP_URL}")
-    zip_path = os.path.join(PERSIST_DIR, "Sor_complete.zip")
-    size = _download_to_file(COMPLETE_ZIP_URL, zip_path, timeout=300)
-    context.log.info(f"Saved complete ZIP to {zip_path} ({size} bytes)")
+    context.log.info(f"Downloading complete SOR dataset from {download.url(COMPLETE_ZIP_PATH)}")
+    zip_path = download.download_to_file(COMPLETE_ZIP_PATH)
+    context.log.info(f"Saved complete ZIP to {zip_path} ({os.path.getsize(zip_path)} bytes)")
 
     with zipfile.ZipFile(zip_path) as zf:
         with zf.open("SOREntity.csv") as member:
@@ -199,26 +181,6 @@ def _iter_ext_rows(
         yield ext_row
 
     stats["codes"] = len(codes)
-
-
-def _transform_to_ext_format(
-    raw_rows: list[dict[str, str]], context: dg.AssetExecutionContext
-) -> list[dict[str, str]]:
-    """List-based wrapper around _iter_ext_rows (tests and small inputs).
-
-    The asset itself streams — it never materializes the full row list.
-    """
-    stats = {"skipped": 0, "duplicates": 0}
-    ext_rows = list(_iter_ext_rows(raw_rows, stats))
-    if stats["skipped"]:
-        context.log.warning(f"Skipped {stats['skipped']} rows with empty SOR ID")
-    if stats["duplicates"]:
-        context.log.warning(
-            f"Collapsed {stats['duplicates']} rows with duplicate (SorId, FromDate) "
-            f"— kept first occurrence"
-        )
-    context.log.info(f"Transformed {len(ext_rows)} version rows to ext format")
-    return ext_rows
 
 
 def _write_to_ext_table(
@@ -314,14 +276,15 @@ def extract_sor_register(
     context: AssetExecutionContext,
     config: SORExtractConfig,
     mssql_target_staging: MSSQLResource,
+    sor_download: HTTPDownloadResource,
 ) -> dg.MaterializeResult:
     load_type = _LOAD_TYPE_ALIASES.get(config.load_type, config.load_type)
     if load_type == LOAD_TYPE_CURRENT:
-        source_url = DAILY_CSV_URL
-        raw_rows = _iter_daily_rows(context)
+        source_url = sor_download.url(DAILY_CSV_PATH)
+        raw_rows = _iter_daily_rows(context, sor_download)
     elif load_type == LOAD_TYPE_ALL_HISTORICAL:
-        source_url = COMPLETE_ZIP_URL
-        raw_rows = _iter_complete_rows(context)
+        source_url = sor_download.url(COMPLETE_ZIP_PATH)
+        raw_rows = _iter_complete_rows(context, sor_download)
     else:
         raise ValueError(
             f"Invalid load_type: {config.load_type}. "

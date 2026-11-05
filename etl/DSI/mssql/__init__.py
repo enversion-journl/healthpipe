@@ -9,18 +9,3 @@
 Factory modules define table configs and generate extraction assets
 using the shared MSSQL connector.
 """
-
-from .archive import (  # noqa: F401
-    all_archive_assets,
-    arc_ils_afdlgrbeh,
-    arc_ils_lgrbeh,
-    arc_kmd_uddata_spend_analysis_lines,
-    arc_kmd_uddata_unspsc,
-    kmd_uddata_archive_assets,
-)
-from .extract import (  # noqa: F401
-    all_factory_extract_assets,
-    ils_unspsc_extract_assets,
-    kmd_uddata_extract_assets,
-    lagerbeholdning_extract_assets,
-)

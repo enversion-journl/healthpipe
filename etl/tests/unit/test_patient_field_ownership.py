@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from DSA.FHIR.Patient.field_ownership import (
+from DSA.FHIR.Patient.patient_ownership import (
     ALL_SOURCES,
     BUILDER_PROJECTED_FIELDS,
     FIELD_OWNERSHIP,

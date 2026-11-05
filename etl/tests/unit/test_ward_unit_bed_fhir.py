@@ -19,11 +19,8 @@ import pytest
 from core.dfm_config import RunModeConfig
 from dagster import AssetKey, Failure
 from DSA.FHIR.Encounter.Encounter_IFDB_dfm import (
-    CHILD_BACKFILL_DONE,
-    CHILD_BACKFILL_SUBJECT,
     CHILD_DELTA_WATERMARK_SUBJECT,
     CHILD_TOUCHED_ENCOUNTERS_CEILING,
-    EncounterDfmConfig,
     _build_encounter_query,
     _child_watermark_mode,
     _er_epoke,
@@ -65,12 +62,15 @@ from DSA.FHIR.utils.ifdb.ward_unit_bed import (
     build_capacity_identifier_value,
     child_affected_encounter_count_sql,
     child_affected_encounter_ids_sql,
-    child_backfill_remaining_sql,
-    child_backfill_slice_sql,
     fold_latest_bed_rows,
     parse_antal,
 )
 from DSA.FHIR.utils.sql_on_fhir.sof_utils import SOF_RESOURCE_CONFIGS, VIEW_DEFINITIONS_DIR
+from tests.utils.asset_graph_helpers import (
+    DFM_PRODUCER_PREFIXES,
+    SOF_PREFIXES,
+    assert_deps,
+)
 from utils.fhir.fhir_extensions import (
     EXTENSION_BED_SPACE_WARD_UNIT_CODE,
     EXTENSION_ENCOUNTER_ABSENCE,
@@ -697,7 +697,6 @@ class TestChildVandmaerke:
 
     def test_vandmaerket_har_eget_navn(self) -> None:
         assert CHILD_DELTA_WATERMARK_SUBJECT == "Encounter_ChildDelta"
-        assert CHILD_DELTA_WATERMARK_SUBJECT != CHILD_BACKFILL_SUBJECT
         assert CHILD_DELTA_WATERMARK_SUBJECT != "Encounter"
 
 
@@ -718,7 +717,7 @@ class TestChildAffectedCeiling:
             _guard_child_affected_delta(
                 ctx,
                 self.checkpoint,
-                EncounterDfmConfig(mode="delta"),
+                RunModeConfig(mode="delta"),
                 mssql,
                 child_watermark=None,
             )
@@ -732,7 +731,7 @@ class TestChildAffectedCeiling:
         _guard_child_affected_delta(
             ctx,
             self.checkpoint,
-            EncounterDfmConfig(mode="delta"),
+            RunModeConfig(mode="delta"),
             mssql,
             child_watermark=self.checkpoint,
         )
@@ -746,7 +745,7 @@ class TestChildAffectedCeiling:
             _guard_child_affected_delta(
                 ctx,
                 self.checkpoint,
-                EncounterDfmConfig(mode="delta"),
+                RunModeConfig(mode="delta"),
                 mssql,
                 child_watermark=self.checkpoint,
             )
@@ -757,23 +756,6 @@ class TestChildAffectedCeiling:
         assert "sengeophold/fravaer" in description
         assert "dfm_reset" in description, "den vanlige vej til at tage historikken med"
         assert "FHIR_ENCOUNTER_CHILD_TOUCHED_CEILING" in description
-
-    def test_vaernet_kender_ikke_backfill_flaget(self) -> None:
-        """Noedudgangen i vaernet var doed kode: med child_affected_backfill=True
-        short-circuitter assetet til efterslaebet, foer vaernet naas. Vaernet
-        maa derfor ikke lade, som om flaget aendrer noget her.
-        """
-        ctx = _Ctx()
-        mssql = _FakeMssql(CHILD_TOUCHED_ENCOUNTERS_CEILING + 1)
-        with pytest.raises(Failure):
-            _guard_child_affected_delta(
-                ctx,
-                self.checkpoint,
-                EncounterDfmConfig(mode="delta", child_affected_backfill=True),
-                mssql,
-                child_watermark=self.checkpoint,
-            )
-        assert not ctx.log.warnings
 
     def test_bevidst_nulstilling_passerer_loftet(self) -> None:
         """Et vandmaerke sat med meta.usp_dfm_reset er vejen til at tage alt med.
@@ -786,7 +768,7 @@ class TestChildAffectedCeiling:
         _guard_child_affected_delta(
             ctx,
             self.checkpoint,
-            EncounterDfmConfig(mode="delta"),
+            RunModeConfig(mode="delta"),
             mssql,
             child_watermark="1900-01-01 00:00:00",
             child_watermark_mode="reset",
@@ -806,7 +788,7 @@ class TestChildAffectedCeiling:
             _guard_child_affected_delta(
                 ctx,
                 self.checkpoint,
-                EncounterDfmConfig(mode="delta"),
+                RunModeConfig(mode="delta"),
                 mssql,
                 child_watermark="2026-09-20 00:00:00",
                 child_watermark_mode="reset",
@@ -836,28 +818,25 @@ class TestChildAffectedCeiling:
             _guard_child_affected_delta(
                 ctx,
                 self.checkpoint,
-                EncounterDfmConfig(mode="delta"),
+                RunModeConfig(mode="delta"),
                 mssql,
                 child_watermark=self.checkpoint,
                 child_watermark_mode="delta",
             )
-
-    def test_scheduled_default_does_not_opt_into_the_backfill(self) -> None:
-        assert EncounterDfmConfig().child_affected_backfill is False
 
     def test_guard_is_silent_outside_delta(self) -> None:
         ctx, mssql = _Ctx(), _FakeMssql(10**9)
         _guard_child_affected_delta(
             ctx,
             self.checkpoint,
-            EncounterDfmConfig(mode="full_load"),
+            RunModeConfig(mode="full_load"),
             mssql,
             child_watermark=self.checkpoint,
         )
         _guard_child_affected_delta(
             ctx,
             None,
-            EncounterDfmConfig(mode="delta"),
+            RunModeConfig(mode="delta"),
             mssql,
             child_watermark=self.checkpoint,
         )
@@ -988,7 +967,9 @@ class TestDqaDaekning:
     def test_afstemmes_mod_arkivet(self, subject: str, archive: str) -> None:
         checks = self._subject(subject).checks
         sources = [
-            c.params.get("source_table") for c in checks if c.check_type == "source_reconciliation"
+            c.params.get("source_table")
+            for c in checks
+            if c.check_type == "archive_fhir_reconciliation"
         ]
         assert archive in sources, sources
 
@@ -1082,193 +1063,26 @@ class TestArkivDedup:
         assert ifdb_archive.SENGEENHED_ARCHIVE_CONFIG.dedup_source_on_keys is False
 
 
-class TestEfterslaeb:
-    """Efterslaebet er en engangsoperation pr. miljoe, koert i skiver.
-
-    Markoeren i meta.DFMState er det, der goer den sikker at lade staa i en
-    runbook: naar den er DONE, er koerslen en no-op, uanset hvor mange gange
-    den startes.
-    """
-
-    def test_skiven_ordnes_paa_noeglen_ikke_paa_tid(self) -> None:
-        """Arkivets timestamps er ens for hele bulk-loadet og kan ikke ordne."""
-        sql = child_backfill_slice_sql(None, 100)
-        assert "ORDER BY [OBJECT_ID] ASC" in sql
-        assert "TOP (100)" in sql
-        assert "dw_timestamp_update" not in sql
-
-    def test_skiven_fortsaetter_efter_markoeren(self) -> None:
-        sql = child_backfill_slice_sql("ENC-123", 50)
-        assert sql.count("[OBJECT_ID] > 'ENC-123'") == len(CHILD_AFFECTED_ENCOUNTER_TABLES)
-
-    def test_foerste_skive_har_ingen_nedre_graense(self) -> None:
-        assert ">" not in child_backfill_slice_sql(None, 10).split("ORDER BY")[0].replace(
-            "TOP (10)", ""
-        )
-
-    def test_markoeren_escapes(self) -> None:
-        assert "''" in child_backfill_slice_sql("EN'C", 10)
-        assert "''" in child_backfill_remaining_sql("EN'C")
-
-    def test_skiven_daekker_begge_child_arkiver(self) -> None:
-        flat = child_backfill_slice_sql(None, 10).replace("[", "").replace("]", "")
-        for table in CHILD_AFFECTED_ENCOUNTER_TABLES:
-            assert table in flat
-
-    def test_efterslaebet_filtrerer_ikke_slettede_child_raekker(self) -> None:
-        """En soft-slettet child-raekke skal ogsaa re-emittere sin kontakt."""
-        assert "dw_is_deleted" not in child_backfill_slice_sql(None, 10)
-
-    def test_ugyldig_skivestoerrelse_afvises(self) -> None:
-        with pytest.raises(ValueError):
-            child_backfill_slice_sql(None, 0)
-
-    def test_resterende_taeller_efter_markoeren(self) -> None:
-        sql = child_backfill_remaining_sql("ENC-9")
-        assert "COUNT(*)" in sql
-        assert sql.count("[OBJECT_ID] > 'ENC-9'") == len(CHILD_AFFECTED_ENCOUNTER_TABLES)
-
-    def test_migrationen_armerer_med_den_noegleform_dfm_bruger(self) -> None:
-        """Migrationen og assetet skal laese samme raekke.
-
-        Noegleformen kommer fra DfmManagers egen mapping: schema fhir_server
-        -> target_type fhir_resource. Er de uenige, armerer migrationen en
-        raekke, som koerslen aldrig finder.
-        """
-        from core.dfm_manager import SCHEMA_TO_TARGET_TYPE
-
-        sql = (
-            pathlib.Path(__file__).resolve().parents[2]
-            / "infrastructure"
-            / "ddl"
-            / "migrations"
-            / "20260911_fhir_encounter_child_backfill.sql"
-        ).read_text(encoding="utf-8")
-        assert SCHEMA_TO_TARGET_TYPE["fhir_server"] == "fhir_resource"
-        for needle in (
-            "'staging'",
-            "'fhir_resource'",
-            "'fhir_server'",
-            f"'{CHILD_BACKFILL_SUBJECT}'",
-        ):
-            assert needle in sql, needle
-        # Idempotent og staging-gatet som praecedensen.
-        assert "IF NOT EXISTS" in sql
-        assert "OBJECT_ID(N'[meta].[DFMState]'" in sql
-        # Migrationen maa ikke selv forsoege dataarbejdet.
-        assert "DELETE FROM [meta].[DFMState]" not in sql
-
-    def test_markoeren_har_eget_navn_og_sentinel(self) -> None:
-        """Markoeren maa ikke kollidere med Encounter-checkpointet."""
-        assert CHILD_BACKFILL_SUBJECT == "Encounter_ChildBackfill"
-        assert CHILD_BACKFILL_SUBJECT != "Encounter"
-        assert CHILD_BACKFILL_DONE == "DONE"
-
-    def test_efterslaeb_med_ids_mode_afvises(self) -> None:
-        """Kombinationen er misvisende: mode-filtrene bliver aldrig laest."""
-        cfg = EncounterDfmConfig(
-            mode="ids",
-            id_filter_column="OBJECT_ID",
-            id_filter_values=["X"],
-            child_affected_backfill=True,
-        )
-        assert cfg.child_affected_backfill is True
-        assert cfg.mode == "ids", "configen selv er gyldig -- assetet afviser kombinationen"
-
-    def test_efterslaebet_er_default_slaaet_fra(self) -> None:
-        cfg = EncounterDfmConfig()
-        assert cfg.child_affected_backfill is False
-        assert cfg.child_backfill_restart is False
-        assert cfg.child_backfill_slice > 0
-
-    def test_en_start_koerer_til_faerdig_som_standard(self) -> None:
-        """En runbook, der siger «start den 37 gange», bliver ikke fulgt."""
-        assert EncounterDfmConfig().child_backfill_max_slices == 0
-
-    def test_loftet_kan_afgraense_koerslen(self) -> None:
-        """Til at maale varigheden af én skive, foer man lader den loebe."""
-        assert EncounterDfmConfig(child_backfill_max_slices=1).child_backfill_max_slices == 1
-
-    def test_restart_nulstiller_markoeren_til_null_ikke_til_nu(self) -> None:
-        """set_checkpoint(value=None) betyder SYSDATETIME(). En restart, der skrev
-        et tidsstempel som markoer, begyndte gennemloebet midt i noegleordningen
-        (alt efter '2026-...') i stedet for forfra -- set paa dev. Nulstilling
-        skal derfor vaere en eksplicit NULL paa den eksisterende raekke."""
-        from core.dfm_manager import DfmManager
-
-        log: list[tuple[str, tuple]] = []
-
-        class _Cursor:
-            def execute(self, sql: str, params: tuple = ()) -> None:
-                log.append((sql, params))
-
-            def close(self) -> None:
-                pass
-
-        class _Conn:
-            committed = 0
-
-            def cursor(self) -> _Cursor:
-                return _Cursor()
-
-            def commit(self) -> None:
-                _Conn.committed += 1
-
-            def __enter__(self) -> _Conn:
-                return self
-
-            def __exit__(self, *exc: object) -> bool:
-                return False
-
-        class _Mssql:
-            def get_connection(self) -> _Conn:
-                return _Conn()
-
-        DfmManager(_Mssql(), context=None).clear_checkpoint(  # type: ignore[arg-type]
-            "fhir_server", CHILD_BACKFILL_SUBJECT, mode="ids"
-        )
-        ((sql, params),) = log
-        flat = " ".join(sql.split())
-        assert "SET [checkpoint_value] = NULL" in flat
-        assert "COALESCE" not in flat and "SYSDATETIME(), 121" not in flat
-        assert flat.startswith("UPDATE") and "INSERT" not in flat, "kun eksisterende raekke"
-        assert params[-4:] == ("staging", "fhir_resource", "fhir_server", CHILD_BACKFILL_SUBJECT)
-        assert _Conn.committed == 1
-
-    def test_restart_stien_bruger_clear_checkpoint(self) -> None:
-        import inspect
-
-        from DSA.FHIR.Encounter import Encounter_IFDB_dfm as modul
-
-        kode = "\n".join(
-            linje
-            for linje in inspect.getsource(modul._run_child_backfill).splitlines()
-            if not linje.strip().startswith("#")
-        )
-        assert "clear_checkpoint(" in kode
-        assert "value=None" not in kode, "set_checkpoint(value=None) skriver SYSDATETIME, ikke NULL"
-
-
 class TestChildVandmaerkeFremrykning:
     """Hvornaar child-vandmaerket maa rykke -- reglen, der goer undtagelsen til een koersel."""
 
     def test_nulstilling_med_nul_hentede_rykker(self) -> None:
         """Ellers bliver last_mode staaende paa 'reset', og loftet er slaaet fra."""
-        assert _skal_rykke_child_vandmaerke(EncounterDfmConfig(mode="delta"), 0, "reset")
+        assert _skal_rykke_child_vandmaerke(RunModeConfig(mode="delta"), 0, "reset")
 
     def test_almindelig_delta_med_nul_hentede_rykker_ikke(self) -> None:
-        assert not _skal_rykke_child_vandmaerke(EncounterDfmConfig(mode="delta"), 0, "delta")
+        assert not _skal_rykke_child_vandmaerke(RunModeConfig(mode="delta"), 0, "delta")
 
     def test_delta_med_hentede_rykker(self) -> None:
-        assert _skal_rykke_child_vandmaerke(EncounterDfmConfig(mode="delta"), 10, "delta")
+        assert _skal_rykke_child_vandmaerke(RunModeConfig(mode="delta"), 10, "delta")
 
     def test_full_load_med_hentede_rykker(self) -> None:
         """full_load tager alle kontakter, saa child-raekkerne er laest."""
-        assert _skal_rykke_child_vandmaerke(EncounterDfmConfig(mode="full_load"), 10, None)
+        assert _skal_rykke_child_vandmaerke(RunModeConfig(mode="full_load"), 10, None)
 
     def test_ids_koersel_bruger_ikke_nulstillingen_op(self) -> None:
         """ids laeser ikke child-raekkerne, heller ikke med advance_checkpoint=True."""
-        cfg = EncounterDfmConfig(
+        cfg = RunModeConfig(
             mode="ids",
             id_filter_column="OBJECT_ID",
             id_filter_values=["X"],
@@ -1279,7 +1093,7 @@ class TestChildVandmaerkeFremrykning:
         assert not _skal_rykke_child_vandmaerke(cfg, 10, "delta")
 
     def test_uden_fremrykning_rykker_intet(self) -> None:
-        cfg = EncounterDfmConfig(mode="delta", advance_checkpoint=False)
+        cfg = RunModeConfig(mode="delta", advance_checkpoint=False)
         assert not _skal_rykke_child_vandmaerke(cfg, 10, "reset")
 
 
@@ -1368,23 +1182,6 @@ class TestChildDeltaNulstilling:
         assert "[meta].[usp_dfm_reset] @schema_name = ''fhir_server''" in nulstil
         assert "UPDATE [meta].[DFMState]" not in self._sql(), "via proceduren, ikke en UPDATE"
 
-    def test_markoeren_stemples_done_hvor_flaget_ellers_kunne_koere(self) -> None:
-        """Begge grene, der ikke allerede er DONE, goer det flagstyrede efterslaeb til en no-op."""
-        ikke_koert, beriget, nulstil = self._grene()
-        stempel = (
-            f"@table_name = ''{CHILD_BACKFILL_SUBJECT}'',\n"
-            f"                 @new_value = ''{CHILD_BACKFILL_DONE}''"
-        )
-        assert stempel in nulstil
-        assert f"@table_name = ''{CHILD_BACKFILL_SUBJECT}''" in ikke_koert
-        assert f"@new_value = ''{CHILD_BACKFILL_DONE}''" in ikke_koert
-        assert "usp_dfm_reset" not in beriget
-
-    def test_beriget_grenen_kraever_done(self) -> None:
-        _, beriget, _ = self._grene()
-        assert f"[table_name] = ''{CHILD_BACKFILL_SUBJECT}''" in beriget
-        assert f"[checkpoint_value] = ''{CHILD_BACKFILL_DONE}''" in beriget
-
     def test_epoken_er_den_samme_som_assetets(self) -> None:
         from DSA.FHIR.Encounter import Encounter_IFDB_dfm as modul
 
@@ -1424,26 +1221,36 @@ class TestChildGrainReconcile:
 class TestPipelineRegistration:
     def test_ward_unit_depends_on_archive_and_dictionary_source(self) -> None:
         """Sengeopholdene er dep: SOR-koblingen hoestes fra dem."""
-        key = AssetKey.from_user_string("fhir_server_location_ward_unit_dfm")
-        assert fhir_server_location_ward_unit_dfm.asset_deps[key] == {
-            AssetKey.from_user_string("arc_sengeenhed_ifdb"),
-            AssetKey.from_user_string("arc_encounter_bed_space_history_ifdb"),
-        }
+        assert_deps(
+            fhir_server_location_ward_unit_dfm,
+            "fhir_server_location_ward_unit_dfm",
+            allowed_prefixes=DFM_PRODUCER_PREFIXES,
+            required={"arc_sengeenhed_ifdb", "arc_encounter_bed_space_history_ifdb"},
+        )
 
     def test_kapacitet_depends_on_archives_and_sengeenhed(self) -> None:
-        key = AssetKey.from_user_string("fhir_server_observation_ward_unit_capacity_dfm")
-        assert fhir_server_observation_ward_unit_capacity_dfm.asset_deps[key] == {
-            AssetKey.from_user_string("arc_sengeenhed_disponible_ifdb"),
-            AssetKey.from_user_string("arc_sengeenhed_normerede_ifdb"),
-            AssetKey.from_user_string("fhir_server_location_ward_unit_dfm"),
-        }
+        assert_deps(
+            fhir_server_observation_ward_unit_capacity_dfm,
+            "fhir_server_observation_ward_unit_capacity_dfm",
+            allowed_prefixes=DFM_PRODUCER_PREFIXES,
+            required={
+                "arc_sengeenhed_disponible_ifdb",
+                "arc_sengeenhed_normerede_ifdb",
+                "fhir_server_location_ward_unit_dfm",
+            },
+        )
 
     def test_bed_depends_on_history_and_department_location(self) -> None:
-        key = AssetKey.from_user_string("fhir_server_location_bed_dfm")
-        assert fhir_server_location_bed_dfm.asset_deps[key] == {
-            AssetKey.from_user_string("arc_encounter_bed_space_history_ifdb"),
-            AssetKey.from_user_string("fhir_server_location_dfm"),
-        }
+        assert_deps(
+            fhir_server_location_bed_dfm,
+            "fhir_server_location_bed_dfm",
+            allowed_prefixes=DFM_PRODUCER_PREFIXES,
+            required={
+                "arc_encounter_bed_space_history_ifdb",
+                "fhir_server_location_dfm",
+                "fhir_server_location_bom_ifdb_dfm",
+            },
+        )
 
     def test_encounter_depends_on_bed_and_absence(self) -> None:
         key = AssetKey.from_user_string("fhir_server_encounter_dfm")
@@ -1466,32 +1273,27 @@ class TestPipelineRegistration:
         )
 
     def test_new_sof_assets_wait_for_their_producers(self) -> None:
-        assert sof_ward_unit_dfm.asset_deps[AssetKey.from_user_string("sof_ward_unit_dfm")] == {
-            AssetKey.from_user_string("fhir_sof_infrastructure"),
-            AssetKey.from_user_string("fhir_server_location_ward_unit_dfm"),
-        }
-        assert sof_ward_unit_capacity_dfm.asset_deps[
-            AssetKey.from_user_string("sof_ward_unit_capacity_dfm")
-        ] == {
-            AssetKey.from_user_string("fhir_sof_infrastructure"),
-            AssetKey.from_user_string("fhir_server_observation_ward_unit_capacity_dfm"),
-        }
-        assert sof_bed_dfm.asset_deps[AssetKey.from_user_string("sof_bed_dfm")] == {
-            AssetKey.from_user_string("fhir_sof_infrastructure"),
-            AssetKey.from_user_string("fhir_server_location_bed_dfm"),
-        }
-        assert sof_encounter_bed_space_dfm.asset_deps[
-            AssetKey.from_user_string("sof_encounter_bed_space_dfm")
-        ] == {
-            AssetKey.from_user_string("fhir_sof_infrastructure"),
-            AssetKey.from_user_string("fhir_server_encounter_dfm"),
-        }
-        assert sof_encounter_absence_dfm.asset_deps[
-            AssetKey.from_user_string("sof_encounter_absence_dfm")
-        ] == {
-            AssetKey.from_user_string("fhir_sof_infrastructure"),
-            AssetKey.from_user_string("fhir_server_encounter_dfm"),
-        }
+        for sof_asset, sof_key, producer in (
+            (sof_ward_unit_dfm, "sof_ward_unit_dfm", "fhir_server_location_ward_unit_dfm"),
+            (
+                sof_ward_unit_capacity_dfm,
+                "sof_ward_unit_capacity_dfm",
+                "fhir_server_observation_ward_unit_capacity_dfm",
+            ),
+            (sof_bed_dfm, "sof_bed_dfm", "fhir_server_location_bed_dfm"),
+            (
+                sof_encounter_bed_space_dfm,
+                "sof_encounter_bed_space_dfm",
+                "fhir_server_encounter_dfm",
+            ),
+            (sof_encounter_absence_dfm, "sof_encounter_absence_dfm", "fhir_server_encounter_dfm"),
+        ):
+            assert_deps(
+                sof_asset,
+                sof_key,
+                allowed_prefixes=SOF_PREFIXES,
+                required={"fhir_sof_infrastructure", producer},
+            )
 
     def test_unique_index_specs_cover_new_identifier_systems(self) -> None:
         specs = set(IDENTIFIER_UNIQUE_INDEX_SPECS)

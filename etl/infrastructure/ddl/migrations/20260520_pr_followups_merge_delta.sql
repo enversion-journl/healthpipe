@@ -5,7 +5,7 @@
 -- root for the full AGPL-3.0 license text.
 
 -- ============================================================================
--- [internal ticket] follow-ups: ref.Patient_Address_Borger + dim.Borger MERGE-readiness
+-- Follow-ups: ref.Patient_Address_Borger + dim.Borger MERGE-readiness
 --
 -- Three changes:
 --   1. Add DW_IsDeleted column to ref.Patient_Address_Borger (required for

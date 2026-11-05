@@ -8,10 +8,10 @@
 
 Patient is deduped by CPR in the ETL: per CPR exactly one arc.ifdb_patient row is
 POSTed -- non-deleted preferred, then latest OPDATERET_TID (see
-``patient_ifdb_contribution._dedup_rows_by_cpr``). So a plain ``source_reconciliation`` on
+``patient_ifdb_contribution._dedup_rows_by_cpr``). So a plain ``archive_fhir_reconciliation`` on
 PATIENT_ID false-flags the *dropped* duplicates: a deleted PATIENT_ID that was
 intentionally not POSTed looks like ``missing_in_target``. Person-level presence
-("every CPR reached fhir") is the separate CPR ``source_reconciliation``; this
+("every CPR reached fhir") is the separate CPR ``archive_fhir_reconciliation``; this
 check is dedup-aware and only about the per-``patient_id`` *choice*, fhir -> arc:
 
 - ``orphan_ifdb_id``   : fhir.ifdb_patient_id not in arc.PATIENT_ID -> stale/wrong id (BAD).
@@ -73,7 +73,7 @@ def patient_arc_integrity(context, subject, spec, resources) -> CheckOutcome:
     # live row (for the live PATIENT_ID) and a soft-deleted row (for the deleted
     # PATIENT_ID) of the same CPR. A soft-deleted fhir row pointing at a deleted arc
     # row mirrors arc correctly -- it is NOT a kept-deleted-dup (same idea as the
-    # MIN-aggregation fix in source_reconciliation). Only a still-active fhir row
+    # MIN-aggregation fix in archive_fhir_reconciliation). Only a still-active fhir row
     # showing a deleted person as live, while the CPR has a live arc sibling, is BAD.
     kept_pred = f"{sdel} = 1 AND {tdel} <> 1 AND {active_sibling}"
     mismatch_pred = f"({sdel} <> {tdel}) AND NOT ({kept_pred})"

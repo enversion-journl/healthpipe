@@ -43,6 +43,11 @@ _RESULTS_RESOURCE = "mssql_target_staging"  # dqa.Results lives on DSA (unified 
 # the linked server has headroom.
 _DSO_EXECUTOR = dg.multiprocess_executor.configured({"max_concurrent": 2})
 
+# Sync configs with no DSO sync asset: the DSO copy is empty or a stale seed.
+_NOT_SYNCED_TO_DSO = frozenset(
+    {"ref_patient_borger", "ref_patient_address_borger", "ref_organisation"}
+)
+
 
 def _dso_subjects() -> list[tuple[DqaSubject, str]]:
     """Derive (subject, domain) for every DSO-synced table from the sync configs."""
@@ -61,7 +66,7 @@ def _dso_subjects() -> list[tuple[DqaSubject, str]]:
     # (domain, track, configs). fhir -> FHIR track; everything else -> DWH track.
     # Every config dict merged into ALL_SYNC_CONFIGS must be listed here too:
     # this list is what assigns the domain, and the derivation is asserted to
-    # cover ALL_SYNC_CONFIGS one-for-one (tests/unit/test_dqa_dso.py).
+    # cover ALL_SYNC_CONFIGS minus _NOT_SYNCED_TO_DSO (tests/unit/test_dqa_dso.py).
     domains: list[tuple[str, Track, dict]] = [
         ("fhir", Track.FHIR, FHIR_SYNC_CONFIGS),
         ("erp", Track.DWH, ERP_SYNC_CONFIGS),
@@ -78,6 +83,8 @@ def _dso_subjects() -> list[tuple[DqaSubject, str]]:
     out: list[tuple[DqaSubject, str]] = []
     for domain, track, configs in domains:
         for key, cfg in configs.items():
+            if key in _NOT_SYNCED_TO_DSO:
+                continue
             pk = cfg.primary_key if isinstance(cfg.primary_key, list) else [cfg.primary_key]
             spec = CheckSpecification(
                 "dso_reconciliation",

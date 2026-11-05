@@ -61,6 +61,9 @@ from dagster import (
     asset,
 )
 from utils.sql.leverandoervare_ilsvare_sql import LVNR_CC as _LVNR_CC
+from utils.sql.tax_id_sql import sql_ils_kreditor_cleancode
+
+_ILS_KREDITOR_CC = sql_ils_kreditor_cleancode("lev.se_nr")
 
 # Delta-linje-detektion: DISTINCT (lnr, aftale, vnr) over de 7 signaler.
 # Checkpointet bindes som parameter (?) — aldrig interpoleret.
@@ -204,11 +207,8 @@ def _build_staging_sql(delta_join: str) -> str:
             'AFTALE_' + UPPER(LTRIM(RTRIM(CAST(d.lnr AS NVARCHAR(100))))) + '_'
                 + UPPER(LTRIM(RTRIM(REPLACE(CAST(d.aftale AS NVARCHAR(100)), ' ', ''))))
                 + '_VARE_' + UPPER(LTRIM(RTRIM(REPLACE(CAST(d.vnr AS NVARCHAR(100)), ' ', '')))) AS clean_code_AftaleVarePris,
-            CASE
-                WHEN lev.se_nr IS NOT NULL AND LTRIM(RTRIM(CAST(lev.se_nr AS NVARCHAR(100)))) <> ''
-                THEN 'CVR_' + CASE WHEN REPLACE(LTRIM(RTRIM(CAST(lev.se_nr AS NVARCHAR(100)))), ' ', '') LIKE 'DK[0-9]%' THEN SUBSTRING(REPLACE(LTRIM(RTRIM(CAST(lev.se_nr AS NVARCHAR(100)))), ' ', ''), 3, LEN(REPLACE(LTRIM(RTRIM(CAST(lev.se_nr AS NVARCHAR(100)))), ' ', ''))) ELSE REPLACE(LTRIM(RTRIM(CAST(lev.se_nr AS NVARCHAR(100)))), ' ', '') END
-                ELSE NULL
-            END AS clean_code_Kreditor,
+            -- NULL for giro = 'Person' (se_nr er en foedselsdato/CPR)
+            {_ILS_KREDITOR_CC} AS clean_code_Kreditor,
             'ILSVARE_' + UPPER(LTRIM(RTRIM(REPLACE(CAST(d.vnr AS NVARCHAR(100)), ' ', '')))) AS IlsVare_CleanCode,
 
             -- Priser (alle 4 trin) — NULL paa syntetisk raekke (p er LEFT JOIN'et)

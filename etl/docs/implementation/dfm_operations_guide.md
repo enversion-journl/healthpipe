@@ -27,7 +27,7 @@ All DFM jobs are launched from **Dagster UI → Jobs → (select job) → Launch
 | Force a specific IFDB flow-start timestamp | `ifdb_archive_job` | [6. Custom Flow-Start Override](#6-custom-flow-start-override) |
 | Run without advancing the checkpoint (dry-run) | Any DFM job | [7. Dry-Run Mode](#7-dry-run-mode) |
 | Re-extract with lookback days | `ifdb_archive_job` | [8. Delta with Lookback](#8-delta-with-lookback) |
-| Run the full pipeline (extract → archive → FHIR → SOF) | `ifdb_dfm_full_job` | [9. Full Pipeline Run](#9-full-pipeline-run) |
+| Run the whole pipeline outside the schedule (extract → archive → FHIR → SOF → DSO) | `ifdb_dfm_daily_job` | [9. Full Pipeline Run](#9-full-pipeline-run) |
 
 ---
 
@@ -464,9 +464,9 @@ IFDB_MODIFICATION_DATETIME > (TO_DATE('2026-05-20 08:00:00', 'YYYY-MM-DD HH24:MI
 
 ## 9. Full Pipeline Run
 
-Run the complete IFDB DFM pipeline: extract from Oracle → archive MERGE → FHIR transform → FHIR server upload → SQL-on-FHIR views.
+Run the nightly IFDB DFM pipeline by hand: extract from Oracle → archive MERGE → FHIR transform → FHIR server upload → SQL-on-FHIR views and the Borger chain (`ref_patient_borger` → `ref_patient_address_borger` → `dim_Borger` → `dso_sync_dim_borger`) → the warehouse keys (`dw_ek_Borger`, `dw_sk_Borger`, `dw_ek_Organisation`) on the flat `fhir.*` tables → DSO sync, and the SFI_datapoint refresh.
 
-**Job:** `ifdb_dfm_full_job`
+**Job:** `ifdb_dfm_daily_job`
 
 ```yaml
 {}
@@ -484,7 +484,7 @@ ops:
       flow_start_override: "2026-05-27 05:00:24"
 ```
 
-This job covers the `ifdb_archive`, `fhir_ifdb_dfm`, and `fhir_sof_dfm` asset groups.
+This is the same job `ifdb_dfm_daily_schedule` starts every morning. To load the history window by window, use `ifdb_fhir_fuldload_job` instead.
 
 ---
 
@@ -583,7 +583,6 @@ ops:
 |-----|-------------|--------|
 | `ifdb_archive_job` | Extract + archive (all DFM IFDB sources, incl. SFI / Appointment) | `RunModeConfig` + `FlowStartConfig` |
 | `fhir_ifdb_dfm_job` | FHIR transform + upload from archive | `RunModeConfig` |
-| `ifdb_dfm_full_job` | Full pipeline: extract → archive → FHIR → SOF | `RunModeConfig` + `FlowStartConfig` |
 | `fhir_sof_dfm_job` | SQL-on-FHIR view extraction | `RunModeConfig` |
 | `ifdb_dfm_daily_job` | **The nightly pipeline.** flow-start → extract → archive → FHIR server → SOF → DSO, then Borger (`ref_patient_borger` → `ref_patient_address_borger` → `dim_Borger` → `dso_sync_dim_borger`) and the SFI_datapoint refresh | `RunModeConfig` + `FlowStartConfig` |
 | `dfm_reset_job` | Checkpoint reset | `DfmResetConfig` |
@@ -692,7 +691,7 @@ from inside the job become external, losing the ordering edge too.
 
 ### 4. Register Modules
 
-- Export new assets from the relevant `__init__.py` files
+- Add new assets to the aggregate lists in the relevant `__init__.py` files
 - Add new DFM assets to `definitions.py` registration
 
 ### 5. Verify
@@ -859,8 +858,8 @@ SELECT COUNT(*) FROM [meta].[DFMState] WHERE scope = 'dso';
 The store's refresh keeps one checkpoint in `[meta].[DFMState]` on staging, under
 `scope = 'sfi_store'`, schema `fhir`, table `SFI_datapoint_store`. It is read and set by
 `dso_refresh_sfi_datapoint_daily` (delta) and `dso_reconcile_sfi_datapoint_store` (the
-same refresh in `full_load`); a missing row rebuilds the store. On deploy,
-`migrate_dso_sync_watermarks_to_dfm` (part of `full_infrastructure_setup`) seeds a missing
+same refresh in `full_load`); a missing row rebuilds the store. At the cutover,
+`migrate_dso_sync_watermarks_to_dfm` (run by hand, see the cutover above) seeds a missing
 row from the legacy `refresh_daily` watermark minus three hours. Replay or move it with
 `usp_dfm_reset`, or with the `dfm_reset` asset and `scope: sfi_store`:
 

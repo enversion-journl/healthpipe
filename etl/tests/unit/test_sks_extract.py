@@ -11,6 +11,7 @@ import gzip
 from datetime import date
 
 import pytest
+from core.resources import HTTPDownloadResource
 from dagster import build_asset_context
 from DSI.csv_files.sks_register import (
     KNOWN_PREFIXES,
@@ -25,6 +26,8 @@ from DSI.csv_files.sks_register import (
 )
 
 pytestmark = pytest.mark.unit
+
+_SKS_DOWNLOAD = HTTPDownloadResource(base_url="http://unused", user_agent="test")
 
 TODAY = date(2026, 6, 11)
 NO_END = date(2500, 1, 1)
@@ -457,7 +460,7 @@ class TestSubsetGuard:
         # The guard fires before _fetch_sks_complete is called, so the
         # mssql resource is never touched — passing None is safe.
         with pytest.raises(RuntimeError, match="all") as exc_info:
-            extract_sks_register(build_asset_context(), config, None)  # type: ignore[arg-type]
+            extract_sks_register(build_asset_context(), config, None, _SKS_DOWNLOAD)  # type: ignore[arg-type]
         assert "dia" in str(exc_info.value)
 
     def test_all_classifications_does_not_raise_guard(self):
@@ -469,18 +472,18 @@ class TestSubsetGuard:
         """
         config = SKSExtractConfig(classifications=["all"])
         with pytest.raises(Exception) as exc_info:
-            extract_sks_register(build_asset_context(), config, None)  # type: ignore[arg-type]
+            extract_sks_register(build_asset_context(), config, None, _SKS_DOWNLOAD)  # type: ignore[arg-type]
         assert "only supports classifications" not in str(exc_info.value)
 
     def test_empty_list_raises_guard(self):
         config = SKSExtractConfig(classifications=[])
         with pytest.raises(RuntimeError, match="all"):
-            extract_sks_register(build_asset_context(), config, None)  # type: ignore[arg-type]
+            extract_sks_register(build_asset_context(), config, None, _SKS_DOWNLOAD)  # type: ignore[arg-type]
 
     def test_multiple_subsets_raises_guard(self):
         config = SKSExtractConfig(classifications=["dia", "opr"])
         with pytest.raises(RuntimeError, match="all"):
-            extract_sks_register(build_asset_context(), config, None)  # type: ignore[arg-type]
+            extract_sks_register(build_asset_context(), config, None, _SKS_DOWNLOAD)  # type: ignore[arg-type]
 
 
 class TestDecodeSksBytes:

@@ -234,7 +234,7 @@ OS2MO_ORG_UNIT_ARCHIVE_CONFIG = ArchiveMergeConfig(
     name="arc_os2mo_org_unit",
     group_name="os2mo_import",
     compute_kind="mssql",
-    deps=["ext_os2mo_org_unit", "staging_infra_os2mo_archive"],
+    deps=["ext_os2mo_org_unit", "staging_infra_source_os2mo"],
     tags={"domain": "organisation", "layer": "archive", "source": "os2mo"},
     description=(
         "UPSERT ext.os2mo_org_unit → arc.os2mo_org_unit (persistent archive of "

@@ -52,6 +52,13 @@ SELECT *
 FROM [dim].[Vareudlevering];
 GO
 
+-- vw_dim.Ordre
+CREATE OR ALTER VIEW [vw_dim].[Ordre]
+AS
+SELECT *
+FROM [dim].[Ordre];
+GO
+
 -- vw_dim.Faktura
 CREATE OR ALTER VIEW [vw_dim].[Faktura]
 AS

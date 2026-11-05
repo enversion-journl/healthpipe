@@ -36,10 +36,18 @@ from DSA.FHIR.SqlOnFhir.PractitionerRole_dfm import sof_practitioner_role_dfm
 from DSA.FHIR.utils.sql_on_fhir.sof_utils import SOF_RESOURCE_CONFIGS, VIEW_DEFINITIONS_DIR
 from DSO.load.sync_configs import FHIR_SYNC_CONFIGS
 from DSO.load.sync_fhir import all_fhir_dso_sync_dfm_assets
+from tests.utils.asset_graph_helpers import (
+    DFM_PRODUCER_PREFIXES,
+    DSO_SYNC_PREFIXES,
+    SOF_PREFIXES,
+    assert_deps,
+)
 
 # Columns the SOF engine fills from r.ts / r.cts rather than from the view.
 _SOF_MANAGED_COLUMNS = {"last_updated", "created_at"}
 _AUDIT_COLUMNS = {"dw_timestamp_insert", "dw_timestamp_update"}
+# Computed in the table from a view column; the SOF merge never writes it.
+_COMPUTED_COLUMNS = {"identifier_staff_exact"}
 
 
 def _view_columns(view_name: str) -> list[str]:
@@ -69,32 +77,39 @@ class TestPractitionerPipelineRegistration:
     """Validate Practitioner/PractitionerRole DFM wiring + SOF contracts."""
 
     def test_practitioner_dfm_depends_on_the_archive(self):
-        key = AssetKey.from_user_string("fhir_server_practitioner_dfm")
-        assert fhir_server_practitioner_dfm.asset_deps[key] == {
-            AssetKey.from_user_string("arc_silkeborgdata_e26_pers"),
-        }
+        assert_deps(
+            fhir_server_practitioner_dfm,
+            "fhir_server_practitioner_dfm",
+            allowed_prefixes=DFM_PRODUCER_PREFIXES,
+            required={"arc_silkeborgdata_e26_pers"},
+        )
 
     def test_role_dfm_waits_for_the_practitioner(self):
         """The role references the person by CPR, so the person must exist."""
-        key = AssetKey.from_user_string("fhir_server_practitioner_role_dfm")
-        assert fhir_server_practitioner_role_dfm.asset_deps[key] == {
-            AssetKey.from_user_string("arc_silkeborgdata_e26_pers"),
-            AssetKey.from_user_string("fhir_server_practitioner_dfm"),
-        }
+        assert_deps(
+            fhir_server_practitioner_role_dfm,
+            "fhir_server_practitioner_role_dfm",
+            allowed_prefixes=DFM_PRODUCER_PREFIXES,
+            required={"arc_silkeborgdata_e26_pers", "fhir_server_practitioner_dfm"},
+        )
 
     def test_sof_assets_name_their_producer(self):
-        assert sof_practitioner_dfm.asset_deps[
-            AssetKey.from_user_string("sof_practitioner_dfm")
-        ] == {
-            AssetKey.from_user_string("fhir_sof_infrastructure"),
-            AssetKey.from_user_string("fhir_server_practitioner_dfm"),
-        }
-        assert sof_practitioner_role_dfm.asset_deps[
-            AssetKey.from_user_string("sof_practitioner_role_dfm")
-        ] == {
-            AssetKey.from_user_string("fhir_sof_infrastructure"),
-            AssetKey.from_user_string("fhir_server_practitioner_role_dfm"),
-        }
+        assert_deps(
+            sof_practitioner_dfm,
+            "sof_practitioner_dfm",
+            allowed_prefixes=SOF_PREFIXES,
+            required={
+                "fhir_sof_infrastructure",
+                "fhir_server_practitioner_dfm",
+                "fhir_server_practitioner_epji_dfm",
+            },
+        )
+        assert_deps(
+            sof_practitioner_role_dfm,
+            "sof_practitioner_role_dfm",
+            allowed_prefixes=SOF_PREFIXES,
+            required={"fhir_sof_infrastructure", "fhir_server_practitioner_role_dfm"},
+        )
 
     @pytest.mark.parametrize(
         ("view_name", "table"),
@@ -102,7 +117,7 @@ class TestPractitionerPipelineRegistration:
     )
     def test_view_json_and_ddl_do_not_drift(self, view_name, table):
         view = set(_view_columns(view_name))
-        ddl = _ddl_columns(table) - _AUDIT_COLUMNS - _SOF_MANAGED_COLUMNS
+        ddl = _ddl_columns(table) - _AUDIT_COLUMNS - _SOF_MANAGED_COLUMNS - _COMPUTED_COLUMNS
         assert view == ddl, (
             f"{view_name} vs fhir.{table}: only in view={sorted(view - ddl)}, "
             f"only in DDL={sorted(ddl - view)}"
@@ -201,13 +216,17 @@ class TestPractitionerDsoSync:
         by_name = {next(iter(a.keys)).to_user_string(): a for a in all_fhir_dso_sync_dfm_assets}
         dso_name = f"dso_sync_fhir_{sof_name}_dfm"
         assert dso_name in by_name, f"Missing DFM DSO sync asset: {dso_name}"
-        key = AssetKey.from_user_string(dso_name)
-        assert by_name[dso_name].asset_deps[key] == {
-            AssetKey.from_user_string(f"sof_{sof_name}_dfm"),
-            # Gates the MERGE on the DSO fhir.* tables, so it never runs
-            # against a stale target schema/PK.
-            AssetKey.from_user_string("dso_infra_fhir"),
-        }
+        assert_deps(
+            by_name[dso_name],
+            dso_name,
+            allowed_prefixes=DSO_SYNC_PREFIXES,
+            required={
+                f"sof_{sof_name}_dfm",
+                # Gates the MERGE on the DSO fhir.* tables, so it never runs
+                # against a stale target schema/PK.
+                "dso_infra_fhir",
+            },
+        )
 
     @pytest.mark.parametrize(
         ("config_key", "table"),
@@ -248,21 +267,21 @@ class TestPractitionerDsoSync:
         assert {"dso_fhir_practitioner", "dso_fhir_practitioner_role"} <= names
 
 
-class TestSilkeborgDataSchedule:
-    """The whole chain runs in one job on its own schedule, not on IFDB's."""
+class TestPractitionerDailyJob:
+    """Both sources' chains run in one job on its own schedule, not on IFDB's."""
 
     @staticmethod
     def _job_keys() -> set[str]:
-        job = defs.resolve_job_def("silkeborgdata_daily_job")
+        job = defs.resolve_job_def("practitioner_daily_job")
         return {k.to_user_string() for k in job.asset_layer.executable_asset_keys}
 
     def test_job_selects_every_layer_of_the_chain(self):
         """THE BUG THIS CATCHES: a layer left out of the job.
 
-        The four layers live in four asset groups, and a selection naming only
-        some of them looks complete — the job runs green while the layers it
-        omits never run, or run later on another source's schedule with nothing
-        guaranteeing this chain finished first. Both were the state before.
+        The layers live in six asset groups, and a selection naming only some of
+        them looks complete — the job runs green while the layers it omits never
+        run, or run later on another source's schedule with nothing guaranteeing
+        this chain finished first.
         """
         keys = self._job_keys()
         for key in (
@@ -274,13 +293,20 @@ class TestSilkeborgDataSchedule:
             "sof_practitioner_role_dfm",
             "dso_sync_fhir_practitioner_dfm",
             "dso_sync_fhir_practitioner_role_dfm",
+            "ext_epji_practitioner",
+            "ext_epji_practitioner_identifier",
+            "ext_epji_practitioner_role",
+            "arc_epji_practitioner",
+            "arc_epji_practitioner_identifier",
+            "arc_epji_practitioner_role",
+            "fhir_server_practitioner_epji_dfm",
         ):
-            assert key in keys, f"{key} is not in silkeborgdata_daily_job"
+            assert key in keys, f"{key} is not in practitioner_daily_job"
 
     def test_job_carries_no_infrastructure(self):
         """THE BUG THIS CATCHES: selecting infra into a scheduled job.
 
-        None of the three is scoped to SilkeborgData — the DDL assets apply the
+        None of the three is scoped to Practitioner — the DDL assets apply the
         schema for every fhir.* table, and fhir_sof_infrastructure globs every
         ViewDefinition and re-materializes the changed ones. Selecting them would
         make this the only scheduled job in the repo that applies them, so an
@@ -289,7 +315,7 @@ class TestSilkeborgDataSchedule:
         """
         keys = self._job_keys()
         for key in ("staging_infra_fhir", "fhir_sof_infrastructure", "dso_infra_fhir"):
-            assert key not in keys, f"{key} must not run on the SilkeborgData schedule"
+            assert key not in keys, f"{key} must not run on the Practitioner schedule"
 
     def test_no_ifdb_assets_ride_along(self):
         """The shared SOF/DSO groups must not be pulled in wholesale."""
@@ -297,7 +323,13 @@ class TestSilkeborgDataSchedule:
         assert "sof_patient_dfm" not in keys
         assert "dso_sync_fhir_patient_dfm" not in keys
 
-    def test_silkeborgdata_sof_and_dso_left_the_shared_groups(self):
+    def test_epji_location_stays_with_organisation_cs_job(self):
+        """The epji_archive group also holds LOCATION; selecting it by group pulls that in."""
+        keys = self._job_keys()
+        assert "ext_epji_location" not in keys
+        assert "arc_epji_shakalike" not in keys
+
+    def test_practitioner_sof_and_dso_left_the_shared_groups(self):
         """Otherwise they stay in the IFDB jobs too, and run twice on two clocks."""
         ifdb_job = defs.resolve_job_def("ifdb_dfm_daily_job")
         ifdb_keys = {k.to_user_string() for k in ifdb_job.asset_layer.executable_asset_keys}
@@ -310,8 +342,8 @@ class TestSilkeborgDataSchedule:
             assert key not in ifdb_keys, f"{key} still runs with the IFDB job"
 
     def test_schedule_drives_that_job_daily(self):
-        schedule = defs.resolve_schedule_def("silkeborgdata_daily_job_schedule")
-        assert schedule.job_name == "silkeborgdata_daily_job"
+        schedule = defs.resolve_schedule_def("practitioner_daily_job_schedule")
+        assert schedule.job_name == "practitioner_daily_job"
         assert schedule.cron_schedule == "0 10 * * *"
 
 
@@ -361,8 +393,7 @@ class TestArchiveAssetChecks:
 class TestCheckpointKeys:
     """The fhir_server checkpoint names the SOURCE, not just the resource type.
 
-    Limitation #1 says IFDB staff must not be mapped "right now" — i.e. a second
-    Practitioner producer is already on the table. Two producers sharing one
+    EPJI is a second Practitioner producer. Two producers sharing one
     meta.DFMState row move each other's delta window, and the fix is only free
     before go-live: afterwards it needs a migration AND a full_load, because an
     unknown key reads as "never ran" and reloads the whole history.
@@ -379,6 +410,7 @@ class TestCheckpointKeys:
                 "DSA.FHIR.Practitioner.PractitionerRole_SilkeborgData_dfm",
                 "PractitionerRole_SilkeborgData",
             ),
+            ("DSA.FHIR.Practitioner.Practitioner_EPJI_dfm", "Practitioner_EPJI"),
         ],
     )
     def test_fhir_server_checkpoint_is_source_specific(self, module, expected):

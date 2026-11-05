@@ -14,8 +14,8 @@ authoritative regardless of cadence (decision B6/B7). The
 share keeps only ~3 months, so a delayed run is a real loss — hence the
 staleness alarm.
 
-The share is a read-only CIFS mount located through UDREDNINGSRET_BASE_DIR —
-resolved per run, and an unset variable is a hard error, never a fallback (an
+The share is a read-only CIFS mount, the ``udredningsret_share`` resource bound to
+UDREDNINGSRET_BASE_DIR — an unset variable is a hard error, never a fallback (an
 unmounted share and "no new deliveries" must not look alike).
 
 DELIVERY DETECTION (delivery-detection pattern, level 1): the extract reads NOTHING when
@@ -56,10 +56,9 @@ from typing import TypedDict
 import dagster as dg
 from core.dfm_manager import DfmManager
 from core.dfm_source import share_connection
-from core.resources import MSSQLResource
+from core.file_delivery import DELIMITER, iter_members, open_member_csv
+from core.resources import FileShareResource, MSSQLResource
 from DSI.csv_files._sds_tar import (
-    DEFAULT_ENCODING,
-    DELIMITER,
     INSERT_CHUNK_SIZE,
     ExtWriter,
     dataset_prefix,
@@ -67,14 +66,10 @@ from DSI.csv_files._sds_tar import (
     export_log_deviations,
     ext_create_sql,
     has_mojibake,
-    iter_members,
-    open_member_csv,
     parse_archive_timestamp,
     parse_export_log,
     run_writers,
     schema_drift,
-    source_dir,
-    source_encoding,
 )
 from DSI.csv_files.udredningsret_datasets import (
     DATASET_PREFIX,
@@ -87,10 +82,6 @@ from DSI.csv_files.udredningsret_datasets import (
     UdredningsretDataset,
 )
 from pydantic import Field
-
-# Injected by the Nomad job that mounts the share. Points at /mnt/ftproot/Udredningsret.
-BASE_DIR_ENV = "UDREDNINGSRET_BASE_DIR"
-ENCODING_ENV = "UDREDNINGSRET_FILE_ENCODING"
 
 KADENCE_COLUMN = "kadence"
 TIMESTAMP_COLUMN = "leverance_tidsstempel"
@@ -126,34 +117,6 @@ _CPR_RE = re.compile(r"^\d{10}$")
 _ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
-def udredningsret_dir(override: str | None = None) -> str:
-    """The mounted delivery folder, or a hard failure.
-
-    Resolved per run: the mount follows the allocation, not the code, and an
-    unset variable must never fall back to a plausible-looking local path.
-
-    ``override`` is an EXPLICIT per-run operator input (run config, see
-    ``UdredningsretExtractConfig.base_dir``) for allocations whose environment
-    does not carry the variable yet — a branch code-server before the
-    acr-watcher registration. It is validated exactly like the variable and
-    never defaulted: a scheduled run passes None and fails hard when unset.
-    """
-    return source_dir(
-        BASE_DIR_ENV,
-        hint_unset=(
-            "The share is mounted per code-server — the variable is registered on the "
-            "acr-watcher (and the branch slug in SMB_SHARE_BRANCHES) before the "
-            "code-server gets /mnt/ftproot."
-        ),
-        hint_not_dir="The CIFS share is probably not mounted in this allocation.",
-        override=override,
-    )
-
-
-def udredningsret_encoding() -> str:
-    return source_encoding(ENCODING_ENV, DEFAULT_ENCODING)
-
-
 @dataclass(frozen=True)
 class UdredningsretArchiveFile:
     """One tar.bz2 delivery on the share."""
@@ -176,19 +139,7 @@ class UdredningsretArchiveFile:
         return self.timestamp.isoformat(timespec="seconds")
 
 
-class UdredningsretDirConfig(dg.Config):
-    base_dir: str | None = Field(
-        default=None,
-        description=(
-            f"Explicit override of the delivery folder for THIS run only, used where the "
-            f"allocation's environment does not carry {BASE_DIR_ENV} yet (a branch "
-            f"code-server before acr-watcher registration). Validated as a directory like "
-            f"the variable; never a default — scheduled runs leave it unset."
-        ),
-    )
-
-
-class UdredningsretExtractConfig(UdredningsretDirConfig):
+class UdredningsretExtractConfig(dg.Config):
     delivery_on_or_before: str | None = Field(
         default=None,
         description=(
@@ -615,12 +566,11 @@ def write_manifest(
 def _run_extract(
     context: dg.AssetExecutionContext,
     mssql: MSSQLResource,
+    share: FileShareResource,
     config: UdredningsretExtractConfig,
 ) -> dg.MaterializeResult:
-    if config.base_dir:
-        context.log.warning(f"{BASE_DIR_ENV} overridden by run config: {config.base_dir!r}")
-    root = udredningsret_dir(config.base_dir)
-    encoding = udredningsret_encoding()
+    root = share.root()
+    encoding = share.encoding
     on_or_before = None
     if config.delivery_on_or_before:
         on_or_before = date.fromisoformat(config.delivery_on_or_before)
@@ -731,9 +681,10 @@ def _run_extract(
 def ext_udredningsret(
     context: dg.AssetExecutionContext,
     mssql_target_staging: MSSQLResource,
+    udredningsret_share: FileShareResource,
     config: UdredningsretExtractConfig,
 ) -> dg.MaterializeResult:
-    return _run_extract(context, mssql_target_staging, config)
+    return _run_extract(context, mssql_target_staging, udredningsret_share, config)
 
 
 @dg.asset(
@@ -749,11 +700,9 @@ def ext_udredningsret(
     ),
 )
 def udredningsret_leverance_alder(
-    context: dg.AssetExecutionContext, config: UdredningsretDirConfig
+    context: dg.AssetExecutionContext, udredningsret_share: FileShareResource
 ) -> dg.MaterializeResult:
-    if config.base_dir:
-        context.log.warning(f"{BASE_DIR_ENV} overridden by run config: {config.base_dir!r}")
-    root = udredningsret_dir(config.base_dir)
+    root = udredningsret_share.root()
     archives = discover_archives(root)
     if not archives:
         raise ValueError(f"No udredningsret deliveries found in {root} — is the share mounted?")
@@ -772,11 +721,9 @@ def udredningsret_leverance_alder(
 udredningsret_extract_assets = [ext_udredningsret, udredningsret_leverance_alder]
 
 __all__ = [
-    "BASE_DIR_ENV",
     "DELIVERY_UNIT",
     "MANIFEST_TABLE",
     "UdredningsretArchiveFile",
-    "UdredningsretDirConfig",
     "UdredningsretExtractConfig",
     "check_delivery_age",
     "discover_archives",

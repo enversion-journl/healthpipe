@@ -27,7 +27,7 @@ from core.fhir.deletion import mark_resources_deleted
 from core.resources import FHIRDatabaseResource, IFDBOracleResource
 from data_quality.models import DeletedResourceCheckConfig
 from DSA.FHIR.Patient.patient_service import mark_deleted
-from DSI.oracle import ENCOUNTER_CONFIG, EPISODE_OF_CARE_CONFIG, PATIENT_CONFIG
+from DSI.oracle.ifdb import ENCOUNTER_CONFIG, EPISODE_OF_CARE_CONFIG, PATIENT_CONFIG
 from utils.fhir.identifier_systems import (
     SYSTEM_IFDB_EPISODE_OF_CARE_ID,
     SYSTEM_IFDB_OBJECT_ID,

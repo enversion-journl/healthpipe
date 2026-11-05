@@ -12,7 +12,3 @@ which syncs to our own DSO database. Each subpackage owns one recipient.
 
 - os2mo/: codesystems (SOR, Okosted, ...) to Magenta's OS2mo, as CSV files
 """
-
-from DSO.export.os2mo import os2mo_export_assets
-
-__all__ = ["os2mo_export_assets"]

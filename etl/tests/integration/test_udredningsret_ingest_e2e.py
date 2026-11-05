@@ -60,6 +60,7 @@ from datetime import datetime
 import dagster as dg
 import pytest
 from core.dfm_manager import DfmManager
+from core.resources import FileShareResource
 from DSI.csv_files import udredningsret, udredningsret_archive
 from DSI.csv_files.udredningsret_datasets import DATASETS, LEVERANCEINFO, UDREDNINGSRET_MONT
 
@@ -455,11 +456,11 @@ def udred_db(real_mssql_target_staging_resource):
     return resource
 
 
-def run_extract(resource, base_dir, monkeypatch, on_or_before: str | None = None):
-    monkeypatch.setenv(udredningsret.BASE_DIR_ENV, str(base_dir))
+def run_extract(resource, base_dir, on_or_before: str | None = None):
     context = dg.build_asset_context()
     config = udredningsret.UdredningsretExtractConfig(delivery_on_or_before=on_or_before)
-    return udredningsret._run_extract(context, resource, config)
+    share = FileShareResource(base_dir=str(base_dir))
+    return udredningsret._run_extract(context, resource, share, config)
 
 
 def run_archive(resource):
@@ -500,12 +501,10 @@ KEY_TABLE_EXISTS = "SELECT COUNT(*) FROM sys.objects WHERE object_id = OBJECT_ID
 MANIFEST_ROWS = f"SELECT COUNT(*) FROM ext.{udredningsret.MANIFEST_TABLE}"
 
 
-def test_1_foerste_leverance_faar_forretningsnoegler_og_checkpoint(
-    udred_db, delivery_dir, monkeypatch
-):
+def test_1_foerste_leverance_faar_forretningsnoegler_og_checkpoint(udred_db, delivery_dir):
     assert checkpoint(udred_db) is None
     build_delivery(delivery_dir, A_FILE, "20260830", "2026-08-30", rows_a())
-    result = run_extract(udred_db, delivery_dir, monkeypatch)
+    result = run_extract(udred_db, delivery_dir)
     assert result.metadata["besluttet"] == "indlaest"
     assert result.metadata["checkpoint_foer"] == "ingen (foerste indlaesning)"
     assert scalar(udred_db, "SELECT COUNT(*) FROM ext.udredningsret_mont") == 9
@@ -591,7 +590,7 @@ def test_1_foerste_leverance_faar_forretningsnoegler_og_checkpoint(
     assert checkpoint(udred_db) == A_ID
 
 
-def test_2_omnummerering_og_genudstedelse_bevarer_noeglerne(udred_db, delivery_dir, monkeypatch):
+def test_2_omnummerering_og_genudstedelse_bevarer_noeglerne(udred_db, delivery_dir):
     before = {
         r[0]: (r[1], r[2])
         for r in rows(
@@ -612,7 +611,7 @@ def test_2_omnummerering_og_genudstedelse_bevarer_noeglerne(udred_db, delivery_d
     )
 
     build_delivery(delivery_dir, B_FILE, "20260906", "2026-09-06", rows_b())
-    extract = run_extract(udred_db, delivery_dir, monkeypatch)
+    extract = run_extract(udred_db, delivery_dir)
     assert extract.metadata["checkpoint_foer"] == A_ID
     assert extract.metadata["kandidater"] == 1  # only B is newer than the checkpoint
     result = run_archive(udred_db)
@@ -725,7 +724,7 @@ def test_2_omnummerering_og_genudstedelse_bevarer_noeglerne(udred_db, delivery_d
     assert checkpoint(udred_db) == B_ID
 
 
-def test_3_koersel_uden_ny_fil_laeser_intet(udred_db, delivery_dir, monkeypatch):
+def test_3_koersel_uden_ny_fil_laeser_intet(udred_db, delivery_dir):
     """Delivery detection: same files on the share, checkpoint at B -> extract is a declared
     no-op (empty manifest, ext untouched), archive and gate short-circuit."""
     snapshot_sql = (
@@ -737,7 +736,7 @@ def test_3_koersel_uden_ny_fil_laeser_intet(udred_db, delivery_dir, monkeypatch)
         udred_db, "SELECT COUNT(*), MAX(dw_timestamp_insert) FROM ext.udredningsret_mont"
     )[0]
 
-    extract = run_extract(udred_db, delivery_dir, monkeypatch)
+    extract = run_extract(udred_db, delivery_dir)
     assert extract.metadata["besluttet"].startswith("ingen ny leverance")
     assert extract.metadata["kandidater"] == 0
     assert scalar(udred_db, MANIFEST_ROWS) == 0
@@ -758,7 +757,7 @@ def test_3_koersel_uden_ny_fil_laeser_intet(udred_db, delivery_dir, monkeypatch)
     assert checkpoint(udred_db) == B_ID
 
 
-def test_3b_genkoersel_efter_checkpoint_reset_er_idempotent(udred_db, delivery_dir, monkeypatch):
+def test_3b_genkoersel_efter_checkpoint_reset_er_idempotent(udred_db, delivery_dir):
     """The same delivery again (checkpoint deliberately reset to A): nothing is touched in
     arc — verified in the table, not only in the counters."""
     DfmManager(udred_db, dg.build_asset_context()).set_checkpoint("dfm", UNIT, value=A_ID)
@@ -767,7 +766,7 @@ def test_3b_genkoersel_efter_checkpoint_reset_er_idempotent(udred_db, delivery_d
         "MAX(CAST(leverance_dato AS NVARCHAR(10))) FROM arc.udredningsret_mont"
     )
     before = rows(udred_db, snapshot_sql)[0]
-    extract = run_extract(udred_db, delivery_dir, monkeypatch)
+    extract = run_extract(udred_db, delivery_dir)
     assert extract.metadata["besluttet"] == "indlaest"
     assert extract.metadata["leverance"]["fil"] == B_FILE
     result = run_archive(udred_db)
@@ -781,10 +780,10 @@ def test_3b_genkoersel_efter_checkpoint_reset_er_idempotent(udred_db, delivery_d
     assert checkpoint(udred_db) == B_ID
 
 
-def test_4_foerste_markoer_skifter(udred_db, delivery_dir, monkeypatch):
+def test_4_foerste_markoer_skifter(udred_db, delivery_dir):
     """HF2 gets a new, earlier first marker -> 2 of 3 keys recovered, the old row is soft-deleted."""
     build_delivery(delivery_dir, C_FILE, "20260911", "2026-09-11", rows_c())
-    run_extract(udred_db, delivery_dir, monkeypatch)
+    run_extract(udred_db, delivery_dir)
     result = run_archive(udred_db)
     assert result.metadata["helbredsforloeb_genfindelse"]["genfundet"] == 2
     assert result.metadata["rows_soft_deleted"] == 1
@@ -801,10 +800,10 @@ def test_4_foerste_markoer_skifter(udred_db, delivery_dir, monkeypatch):
     assert checkpoint(udred_db) == C_ID
 
 
-def test_5_retningsguard_og_pin(udred_db, delivery_dir, monkeypatch):
+def test_5_retningsguard_og_pin(udred_db, delivery_dir):
     """Delivery A (LPR 2026-08-30) must not be merged on top of the archive at 2026-09-11.
     The pin bypasses the checkpoint (A is older than C) and never advances it."""
-    extract = run_extract(udred_db, delivery_dir, monkeypatch, on_or_before="2026-08-31")
+    extract = run_extract(udred_db, delivery_dir, on_or_before="2026-08-31")
     assert "pin" in extract.metadata["besluttet"]
     assert (
         scalar(udred_db, "SELECT LPROPDATERINGSDATO FROM ext.udredningsret_leveranceinfo")
@@ -876,7 +875,7 @@ def _nulstil_stempler(resource) -> None:
 
 
 def test_6_udspaltning_af_en_f_id_gruppe_bumper_kun_det_omgrupperede_helbredsforloeb(
-    udred_db, delivery_dir, monkeypatch
+    udred_db, delivery_dir
 ):
     """U15: SDS moves markers between F_ID groups inside ONE helbredsforloeb and changes
     nothing else. Every change-detect column is byte-identical, so the merge reports
@@ -895,7 +894,7 @@ def test_6_udspaltning_af_en_f_id_gruppe_bumper_kun_det_omgrupperede_helbredsfor
     _nulstil_stempler(udred_db)
 
     build_delivery(delivery_dir, D_FILE, "20260918", "2026-09-18", rows_d())
-    extract = run_extract(udred_db, delivery_dir, monkeypatch)
+    extract = run_extract(udred_db, delivery_dir)
     assert extract.metadata["kandidater"] == 1
     result = run_archive(udred_db)
 
@@ -943,7 +942,7 @@ def test_6_udspaltning_af_en_f_id_gruppe_bumper_kun_det_omgrupperede_helbredsfor
     assert checkpoint(udred_db) == D_ID
 
 
-def test_7_sammenlaegning_af_to_f_id_grupper_fanges_ogsaa(udred_db, delivery_dir, monkeypatch):
+def test_7_sammenlaegning_af_to_f_id_grupper_fanges_ogsaa(udred_db, delivery_dir):
     """The other direction, and the one only the SECOND HAVING inequality catches: HF1's
     two groups are merged back into one. |R| = |old| = 2 leaves the first inequality
     silent; only |new| = 1 differs. Again nothing else changes, and again the relabelled
@@ -955,7 +954,7 @@ def test_7_sammenlaegning_af_to_f_id_grupper_fanges_ogsaa(udred_db, delivery_dir
     _nulstil_stempler(udred_db)
 
     build_delivery(delivery_dir, E_FILE, "20260925", "2026-09-25", rows_e())
-    run_extract(udred_db, delivery_dir, monkeypatch)
+    run_extract(udred_db, delivery_dir)
     result = run_archive(udred_db)
 
     assert result.metadata["rows_inserted"] == 0
@@ -976,7 +975,7 @@ def test_7_sammenlaegning_af_to_f_id_grupper_fanges_ogsaa(udred_db, delivery_dir
 
 
 def test_8_delvist_opdateret_helbredsforloeb_er_en_ommaerkning_ikke_en_omgruppering(
-    udred_db, delivery_dir, monkeypatch
+    udred_db, delivery_dir
 ):
     """The prune, end to end — the detector's only false-positive class.
     HF1 is relabelled as a whole AND one of its markers has a real content change, so the
@@ -993,7 +992,7 @@ def test_8_delvist_opdateret_helbredsforloeb_er_en_ommaerkning_ikke_en_omgrupper
     _nulstil_stempler(udred_db)
 
     build_delivery(delivery_dir, F_FILE, "20261002", "2026-10-02", rows_f())
-    run_extract(udred_db, delivery_dir, monkeypatch)
+    run_extract(udred_db, delivery_dir)
     result = run_archive(udred_db)
 
     # the merge saw the ALDER change on exactly one row and wrote it — with its new F_ID
@@ -1026,7 +1025,7 @@ def test_8_delvist_opdateret_helbredsforloeb_er_en_ommaerkning_ikke_en_omgrupper
 # ---------------------------------------------------------------------------
 
 
-def test_9_en_hel_gruppe_der_bliver_blank_er_en_omgruppering(udred_db, delivery_dir, monkeypatch):
+def test_9_en_hel_gruppe_der_bliver_blank_er_en_omgruppering(udred_db, delivery_dir):
     """A whole F_ID group going blank is invisible to the bijection test. '#BLANK' is a
     label on both sides, but NOT a group downstream: stg.pre_Udredningsforloeb forms one
     forloeb per (helbredsforloeb, NON-BLANK F_ID) and the control total (U13) counts
@@ -1043,7 +1042,7 @@ def test_9_en_hel_gruppe_der_bliver_blank_er_en_omgruppering(udred_db, delivery_
     _nulstil_stempler(udred_db)
 
     build_delivery(delivery_dir, G_FILE, "20261009", "2026-10-09", rows_g())
-    run_extract(udred_db, delivery_dir, monkeypatch)
+    run_extract(udred_db, delivery_dir)
     result = run_archive(udred_db)
 
     # not one change-detect column differs — the merge sees nothing (U1)
@@ -1068,7 +1067,7 @@ def test_9_en_hel_gruppe_der_bliver_blank_er_en_omgruppering(udred_db, delivery_
     assert checkpoint(udred_db) == G_ID
 
 
-def test_10_blanke_markoerer_der_faar_f_id_igen_bumper_ogsaa(udred_db, delivery_dir, monkeypatch):
+def test_10_blanke_markoerer_der_faar_f_id_igen_bumper_ogsaa(udred_db, delivery_dir):
     """The other direction, and the exact blind spot: HF1's four blank markers are given
     F_ID 4002 while the two rows of 4001 stand. The pairs are (4001 -> 4001) and
     (#BLANK -> 4002), so |R| = |old| = |new| = 2 — a bijection on labels, both
@@ -1084,7 +1083,7 @@ def test_10_blanke_markoerer_der_faar_f_id_igen_bumper_ogsaa(udred_db, delivery_
     _nulstil_stempler(udred_db)
 
     build_delivery(delivery_dir, H_FILE, "20261016", "2026-10-16", rows_h())
-    run_extract(udred_db, delivery_dir, monkeypatch)
+    run_extract(udred_db, delivery_dir)
     result = run_archive(udred_db)
 
     assert result.metadata["rows_inserted"] == 0

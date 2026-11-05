@@ -24,10 +24,12 @@ from DSO.export.os2mo.source_query import (
     EXPORT_TABLE,
     EXPORT_TABLE_COLUMNS,
     _export_row_to_tuple,
+    build_code_source_query,
     build_source_query,
+    read_source_rows,
     write_export_table,
 )
-from utils.os2mo.codesystem_export import CodesystemExportSpec
+from utils.os2mo.codesystem_export import CodeSource, CodesystemExportSpec
 
 pytestmark = pytest.mark.unit
 
@@ -68,11 +70,33 @@ SOR_SPEC = _spec(
     root_code="6101000016001",
 )
 
+# Flat, and with no dates, type or flags.
+FLAT_SPEC = CodesystemExportSpec(
+    name="Flat",
+    asset_prefix="flat",
+    source_deps=("cs_flat",),
+    from_property=None,
+    to_property=None,
+)
+
+# A local stand-in for the production EAN spec: codes from the invoice archive.
+EAN_SPEC = CodesystemExportSpec(
+    name="EAN",
+    asset_prefix="ean",
+    source_deps=("cs_ean",),
+    from_property=None,
+    to_property=None,
+    code_source=CodeSource(
+        schema="arc", table="mysupply_statistic_invoice_header", column="RegningsModtagerID"
+    ),
+    display_property="participantName",
+)
+
 EXPORT_ROW = {
     "kode": "4711",
     "kode_parent": "OUH",
     "gyldig_fra": "2021-03-01",
-    "gyldig_til": "",
+    "gyldig_til": "9999-12-31",
     "navn": "Kardiologi",
     "type": "",
     "niveau": "2",
@@ -102,13 +126,53 @@ class TestSourceQuery:
         assert "[codesystem].[SORConcept] c" in sql
 
     def test_no_placeholder_survives_formatting(self):
-        for spec in (SOR_SPEC, OKOSTED_SPEC):
+        for spec in (SOR_SPEC, OKOSTED_SPEC, FLAT_SPEC):
             assert "{" not in build_source_query(spec)
+        assert "{" not in build_code_source_query(EAN_SPEC)
+
+    def test_a_spec_without_properties_selects_nulls_and_joins_nothing(self):
+        sql = build_source_query(FLAT_SPEC)
+        assert "[codesystem].[FlatConcept] c" in sql
+        assert "CAST(NULL AS NVARCHAR(500)) AS [valid_from]" in sql
+        assert "CAST(NULL AS NVARCHAR(500)) AS [valid_to]" in sql
+        for alias in ("p_from", "p_to", "p_type", "p_scope", "p_sact", "p_sdel"):
+            assert f" {alias}\n" not in sql
 
     def test_a_second_parent_edge_cannot_duplicate_a_code(self):
         sql = build_source_query(OKOSTED_SPEC)
         assert "SELECT TOP 1 hh.[parent_code]" in sql
         assert "LEFT JOIN [codesystem].[OkostedHierarchy]" not in sql
+
+
+class TestCodeSourceQuery:
+    """EAN: every invoice receiver is delivered, named from the codesystem."""
+
+    def test_the_codes_are_the_distinct_receivers_in_the_archive(self):
+        sql = build_code_source_query(EAN_SPEC)
+        assert "FROM [arc].[mysupply_statistic_invoice_header] src" in sql
+        assert "GROUP BY src.[RegningsModtagerID]" in sql
+        assert "src.[RegningsModtagerID] <> ''" in sql
+        assert "EANConcept" not in sql
+
+    def test_first_seen_is_the_earliest_archive_insert(self):
+        sql = build_code_source_query(EAN_SPEC)
+        assert "MIN(src.[dw_timestamp_insert]) AS [first_seen]" in sql
+        assert "k.[first_seen]    AS [created]" in sql
+
+    def test_the_name_is_participant_name_and_its_change_moves_updated(self):
+        sql = build_code_source_query(EAN_SPEC)
+        assert "LEFT JOIN [codesystem].[EANProperties] p_name" in sql
+        assert "p_name.[property_code] = 'participantName'" in sql
+        assert "p_name.[value] AS [display]" in sql
+        assert "(p_name.[dw_timestamp_update])) AS v(ts)) AS [updated]" in sql
+
+    def test_no_code_is_ever_gone(self):
+        assert "1 AS [has_properties]" in build_code_source_query(EAN_SPEC)
+
+    def test_the_reader_picks_the_code_source_query(self):
+        mssql, _, cursor = _mock_mssql()
+        read_source_rows(mssql, EAN_SPEC)
+        assert "[arc].[mysupply_statistic_invoice_header]" in cursor.execute.call_args.args[0]
 
 
 class TestExportTable:
@@ -117,7 +181,7 @@ class TestExportTable:
             "kode": "FER_NIVEAU_1",
             "kode_parent": "",
             "gyldig_fra": "1900-01-01",
-            "gyldig_til": "",
+            "gyldig_til": "9999-12-31",
             "navn": "Feriefond",
             "type": "juridisk enhed",
             "niveau": "1",
@@ -148,7 +212,7 @@ class TestExportTable:
         assert len(values) == len(EXPORT_TABLE_COLUMNS) + 1
         assert values[:3] == ("Okosted", "4711", "OUH")
         assert values[3] == date(2021, 3, 1)
-        assert values[4] is None  # open-ended
+        assert values[4] == date(9999, 12, 31)  # open-ended
         assert values[6] is None  # empty type becomes NULL
         assert values[7] == 2  # niveau as int
         assert values[8] == 1  # aktiv as bit

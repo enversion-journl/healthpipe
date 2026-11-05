@@ -5,7 +5,3 @@
 # root for the full AGPL-3.0 license text.
 
 """DQA reporting / overview assets."""
-
-from dqa.reporting.summary import dqa_summary
-
-__all__ = ["dqa_summary"]

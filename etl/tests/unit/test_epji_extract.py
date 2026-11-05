@@ -67,4 +67,4 @@ def test_generated_asset_name_and_deps():
     asset_def = epji_location_extract_assets[0]
     assert asset_def.key.to_user_string() == "ext_epji_location"
     dep_keys = {key.to_user_string() for key in asset_def.dependency_keys}
-    assert "staging_infra_epji_archive" in dep_keys
+    assert "staging_infra_source_epji" in dep_keys

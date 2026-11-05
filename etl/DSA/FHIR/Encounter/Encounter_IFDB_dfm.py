@@ -19,7 +19,6 @@ No Dagster partitions — checkpoint tracking replaces partition boundaries.
 """
 
 import os
-import time
 from collections import defaultdict
 from datetime import datetime
 from typing import Any
@@ -48,8 +47,6 @@ from DSA.FHIR.utils.ifdb.ward_unit_bed import (
     build_absence_extension,
     child_affected_encounter_count_sql,
     child_affected_encounter_ids_sql,
-    child_backfill_remaining_sql,
-    child_backfill_slice_sql,
 )
 from DSA.FHIR.utils.reference_resolver import ReferenceFieldConfig, ResolveValuesFn
 from DSA.FHIR.utils.status_mapping import (
@@ -62,7 +59,6 @@ from fhir.resources.R4B.extension import Extension
 from fhir.resources.R4B.identifier import Identifier
 from fhir.resources.R4B.period import Period
 from fhir.resources.R4B.reference import Reference
-from pydantic import Field
 from utils.fhir.fhir_extensions import EXTENSION_BED_SPACE_WARD_UNIT_CODE
 from utils.fhir.identifier_systems import (
     SYSTEM_IFDB_BED,
@@ -90,27 +86,9 @@ CHILD_TOUCHED_ENCOUNTERS_CEILING = int(
     os.environ.get("FHIR_ENCOUNTER_CHILD_TOUCHED_CEILING", "50000")
 )
 
-# Efterslaebet paa Encounter-berigelsen er en ENGANGSOPERATION pr. miljoe, men
-# den koeres i skiver. Fremskridtet staar i meta.DFMState som "sidste
-# behandlede OBJECT_ID" under dette navn, og saettes til DONE-sentinelen, naar
-# der ikke er mere tilbage. Derefter er koerslen en no-op, uanset hvor mange
-# gange den startes -- det er det, der goer den sikker at lade staa i en
-# runbook pr. miljoe.
-CHILD_BACKFILL_SUBJECT = "Encounter_ChildBackfill"
-CHILD_BACKFILL_DONE = "DONE"
-CHILD_BACKFILL_SLICE_DEFAULT = 25_000
-
 # Child-affected-deltaet har sit EGET vandmaerke og maaler ikke paa
-# Encounter-checkpointet. Uden det laaser de tre mekanismer hinanden: efter
-# deploy matcher child-unionen hele historikken, saa vaernet fejler den natlige
-# koersel; fordi koerslen fejler, rykker Encounter-checkpointet ikke; og
-# efterslaebet roerer hverken child-arkivernes tidsstempler eller checkpointet.
-# Vaernet ville derfor beregne det samme tal i morgen -- for evigt.
-#
-# Med et selvstaendigt vandmaerke er ansvaret delt: efterslaebet staempler det,
-# naar det er faerdigt ("child-raekker til hertil er haandteret"), og derefter
-# ser deltaet kun aegte nye child-aendringer. Det er praecis den "fremadrettede
-# berigelse", driftsnoten hele tiden har lovet.
+# Encounter-checkpointet, saa en tilbagerulning af checkpointet ikke flytter
+# vaernets tal. Delta- og full_load-koersler rykker det.
 CHILD_DELTA_WATERMARK_SUBJECT = "Encounter_ChildDelta"
 
 # Nedre graense, naar "alt" skal taelles. Arkivets dw_timestamp_update er altid
@@ -118,48 +96,6 @@ CHILD_DELTA_WATERMARK_SUBJECT = "Encounter_ChildDelta"
 _CHILD_EPOCH = "1900-01-01 00:00:00"
 
 _V3_ACT_CODE_SYSTEM = "http://terminology.hl7.org/CodeSystem/v3-ActCode"
-
-
-class EncounterDfmConfig(RunModeConfig):
-    """Encounter run config, extended with the child-affected backlog switch."""
-
-    child_affected_backfill: bool = Field(
-        default=False,
-        description=(
-            "Koer naeste skive af det historiske efterslaeb paa "
-            "Encounter-berigelsen i stedet for et delta. Engangsoperation pr. "
-            "miljoe: fremskridtet staemples i meta.DFMState, saa koerslen kan "
-            "gentages til den melder faerdig og derefter er en no-op. "
-            "Checkpointet for fhir_server.Encounter roeres ikke. Lad staa "
-            "False i planlagte koersler."
-        ),
-    )
-    child_backfill_slice: int = Field(
-        default=CHILD_BACKFILL_SLICE_DEFAULT,
-        description=(
-            "Antal kontakter pr. efterslaebs-skive. Mindre skiver giver "
-            "hyppigere staempling og dermed mindre tabt arbejde ved en afbrudt "
-            "koersel; stoerre skiver mindre overhead."
-        ),
-    )
-    child_backfill_max_slices: int = Field(
-        default=0,
-        description=(
-            "Antal skiver pr. start. 0 (standard) betyder: koer til "
-            "efterslaebet er faerdigt. Saet et tal for at afgraense koerslen, "
-            "fx til at maale varigheden af én skive foerst. Markoeren "
-            "staemples efter hver skive, saa en afbrudt koersel taber hoejst "
-            "den skive, der var i gang -- uanset loftet."
-        ),
-    )
-    child_backfill_restart: bool = Field(
-        default=False,
-        description=(
-            "Nulstil efterslaebets markoer og begynd forfra. Kun til brug hvis "
-            "efterslaebet skal koeres igen, fx efter en aendring i det, "
-            "berigelsen udsender."
-        ),
-    )
 
 
 # =============================================================================
@@ -390,10 +326,10 @@ def _transform_encounters_to_fhir(
             if not bed_id:
                 continue
 
-            bed_start_fhir = archive_datetime_to_fhir(bed_data.get("PERIOD_START_REGISTRATION"))
-            bed_end_fhir = archive_datetime_to_fhir(bed_data.get("PERIOD_END_REGISTRATION"))
             bed_start_dt = archive_datetime_to_dt(bed_data.get("PERIOD_START_REGISTRATION"))
             bed_end_dt = archive_datetime_to_dt(bed_data.get("PERIOD_END_REGISTRATION"))
+            bed_start_fhir = archive_datetime_to_fhir(bed_start_dt)
+            bed_end_fhir = archive_datetime_to_fhir(bed_end_dt)
 
             location_status = map_encounter_location_status(
                 encounter_status_text=encounter_status_text,
@@ -665,7 +601,7 @@ def _child_affected_encounter_count(checkpoint: str, mssql: MSSQLResource) -> in
 def _guard_child_affected_delta(
     context: dg.AssetExecutionContext,
     checkpoint: str | None,
-    config: EncounterDfmConfig,
+    config: RunModeConfig,
     mssql: MSSQLResource,
     child_watermark: str | None = None,
     child_watermark_mode: str | None = None,
@@ -676,8 +612,8 @@ def _guard_child_affected_delta(
     sengeophold eller fravaer er aendret efter child-vandmaerket. Uden
     vandmaerke er det hele historikken; med vandmaerke er det normalt nogle
     tusinde om dagen. Over loftet er child-arkiverne flyttet langt mere end en
-    nats churn -- typisk en genindlaesning -- og saa er det efterslaebets job,
-    ikke deltaets. Fejl tidligt med tallet og vejen videre.
+    nats churn -- typisk en genindlaesning -- og saa skal historikken tages
+    bevidst med via en nulstilling. Fejl tidligt med tallet og vejen videre.
 
     Undtagelsen er en BEVIDST nulstilling til epoken: er vandmaerket sat til
     1900 med meta.usp_dfm_reset (last_mode = 'reset'), skal hele historikken
@@ -690,9 +626,8 @@ def _guard_child_affected_delta(
     if config.mode != "delta" or not checkpoint:
         return
     if not child_watermark:
-        # Intet vandmaerke: efterslaebet er ikke afviklet, saa hele historikken
-        # staar som uhaandteret. Deltaet maa ikke tage den -- det er hele
-        # grunden til, at efterslaebet er en selvstaendig operation.
+        # Intet vandmaerke: hele historikken staar som uhaandteret, og deltaet
+        # maa ikke tage den.
         samlet = _child_affected_encounter_count(_CHILD_EPOCH, mssql)
         raise dg.Failure(
             description=(
@@ -754,7 +689,7 @@ def _er_epoke(vaerdi: str | None) -> bool:
 
 
 def _skal_rykke_child_vandmaerke(
-    config: EncounterDfmConfig, total_fetched: int, child_watermark_mode: str | None
+    config: RunModeConfig, total_fetched: int, child_watermark_mode: str | None
 ) -> bool:
     """Maa child-vandmaerket rykke efter denne koersel?
 
@@ -796,74 +731,6 @@ def _child_watermark_mode(mssql: MSSQLResource) -> str | None:
     return str(row[0]) if row and row[0] is not None else None
 
 
-def _scalar(mssql: MSSQLResource, sql: str) -> Any:
-    with mssql.get_connection() as conn:
-        cursor = conn.cursor()
-        try:
-            cursor.execute(sql)
-            row = cursor.fetchone()
-            return row[0] if row else None
-        finally:
-            cursor.close()
-
-
-def _child_backfill_marker(mssql: MSSQLResource) -> tuple[str, str | None]:
-    """Efterslaebets tilstand i dette miljoe: (status, markoerens vaerdi).
-
-    DfmManager.get_checkpoint kan ikke skelne "raekken findes ikke" fra
-    "raekken findes med NULL", og forskellen er hele pointen her: raekken
-    indsaettes af migrationen 20260911_fhir_encounter_child_backfill, saa dens
-    tilstedevaerelse ER miljoeets svar paa "skal efterslaebet koeres her?".
-    Findes den ikke, er migrationen ikke anvendt, og saa skal koerslen ikke
-    gaette sig til et ja.
-
-    Status er "ikke_armeret" | "afventer" | "undervejs" | "afviklet".
-    """
-    sql = (
-        "SELECT [checkpoint_value] FROM [meta].[DFMState] "
-        "WHERE [scope] = 'staging' AND [target_type] = 'fhir_resource' "
-        "AND [schema_name] = 'fhir_server' AND [table_name] = ?"
-    )
-    with mssql.get_connection() as conn:
-        cursor = conn.cursor()
-        try:
-            cursor.execute(sql, (CHILD_BACKFILL_SUBJECT,))
-            row = cursor.fetchone()
-        finally:
-            cursor.close()
-    if row is None:
-        return "ikke_armeret", None
-    value = row[0]
-    if value is None or str(value).strip() == "":
-        return "afventer", None
-    if str(value) == CHILD_BACKFILL_DONE:
-        return "afviklet", CHILD_BACKFILL_DONE
-    return "undervejs", str(value)
-
-
-def _child_backfill_slice_ids(
-    mssql: MSSQLResource, cursor_value: str | None, slice_size: int
-) -> list[str]:
-    """OBJECT_ID'erne i naeste skive, i noeglerraekkefoelge."""
-    with mssql.get_connection() as conn:
-        cursor = conn.cursor()
-        try:
-            cursor.execute(child_backfill_slice_sql(cursor_value, slice_size))
-            return [str(row[0]) for row in cursor.fetchall() if row and row[0] is not None]
-        finally:
-            cursor.close()
-
-
-def _build_child_backfill_query(object_ids: list[str]) -> str:
-    """Hent netop skivens kontakter fra arkivet, slettede inkluderet.
-
-    include_deleted=True af samme grund som deltaet: en soft-slettet kontakt
-    skal stadig tomb-stones, ikke udelades.
-    """
-    escaped = ", ".join("'" + oid.replace("'", "''") + "'" for oid in object_ids)
-    return "SELECT * FROM [arc].[ifdb_encounter] " f"WHERE 1=1 AND [OBJECT_ID] IN ({escaped})"
-
-
 def _build_encounter_query(
     checkpoint: str | None,
     config: RunModeConfig,
@@ -879,10 +746,9 @@ def _build_encounter_query(
 
     In delta mode the query also unions OBJECT_IDs from bed-space history and
     absence whose archive timestamp moved — "berørte kontakter". Den union
-    måler på ``child_watermark``, IKKE på Encounter-checkpointet: efterslæbet
-    stempler vandmærket, når det er afviklet, og først derfra er child-deltaet
-    fremadrettet. Er vandmærket ikke sat, matcher unionen hele historikken —
-    og det er netop det, ``_guard_child_affected_delta`` afviser. The LOCATION
+    måler på ``child_watermark``, IKKE på Encounter-checkpointet. Er vandmærket
+    ikke sat, falder unionen bort, og ``_guard_child_affected_delta`` afviser
+    deltaet, før forespørgslen køres. The LOCATION
     child-delta hole is left as a separate task.
     """
     child_predicate = None
@@ -897,156 +763,6 @@ def _build_encounter_query(
     )
 
 
-def _run_child_backfill(
-    *,
-    context: dg.AssetExecutionContext,
-    dfm: DfmManager,
-    config: "EncounterDfmConfig",
-    mssql: MSSQLResource,
-    fhir_database: FHIRDatabaseResource,
-    patient_cpr_fallback: Any,
-) -> dict[str, Any]:
-    """Afvikl efterslaebet, skive for skive, til det er faerdigt.
-
-    Én start skal kunne koere det hele: en runbook, der siger "start den 37
-    gange", bliver ikke fulgt korrekt klokken to om natten.
-    ``child_backfill_max_slices`` afgraenser koerslen, hvis man vil maale én
-    skive foerst; 0 betyder "koer til faerdig".
-
-    Markoeren staemples efter HVER skive, ikke til sidst. Et nedbrud midtvejs
-    koster derfor hoejst den skive, der var i gang -- uanset om koerslen tog
-    én skive eller alle.
-    """
-    if config.mode in ("ids", "period"):
-        raise dg.Failure(
-            description=(
-                f"child_affected_backfill kan ikke kombineres med mode={config.mode!r}. "
-                "Efterslaebet vaelger selv sine noegler ud fra markoeren i "
-                "meta.DFMState, saa mode-filtrene bliver aldrig laest. Start "
-                "koerslen med child_affected_backfill=True alene."
-            )
-        )
-
-    if config.child_backfill_restart:
-        # Eksplicit NULL. set_checkpoint(value=None) betyder "nu" (SYSDATETIME)
-        # og efterlod et tidsstempel som markoer, saa gennemloebet begyndte
-        # midt i noegleordningen (efter '2026-...') i stedet for forfra.
-        dfm.clear_checkpoint("fhir_server", CHILD_BACKFILL_SUBJECT, mode="ids")
-        context.log.warning("Efterslaebets markoer nulstillet -- begynder forfra")
-
-    status, cursor_value = _child_backfill_marker(mssql)
-    if status == "ikke_armeret":
-        raise dg.Failure(
-            description=(
-                "Efterslaebet er ikke armeret i dette miljoe: der er ingen "
-                f"{CHILD_BACKFILL_SUBJECT}-raekke i meta.DFMState. Den indsaettes af "
-                "migrationen 20260911_fhir_encounter_child_backfill, som koeres af "
-                "staging_migrations ved deploy. Anvend migrationen foerst -- saa er "
-                "det migrationshistorikken, og ikke en manuel beslutning, der "
-                "afgoer, om miljoeet skal have efterslaebet."
-            )
-        )
-    if status == "afviklet":
-        context.log.info("Efterslaebet er allerede afviklet i dette miljoe. Koerslen er en no-op.")
-        return {"backfill_status": "allerede afviklet", "posted_count": 0, "fetched_count": 0}
-
-    # Vandmaerket tages FOER foerste skive -- ikke efter sidste. Markoeren
-    # vandrer i OBJECT_ID-raekkefoelge; bliver en child-raekke for en noegle,
-    # markoeren allerede er passeret, aendret mens efterslaebet koerer (fx af
-    # den natlige arkivkoersel), saa saa efterslaebet den ikke. Et vandmaerke
-    # taget ved afslutningen (T1) ville lade naeste delta se kun > T1, og
-    # aendringen var tabt. Taget ved starten (T0) matcher deltaet stadig kun
-    # aegte nye aendringer -- arkivets bulk-load ligger foer T0 -- men uden hul.
-    # Sidegevinst: deltaet er IKKE spaerret, mens efterslaebet koerer.
-    #
-    # "Hvis ikke sat": et forudgaaende full_load kan have sat det tidligere,
-    # og det er fint (en delmaengde mere at se paa, aldrig en mindre). Og en
-    # genoptaget koersel maa ikke flytte det frem -- saa var hullet tilbage.
-    if not dfm.get_checkpoint("fhir_server", CHILD_DELTA_WATERMARK_SUBJECT):
-        t0 = _scalar(mssql, "SELECT CONVERT(NVARCHAR(50), SYSDATETIME(), 121)")
-        if t0:
-            dfm.set_checkpoint(
-                "fhir_server", CHILD_DELTA_WATERMARK_SUBJECT, value=str(t0), mode="ids"
-            )
-            context.log.info(
-                f"Child-deltaets vandmaerke sat til {t0!r} ved efterslaebets start. "
-                "Den natlige delta ser herfra kun aendringer efter dette tidspunkt "
-                "og er ikke spaerret, mens efterslaebet koerer."
-            )
-
-    resterende_ved_start = int(_scalar(mssql, child_backfill_remaining_sql(cursor_value)) or 0)
-    loft = config.child_backfill_max_slices
-    context.log.info(
-        f"Efterslaeb starter: {resterende_ved_start:,} kontakter tilbage, "
-        f"skive={config.child_backfill_slice}, "
-        f"loft={'ingen (koerer til faerdig)' if loft < 1 else loft}"
-    )
-
-    skiver = 0
-    i_alt_posted = 0
-    i_alt_hentet = 0
-    sidste_cursor = cursor_value
-    start = time.monotonic()
-
-    while loft < 1 or skiver < loft:
-        ids = _child_backfill_slice_ids(mssql, sidste_cursor, config.child_backfill_slice)
-        if not ids:
-            # Kun DONE her. Vandmaerket blev sat ved starten og er maaske
-            # allerede rykket videre af natlige delta-koersler undervejs; det
-            # maa ikke saettes tilbage eller frem nu.
-            dfm.set_checkpoint(
-                "fhir_server", CHILD_BACKFILL_SUBJECT, value=CHILD_BACKFILL_DONE, mode="ids"
-            )
-            minutter = (time.monotonic() - start) / 60
-            context.log.info(
-                f"Efterslaebet er faerdigt: {i_alt_posted:,} kontakter re-emitteret i "
-                f"{skiver} skiver paa {minutter:.1f} min. Markoeren er staemplet "
-                f"{CHILD_BACKFILL_DONE}; fremtidige koersler er no-ops."
-            )
-            return {
-                "backfill_status": "faerdig",
-                "backfill_skiver": skiver,
-                "backfill_minutter": round(minutter, 1),
-                "posted_count": i_alt_posted,
-                "fetched_count": i_alt_hentet,
-            }
-
-        skive_start = time.monotonic()
-        hentet, posted, _, _ = _process_encounter_query(
-            query=_build_child_backfill_query(ids),
-            context=context,
-            mssql=mssql,
-            fhir_database=fhir_database,
-            patient_cpr_fallback=patient_cpr_fallback,
-        )
-        dfm.set_checkpoint("fhir_server", CHILD_BACKFILL_SUBJECT, value=ids[-1], mode="ids")
-
-        skiver += 1
-        i_alt_posted += posted
-        i_alt_hentet += hentet
-        sidste_cursor = ids[-1]
-        resterende = max(resterende_ved_start - i_alt_hentet, 0)
-        context.log.info(
-            f"Skive {skiver}: {posted} posted paa "
-            f"{time.monotonic() - skive_start:.0f}s, ca. {resterende:,} tilbage"
-        )
-
-    minutter = (time.monotonic() - start) / 60
-    context.log.info(
-        f"Loftet paa {loft} skiver er naaet: {i_alt_posted:,} kontakter re-emitteret paa "
-        f"{minutter:.1f} min. Start igen for at fortsaette."
-    )
-    return {
-        "backfill_status": "loft naaet",
-        "backfill_skiver": skiver,
-        "backfill_minutter": round(minutter, 1),
-        "backfill_cursor_til": sidste_cursor or "(start)",
-        "backfill_resterende": max(resterende_ved_start - i_alt_hentet, 0),
-        "posted_count": i_alt_posted,
-        "fetched_count": i_alt_hentet,
-    }
-
-
 def _process_encounter_query(
     *,
     query: str,
@@ -1057,10 +773,7 @@ def _process_encounter_query(
 ) -> tuple[int, int, int, int]:
     """Koer én forespoergsel igennem transform og post, batch for batch.
 
-    Udtrukket af assetet, fordi efterslaebet koerer den samme behandling én
-    gang pr. skive. Returnerer (hentet, posted, batches, stoerste
-    fravaersliste) -- taellere assetets metadata samler op paa tvaers af
-    skiver.
+    Returnerer (hentet, posted, batches, stoerste fravaersliste).
     """
     total_fetched = 0
     total_posted = 0
@@ -1148,7 +861,7 @@ def fhir_server_encounter_dfm(
     context: dg.AssetExecutionContext,
     mssql_target_staging: MSSQLResource,
     fhir_database: FHIRDatabaseResource,
-    config: EncounterDfmConfig,
+    config: RunModeConfig,
 ) -> dg.MaterializeResult:
     """Batched fetch → transform → post for Encounter resources (DFM)."""
     dfm = DfmManager(mssql_target_staging, context)
@@ -1165,31 +878,6 @@ def fhir_server_encounter_dfm(
     patient_cpr_fallback = build_patient_cpr_fallback(mssql_target_staging, fhir_database)
 
     try:
-        # ----------------------------------------------------------------
-        # Efterslaebet: engangsoperation pr. miljoe, koert i skiver.
-        # ----------------------------------------------------------------
-        if config.child_affected_backfill:
-            # ----------------------------------------------------------------
-            # Efterslaebet: engangsoperation pr. miljoe, koert i skiver.
-            # Standard er at koere til den er faerdig -- én start, ikke 37.
-            # Markoeren staemples efter HVER skive, saa et nedbrud midtvejs
-            # hoejst koster den skive, der var i gang.
-            # ----------------------------------------------------------------
-            resultat = _run_child_backfill(
-                context=context,
-                dfm=dfm,
-                config=config,
-                mssql=mssql_target_staging,
-                fhir_database=fhir_database,
-                patient_cpr_fallback=patient_cpr_fallback,
-            )
-            dfm.complete_dfm_run(
-                run_ctx.log_id,
-                checkpoint_after=None,
-                rows_affected=int(resultat.get("posted_count", 0)),
-            )
-            return dg.MaterializeResult(metadata=resultat)
-
         child_watermark = dfm.get_checkpoint("fhir_server", CHILD_DELTA_WATERMARK_SUBJECT)
         child_watermark_mode = (
             _child_watermark_mode(mssql_target_staging) if child_watermark else None

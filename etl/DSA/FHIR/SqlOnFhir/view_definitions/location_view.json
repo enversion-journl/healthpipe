@@ -16,7 +16,10 @@
         {"name": "type_code", "path": "type.coding.code.first()"},
         {"name": "type_display", "path": "type.coding.display.first()"},
         {"name": "managing_organization_id", "path": "managingOrganization.id"},
-        {"name": "identifier_value_sor", "path": "identifier.where(system='https://sundhedsdatastyrelsen.dk/sor').value.first()"}
+        {"name": "identifier_value_sor", "path": "identifier.where(system='https://sundhedsdatastyrelsen.dk/sor').value.first()"},
+        {"name": "meta_source", "path": "meta.source"},
+        {"name": "source_bom_ifdb", "path": "meta.tag.where(system='http://example.org/fhir/CodeSystem/kilde' and code='BOM_IFDB').exists()"},
+        {"name": "source_ifdb", "path": "meta.tag.where(system='http://example.org/fhir/CodeSystem/kilde' and code='IFDB').exists()"}
       ]
     }
   ]

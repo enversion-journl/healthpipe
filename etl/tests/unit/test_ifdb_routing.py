@@ -37,7 +37,6 @@ from DSA.FHIR.utils.ifdb.routing import (
     load_routing_rules,
     load_routing_rules_from_db,
     load_routing_rules_from_yaml,
-    resolve_ifdb_target_resource,
 )
 
 pytestmark = pytest.mark.unit
@@ -360,48 +359,6 @@ class TestYamlSeedLoading:
 
 
 # ---------------------------------------------------------------------------
-# Test: Convenience function (public contract)
-# ---------------------------------------------------------------------------
-
-
-class TestResolveIfdbTargetResource:
-    def test_returns_observation_string(self) -> None:
-        rules = [_rule(kode="X", target="Observation")]
-        result = resolve_ifdb_target_resource("X", occurred_at=date(2026, 6, 1), rules=rules)
-        assert result == "Observation"
-
-    def test_returns_questionnaire_response_string(self) -> None:
-        rules = [_rule(kode="Y", target="QuestionnaireResponse", category=None)]
-        result = resolve_ifdb_target_resource("Y", occurred_at=date(2026, 6, 1), rules=rules)
-        assert result == "QuestionnaireResponse"
-
-    def test_accepts_modelleringsnavn_for_forward_compat(self) -> None:
-        rules = [_rule(kode="X")]
-        result = resolve_ifdb_target_resource(
-            "X",
-            modelleringsnavn="SomeModel",
-            modelleringsversion="1.0",
-            occurred_at=date(2026, 6, 1),
-            rules=rules,
-        )
-        assert result == "Observation"
-
-    def test_missing_route_raises(self) -> None:
-        rules = [_rule(kode="X")]
-        with pytest.raises(NoActiveRouteError):
-            resolve_ifdb_target_resource("Unknown", occurred_at=date(2026, 6, 1), rules=rules)
-
-    def test_review_route_never_resolves(self) -> None:
-        rules = [_rule(kode="X", status="review")]
-        with pytest.raises(NoActiveRouteError):
-            resolve_ifdb_target_resource(
-                "X",
-                occurred_at=date(2026, 6, 1),
-                rules=rules,
-            )
-
-
-# ---------------------------------------------------------------------------
 # Test: Enum values
 # ---------------------------------------------------------------------------
 
@@ -415,41 +372,6 @@ class TestEnums:
         assert RouteStatus.ACTIVE.value == "active"
         assert RouteStatus.INACTIVE.value == "inactive"
         assert RouteStatus.REVIEW.value == "review"
-
-
-# ---------------------------------------------------------------------------
-# Test: Unrouted codes helper
-# ---------------------------------------------------------------------------
-
-
-class TestUnroutedCodes:
-    def test_all_codes_routed(self) -> None:
-        rules = [
-            _rule(kode="A"),
-            _rule(kode="B", target="QuestionnaireResponse", category=None),
-        ]
-        resolver = RoutingResolver(rules=rules)
-        unrouted = resolver.get_unrouted_codes(["A", "B"], ref_date=date(2026, 6, 1))
-        assert unrouted == []
-
-    def test_some_codes_unrouted(self) -> None:
-        rules = [_rule(kode="A")]
-        resolver = RoutingResolver(rules=rules)
-        unrouted = resolver.get_unrouted_codes(["A", "B", "C"], ref_date=date(2026, 6, 1))
-        assert unrouted == ["B", "C"]
-
-    def test_inactive_codes_are_unrouted(self) -> None:
-        rules = [_rule(kode="A", status="inactive")]
-        resolver = RoutingResolver(rules=rules)
-        unrouted = resolver.get_unrouted_codes(["A"], ref_date=date(2026, 6, 1))
-        assert unrouted == ["A"]
-
-    def test_review_codes_are_routed(self) -> None:
-        """Review routes count as 'covered' for audit purposes."""
-        rules = [_rule(kode="A", status="review")]
-        resolver = RoutingResolver(rules=rules)
-        unrouted = resolver.get_unrouted_codes(["A"], ref_date=date(2026, 6, 1))
-        assert unrouted == []
 
 
 # ---------------------------------------------------------------------------
@@ -469,18 +391,6 @@ class TestEdgeCases:
         resolver = RoutingResolver(rules=rules)
         result = resolver.resolve("X")
         assert result.target_resource == TargetResource.OBSERVATION
-
-    def test_get_all_active_routes(self) -> None:
-        rules = [
-            _rule(kode="A"),
-            _rule(kode="B", target="QuestionnaireResponse", category=None),
-            _rule(kode="C", status="review"),
-            _rule(kode="D", status="inactive"),
-        ]
-        resolver = RoutingResolver(rules=rules)
-        active = resolver.get_all_active_routes(ref_date=date(2026, 6, 1))
-        kodes = {r.aktivitetstype_kode for r in active}
-        assert kodes == {"A", "B"}
 
 
 # ---------------------------------------------------------------------------

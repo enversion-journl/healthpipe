@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 import pytest
-from infrastructure.assets.sfi_genkoersel_verifikation import (
+from adhoc.sfi_genkoersel_verifikation import (
     AFSTEMNINGSTABELLER,
     TJEK,
 )
@@ -63,9 +63,9 @@ def _ressource():
 def test_storens_korn_er_en_maaling_mens_refreshen_staar_paa_pause(monkeypatch, pause):
     from types import SimpleNamespace
 
+    import adhoc.sfi_genkoersel_verifikation as verifikation
     import dagster as dg
-    import infrastructure.assets.sfi_genkoersel_verifikation as verifikation
-    from infrastructure.assets.sfi_genkoersel_verifikation import sfi_genkoersel_verifikation
+    from adhoc.sfi_genkoersel_verifikation import sfi_genkoersel_verifikation
 
     since = "2026-10-27 09:00:00" if pause else None
     monkeypatch.setattr(

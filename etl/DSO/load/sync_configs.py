@@ -108,6 +108,13 @@ ERP_DIM_CONFIGS = {
         mode="watermark",
         watermark_column="dw_timestamp_update",
     ),
+    "dim_Ordre": SyncTableConfig(
+        schema="dim",
+        table="Ordre",
+        primary_key="dw_ek_Ordre",
+        mode="watermark",
+        watermark_column="dw_timestamp_update",
+    ),
     "dim_Lager": SyncTableConfig(
         schema="dim",
         table="Lager",
@@ -200,7 +207,6 @@ ERP_FCT_CONFIGS = {
         primary_key="dw_ek_Faktura",
         mode="watermark",
         watermark_column="dw_timestamp_update",
-        chunk_size=20_000,
     ),
     "fct_Fakturalinje": SyncTableConfig(
         schema="fct",
@@ -208,7 +214,6 @@ ERP_FCT_CONFIGS = {
         primary_key="dw_ek_Fakturalinje",
         mode="watermark",
         watermark_column="dw_timestamp_update",
-        chunk_size=20_000,
     ),
     "fct_Postering": SyncTableConfig(
         schema="fct",
@@ -216,7 +221,6 @@ ERP_FCT_CONFIGS = {
         primary_key="ref_ledgertrans_id",
         mode="watermark",
         watermark_column="dw_timestamp_update",
-        chunk_size=20_000,
     ),
     "fct_Finanskladdelinje": SyncTableConfig(
         schema="fct",
@@ -224,12 +228,18 @@ ERP_FCT_CONFIGS = {
         primary_key="dw_ek_Finanskladdelinje",
         mode="watermark",
         watermark_column="dw_timestamp_update",
-        chunk_size=20_000,
     ),
     "fct_Vareudlevering": SyncTableConfig(
         schema="fct",
         table="Vareudlevering",
         primary_key="dw_ek_Vareudlevering",
+        mode="watermark",
+        watermark_column="dw_timestamp_update",
+    ),
+    "fct_Ordre": SyncTableConfig(
+        schema="fct",
+        table="Ordre",
+        primary_key="dw_ek_Ordre",
         mode="watermark",
         watermark_column="dw_timestamp_update",
     ),
@@ -240,7 +250,6 @@ ERP_FCT_CONFIGS = {
         mode="watermark",
         identity_insert=True,
         watermark_column="dw_timestamp_update",
-        chunk_size=20_000,
     ),
     "fct_Lagerbeholdning": SyncTableConfig(
         schema="fct",
@@ -262,7 +271,6 @@ ERP_FCT_CONFIGS = {
         primary_key="dw_ek_Budget",
         mode="watermark",
         watermark_column="dw_timestamp_update",
-        chunk_size=20_000,
     ),
 }
 
@@ -271,9 +279,6 @@ ERP_SYNC_CONFIGS = {
     **ERP_DIM_CONFIGS,
     **ERP_FCT_CONFIGS,
 }
-
-# Backward-compatible alias used by existing integration tests and legacy call-sites.
-INDKOEB_SYNC_CONFIGS = ERP_SYNC_CONFIGS
 
 
 # =============================================================================
@@ -335,11 +340,18 @@ SHARED_DIMS_REF_CONFIGS = {
         primary_key="prrowid",
         mode="watermark",
         watermark_column="dw_timestamp_update",
-        chunk_size=20_000,
     ),
 }
 
 SHARED_DIMS_DIM_CONFIGS = {
+    # The same SHA-256 key is stored on Borger and its demographic combination.
+    "dim_BorgerDemografi": SyncTableConfig(
+        schema="dim",
+        table="BorgerDemografi",
+        primary_key="dw_ek_BorgerDemografi",
+        mode="merge",
+        insert_only_columns=["dw_timestamp_insert"],
+    ),
     # dim.Borger: Type 2 SCD. dw_sk_Borger carried from ref.Patient_Address_To_Borger
     # (no local IDENTITY), safe for MERGE.
     "dim_Borger": SyncTableConfig(
@@ -876,15 +888,16 @@ FHIR_SYNC_CONFIGS = {
         mode="watermark",
         watermark_column="dw_timestamp_update",
     ),
-    # SilkeborgData payroll staff — the one source that owns its whole chain in
-    # its own job, so its sync sits in its own group (see sync_fhir). The sync
-    # itself is source-agnostic: it copies whatever the SOF merge put in staging.
+    # Staff from SilkeborgData and EPJI. Both sources run their whole chain in
+    # practitioner_daily_job, so the sync sits in its own group (see sync_fhir). The
+    # sync is source-agnostic: it copies whatever the SOF merge put in staging.
     "fhir_practitioner": SyncTableConfig(
         schema="fhir",
         table="Practitioner",
         primary_key="practitioner_id",
         mode="watermark",
         watermark_column="dw_timestamp_update",
+        exclude_columns=["identifier_staff_exact"],
     ),
     "fhir_practitioner_role": SyncTableConfig(
         schema="fhir",
@@ -966,7 +979,7 @@ CONCEPTMAP_SYNC_CONFIGS = {
 # runs and soft-deletes — exactly the key a MERGE needs. Rebuilding dm with a
 # MERGE on dw_ek instead of TRUNCATE + INSERT would make dw_timestamp_update
 # meaningful, and these configs then drop to mode="watermark": the weekly
-# change volume is ~16,500 revised rows (see arc 00_archive.sql), not the
+# change volume is ~16,500 revised rows (see sources/haiba/haiba_agg_revision.sql), not the
 # ~6.7M that truncate_insert rewrites across the linked server today.
 
 
@@ -980,7 +993,6 @@ def _haiba_dm_config(table: str) -> SyncTableConfig:
         table=table,
         primary_key=f"dw_ek_{base}",
         mode="truncate_insert",
-        chunk_size=20_000,
     )
 
 
@@ -1080,7 +1092,6 @@ DRG_SYNC_CONFIGS = {
         primary_key="dw_ek_DRGKontakt",
         mode="watermark",
         watermark_column="dw_timestamp_update",
-        chunk_size=20_000,
         disable_target_indexes_during_sync=True,
     ),
 }
@@ -1158,7 +1169,6 @@ UDREDNINGSRET_SYNC_CONFIGS = {
         primary_key="dw_ek_Udredningsforloeb",
         mode="watermark",
         watermark_column="dw_timestamp_update",
-        chunk_size=20_000,
         disable_target_indexes_during_sync=True,
         # Carries the CPR digest — see the U18 note above.
         exclude_columns=["clean_code_Udredningsforloeb"],
@@ -1172,7 +1182,6 @@ UDREDNINGSRET_SYNC_CONFIGS = {
         primary_key="dw_ek_UdredningsretMarkoer",
         mode="watermark",
         watermark_column="dw_timestamp_update",
-        chunk_size=20_000,
         disable_target_indexes_during_sync=True,
     ),
 }

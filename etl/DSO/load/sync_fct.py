@@ -14,7 +14,7 @@ import dagster as dg
 from core.resources import MSSQLResource
 from DSO.load.sync_configs import ERP_FCT_CONFIGS
 from DSO.load.sync_utils import (
-    SYNC_ENGINE_PYTHON_FALLBACK,
+    SYNC_ENGINE_LINKED_SERVER,
     compare_row_counts,
     sync_table_via_linked_server,
 )
@@ -44,12 +44,7 @@ def _materialize_sync_result(
         mssql_source_staging=mssql_source_staging,
     )
 
-    fallback_reason = result.get("fallback_reason")
-    sync_engine = (
-        SYNC_ENGINE_PYTHON_FALLBACK
-        if fallback_reason
-        else result.get("sync_engine", "linked_server")
-    )
+    sync_engine = result.get("sync_engine", SYNC_ENGINE_LINKED_SERVER)
     metadata = {
         "rows_affected": result["rows_affected"],
         "sync_mode": result["mode"],
@@ -60,8 +55,6 @@ def _materialize_sync_result(
         "dso_count": counts["dso_count"],
         "counts_match": counts["match"],
     }
-    if fallback_reason:
-        metadata["fallback_reason"] = fallback_reason
     return dg.MaterializeResult(metadata=metadata)
 
 
@@ -227,6 +220,29 @@ def dso_sync_fct_vareudlevering(
 
 
 @dg.asset(
+    name="dso_sync_fct_ordre",
+    group_name="erp_dso_sync",
+    compute_kind="mssql",
+    deps=[
+        "fct_Ordre",
+        "dso_sync_dim_ordre",
+        "dso_sync_dim_lager",
+        "dso_sync_dim_ilsleverandoer",
+    ],
+    tags={"domain": "erp", "layer": "dso_sync", "type": "fact"},
+    description="Sync fct.Ordre from staging to DSO database",
+)
+def dso_sync_fct_ordre(
+    context: dg.AssetExecutionContext,
+    mssql_target_dso: MSSQLResource,
+    mssql_source_staging: MSSQLResource,
+) -> dg.MaterializeResult:
+    return _materialize_sync_result(
+        context, mssql_target_dso, mssql_source_staging, "fct_Ordre", ERP_FCT_CONFIGS
+    )
+
+
+@dg.asset(
     name="dso_sync_fct_AftaleVarePris",
     group_name="erp_dso_sync",
     compute_kind="mssql",
@@ -304,6 +320,7 @@ all_dso_sync_fct_assets = [
     dso_sync_fct_postering,
     dso_sync_fct_finanskladdelinje,
     dso_sync_fct_budget,
+    dso_sync_fct_ordre,
     dso_sync_fct_vareudlevering,
     dso_sync_fct_AftaleVarePris,
     dso_sync_fct_Lagerbeholdning,

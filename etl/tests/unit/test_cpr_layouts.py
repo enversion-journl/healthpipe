@@ -7,7 +7,8 @@
 """Tests of the CPR layout table: the contract between parser, checks and archive."""
 
 import pytest
-from DSI.csv_files.cpr_layouts import FILMETADATA_RECORDTYPER, LAYOUTS
+from DSI.csv_files.cpr import SLUTRECORD, STARTRECORD
+from DSI.csv_files.cpr_layouts import LAYOUTS
 
 pytestmark = pytest.mark.unit
 
@@ -92,6 +93,6 @@ def test_record_lengths_are_unique_per_record_type_code():
 
 def test_file_metadata_record_types_carry_no_personal_number():
     """Start and end records are reproduced verbatim, so they must be free of PNR."""
-    for recordtype in FILMETADATA_RECORDTYPER:
+    for recordtype in (STARTRECORD, SLUTRECORD):
         navne = {f.navn for f in LAYOUTS[recordtype].felter}
         assert not any("PNR" in n for n in navne), f"{recordtype} contains a PNR field"

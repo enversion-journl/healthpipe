@@ -18,11 +18,11 @@ from pathlib import Path
 
 import dqa
 import pytest
-from dqa.checks.archive_reconciliation import _stage_ddl as recon_ddl
 from dqa.checks.dso_reconciliation import _COLLATE
 from dqa.checks.fhir_server import _stage_ddl as fhir_ddl
 from dqa.checks.helpers import COLLATE_DB_DEFAULT
 from dqa.checks.oracle_source import _stage_ddl as ifdb_ddl
+from dqa.checks.source_archive_reconciliation import _stage_ddl as recon_ddl
 
 pytestmark = pytest.mark.unit
 
@@ -30,7 +30,7 @@ _DQA_ROOT = Path(dqa.__file__).resolve().parent
 _ALLOWED_CREATE_TABLE = {
     "checks/fhir_server.py",
     "checks/oracle_source.py",
-    "checks/archive_reconciliation.py",
+    "checks/source_archive_reconciliation.py",
 }
 
 

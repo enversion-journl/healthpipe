@@ -37,12 +37,14 @@ from dagster import AssetExecutionContext, AssetKey, MaterializeResult, asset
 from utils.sql.tax_id_sql import (
     sql_cvr_cleancode_from_column,
     sql_cvr_cleancode_from_juridisk_enhed,
-    sql_cvr_cleancode_from_se_nr,
+    sql_ils_kreditor_cleancode,
 )
 
-# CleanCode formulas — shared with stg_dim_Kreditor via utils.sql.tax_id_sql
+# CleanCode formulas — shared with stg_dim_Kreditor via utils.sql.tax_id_sql.
+# ILS_CC is NULL for giro = 'Person' rows, so a person's name/address never
+# lands in the *_ils columns of a member SydAX or MySupply also holds.
 SYDAX_CC = sql_cvr_cleancode_from_juridisk_enhed("k.JuridiskEnhed")
-ILS_CC = sql_cvr_cleancode_from_se_nr("lev.se_nr")
+ILS_CC = sql_ils_kreditor_cleancode("lev.se_nr")
 MYSUPPLY_CC = sql_cvr_cleancode_from_column("m.LeverandorCVR")
 
 

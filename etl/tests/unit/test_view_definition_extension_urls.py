@@ -31,7 +31,7 @@ _LOCAL_URL = re.compile(r"http://example\.org/fhir/StructureDefinition/[A-Za-z0-
 _NOT_PRODUCED_YET: dict[str, str] = {
     "http://example.org/fhir/StructureDefinition/discretionFlag": (
         "OENSKER_DISKRETION is mapped in PATIENT_COLUMN_MAPPING but patient_ifdb_contribution.py "
-        "does not build the extension. Owned by IFDB in DSA/FHIR/Patient/field_ownership.py."
+        "does not build the extension. Owned by IFDB in DSA/FHIR/Patient/patient_ownership.py."
     ),
 }
 

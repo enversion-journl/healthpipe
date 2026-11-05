@@ -876,6 +876,3 @@ LAYOUTS: dict[str, Layout] = {
         ),
     ),
 }
-
-# Record types without a personal number: pure file metadata, may be reported in full.
-FILMETADATA_RECORDTYPER = frozenset({"000", "999"})

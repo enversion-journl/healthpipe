@@ -711,14 +711,10 @@ CAREPLAN_REFERENCE_CONFIGS = [
 CAREPLAN_NESTED_REFERENCE_CONFIGS = [
     # Activity performer (Organization via SOR) - OPTIONAL
     #
-    # SYSTEM_IFDB_STAFF is deliberately NOT mapped to Practitioner. The staff
-    # reference still rides along on the resource as a bare
-    # Identifier(system=urn:source:ifdb:staff) — an unmapped system is skipped by
-    # the resolver, not dropped — so RESPONSIBLE_STAFF_PERSID is preserved for
-    # whoever can use it later. Mapping it would only buy a lookup that always
-    # misses: the Practitioner resources being built come from a different source
-    # system and carry a different identifier system, so linking them to an IFDB
-    # staff id needs a crosswalk, which a reference config cannot express.
+    # SYSTEM_IFDB_STAFF is not mapped to Practitioner. The staff reference rides along as a
+    # bare Identifier(system=urn:source:ifdb:staff) — an unmapped system is skipped by the
+    # resolver, not dropped — and is projected as practitioner_id, which joins to
+    # fhir.Practitioner.identifier_staff_exact.
     NestedReferenceFieldConfig(
         field_path="activity.detail.performer",
         identifier_system_to_type={

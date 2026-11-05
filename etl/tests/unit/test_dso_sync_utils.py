@@ -21,11 +21,11 @@ import unittest.mock
 from contextlib import contextmanager
 from dataclasses import replace as dc_replace
 from datetime import datetime
-from decimal import Decimal
 from unittest.mock import MagicMock
 
 import DSO.load.sync_utils as sync_utils
 import pytest
+from dagster._core.errors import DagsterExecutionInterruptedError
 from DSO.load.sync_configs import (
     ALL_SYNC_CONFIGS,
     ERP_SYNC_CONFIGS,
@@ -147,15 +147,6 @@ class TestSyncTableConfig:
         )
         assert isinstance(config.primary_key, list)
         assert len(config.primary_key) == 3
-
-    def test_config_chunk_size_default(self):
-        """Test default chunk_size for SyncTableConfig."""
-        config = SyncTableConfig(
-            schema="dim",
-            table="Test",
-            primary_key="DW_EK_Test",
-        )
-        assert config.chunk_size == 5000
 
     def test_config_truncate_insert_mode(self):
         """Test config with truncate_insert mode."""
@@ -823,11 +814,6 @@ class TestConfigValidation:
                 config.watermark_column in valid_watermark_columns
             ), f"{name} has unexpected watermark_column: {config.watermark_column}"
 
-    def test_chunk_size_positive_on_all_configs(self):
-        """All configs must have chunk_size > 0."""
-        for name, config in ALL_SYNC_CONFIGS.items():
-            assert config.chunk_size > 0, f"{name} has invalid chunk_size: {config.chunk_size}"
-
     def test_no_duplicate_asset_keys_in_erp_sync(self):
         """ERP sync module must not register duplicate asset names."""
         from DSO.load.sync_dim import all_dso_sync_dim_assets
@@ -848,13 +834,10 @@ class TestConfigValidation:
 
 
 class _DummyCursor:
-    def __init__(self, fetchall_queue=None, fetchmany_queue=None, fetchone_queue=None):
+    def __init__(self, fetchall_queue=None, fetchone_queue=None):
         self.fetchall_queue = list(fetchall_queue or [])
-        self.fetchmany_queue = list(fetchmany_queue or [])
         self._fetchone_queue = list(fetchone_queue or [])
         self.execute_calls = []
-        self.executemany_calls = []
-        self.setinputsizes_calls = []
         self.rowcount = 0
 
     def close(self):
@@ -862,14 +845,6 @@ class _DummyCursor:
 
     def execute(self, sql, params=None):
         self.execute_calls.append((sql, params))
-
-    def executemany(self, sql, rows):
-        rows_list = list(rows)
-        self.executemany_calls.append((sql, rows_list))
-        self.rowcount = len(rows_list)
-
-    def setinputsizes(self, sizes):
-        self.setinputsizes_calls.append(list(sizes))
 
     def fetchone(self):
         if self._fetchone_queue:
@@ -879,11 +854,6 @@ class _DummyCursor:
     def fetchall(self):
         if self.fetchall_queue:
             return self.fetchall_queue.pop(0)
-        return []
-
-    def fetchmany(self, _size):
-        if self.fetchmany_queue:
-            return self.fetchmany_queue.pop(0)
         return []
 
 
@@ -901,30 +871,6 @@ class _DummyConnection:
 
     def close(self):
         self.closed += 1
-
-
-class _MssqlPythonDummyConnection(_DummyConnection):
-    """Dummy connection whose module path matches mssql_python detection."""
-
-
-_MssqlPythonDummyConnection.__module__ = "mssql_python.connection"
-
-
-class _DummyResource:
-    def __init__(self, connections):
-        self._connections = list(connections)
-        self._idx = 0
-        self.host = "dummy-host"
-        self.database = "dummy-db"
-
-    @contextmanager
-    def get_connection(self):
-        conn = self._connections[self._idx]
-        self._idx += 1
-        try:
-            yield conn
-        finally:
-            conn.close()
 
 
 class _RawConnResource:
@@ -956,319 +902,6 @@ class _RawConnResource:
 class _FakeProgrammingError(Exception):
     """Stand-in for mssql_python.exceptions.ProgrammingError: a DB-API exception
     that is NOT a RuntimeError, so it exercises the cross-class retry path."""
-
-
-class TestPythonFallbackWatermark:
-    @pytest.fixture(autouse=True)
-    def _reset_collation_cache(self, monkeypatch):
-        monkeypatch.setattr(sync_utils, "_collation_mismatch_cache", False)
-
-    def test_python_fallback_uses_delta_watermark_and_updates_state(self, monkeypatch):
-        """Python fallback in watermark mode should use delta filter and upsert MERGE."""
-        schema_cursor = _DummyCursor(
-            fetchall_queue=[
-                [
-                    ("DW_EK_Fakturalinje",),
-                    ("Navn",),
-                    ("dw_timestamp_insert",),
-                    ("dw_timestamp_update",),
-                ]
-            ]
-        )
-        schema_conn = _DummyConnection(schema_cursor)
-
-        data_cursor = _DummyCursor(
-            fetchmany_queue=[
-                [(1, "A", datetime(2026, 2, 10, 10, 0, 0), datetime(2026, 2, 10, 10, 5, 0))],
-                [],
-            ]
-        )
-        data_conn = _DummyConnection(data_cursor)
-
-        dso_cursor = _DummyCursor()
-        dso_conn = _DummyConnection(dso_cursor)
-
-        staging_resource = _DummyResource([schema_conn, data_conn])
-        dso_resource = _DummyResource([dso_conn])
-
-        last_checkpoint = "2026-02-10 09:00:00"
-
-        context = MagicMock()
-        context.log = MagicMock()
-
-        config = SyncTableConfig(
-            schema="fct",
-            table="Fakturalinje",
-            primary_key="DW_EK_Fakturalinje",
-            mode="watermark",
-            watermark_column="dw_timestamp_update",
-        )
-
-        result = sync_utils._sync_via_python(
-            context,
-            staging_resource,
-            dso_resource,
-            config,
-            last_sync_checkpoint=last_checkpoint,
-        )
-
-        assert result["mode"] == "python_watermark_delta"
-
-        # Ensure source query used a watermark predicate with parameterized checkpoint
-        select_sql, select_params = data_cursor.execute_calls[0]
-        assert "COALESCE([dw_timestamp_update], [dw_timestamp_insert])" in select_sql
-        assert " > " in select_sql
-        assert select_params == (last_checkpoint,)
-
-        # Temp-table strategy: executemany inserts into #temp, then execute runs MERGE
-        assert dso_cursor.executemany_calls, "Expected executemany INSERT INTO #temp call"
-        temp_insert_sql, inserted_rows = dso_cursor.executemany_calls[0]
-        assert "#_sync_fct_Fakturalinje" in temp_insert_sql
-        assert len(inserted_rows) == 1
-
-        # Set-based MERGE from temp table should appear in execute calls
-        merge_calls = [sql for sql, _ in dso_cursor.execute_calls if "MERGE" in sql]
-        assert merge_calls, "Expected set-based MERGE via execute()"
-        assert "MERGE [fct].[Fakturalinje] AS tgt" in merge_calls[0]
-        assert "#_sync_fct_Fakturalinje" in merge_calls[0]
-
-        # Target table itself should NOT be truncated (only the temp table is truncated per chunk)
-        assert not any(
-            "TRUNCATE TABLE [fct].[Fakturalinje]" in sql for sql, _ in dso_cursor.execute_calls
-        )
-
-    def test_python_fallback_first_run_uses_full_sync(self, monkeypatch):
-        """First watermark run in Python fallback should use full truncate+insert."""
-        schema_cursor = _DummyCursor(
-            fetchall_queue=[
-                [
-                    ("dw_ek_Kreditor",),
-                    ("Navn",),
-                    ("dw_timestamp_insert",),
-                    ("dw_timestamp_update",),
-                ]
-            ]
-        )
-        schema_conn = _DummyConnection(schema_cursor)
-
-        data_cursor = _DummyCursor(
-            fetchmany_queue=[
-                [
-                    (
-                        1,
-                        "Kreditor A",
-                        datetime(2026, 2, 10, 10, 0, 0),
-                        datetime(2026, 2, 10, 10, 5, 0),
-                    )
-                ],
-                [],
-            ]
-        )
-        data_conn = _DummyConnection(data_cursor)
-
-        dso_cursor = _DummyCursor()
-        dso_conn = _DummyConnection(dso_cursor)
-
-        staging_resource = _DummyResource([schema_conn, data_conn])
-        dso_resource = _DummyResource([dso_conn])
-
-        context = MagicMock()
-        context.log = MagicMock()
-
-        config = SyncTableConfig(
-            schema="dim",
-            table="Kreditor",
-            primary_key="dw_ek_Kreditor",
-            mode="watermark",
-            watermark_column="dw_timestamp_update",
-        )
-
-        result = sync_utils._sync_via_python(
-            context,
-            staging_resource,
-            dso_resource,
-            config,
-            last_sync_checkpoint=None,
-        )
-
-        assert result["mode"] == "python_watermark_full"
-        assert any("TRUNCATE TABLE [dim].[Kreditor]" in sql for sql, _ in dso_cursor.execute_calls)
-        assert dso_cursor.executemany_calls, "Expected insert executemany call"
-        insert_sql, inserted_rows = dso_cursor.executemany_calls[0]
-        assert "INSERT INTO [dim].[Kreditor]" in insert_sql
-        assert len(inserted_rows) == 1
-        # Staging's stamps are bound but not written: DSO stamps its own write time.
-        assert insert_sql.count("?") == len(inserted_rows[0])
-        assert insert_sql.split("FROM (VALUES")[0].count(_UTC) == 2
-
-
-class TestPythonFallbackTruncateInsert:
-    @pytest.fixture(autouse=True)
-    def _reset_collation_cache(self, monkeypatch):
-        monkeypatch.setattr(sync_utils, "_collation_mismatch_cache", False)
-
-    def test_truncate_insert_allows_missing_pk_column(self):
-        """truncate_insert must not require primary_key to exist in staging columns."""
-        schema_cursor = _DummyCursor(
-            fetchall_queue=[[("dw_ek_Test",), ("Navn",), ("dw_timestamp_insert",)]]
-        )
-        schema_conn = _DummyConnection(schema_cursor)
-
-        data_cursor = _DummyCursor(
-            fetchmany_queue=[[(1, "row A", datetime(2026, 2, 10, 10, 0, 0))], []]
-        )
-        data_conn = _DummyConnection(data_cursor)
-
-        dso_cursor = _DummyCursor()
-        dso_conn = _DummyConnection(dso_cursor)
-
-        staging_resource = _DummyResource([schema_conn, data_conn])
-        dso_resource = _DummyResource([dso_conn])
-
-        context = MagicMock()
-        context.log = MagicMock()
-
-        # Intentionally mismatched PK column name; should still succeed because
-        # truncate_insert mode does not depend on PK matching.
-        config = SyncTableConfig(
-            schema="dim",
-            table="Test",
-            primary_key="mismatched_pk",
-            mode="truncate_insert",
-        )
-
-        result = sync_utils._sync_via_python(context, staging_resource, dso_resource, config)
-
-        assert result["mode"] == "python_truncate_insert"
-        assert any("TRUNCATE TABLE [dim].[Test]" in sql for sql, _ in dso_cursor.execute_calls)
-        assert dso_cursor.executemany_calls, "Expected INSERT executemany call"
-
-    def test_mssql_python_sets_chunk_input_sizes_from_longest_string(self):
-        """mssql_python fallback should size string params from the full chunk."""
-        schema_cursor = _DummyCursor(fetchall_queue=[[("Id",), ("Txt",)]])
-        schema_conn = _DummyConnection(schema_cursor)
-
-        data_cursor = _DummyCursor(
-            fetchmany_queue=[
-                [
-                    (1, "A" * 21),
-                    (2, "B" * 22),
-                ],
-                [],
-            ]
-        )
-        data_conn = _DummyConnection(data_cursor)
-
-        dso_cursor = _DummyCursor()
-        dso_conn = _MssqlPythonDummyConnection(dso_cursor)
-
-        staging_resource = _DummyResource([schema_conn, data_conn])
-        dso_resource = _DummyResource([dso_conn])
-
-        context = MagicMock()
-        context.log = MagicMock()
-
-        config = SyncTableConfig(
-            schema="dim",
-            table="TestTable",
-            primary_key="Id",
-            mode="truncate_insert",
-        )
-
-        sync_utils._sync_via_python(context, staging_resource, dso_resource, config)
-
-        assert dso_cursor.setinputsizes_calls, "Expected setinputsizes() to be called"
-        first_spec = dso_cursor.setinputsizes_calls[0]
-        assert first_spec[1] == (sync_utils._SQL_WVARCHAR, 22, 0)
-        assert dso_cursor.executemany_calls, "Expected INSERT executemany call"
-
-
-class TestPythonFallbackConnectionHardening:
-    """_sync_via_python streams via two long-lived connections with no batching
-    seam — a transient connectivity error (e.g. TCP Provider) during the
-    transfer must retry the whole transfer from scratch (nothing is durably
-    committed before the final dso_conn.commit()), not crash outright."""
-
-    @pytest.fixture(autouse=True)
-    def _reset_collation_cache(self, monkeypatch):
-        monkeypatch.setattr(sync_utils, "_collation_mismatch_cache", False)
-
-    def test_retries_whole_transfer_after_transient_connectivity_error(self, monkeypatch):
-        monkeypatch.setattr(sync_utils.time, "sleep", lambda *_a, **_k: None)
-
-        schema_cursor = _DummyCursor(fetchall_queue=[[("Id",), ("Val",)]])
-        schema_conn = _DummyConnection(schema_cursor)
-
-        class _RaiseOnceCursor(_DummyCursor):
-            def executemany(self, sql, rows):
-                raise _FakeProgrammingError(
-                    "TCP Provider: No connection could be made because the "
-                    "target machine actively refused it"
-                )
-
-        # Attempt 1: staging fetch succeeds, DSO executemany flaps.
-        data_conn_1 = _DummyConnection(_DummyCursor(fetchmany_queue=[[(1, "A")], []]))
-        dso_conn_1 = _DummyConnection(_RaiseOnceCursor())
-
-        # Attempt 2: fresh connections, full success.
-        data_conn_2 = _DummyConnection(_DummyCursor(fetchmany_queue=[[(1, "A")], []]))
-        dso_cursor_2 = _DummyCursor()
-        dso_conn_2 = _DummyConnection(dso_cursor_2)
-
-        staging_resource = _DummyResource([schema_conn, data_conn_1, data_conn_2])
-        dso_resource = _DummyResource([dso_conn_1, dso_conn_2])
-
-        context = MagicMock()
-        context.log = MagicMock()
-
-        config = SyncTableConfig(
-            schema="dim",
-            table="Foo",
-            primary_key="Id",
-            mode="truncate_insert",
-        )
-
-        result = sync_utils._sync_via_python(context, staging_resource, dso_resource, config)
-
-        assert result["rows_affected"] == 1
-        assert dso_cursor_2.executemany_calls, "Second attempt must perform the INSERT"
-        assert dso_conn_1.closed >= 1, "Flapped connection's `with` block must close it"
-        assert dso_conn_2.commits == 1
-
-    def test_raises_after_exhausting_retries_on_persistent_connectivity_error(self, monkeypatch):
-        monkeypatch.setattr(sync_utils.time, "sleep", lambda *_a, **_k: None)
-
-        schema_cursor = _DummyCursor(fetchall_queue=[[("Id",), ("Val",)]])
-        schema_conn = _DummyConnection(schema_cursor)
-
-        class _AlwaysRaisesCursor(_DummyCursor):
-            def executemany(self, sql, rows):
-                raise _FakeProgrammingError(
-                    "TCP Provider: No connection could be made because the "
-                    "target machine actively refused it"
-                )
-
-        # 1 schema fetch + 4 data-transfer attempts (1 initial + 3 retries) all flap.
-        staging_conns = [schema_conn] + [
-            _DummyConnection(_DummyCursor(fetchmany_queue=[[(1, "A")], []])) for _ in range(4)
-        ]
-        dso_conns = [_DummyConnection(_AlwaysRaisesCursor()) for _ in range(4)]
-
-        staging_resource = _DummyResource(staging_conns)
-        dso_resource = _DummyResource(dso_conns)
-
-        context = MagicMock()
-        context.log = MagicMock()
-
-        config = SyncTableConfig(
-            schema="dim",
-            table="Foo",
-            primary_key="Id",
-            mode="truncate_insert",
-        )
-
-        with pytest.raises(_FakeProgrammingError):
-            sync_utils._sync_via_python(context, staging_resource, dso_resource, config)
 
 
 def _create_mock_dso_resource():
@@ -1759,8 +1392,8 @@ class TestMismatchRecovery:
         mock_compare.assert_not_called()
         assert mock_sync.call_count == 1
 
-    def test_recovery_falls_back_to_python_when_linked_server_fails(self):
-        """If linked server fails during recovery, fall back to Python sync."""
+    def test_recovery_raises_when_linked_server_fails_validation(self):
+        """A linked server that fails validation before the recovery MERGE raises a clear error."""
         ctx = _create_mock_context()
         dso_resource, _conn, _cursor = _create_mock_dso_resource()
         staging_resource, _, _ = _create_mock_dso_resource()
@@ -1783,16 +1416,6 @@ class TestMismatchRecovery:
             "sync_duration_seconds": 0.5,
             "rows_per_second": 200.0,
         }
-        python_recovery_result = {
-            "rows_affected": 20000,
-            "mode": "merge",
-            "sync_engine": "python_fallback",
-            "table": "[fct].[Faktura]",
-            "columns_synced": 10,
-            "duration_ms": 8000,
-            "sync_duration_seconds": 8.0,
-            "rows_per_second": 2500.0,
-        }
 
         # call 1: initial sync path succeeds; call 2: recovery re-validation fails
         validate_calls = [None, RuntimeError("linked server not accessible")]
@@ -1807,10 +1430,7 @@ class TestMismatchRecovery:
                 ),
                 unittest.mock.patch.object(
                     sync_utils, "_sync_via_linked_server", return_value=delta_result
-                ),
-                unittest.mock.patch.object(
-                    sync_utils, "_sync_via_python", return_value=python_recovery_result
-                ) as mock_python,
+                ) as mock_linked,
                 unittest.mock.patch.object(
                     sync_utils,
                     "compare_row_counts",
@@ -1819,21 +1439,19 @@ class TestMismatchRecovery:
                         {"staging_count": 20000, "dso_count": 20000, "match": True},
                     ],
                 ),
-                unittest.mock.patch("DSO.load.sync_dfm.finalize_dfm_run") as mock_finalize,
+                unittest.mock.patch("DSO.load.sync_dfm.finalize_dfm_run"),
+                pytest.raises(
+                    RuntimeError, match=r"Cannot sync \[fct\]\.\[Faktura\]: linked server"
+                ),
             ):
-                result = sync_utils.sync_table_via_linked_server(
+                sync_utils.sync_table_via_linked_server(
                     ctx,
                     dso_resource,
                     config,
                     mssql_source_staging=staging_resource,
                 )
 
-        assert result["recovery_full_merge"] is True
-        assert result.get("recovery_failed") is not True
-        mock_python.assert_called_once()
-        recovery_call_config = mock_python.call_args[0][3]
-        assert recovery_call_config.mode == "merge"
-        assert mock_finalize.call_count >= 1
+        assert mock_linked.call_count == 1
 
     def test_recovery_still_missing_rows_raises_without_retry(self):
         """When recovery MERGE runs but DSO still misses rows, fail the sync — no retry."""
@@ -1965,98 +1583,68 @@ def test_compare_row_counts_raises_only_on_missing_dso_rows(dso_count, raises):
             assert counts["match"] is (dso_count == 100)
 
 
-class TestDispatcherFallbackOnConnectivityError:
-    """sync_table_via_linked_server must fall back to Python when the linked-server
-    path exhausts its own retries and re-raises a connectivity fault — even though
-    mssql_python raises ProgrammingError (not RuntimeError) for that fault, the same
-    cross-class mismatch already fixed in _is_retryable_connectivity_error."""
+class TestLinkedServerRequired:
+    """A linked server that fails validation fails the sync with a clear error, and any
+    non-integrity error during the transfer propagates unchanged."""
 
-    def test_falls_back_to_python_on_non_runtimeerror_connectivity_fault(self):
-        ctx = _create_mock_context()
+    @staticmethod
+    def _sync(validate_side_effect, linked_side_effect):
         dso_resource, _conn, _cursor = _create_mock_dso_resource()
         staging_resource, _, _ = _create_mock_dso_resource()
-
         config = SyncTableConfig(
             schema="fct",
             table="Faktura",
             primary_key="dw_ek_Faktura",
             mode="merge",
         )
-        python_result = {
-            "rows_affected": 500,
-            "mode": "merge",
-            "sync_engine": "python_fallback",
-            "table": "[fct].[Faktura]",
-            "columns_synced": 10,
-            "duration_ms": 1000,
-            "sync_duration_seconds": 1.0,
-            "rows_per_second": 500.0,
-        }
-
         with _patch_dfm_session():
             with (
                 unittest.mock.patch.object(sync_utils, "is_same_database_mode", return_value=False),
                 unittest.mock.patch.object(sync_utils, "can_connect_to_staging", return_value=True),
                 unittest.mock.patch.object(sync_utils, "validate_table_schemas_match"),
-                unittest.mock.patch.object(sync_utils, "validate_linked_server"),
                 unittest.mock.patch.object(
-                    sync_utils,
-                    "_sync_via_linked_server",
-                    side_effect=_FakeProgrammingError(
-                        "TCP Provider: No connection could be made because the target "
-                        "machine actively refused it"
-                    ),
+                    sync_utils, "validate_linked_server", side_effect=validate_side_effect
                 ),
                 unittest.mock.patch.object(
-                    sync_utils, "_sync_via_python", return_value=python_result
-                ) as mock_python,
-            ):
-                result = sync_utils.sync_table_via_linked_server(
-                    ctx,
-                    dso_resource,
-                    config,
-                    mssql_source_staging=staging_resource,
-                )
-
-        mock_python.assert_called_once()
-        assert result["sync_engine"] == "python_fallback"
-
-    def test_does_not_fall_back_on_unrelated_non_runtimeerror(self):
-        """A non-RuntimeError that ISN'T a connectivity fault must still propagate —
-        the fallback broadening must not swallow unrelated errors."""
-        ctx = _create_mock_context()
-        dso_resource, _conn, _cursor = _create_mock_dso_resource()
-        staging_resource, _, _ = _create_mock_dso_resource()
-
-        config = SyncTableConfig(
-            schema="fct",
-            table="Faktura",
-            primary_key="dw_ek_Faktura",
-            mode="merge",
-        )
-
-        with _patch_dfm_session():
-            with (
-                unittest.mock.patch.object(sync_utils, "is_same_database_mode", return_value=False),
-                unittest.mock.patch.object(sync_utils, "can_connect_to_staging", return_value=True),
-                unittest.mock.patch.object(sync_utils, "validate_table_schemas_match"),
-                unittest.mock.patch.object(sync_utils, "validate_linked_server"),
-                unittest.mock.patch.object(
-                    sync_utils,
-                    "_sync_via_linked_server",
-                    side_effect=_FakeProgrammingError("Invalid column name 'Foo'"),
+                    sync_utils, "_sync_via_linked_server", side_effect=linked_side_effect
                 ),
-                unittest.mock.patch.object(sync_utils, "_sync_via_python") as mock_python,
-                pytest.raises(_FakeProgrammingError),
             ):
                 sync_utils.sync_table_via_linked_server(
-                    ctx,
+                    _create_mock_context(),
                     dso_resource,
                     config,
                     mssql_source_staging=staging_resource,
                 )
 
-        mock_python.assert_not_called()
+    @pytest.mark.parametrize(
+        "validation_error",
+        [
+            RuntimeError("Linked server 'STAGING_LINK' does not exist on DSO database."),
+            RuntimeError("Linked server 'STAGING_LINK' exists but is not accessible: timeout"),
+        ],
+    )
+    def test_validation_failure_names_linked_server_and_table(self, validation_error):
+        with pytest.raises(RuntimeError) as excinfo:
+            self._sync(validation_error, AssertionError("not reached"))
+
+        message = str(excinfo.value)
+        assert message.startswith("Cannot sync [fct].[Faktura]: linked server")
+        assert f"'{sync_utils.LINKED_SERVER_NAME}'" in message
+        assert excinfo.value.__cause__ is validation_error
+
+    @pytest.mark.parametrize(
+        "transfer_error",
+        [
+            _FakeProgrammingError("Driver Error: Communication link failure"),
+            RuntimeError("Batched sync [fct].[Faktura]: keyset pagination cursor did not advance"),
+            DagsterExecutionInterruptedError(),
+        ],
+    )
+    def test_failure_during_transfer_propagates(self, transfer_error):
+        with pytest.raises(type(transfer_error)) as excinfo:
+            self._sync(None, transfer_error)
+
+        assert excinfo.value is transfer_error
 
 
 class TestFhirSyncConfigsUseWatermark:
@@ -2317,7 +1905,7 @@ class TestBatchedSyncConnectionHardening:
         """The DSO layer must obtain its connection via the resource, not by
         hand-rolling a bare mssql_python.connect()."""
         cursor = _DummyCursor(fetchone_queue=[(0,)])  # count -> 0 rows -> early return
-        conn = _MssqlPythonDummyConnection(cursor)
+        conn = _DummyConnection(cursor)
         resource = _RawConnResource([conn])
         context = MagicMock()
         context.log = MagicMock()
@@ -2361,7 +1949,7 @@ class TestBatchedSyncConnectionHardening:
             def fetchone(self):
                 return self._fetch.pop(0) if self._fetch else (0,)
 
-        conn = _MssqlPythonDummyConnection(_MultiBatchCursor())
+        conn = _DummyConnection(_MultiBatchCursor())
         resource = _RawConnResource([conn])
         context = MagicMock()
         context.log = MagicMock()
@@ -2393,8 +1981,8 @@ class TestBatchedSyncConnectionHardening:
                         "made because the target machine actively refused it."
                     )
 
-        broken_conn = _MssqlPythonDummyConnection(_CountRaisesConnError())
-        healthy_conn = _MssqlPythonDummyConnection(_DummyCursor(fetchone_queue=[(0,)]))
+        broken_conn = _DummyConnection(_CountRaisesConnError())
+        healthy_conn = _DummyConnection(_DummyCursor(fetchone_queue=[(0,)]))
         resource = _RawConnResource([broken_conn, healthy_conn])
         context = MagicMock()
         context.log = MagicMock()
@@ -2433,8 +2021,8 @@ class TestBatchedSyncConnectionHardening:
                 if "INTO #_sync_staging" in sql:
                     raise _FakeProgrammingError("permission denied creating temp table")
 
-        broken_conn = _MssqlPythonDummyConnection(_CountRaisesConnError())
-        reconnect_conn = _MssqlPythonDummyConnection(_TempCreateRaises())
+        broken_conn = _DummyConnection(_CountRaisesConnError())
+        reconnect_conn = _DummyConnection(_TempCreateRaises())
         resource = _RawConnResource([broken_conn, reconnect_conn])
         context = MagicMock()
         context.log = MagicMock()
@@ -2469,9 +2057,9 @@ class TestBatchedSyncConnectionHardening:
                     )
 
         # conn1: count OK (5 rows), then the first batch INSERT flaps.
-        conn1 = _MssqlPythonDummyConnection(_FirstBatchRaises(fetchone_queue=[(5,)]))
+        conn1 = _DummyConnection(_FirstBatchRaises(fetchone_queue=[(5,)]))
         # conn2: fresh session, first batch returns 0 rows -> clean early return.
-        conn2 = _MssqlPythonDummyConnection(_DummyCursor())
+        conn2 = _DummyConnection(_DummyCursor())
         resource = _RawConnResource([conn1, conn2])
         context = MagicMock()
         context.log = MagicMock()
@@ -2522,8 +2110,8 @@ class TestCompositeSyncConnectionHardening:
                         "made because the target machine actively refused it."
                     )
 
-        broken_conn = _MssqlPythonDummyConnection(_CountRaisesConnError())
-        healthy_conn = _MssqlPythonDummyConnection(_DummyCursor(fetchone_queue=[(0,)]))
+        broken_conn = _DummyConnection(_CountRaisesConnError())
+        healthy_conn = _DummyConnection(_DummyCursor(fetchone_queue=[(0,)]))
         resource = _RawConnResource([broken_conn, healthy_conn])
         context = MagicMock()
         context.log = MagicMock()
@@ -2555,8 +2143,8 @@ class TestCompositeSyncConnectionHardening:
                         "made because the target machine actively refused it."
                     )
 
-        conn1 = _MssqlPythonDummyConnection(_FirstBatchRaises(fetchone_queue=[(5,)]))
-        conn2 = _MssqlPythonDummyConnection(_DummyCursor())
+        conn1 = _DummyConnection(_FirstBatchRaises(fetchone_queue=[(5,)]))
+        conn2 = _DummyConnection(_DummyCursor())
         resource = _RawConnResource([conn1, conn2])
         context = MagicMock()
         context.log = MagicMock()
@@ -2573,73 +2161,6 @@ class TestCompositeSyncConnectionHardening:
         assert resource.raw_calls == 2  # batch flap triggered a reconnect
         assert conn1.closed >= 1
         assert result["rows_affected"] == 0
-
-
-class TestChunkInputSizesDecimalScale:
-    """Decimal params must be sized from the chunk, like string params already are.
-
-    mssql-python >= 1.6.0 binds SQL_NUMERIC hints as SQL_C_CHAR, so an
-    under-declared scale fails the whole chunk with "String data, right-truncated".
-    dim/fct carry NUMERIC(28,12) and DECIMAL(32,16), so scales above 10 are real.
-    """
-
-    @staticmethod
-    def _spec_for(values):
-        rows = [(v,) for v in values]
-        sizes = sync_utils._build_mssql_python_chunk_input_sizes(rows)
-        assert sizes is not None, "helper should size a Decimal chunk"
-        return sizes[0]
-
-    def test_scale_comes_from_widest_decimal_in_chunk(self):
-        sql_type, _precision, scale = self._spec_for(
-            [Decimal("1.5"), Decimal("123456789012345.678901234567")]
-        )
-        assert sql_type == sync_utils._SQL_NUMERIC
-        assert scale == 12
-
-    def test_zero_with_negative_exponent_is_scale_twelve(self):
-        """Decimal('0E-12') occurs in real ERP data — exponent, not digits, sets scale."""
-        _sql_type, _precision, scale = self._spec_for([Decimal("0E-12")])
-        assert scale == 12
-
-    def test_scale_sixteen_column_is_declared_fully(self):
-        """Linjenummer is DECIMAL(32,16)."""
-        _sql_type, _precision, scale = self._spec_for([Decimal("1.0000000000000001")])
-        assert scale == 16
-
-    def test_integral_decimals_declare_zero_scale(self):
-        _sql_type, _precision, scale = self._spec_for([Decimal("42"), Decimal("100")])
-        assert scale == 0
-
-    def test_trailing_zero_decimal_keeps_its_exponent_scale(self):
-        """Decimal('2876.000000000000000') has exponent -15 even though it is integral."""
-        _sql_type, _precision, scale = self._spec_for([Decimal("2876.000000000000000")])
-        assert scale == 15
-
-    def test_precision_never_exceeds_sql_server_maximum(self):
-        _sql_type, precision, scale = self._spec_for(
-            [Decimal("1" * 20 + "." + "1" * 25)]  # would need 45 digits
-        )
-        assert precision <= 38
-        assert scale <= precision
-
-    def test_integer_digits_are_preserved_when_scale_would_overflow(self):
-        """Clamping must not steal room from the integer part — that loses magnitude."""
-        _sql_type, precision, scale = self._spec_for([Decimal("1" * 30 + "." + "1" * 20)])
-        assert precision == 38
-        assert precision - scale >= 30, "must keep 30 integer digits"
-
-    def test_non_finite_decimal_does_not_crash(self):
-        rows = [(Decimal("NaN"),)]
-        sizes = sync_utils._build_mssql_python_chunk_input_sizes(rows)
-        assert sizes is not None
-        assert sizes[0][0] == sync_utils._SQL_NUMERIC
-
-    def test_mixed_scales_take_the_maximum(self):
-        _sql_type, _precision, scale = self._spec_for(
-            [Decimal("1.5"), Decimal("2.25"), Decimal("3.000000000001"), None]
-        )
-        assert scale == 12
 
 
 class TestBatchedSyncIndexDisable:
@@ -2720,7 +2241,7 @@ class TestBatchedSyncIndexDisable:
 
     def _run(self, target_populated, index_names):
         cursor = self._IndexAwareCursor(target_populated, index_names)
-        conn = _MssqlPythonDummyConnection(cursor)
+        conn = _DummyConnection(cursor)
         resource = _RawConnResource([conn])
         context = MagicMock()
         context.log = MagicMock()
@@ -2792,7 +2313,7 @@ class TestBatchedSyncIndexDisable:
         else:
             monkeypatch.setenv(sync_utils._INDEX_DISABLE_MIN_RATIO_ENV, ratio)
         cursor = self._RatioAwareCursor(True, ["IX_a", "IX_b"], target_rows)
-        conn = _MssqlPythonDummyConnection(cursor)
+        conn = _DummyConnection(cursor)
         resource = _RawConnResource([conn])
         context = MagicMock()
         context.log = MagicMock()
@@ -3051,7 +2572,7 @@ class TestDsoStampsItsOwnWritesInUtc:
         cursor = _MergeRecordingCursor()
         sync_utils._sync_via_linked_server_batched(
             context=MagicMock(),
-            mssql_target_dso=_RawConnResource([_MssqlPythonDummyConnection(cursor)]),
+            mssql_target_dso=_RawConnResource([_DummyConnection(cursor)]),
             config=SyncTableConfig(
                 schema="fhir",
                 table="Observation",
@@ -3069,7 +2590,7 @@ class TestDsoStampsItsOwnWritesInUtc:
         cursor = _EmptyTargetCursor()
         sync_utils._sync_via_linked_server_batched_composite(
             context=MagicMock(),
-            mssql_target_dso=_RawConnResource([_MssqlPythonDummyConnection(cursor)]),
+            mssql_target_dso=_RawConnResource([_DummyConnection(cursor)]),
             config=self._config(),
             last_sync_checkpoint="2026-10-16 08:00:00",
             columns=_STAMPED_COLUMNS,
@@ -3083,7 +2604,7 @@ class TestDsoStampsItsOwnWritesInUtc:
         cursor = _MergeRecordingCursor()
         sync_utils._sync_via_linked_server_batched_composite(
             context=MagicMock(),
-            mssql_target_dso=_RawConnResource([_MssqlPythonDummyConnection(cursor)]),
+            mssql_target_dso=_RawConnResource([_DummyConnection(cursor)]),
             config=self._config(),
             last_sync_checkpoint="2026-10-16 08:00:00",
             columns=_STAMPED_COLUMNS,
@@ -3135,7 +2656,9 @@ def test_interrupted_sync_marks_its_dfm_run_failed():
         unittest.mock.patch.object(sync_utils, "validate_linked_server"),
         unittest.mock.patch("DSO.load.sync_dfm.query_source_checkpoint", return_value=None),
         unittest.mock.patch.object(
-            sync_utils, "_attempt_sync_with_fallbacks", side_effect=DagsterExecutionInterruptedError
+            sync_utils,
+            "_attempt_sync_with_integrity_recovery",
+            side_effect=DagsterExecutionInterruptedError,
         ),
     ):
         with pytest.raises(DagsterExecutionInterruptedError):
@@ -3192,7 +2715,7 @@ def test_the_sync_holds_consumer_indexes_while_the_dfm_switch_is_on(since, held)
         unittest.mock.patch.object(sync_utils, "validate_table_schemas_match"),
         unittest.mock.patch.object(sync_utils, "validate_linked_server"),
         unittest.mock.patch("DSO.load.sync_dfm.query_source_checkpoint", return_value=None),
-        unittest.mock.patch.object(sync_utils, "_attempt_sync_with_fallbacks", _capture),
+        unittest.mock.patch.object(sync_utils, "_attempt_sync_with_integrity_recovery", _capture),
     ):
         with pytest.raises(RuntimeError, match="stop after"):
             sync_utils.sync_table_via_linked_server(

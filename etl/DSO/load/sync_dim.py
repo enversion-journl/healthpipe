@@ -10,7 +10,7 @@ import dagster as dg
 from core.resources import MSSQLResource
 from DSO.load.sync_configs import ERP_DIM_CONFIGS, SHARED_DIMS_DIM_CONFIGS
 from DSO.load.sync_utils import (
-    SYNC_ENGINE_PYTHON_FALLBACK,
+    SYNC_ENGINE_LINKED_SERVER,
     compare_row_counts,
     sync_table_via_linked_server,
 )
@@ -39,12 +39,7 @@ def _materialize_sync_result(
         config.table,
         mssql_source_staging=mssql_source_staging,
     )
-    fallback_reason = result.get("fallback_reason")
-    sync_engine = (
-        SYNC_ENGINE_PYTHON_FALLBACK
-        if fallback_reason
-        else result.get("sync_engine", "linked_server")
-    )
+    sync_engine = result.get("sync_engine", SYNC_ENGINE_LINKED_SERVER)
     metadata = {
         "rows_affected": result["rows_affected"],
         "sync_mode": result["mode"],
@@ -55,8 +50,6 @@ def _materialize_sync_result(
         "dso_count": counts["dso_count"],
         "counts_match": counts["match"],
     }
-    if fallback_reason:
-        metadata["fallback_reason"] = fallback_reason
     return dg.MaterializeResult(metadata=metadata)
 
 
@@ -217,6 +210,24 @@ def dso_sync_dim_vareudlevering(
         mssql_source_staging,
         "dim_Vareudlevering",
         ERP_DIM_CONFIGS,
+    )
+
+
+@dg.asset(
+    name="dso_sync_dim_ordre",
+    group_name="erp_dso_sync",
+    compute_kind="mssql",
+    deps=["dim_Ordre", "dso_sync_dim_ilsbruger"],
+    tags={"domain": "erp", "layer": "dso_sync", "type": "dimension"},
+    description="Sync dim.Ordre from staging to DSO database",
+)
+def dso_sync_dim_ordre(
+    context: dg.AssetExecutionContext,
+    mssql_target_dso: MSSQLResource,
+    mssql_source_staging: MSSQLResource,
+) -> dg.MaterializeResult:
+    return _materialize_sync_result(
+        context, mssql_target_dso, mssql_source_staging, "dim_Ordre", ERP_DIM_CONFIGS
     )
 
 
@@ -398,7 +409,7 @@ def dso_sync_dim_budget_egenskaber(
     name="dso_sync_dim_borger",
     group_name="shared_dimensions_dso_sync",
     compute_kind="mssql",
-    deps=["dim_Borger", "dso_infra_shared_dimensions"],
+    deps=["dim_Borger", "dso_sync_dim_borgerdemografi", "dso_infra_shared_dimensions"],
     tags={"domain": "shared_dimensions", "layer": "dso_sync", "type": "dimension"},
     description="Sync dim.Borger (Type 2 SCD) from staging to DSO database",
 )
@@ -413,6 +424,28 @@ def dso_sync_dim_borger(
     metadata = dict(result.metadata or {})
     metadata["note"] = "Type 2 SCD with merge mode"
     return dg.MaterializeResult(metadata=metadata)
+
+
+@dg.asset(
+    name="dso_sync_dim_borgerdemografi",
+    group_name="shared_dimensions_dso_sync",
+    compute_kind="mssql",
+    deps=["dim_BorgerDemografi", "dso_infra_shared_dimensions"],
+    tags={"domain": "shared_dimensions", "layer": "dso_sync", "type": "dimension"},
+    description="Sync shared demographic combinations keyed by the hash on dim.Borger",
+)
+def dso_sync_dim_borgerdemografi(
+    context: dg.AssetExecutionContext,
+    mssql_target_dso: MSSQLResource,
+    mssql_source_staging: MSSQLResource,
+) -> dg.MaterializeResult:
+    return _materialize_sync_result(
+        context,
+        mssql_target_dso,
+        mssql_source_staging,
+        "dim_BorgerDemografi",
+        SHARED_DIMS_DIM_CONFIGS,
+    )
 
 
 @dg.asset(
@@ -615,6 +648,7 @@ all_dso_sync_dim_assets = [
     dso_sync_dim_kreditor,
     dso_sync_dim_leverandoervare,
     dso_sync_dim_kontoplan,
+    dso_sync_dim_ordre,
     dso_sync_dim_vareudlevering,
     dso_sync_dim_faktura,
     dso_sync_dim_fakturalinje,
@@ -631,6 +665,7 @@ all_dso_sync_dim_assets = [
     dso_sync_dim_UNSPSC,
     dso_sync_dim_budget_egenskaber,
     dso_sync_dim_borger,
+    dso_sync_dim_borgerdemografi,
     dso_sync_dim_organisation,
     dso_sync_dim_okosted,
     dso_sync_dim_shak,

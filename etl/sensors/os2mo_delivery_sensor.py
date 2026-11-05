@@ -6,10 +6,10 @@
 
 """Sensor that starts the OS2mo delivery after the codesystems are rebuilt.
 
-``organisation_cs_job`` rebuilds ``codesystem.SOR*``, ``codesystem.Okosted*``
-and ``conceptmap.OkostedToSOR``. The delivery runs on that job's success, so it
-never reads a codesystem mid-rebuild, and a night whose rebuild failed delivers
-nothing rather than yesterday's set.
+``organisation_cs_job`` rebuilds ``codesystem.SOR*``, ``codesystem.Okosted*``,
+``codesystem.EAN*``, ``codesystem.Lager*`` and ``conceptmap.OkostedToSOR``. The
+delivery runs on that job's success, so it never reads a codesystem mid-rebuild,
+and a night whose rebuild failed delivers nothing rather than yesterday's set.
 
 The sensor skips when ``OS2MO_ENABLED`` is false: a deployment without an OS2mo
 target has nothing to deliver to, and a run there would only fail.

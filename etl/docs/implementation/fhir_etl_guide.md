@@ -62,10 +62,9 @@ The two-asset pattern simplifies the pipeline and ensures consistency:
 - Group: `ifdb_extraction_{partition}` (e.g., `ifdb_extraction_daily`)
 
 **Shared connector layer** (`DSI/connectors/`):
-Both Oracle (IFDB) and MSSQL (ERP) extraction delegate to shared connector modules (`DSI/connectors/oracle/`, `DSI/connectors/mssql/`) plus cross-cutting helpers in `DSI/connectors/` (`protocol.py`, `types.py`, `factory.py`, `base.py`) that standardize
+Both Oracle (IFDB) and MSSQL (ERP) extraction delegate to shared connector modules (`DSI/connectors/oracle/`, `DSI/connectors/mssql/`) plus cross-cutting helpers in `DSI/connectors/` (`protocol.py`, `factory.py`, `base.py`) that standardize
 asset key generation, group naming, and partition variant creation. The shared layer provides:
 - `ExtractionConfig` protocol (satisfied by both `TableExtractionConfig` and `TableConfig`)
-- `PartitionType` and `TableType` enums for consistent terminology
 - `create_extraction_assets()` generic factory
 
 **Example** (Standard - using factory):
@@ -267,6 +266,58 @@ def _post_resources_to_fhir(resources, fhir_database):
     )
 ```
 
+## Field Ownership (Several Sources, One Resource)
+
+When more than one source writes the same FHIR resource, the sources must not each post their own
+version: an upsert replaces the whole resource, so the last writer removes the fields of the
+others. Instead each source delivers a *contribution*, a partial resource without `id` and `meta`.
+One builder merges the contributions by an *ownership table* and posts the result once. The shared
+module is `DSA/FHIR/utils/field_ownership.py`. Patient (`DSA/FHIR/Patient/`) and the SOR-keyed
+Location (`DSA/FHIR/Location/`) use it.
+
+- **Ownership table** (`OwnershipTable`): for each field, the sources that may supply it, in order
+  of precedence. The first source in that order whose contribution has the field wins it. An empty
+  tuple is a field the projection reads but no source supplies yet. The keys:
+  - `"<field>"`: a top-level element, e.g. `"status"`.
+  - `"identifier:<system>"`: the identifier elements with that system, as a group.
+  - `"extension:<url>"`: the extension elements with that url, as a group.
+  - `"meta.tag:<code>"`: only for coverage of the projection; the builder owns `meta`.
+
+  `choice_types` maps one key to the attributes of a FHIR choice type, e.g. `"deceased"` to
+  `deceasedBoolean` and `deceasedDateTime`.
+- **Contract errors**: a contribution that supplies a field without an entry, or a field its
+  source does not own, raises `UnknownField` or `NotOwner`. So does a contribution that sets `id`
+  or `meta`. Two contributions from one source raise `DuplicateContribution`.
+- **Which contributions exist** is the resource's service decision, not the module's. Location
+  counts a soft-deleted SOR archive row as a SOR contribution (`location_service.read_contributions`,
+  `etl/docs/contracts/beslutningslog_location.md`). Select the changed keys with
+  `include_deleted=True`, so that a soft delete also rebuilds the resource.
+- **One write point**: each source's asset finds only its changed keys and calls the resource's
+  write point. For Patient these are `patient_service.write_rows`, `write_register_persons` and
+  `ensure_patients`, which read every source for those keys through `build_person`. For Location
+  it is `location_service.write_codes`, which reads both archives. So a delta in one source never
+  removes another source's fields.
+- **Provenance**: `apply_provenance` sets `meta.source` to the builder's URI
+  (`SOURCE_*_BUILDER` in `utils/fhir/identifier_systems.py`) and one `meta.tag` with system
+  `SYSTEM_SOURCE_TAG` per contributing source, in the table's source order. A *stub source*
+  delivers only a personal number (HAIBA, SDSDRG and SDSUDRED, `STUB_SOURCES` in
+  `patient_service.py`). Patient also keeps the tag of a stub source that the existing resource
+  already carries but that does not contribute now (`patient_builder.build`, `bevarede_kilder`). The SoF view
+  projects each tag to a `source_<code>` BIT column in `fhir.*`.
+
+To add a source to a resource that has an ownership table:
+
+1. Add the source's tag code (e.g. `SOURCE_BOM_IFDB = "BOM_IFDB"`) to `sources` and to the owner
+   tuples of the fields it supplies; the position in each tuple is its precedence.
+2. Write the source's contribution function and read it in the resource's service.
+3. Add the `source_<code>` column to the SoF view definition, the `fhir.*` DDL, a migration and the
+   lineage YAML.
+4. Record the precedence in `etl/docs/contracts/beslutningslog_<resource>.md`.
+
+To put a new resource on the module, create its `OwnershipTable` beside its builder (model:
+`DSA/FHIR/Location/location_ownership.py`) with a new `SOURCE_<RESOURCE>_BUILDER` URI, then follow
+the steps above for each source.
+
 ## Missing Dependency Resolution
 
 When processing resources in partitions, referenced resources (e.g., Patients, EpisodeOfCare) may not yet exist in the FHIR server because they were last modified in a different partition. The **missing dependency resolution** mechanism handles this by fetching and posting missing resources on-demand before reference resolution.
@@ -373,7 +424,7 @@ All jobs are centralized in `etl/jobs/`:
 | File | Jobs | Purpose |
 |------|------|---------|
 | `ifdb_dfm_jobs.py` | `ifdb_dfm_daily_job` | **The nightly pipeline**: archive → FHIR transform+post → SoF → DSO sync → Borger + SFI refresh |
-| `ifdb_dfm_jobs.py` | `ifdb_archive_job`, `fhir_ifdb_dfm_job`, `fhir_sof_dfm_job`, `ifdb_dfm_full_job` | Stage-scoped operator jobs for re-running one layer |
+| `ifdb_dfm_jobs.py` | `ifdb_archive_job`, `fhir_ifdb_dfm_job`, `fhir_sof_dfm_job` | Stage-scoped operator jobs for re-running one layer |
 | `ifdb_dfm_jobs.py` | `dfm_reset_job`, `period_orchestrator_job` | Checkpoint reset and chunked historical reload |
 | `fhir_ifdb_jobs.py` | `sfi_datapoint_reconciliation_job` | Manual/periodic SFI_datapoint rebuild |
 | `fhir_sof_jobs.py` | `codesystem_sfi_sync_job` | Operator-triggered `codesystem.sfi_*` rebuild + DSO sync |
@@ -421,9 +472,10 @@ Schedules live in `schedules/ifdb_dfm_schedules.py` (`ifdb_dfm_daily_schedule`, 
      name when only one source table exists for that source.
 
 3. **Update `__init__.py` Files**
-   - Export assets from `DSA/FHIR/{Resource}/__init__.py`
+   - Add the assets to `all_assets` in `DSA/FHIR/{Resource}/__init__.py`
    - The resource directory's `__init__.py` collects assets from all source files (`*_IFDB.py`, `*_IFDB_dfm.py`)
-   - `DSA/FHIR/assets.py` aggregates all resource directories into `all_assets`
+   - `DSA/FHIR/assets.py` aggregates all resource directories into `all_assets`, except
+     `Questionnaire/` and `QuestionnaireResponse/`: `DSA/FHIR/Aktivitetsresultat/` registers their assets
 
 4. **Register Database Indexes** (`utils/fhir/index_config.py`)
    - Add identifier system to `IDENTIFIER_UNIQUE_INDEX_SPECS`
@@ -450,7 +502,6 @@ etl/
 ├── DSI/
 │   ├── connectors/            # Shared extraction abstractions + per-connector factories
 │   │   ├── protocol.py        # ExtractionConfig protocol
-│   │   ├── types.py           # PartitionType, TableType enums
 │   │   ├── factory.py         # create_dfm_extraction_assets()
 │   │   ├── base.py            # SqlExtractor base class
 │   │   ├── oracle/            # Oracle extractor + models
@@ -626,7 +677,7 @@ Optional fields:
 | Asset name | `sof_{view_short_name}_{partition}` | `sof_encounter_daily` |
 | Group (daily) | `fhir_sof_daily` | -- |
 | Group (monthly) | `fhir_sof_monthly` | -- |
-| Infrastructure | `fhir_sof_infrastructure` (in `staging_infrastructure` group) | -- |
+| Infrastructure | `fhir_sof_infrastructure` (in `fhir_infrastructure` group) | -- |
 
 ### MSSQL Target Tables
 

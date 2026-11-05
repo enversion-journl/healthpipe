@@ -33,13 +33,4 @@ conceptmap_dsa_assets = [
 
 all_assets = [*conceptmap_dsa_assets]
 
-__all__ = [
-    "conceptmap_dsa_assets",
-    "all_assets",
-    "cm_rekvirent_to_sor",
-    "cm_lager_to_sor",
-    "cm_ean_to_sor",
-    "cm_okosted_to_sor",
-    "cm_shak_to_sor",
-    "cm_shakalike_to_sor",
-]
+__all__ = ["conceptmap_dsa_assets", "all_assets"]

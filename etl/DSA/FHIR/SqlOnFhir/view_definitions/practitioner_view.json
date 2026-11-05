@@ -9,13 +9,15 @@
         {"name": "practitioner_id", "path": "id"},
         {"name": "identifier_cpr", "path": "identifier.where(system='urn:dk:cpr').value.first()"},
         {"name": "identifier_cpr_previous", "path": "extension('urn:source:silkeborgdata:afloest_cpr').valueString.first()"},
+        {"name": "identifier_staff", "path": "identifier.where(system='urn:source:ifdb:staff').value.first()"},
+        {"name": "identifier_regionsid", "path": "identifier.where(system='http://example.org/BSK/RegionsId').value.first()"},
         {"name": "name_text", "path": "name.text.first()"},
         {"name": "name_family", "path": "name.family.first()"},
         {"name": "name_given", "path": "name.given.first()"},
         {"name": "gender", "path": "gender"},
         {"name": "birth_date", "path": "birthDate"},
         {"name": "active", "path": "active"},
-        {"name": "source_table", "path": "meta.tag.where(system='urn:source:silkeborgdata:source_table').code.first()"},
+        {"name": "source_table", "path": "meta.tag.where(system='urn:source:silkeborgdata:source_table' or system='urn:source:epji:source_table').code.first()"},
         {"name": "dw_is_deleted", "path": "extension('urn:fhir:isDeleted').valueInteger.first()"}
       ]
     }

@@ -29,10 +29,23 @@ from DSA.SQL.common.ils_clean_code_shared import sql_norm_code
 from DSA.SQL.common.staff_identifier_sql import sql_staff_identifier
 
 SOURCE_TABLE = "ils_zz_oper"
+ILSBRUGER_PREFIX = "ILSBRUGER_"
+
+# The row that wins for a set of initials. Columns as src below names them;
+# other stagings that resolve a user from arc.ils_zz_oper rank with the same rule.
+WINNER_ORDER = """CASE WHEN active = 1 THEN 0 ELSE 1 END,
+                         sysdato DESC,
+                         pro2modified DESC,
+                         prrowid ASC"""
 
 
-def _initialer(column: str) -> str:
+def sql_initialer(column: str) -> str:
     """The initials as the grain keys them; DROPPED_SQL counts with the same rule."""
+    return f"UPPER({sql_norm_code(column)})"
+
+
+def sql_bruger_id(column: str) -> str:
+    """bd_oprid as bruger_id holds it."""
     return f"UPPER({sql_norm_code(column)})"
 
 
@@ -41,8 +54,8 @@ BUILD_SQL = f"""
 
     ;WITH src AS (
         SELECT
-            {_initialer("z.bd_init")} AS initialer,
-            UPPER({sql_norm_code("z.bd_oprid")}) AS bruger_id,
+            {sql_initialer("z.bd_init")} AS initialer,
+            {sql_bruger_id("z.bd_oprid")} AS bruger_id,
             {sql_staff_identifier("z.bd_oprid")} AS identifier_staff,
             NULLIF(LTRIM(RTRIM(z.bd_navn)), '') AS name_text,
             z.bd_aktiv AS active,
@@ -57,16 +70,13 @@ BUILD_SQL = f"""
             src.*,
             ROW_NUMBER() OVER (
                 PARTITION BY initialer
-                ORDER BY CASE WHEN active = 1 THEN 0 ELSE 1 END,
-                         sysdato DESC,
-                         pro2modified DESC,
-                         prrowid ASC
+                ORDER BY {WINNER_ORDER}
             ) AS rn
         FROM src
         WHERE initialer IS NOT NULL
     )
     SELECT
-        CAST('ILSBRUGER_' + initialer AS NVARCHAR(100)) AS clean_code_ILSBruger,
+        CAST('{ILSBRUGER_PREFIX}' + initialer AS NVARCHAR(100)) AS clean_code_ILSBruger,
         CAST(initialer AS NVARCHAR(6)) AS initialer,
         CAST(bruger_id AS NVARCHAR(20)) AS bruger_id,
         CAST(identifier_staff AS NVARCHAR(50)) AS identifier_staff,
@@ -97,7 +107,7 @@ DROPPED_SQL = f"""
     SELECT
         SUM(CASE WHEN {sql_norm_code("bd_init")} IS NULL THEN 1 ELSE 0 END),
         COUNT({sql_norm_code("bd_init")})
-            - COUNT(DISTINCT {_initialer("bd_init")})
+            - COUNT(DISTINCT {sql_initialer("bd_init")})
     FROM [arc].[ils_zz_oper];
 """
 

@@ -18,6 +18,7 @@ import tarfile
 from datetime import date
 
 import pytest
+from core.resources import FileShareResource
 from DSI.csv_files import drg
 from DSI.csv_files.drg_datasets import DATASETS
 
@@ -461,7 +462,6 @@ def test_no_op_koersel_toemmer_manifestet(tmp_path, monkeypatch):
     class _Ctx:
         log = _Log()
 
-    monkeypatch.setenv(drg.BASE_DIR_ENV, str(tmp_path))
     monkeypatch.setattr(drg, "discover_archives", lambda root, ltype: [archive])
     monkeypatch.setattr(
         drg,
@@ -470,7 +470,12 @@ def test_no_op_koersel_toemmer_manifestet(tmp_path, monkeypatch):
     )
 
     result = drg._run_extract(
-        _Ctx(), _Resource(), MINI_DATASETS, "DRG", drg.DrgExtractConfig(kadence="M")
+        _Ctx(),
+        _Resource(),
+        FileShareResource(base_dir=str(tmp_path)),
+        MINI_DATASETS,
+        "DRG",
+        drg.DrgExtractConfig(kadence="M"),
     )
 
     besluttet = result.metadata["besluttet"]

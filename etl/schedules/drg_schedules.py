@@ -38,7 +38,8 @@ import json
 from datetime import date
 
 import dagster as dg
-from DSI.csv_files.drg import discover_archives, drg_dir, matches_kadence
+from core.resources import FileShareResource
+from DSI.csv_files.drg import discover_archives, matches_kadence
 from jobs.drg_jobs import (
     drg_freshness_job,
     drg_ingest_psyk_maaned_job,
@@ -125,7 +126,7 @@ def _build_queue_schedule(leverancetype: str, job, cron: str, name: str):
             f"succeeds, so the takstsystemer are processed one at a time."
         ),
     )
-    def _schedule(context: dg.ScheduleEvaluationContext):
+    def _schedule(context: dg.ScheduleEvaluationContext, drg_share: FileShareResource):
         # An M load can run past midnight. The run_key only dedupes within a
         # day, so without this a long load would be overtaken by the next tick
         # and the two would clear each other's ext.
@@ -140,7 +141,7 @@ def _build_queue_schedule(leverancetype: str, job, cron: str, name: str):
                 f"En {leverancetype}-koersel er stadig i gang — koeen startes ikke forfra"
             )
 
-        archives = discover_archives(drg_dir(), leverancetype)
+        archives = discover_archives(drg_share.root(), leverancetype)
         queue = build_queue(archives, leverancetype)
         if not queue:
             return dg.SkipReason(f"Ingen {leverancetype}-leverancer fundet paa sharet")

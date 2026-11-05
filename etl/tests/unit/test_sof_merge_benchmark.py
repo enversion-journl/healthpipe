@@ -9,8 +9,8 @@
 from __future__ import annotations
 
 import pytest
+from adhoc import sof_merge_benchmark as b
 from DSA.FHIR.utils.sql_on_fhir.sof_utils import SOF_DEFAULT_MERGE_BATCH_ROWS
-from infrastructure.assets import sof_merge_benchmark as b
 
 pytestmark = pytest.mark.unit
 

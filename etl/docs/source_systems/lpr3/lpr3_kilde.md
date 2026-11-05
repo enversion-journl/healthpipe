@@ -9,8 +9,6 @@
 # SDS LPR3 Grunddata — kilde og ingestion
 
 Beskriver SDS' regionsleverance LPR3 Grunddata, og hvordan den indlæses i ext og arc.
-Den styrende specifikation er [[internal ticket]](https://enversion.visualstudio.com/healthpipe/_workitems/edit/27627);
-ingestion er [user story [internal ticket]](https://enversion.visualstudio.com/healthpipe/_workitems/edit/29891).
 Nøglevalg og deres begrundelse står i [nøglekontrakten](../../contracts/lpr3_ingest_noegler.md).
 
 ## Begreber
@@ -24,7 +22,7 @@ Nøglevalg og deres begrundelse står i [nøglekontrakten](../../contracts/lpr3_
 | `LPR_Entity_ID` | LPR3-indberetningens UUID, tildelt af det indberettende system |
 | Dim/fct-par | SDS fordeler ni entiteters identitet (Dim) og attributter (fct) på to tabeller med samme rækkeantal |
 | Funktionel afhængighed | Målingen af, at et sæt kolonner entydigt bestemmer en række; grundlaget for hver arkivnøgle |
-| Featurebeslutninger B1–B16 | Truffet på [internal ticket] den 2026-09-20. Dette dokument henviser til B2 (merge-nøglen er `LPR_Entity_ID`), B3 (afledte entiteter nøgles på UUID-relationer), B4 (et Dim/fct-par bliver én arkivtabel) og B6 (DimBorger og DimAdresse arkiveres komplet) |
+| Featurebeslutninger B1–B16 | Truffet den 2026-09-20. Dette dokument henviser til B2 (merge-nøglen er `LPR_Entity_ID`), B3 (afledte entiteter nøgles på UUID-relationer), B4 (et Dim/fct-par bliver én arkivtabel) og B6 (DimBorger og DimAdresse arkiveres komplet) |
 | Nøglebeslutninger D1–D6 | De målte undtagelser fra B2/B3; se [nøglekontrakten](../../contracts/lpr3_ingest_noegler.md) |
 
 ## Leverance
@@ -32,7 +30,7 @@ Nøglevalg og deres begrundelse står i [nøglekontrakten](../../contracts/lpr3_
 | Egenskab | Kontrakt |
 |---|---|
 | Kilde | SDS' regionsleverance LPR3 Grunddata, region 1083; SDS' eget stjerneskema |
-| Placering | `LPR3_BASE_DIR`, forventet `/mnt/ftproot/SDS_NGC_Sundhedsdata_LPR_Grunddata/Fra-SDS/` |
+| Placering | Ressourcen `lpr3_share` (`FileShareResource`) bundet til `LPR3_BASE_DIR`, forventet `/mnt/ftproot/SDS_NGC_Sundhedsdata_LPR_Grunddata/Fra-SDS/` |
 | Adgang | Read-only CIFS-mount; mount og `LPR3_BASE_DIR` skal begge findes i kodeserverens allokering |
 | Pakke | `Region1083_LPRGrunddata_<U\|M>_<yyyyMMddHHmmss>.tar.bz2` |
 | Indhold | 47 datafiler, 47 `Metadata_*.csv`, én `SDP_ExportLog`; 26 regionale og 21 nationale tabeller |
@@ -171,7 +169,7 @@ beskytter mellemrummene mellem assets, og SQL-applikationslåse tillader samtidi
 fra samme kørsel. En anden kørsel kan først overtage fra et afsluttet Dagster-run, når
 ingen af dets SQL-workers stadig arbejder. En ukendt ejer afvises.
 
-`meta.LPR3Leverance` (`tables/lpr3/01_meta.sql`) har én række pr. kildetabel og
+`meta.LPR3Leverance` (`sources/lpr3/LPR3Leverance.sql`) har én række pr. kildetabel og
 leverance med kontroltotaler, run-id, merge-tællinger, merge-metode, audit-min og -antal,
 fallback- og referenceoptællinger og status. `raekker_arc` er antallet af aktive
 arkivrækker efter merge. Et run, der fejler, nedgraderer ikke en tidligere arkiveret

@@ -7,9 +7,9 @@
 -- ============================================================================
 -- 20260703: Drop legacy security model.
 -- Sikkerhed tildeles nu udelukkende via AD (sec.RolleDomaene / sec.RBOrganisation),
--- og Fritekst-maskering sker via sec.RolleDomaene (DPA_ERP), jf. [internal ticket].
+-- og Fritekst-maskering sker via sec.RolleDomaene (DPA_ERP).
 -- Destruktiv: fjerner de gamle sec-objekter (og deres data) i eksisterende miljøer.
--- HentFritekstAdgang_v1 + kolonnen BrugerRoller.Fritekst droppes af [internal ticket]'s
+-- HentFritekstAdgang_v1 + kolonnen BrugerRoller.Fritekst droppes af
 -- migration 20260703_erp_fritekst_rolle_domaene.sql; denne migration fjerner resten.
 -- Base-DDL opretter dem ikke længere, så på friske installationer er dette et no-op.
 -- ============================================================================

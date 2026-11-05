@@ -52,9 +52,8 @@ import dagster as dg
 from core.dfm_config import RunModeConfig
 from core.dfm_manager import DfmManager
 from core.dfm_source import share_source
-from core.resources import MSSQLResource
+from core.resources import FileShareResource, MSSQLResource
 from DSI.csv_files.silkeborgdata import (
-    BASE_DIR_ENV,
     LEVERANCE_COLUMNS,
     Delivery,
     discover_deliveries,
@@ -63,8 +62,6 @@ from DSI.csv_files.silkeborgdata import (
     partition_settled_deliveries,
     read_delivery_rows,
     select_deliveries,
-    silkeborgdata_dir,
-    silkeborgdata_encoding,
     write_to_ext_table,
 )
 from pydantic import Field
@@ -636,7 +633,7 @@ def _assert_volume_within_tolerance(
     name="extract_silkeborgdata_e26_pers",
     group_name="silkeborgdata_archive",
     compute_kind="python",
-    deps=["staging_infra_silkeborgdata"],
+    deps=["staging_infra_source_silkeborgdata"],
     tags={
         "domain": "silkeborgdata",
         "layer": "extract",
@@ -656,13 +653,10 @@ def extract_silkeborgdata_e26_pers(
     context: dg.AssetExecutionContext,
     config: SilkeborgDataExtractConfig,
     mssql_target_staging: MSSQLResource,
+    silkeborgdata_share: FileShareResource,
 ) -> dg.MaterializeResult:
-    """Read the new SilkeborgData deliveries into ext.silkeborgdata_e26_pers.
-
-    No source resource in the signature: the source is a filesystem path from the
-    environment, exactly as for HAIBA and DRG.
-    """
-    encoding = silkeborgdata_encoding()
+    """Read the new SilkeborgData deliveries into ext.silkeborgdata_e26_pers."""
+    encoding = silkeborgdata_share.encoding
     effective_mode = "delta" if config.mode == "ids" else config.mode
 
     dfm = DfmManager(mssql_target_staging, context)
@@ -673,7 +667,7 @@ def extract_silkeborgdata_e26_pers(
             dagster_run_id=context.run_id,
             mode=effective_mode,
             checkpoint_from=("arc", ARC_TABLE),
-            **share_source(os.getenv(BASE_DIR_ENV), FILE_NAME),
+            **share_source(silkeborgdata_share.base_dir, FILE_NAME),
         )
         checkpoint = run_ctx.checkpoint
         context.log.info(
@@ -681,9 +675,9 @@ def extract_silkeborgdata_e26_pers(
         )
 
         try:
-            # Fails hard on an unset, missing or empty BASE_DIR. An unmounted
-            # share must never be reported as "no new deliveries".
-            base_dir = silkeborgdata_dir()
+            # Fails hard on a missing or empty folder. A folder one level too high is not
+            # empty and passes; checkpoint_not_stalled then only warns.
+            base_dir = silkeborgdata_share.root()
             context.log.info(f"Delivery share: {base_dir} (encoding={encoding})")
 
             discovered = discover_deliveries(base_dir, FILE_NAME)

@@ -33,6 +33,7 @@ INCLUDE_ROOTS = [
     ".gitignore",
     ".gitattributes",
     ".env.template",
+    "justfile",
     # Public publish-output coverage: these ship via the publish transform's
     # whitelist (gitleaks/docker config, the self-build files, the CI workflows).
     # Keep in sync with healthpipe-infra/publish/config.py so the --check gate
@@ -40,6 +41,7 @@ INCLUDE_ROOTS = [
     ".gitleaks.toml",
     ".dockerignore",
     ".github",
+    "examples",
     "infrastructure/containers/dockerfiles/code-server.Dockerfile",
     "infrastructure/containers/dockerfiles/code-server-base.Dockerfile",
     "infrastructure/devops/scripts/build-push.sh",
@@ -66,7 +68,6 @@ EXCLUDE_GLOBS = [
     "*/tests/fixtures/*",
     "*/__snapshots__/*",
     "notebooks/*",
-    "Daniel/*",
 ]
 
 PRECOMMIT_CONFIG = ".pre-commit-config.yaml"
@@ -157,6 +158,7 @@ _EXT_STYLES: dict[str, CommentStyle] = {
 _FILENAME_STYLES: dict[str, CommentStyle] = {
     "Dockerfile": HASH,
     "Makefile": HASH,
+    "justfile": HASH,
     ".gitignore": HASH,
     ".gitattributes": HASH,
     ".dockerignore": HASH,

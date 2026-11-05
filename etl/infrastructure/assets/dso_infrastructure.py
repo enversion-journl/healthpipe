@@ -8,23 +8,26 @@
 DSO Infrastructure Assets (Data Staging Out Layer)
 
 Creates all database objects on the DSO (reporting) database:
-- Schemas (stg, map, dim, fct, bridge, sec, vw_dim, vw_fct, vw_fhir)
+- Schemas (common/00_schemas.sql without DSO_EXCLUDED_SCHEMAS)
 - Functions (same as staging)
-- Persistent Tables (complete copy from staging)
+- Persistent Tables (copy from staging, without DSO_EXCLUDED_SCHEMAS)
 - Views (vw_dim.*, vw_fct.*, vw_fhir.*)
 
-The DSO database is a complete copy of the staging database persistent tables,
-plus the secure views that users access.
+The DSO database holds the staging database persistent tables outside
+DSO_EXCLUDED_SCHEMAS, plus the secure views that users access.
 """
 
 import dagster as dg
 from core.resources import MSSQLResource
 from infrastructure.utils.ddl_loader import (
+    MigrationConfig,
     apply_migrations,
     execute_legacy_sql2019_functions_if_needed,
     execute_sql_file,
     execute_sql_files_from_directory,
 )
+
+DSO_EXCLUDED_SCHEMAS = frozenset({"ext", "arc", "map", "stg"})
 
 # ============================================================================
 # SCHEMAS
@@ -42,14 +45,16 @@ def dso_infra_schemas(
     context: dg.AssetExecutionContext,
     mssql_target_dso: MSSQLResource,
 ) -> dg.MaterializeResult:
-    """Create schemas: stg, map, dim, fct, bridge, sec, meta, vw_dim, vw_fct, fhir, vw_fhir"""
+    """Create the schemas in common/00_schemas.sql except DSO_EXCLUDED_SCHEMAS."""
 
-    execute_sql_file(mssql_target_dso, "common/00_schemas.sql", context)
+    execute_sql_file(
+        mssql_target_dso, "common/00_schemas.sql", context, skip_schemas=DSO_EXCLUDED_SCHEMAS
+    )
 
     context.log.info("✅ All schemas created on DSO")
     return dg.MaterializeResult(
         metadata={
-            "schemas": "stg, map, dim, fct, bridge, sec, meta, vw_dim, vw_fct, fhir, vw_fhir",
+            "excluded_schemas": sorted(DSO_EXCLUDED_SCHEMAS),
             "database": "DSO (reporting)",
         }
     )
@@ -189,7 +194,7 @@ def dso_infra_shared_dimensions(
     context: dg.AssetExecutionContext,
     mssql_target_dso: MSSQLResource,
 ) -> dg.MaterializeResult:
-    """Create shared dimension tables on DSO (dim.Borger, dim.Dato).
+    """Create shared dimension tables on DSO (dim.Borger, dim.BorgerDemografi, dim.Dato).
 
     Depends on dso_migrations so the 20260515 drop-and-rebuild migration
     runs before the new dim.Borger DDL is applied, and on dso_infra_ref
@@ -205,7 +210,7 @@ def dso_infra_shared_dimensions(
     return dg.MaterializeResult(
         metadata={
             "files_executed": list(results.keys()),
-            "tables": "dim.Borger, dim.Dato",
+            "tables": "dim.Borger, dim.BorgerDemografi, dim.Dato",
         }
     )
 
@@ -248,7 +253,7 @@ def dso_infra_ref(
 
 
 # ============================================================================
-# ORGANIZATION (Complete copy from staging)
+# ORGANIZATION (Copy from staging without map tables)
 # ============================================================================
 
 
@@ -258,27 +263,29 @@ def dso_infra_ref(
     compute_kind="mssql",
     deps=["dso_infra_schemas", "dso_migrations"],
     tags={"layer": "dso", "type": "infrastructure", "domain": "organisation"},
-    description="Create organisation tables on DSO (complete copy from staging)",
+    description="Create organisation tables on DSO (copy from staging; map tables stay on staging)",
 )
 def dso_infra_organisation(
     context: dg.AssetExecutionContext,
     mssql_target_dso: MSSQLResource,
 ) -> dg.MaterializeResult:
-    """Create organisation map and dim tables on DSO."""
+    """Create organisation dim tables on DSO."""
 
-    results = execute_sql_files_from_directory(mssql_target_dso, "tables/organisation", context)
+    results = execute_sql_files_from_directory(
+        mssql_target_dso, "tables/organisation", context, skip_schemas=DSO_EXCLUDED_SCHEMAS
+    )
 
     context.log.info("✅ Organisation tables created on DSO")
     return dg.MaterializeResult(
         metadata={
             "files_executed": list(results.keys()),
-            "tables": "map.Organisation, dim.Organisation",
+            "tables": "dim.Organisation",
         }
     )
 
 
 # ============================================================================
-# ERP (Complete copy from staging)
+# ERP (Copy from staging without arc and map tables)
 # ============================================================================
 
 
@@ -288,21 +295,23 @@ def dso_infra_organisation(
     compute_kind="mssql",
     deps=["dso_infra_schemas", "dso_infra_functions", "dso_migrations"],
     tags={"layer": "dso", "type": "infrastructure", "domain": "erp"},
-    description="Create ERP tables on DSO (complete copy from staging)",
+    description="Create ERP tables on DSO (copy from staging; arc and map tables stay on staging)",
 )
 def dso_infra_erp(
     context: dg.AssetExecutionContext,
     mssql_target_dso: MSSQLResource,
 ) -> dg.MaterializeResult:
-    """Create all ERP infrastructure on DSO (maps, dims, facts)."""
+    """Create all ERP infrastructure on DSO (dims, facts, bridges)."""
 
-    results = execute_sql_files_from_directory(mssql_target_dso, "tables/erp", context)
+    results = execute_sql_files_from_directory(
+        mssql_target_dso, "tables/erp", context, skip_schemas=DSO_EXCLUDED_SCHEMAS
+    )
     context.log.info("✅ ERP infrastructure created on DSO")
 
     return dg.MaterializeResult(
         metadata={
             "files_executed": list(results.keys()),
-            "tables": "map.Kontoplan, map.Kreditor, map.Leverandoervare, map.Aftale, map.ILSLeverandoer, map.AftaleVarePris, map.Faktura, map.Fakturalinje, map.Postering, map.Lager, map.Vareudlevering, map.Rekvirent, map.ean, map.LagerbeholdningEgenskaber, map.AfdelingLagerbeholdningEgenskaber, map.Okosted, dim.Kontoplan, dim.Kreditor, dim.Leverandoervare, dim.Aftale, dim.ILSLeverandoer, dim.Faktura, dim.Fakturalinje, dim.Postering, dim.Lager, dim.Vareudlevering, dim.Rekvirent, dim.ean, dim.LagerbeholdningEgenskaber, dim.AfdelingLagerbeholdningEgenskaber, dim.Okosted, fct.Faktura, fct.Fakturalinje, fct.Postering, fct.Vareudlevering, fct.Lagerbeholdning, fct.AfdelingLagerbeholdning, fct.AftaleVarePris",
+            "tables": "dim.Kontoplan, dim.Kreditor, dim.Leverandoervare, dim.Aftale, dim.ILSLeverandoer, dim.Faktura, dim.Fakturalinje, dim.Postering, dim.Lager, dim.Vareudlevering, dim.Ordre, dim.Rekvirent, dim.ean, dim.LagerbeholdningEgenskaber, dim.AfdelingLagerbeholdningEgenskaber, dim.Okosted, fct.Faktura, fct.Fakturalinje, fct.Postering, fct.Vareudlevering, fct.Ordre, fct.Lagerbeholdning, fct.AfdelingLagerbeholdning, fct.AftaleVarePris",
         }
     )
 
@@ -563,7 +572,7 @@ def dso_infra_views_erp(
         metadata={
             "files_executed": list(results.keys()),
             "views": (
-                "vw_fct.Fakturalinje, vw_fct.Postering, vw_fct.Vareudlevering, "
+                "vw_fct.Fakturalinje, vw_fct.Postering, vw_fct.Vareudlevering, vw_fct.Ordre, "
                 "vw_fct.Vareudlevering_ReeltForbrug, vw_dim.Kontoplan, vw_dim.Kreditor "
                 "(vw_dim.Leverandoervare / vw_dim.Rekvirent live in views/security)"
             ),
@@ -601,7 +610,7 @@ def dso_infra_views_security(
     return dg.MaterializeResult(
         metadata={
             "files_executed": list(results.keys()),
-            "views": "sec.* security views (vw_dim.Borger, vw_dim.Leverandoervare, vw_dim.Fakturalinje, vw_dim.Organisation, vw_dim.Okosted)",
+            "views": "sec.* security views (vw_dim.Borger, vw_dim.BorgerDemografi, vw_dim.Leverandoervare, vw_dim.Fakturalinje, vw_dim.Organisation, vw_dim.Okosted)",
         }
     )
 
@@ -677,7 +686,7 @@ def dso_infra_views_fhir(
 
 
 # ============================================================================
-# CODESYSTEM / ROUTING (Complete copy from staging)
+# CODESYSTEM / ROUTING (Copy from staging without arc tables)
 # ============================================================================
 
 
@@ -695,7 +704,9 @@ def dso_infra_codesystem(
 ) -> dg.MaterializeResult:
     """Create codesystem schema tables on DSO."""
 
-    results = execute_sql_files_from_directory(mssql_target_dso, "tables/codesystem", context)
+    results = execute_sql_files_from_directory(
+        mssql_target_dso, "tables/codesystem", context, skip_schemas=DSO_EXCLUDED_SCHEMAS
+    )
     context.log.info("Codesystem tables created on DSO")
     return dg.MaterializeResult(metadata={"files_executed": list(results.keys())})
 
@@ -808,6 +819,7 @@ def dso_infra_conceptmap(
 def dso_migrations(
     context: dg.AssetExecutionContext,
     mssql_target_dso: MSSQLResource,
+    config: MigrationConfig,
 ) -> dg.MaterializeResult:
     """Run pending migrations/*.sql scripts on DSO in filename-sorted order.
 
@@ -816,10 +828,16 @@ def dso_migrations(
     defense in depth on pre-tracker servers, and the tracker row is written
     after the file's SQL commits, so a partial failure re-runs the whole
     file. Removing a migration file does not remove its tracker row, and
-    that is harmless.
+    that is harmless. Batches in DSO_EXCLUDED_SCHEMAS are skipped.
     """
 
-    results = apply_migrations(mssql_target_dso, "migrations", context)
+    results = apply_migrations(
+        mssql_target_dso,
+        "migrations",
+        context,
+        skip_schemas=DSO_EXCLUDED_SCHEMAS,
+        only=config.filenames,
+    )
 
     applied = [name for name, status in results.items() if status == "applied"]
     skipped = [name for name, status in results.items() if status == "skipped"]

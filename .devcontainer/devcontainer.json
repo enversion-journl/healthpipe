@@ -20,7 +20,7 @@
   ],
   "mounts": [
     // Mount the host ssh folder ~/.ssh to /home/vscode/.ssh
-    "source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached"
+    "source=${localEnv:HOME}${localEnv:USERPROFILE}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached"
   ],
   "forwardPorts": [
     3000,

@@ -6,7 +6,7 @@
 
 # gitleaks configuration — healthpipe / HealthPipe
 #
-# Commit-time secret + PII guard (follow-up to [internal ticket]).
+# Commit-time secret + PII guard.
 # Auto-loaded by gitleaks from the repo root; wired in via .pre-commit-config.yaml
 # (the "gitleaks" hook scans the STAGED diff on every commit).
 #

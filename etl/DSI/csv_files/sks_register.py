@@ -37,18 +37,17 @@ import gzip
 import logging
 import re
 from datetime import date, datetime
-from urllib.request import Request, urlopen
 
 import dagster as dg
 from core.dfm_manager import DfmManager
 from core.dfm_source import http_source
-from core.resources import MSSQLResource
+from core.resources import HTTPDownloadResource, MSSQLResource
 from dagster import AssetExecutionContext
 from dateutil.parser import parse as _dateutil_parse
 
 logger = logging.getLogger(__name__)
 
-SKS_COMPLETE_URL = "https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt"
+SKS_COMPLETE_PATH = "SKScomplete.txt"
 
 # 3-letter classification prefixes present in SKScomplete.txt. The prefix is
 # stripped from the code and stored as the `classification` FHIR property.
@@ -82,18 +81,10 @@ def _decode_sks_bytes(data: bytes) -> str:
     return data.decode("latin-1")
 
 
-def _fetch_sks_complete(url: str, context: dg.AssetExecutionContext) -> str:
+def _fetch_sks_complete(download: HTTPDownloadResource, context: dg.AssetExecutionContext) -> str:
     """Download SKScomplete.txt and return its decoded text content."""
-    req = Request(
-        url,
-        headers={"User-Agent": "Mozilla/5.0 (compatible; Dagster-SKS-Loader/2.0)"},
-    )
-    context.log.info(f"Downloading {url}...")
-
-    with urlopen(req, timeout=300) as response:
-        data = response.read()
-
-    text = _decode_sks_bytes(data)
+    context.log.info(f"Downloading {download.url(SKS_COMPLETE_PATH)}...")
+    text = _decode_sks_bytes(download.fetch(SKS_COMPLETE_PATH))
     context.log.info(f"Downloaded {len(text.encode('latin-1')) / (1024 * 1024):.1f} MB")
     return text
 
@@ -323,7 +314,6 @@ class SKSExtractConfig(dg.Config):
     """Runtime configuration for SKS register extraction.
 
     Attributes:
-        source_url: URL for SKScomplete.txt (Sundhedsdatastyrelsen).
         classifications: Must be ``["all"]``. Only a full extract is
             supported because ``cs_sks`` does a full-snapshot
             ``delete_stale`` MERGE — loading a partial extract would delete
@@ -334,7 +324,6 @@ class SKSExtractConfig(dg.Config):
             years; 50k signals something is badly wrong.
     """
 
-    source_url: str = SKS_COMPLETE_URL
     classifications: list[str] = ["all"]
     min_records: int = 50_000
 
@@ -357,6 +346,7 @@ def extract_sks_register(
     context: AssetExecutionContext,
     config: SKSExtractConfig,
     mssql_target_staging: MSSQLResource,
+    sks_download: HTTPDownloadResource,
 ) -> dg.MaterializeResult:
     if "all" not in config.classifications:
         raise RuntimeError(
@@ -367,26 +357,27 @@ def extract_sks_register(
             f"{config.classifications!r}."
         )
 
+    source_url = sks_download.url(SKS_COMPLETE_PATH)
     dfm = DfmManager(mssql_target_staging, context)
     run_ctx = dfm.start_dfm_run(
         "ext",
         "sks_register",
         dagster_run_id=context.run_id,
         mode="full_load",
-        **http_source(config.source_url),
+        **http_source(source_url),
     )
     try:
-        text = _fetch_sks_complete(config.source_url, context)
+        text = _fetch_sks_complete(sks_download, context)
         records = _parse_sks_lines(text)
 
         if len(records) < config.min_records:
             raise RuntimeError(
-                f"Only {len(records)} SKS records parsed from {config.source_url} "
+                f"Only {len(records)} SKS records parsed from {source_url} "
                 f"(expected >= {config.min_records}). Refusing to load — the "
                 f"download is likely truncated or the file format has changed."
             )
         if not records:
-            raise RuntimeError(f"No SKS records parsed from {config.source_url}")
+            raise RuntimeError(f"No SKS records parsed from {source_url}")
 
         context.log.info(f"Parsed {len(records)} version records")
 
@@ -419,6 +410,6 @@ def extract_sks_register(
             "active_codes": dg.MetadataValue.int(active_count),
             "inactive_codes": dg.MetadataValue.int(len(newest_by_code) - active_count),
             "classification_counts": dg.MetadataValue.json(classification_counts),
-            "source": dg.MetadataValue.text(config.source_url),
+            "source": dg.MetadataValue.text(source_url),
         }
     )

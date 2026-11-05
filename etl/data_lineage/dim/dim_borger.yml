@@ -42,6 +42,9 @@ dso_lineage:
     # ------------------------------------------------------------------
     dw_sk_Borger:           { Type: PK,         DataType: INT,            Expr: "Carried from ref.Patient_Address_To_Borger (no local IDENTITY). Bærer T2-versionering fra adresse-historik." }
     dw_ek_Borger:           { Type: BusinessFK, DataType: INT,            Expr: "INT IDENTITY tildelt i ref.PatientToBorger ud fra fhir.Patient.patient_id. Genbruges uændret på alle T2-versioner." }
+    dw_ek_BorgerDemografi: { Type: BusinessFK, DataType: CHAR(64), FK-Target: dim.BorgerDemografi, Expr: "SHA-256 over region_id, regionnavn, kommune_id, kommunenavn, postnr, postdistrikt, sogn_id, sognenavn, koen_navn samt år og måned fra foedselsdato; ved ukendt fødselsdato kun de ni øvrige felter. Direkte nøgle til dim.BorgerDemografi; beregnes i staging og kopieres til DSO." }
+    sogn_id: { DataType: VARCHAR(4), Expr: "NULL indtil kilde og tidssemantik er aftalt." }
+    sognenavn: { DataType: NVARCHAR(60), Expr: "NULL indtil kilde og tidssemantik er aftalt." }
     fhir_Patient_id:        { DataType: NVARCHAR(255), Expr: "fhir.Patient.patient_id — FHIR resource id'et bag borgeren. Ens på alle T2-versioner. NULL på sentinel -1, -2 og -99." }
 
     # ------------------------------------------------------------------

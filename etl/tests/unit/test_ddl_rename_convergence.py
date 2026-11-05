@@ -6,7 +6,7 @@
 
 """A fresh database and a migrated one must end up with the same object names.
 
-The base DDL under ``ddl/tables/`` is what a from-scratch provision creates; the
+The base DDL under ``ddl/tables/`` and ``ddl/sources/`` is what a from-scratch provision creates; the
 ``sp_rename`` calls under ``ddl/migrations/`` are what an already-deployed
 database gets rewritten to. If the base DDL still creates a constraint or index
 name that a migration later renames away, the two paths diverge permanently:
@@ -17,7 +17,7 @@ That divergence is also what turns an out-of-order DDL run into a confusing
 failure — the collision surfaces as "There is already an object named
 'PK_dfm_state'" rather than naming the table actually at fault.
 
-So: no name that migrations rename away may still be created by ``tables/``.
+So: no name that migrations rename away may still be created by ``tables/`` or ``sources/``.
 Renames are chained in filename order, because a name can be renamed more than
 once (``IX_FHIR_EncounterLocations_*`` -> ``..._Encounter_Locations_*`` ->
 ``..._Encounter_Location_*``); only the final name is acceptable.
@@ -59,10 +59,11 @@ def _rename_chain() -> dict[str, str]:
 
 
 def _base_ddl() -> dict[str, str]:
-    tables = get_ddl_path() / "tables"
+    ddl = get_ddl_path()
     return {
-        str(path.relative_to(tables)): path.read_text(encoding="utf-8")
-        for path in sorted(tables.glob("**/*.sql"))
+        str(path.relative_to(ddl)): path.read_text(encoding="utf-8")
+        for folder in ("tables", "sources")
+        for path in sorted((ddl / folder).glob("**/*.sql"))
     }
 
 

@@ -15,12 +15,15 @@ SOF deps point at the DFM producer keys.
 """
 
 import pytest
-from dagster import AssetKey
-from definitions import defs
 from DSA.FHIR.Aktivitetsresultat.Aktivitetsresultat_IFDB_dfm import (
     fhir_server_aktivitetsresultat_sfi_dfm,
 )
 from DSA.FHIR.SqlOnFhir.Observation_dfm import sof_observation_dfm
+from tests.utils.asset_graph_helpers import (
+    DFM_PRODUCER_PREFIXES,
+    SOF_PREFIXES,
+    assert_deps,
+)
 
 
 @pytest.mark.unit
@@ -28,15 +31,20 @@ class TestAktivitetsresultatPipelineRegistration:
     """Validate Aktivitetsresultat DFM wiring contracts."""
 
     def test_dfm_multi_asset_depends_on_archive_and_upstreams(self):
-        key = AssetKey.from_user_string("fhir_server_aktivitetsresultat_dfm")
-        assert fhir_server_aktivitetsresultat_sfi_dfm.asset_deps[key] == {
-            AssetKey.from_user_string("arc_aktivitetsresultat_ifdb"),
-            AssetKey.from_user_string("arc_aktivitetsudfoerelse_ifdb"),
-            AssetKey.from_user_string("arc_aktivitetsudfoerelse_speciale_ifdb"),
-            AssetKey.from_user_string("fhir_server_patient_dfm"),
-            AssetKey.from_user_string("fhir_server_encounter_dfm"),
-            AssetKey.from_user_string("fhir_server_eoc_dfm"),
-        }
+        assert_deps(
+            fhir_server_aktivitetsresultat_sfi_dfm,
+            "fhir_server_aktivitetsresultat_dfm",
+            allowed_prefixes=DFM_PRODUCER_PREFIXES,
+            required={
+                "arc_aktivitetsresultat_ifdb",
+                "arc_aktivitetsudfoerelse_ifdb",
+                "arc_aktivitetsudfoerelse_speciale_ifdb",
+                # Reference producers must post before this one.
+                "fhir_server_patient_dfm",
+                "fhir_server_encounter_dfm",
+                "fhir_server_eoc_dfm",
+            },
+        )
 
     def test_sof_observation_depends_on_dfm_producer(self):
         """SFI is the only registered producer of fhir.Observation.
@@ -45,22 +53,9 @@ class TestAktivitetsresultatPipelineRegistration:
         (DSA/FHIR/Observation/__init__.py exports an empty list), so naming them
         would only pin a stub.
         """
-        key = AssetKey.from_user_string("sof_observation_dfm")
-        assert sof_observation_dfm.asset_deps[key] == {
-            AssetKey.from_user_string("fhir_sof_infrastructure"),
-            AssetKey.from_user_string("fhir_server_aktivitetsresultat_dfm"),
-        }
-
-    def test_legacy_aktivitetsresultat_assets_are_gone(self):
-        graph = defs.resolve_asset_graph()
-        removed = [
-            "fhir_aktivitetsresultat_daily_ifdb",
-            "fhir_questionnaire_daily_ifdb",
-            "fhir_questionnaire_response_daily_ifdb",
-            "ifdb_extract/aktivitetsresultat_daily",
-            "ifdb_extract/aktivitetsudfoerelse_daily",
-        ]
-        for key_str in removed:
-            assert not graph.has(
-                AssetKey.from_user_string(key_str)
-            ), f"Legacy asset still registered: {key_str}"
+        assert_deps(
+            sof_observation_dfm,
+            "sof_observation_dfm",
+            allowed_prefixes=SOF_PREFIXES,
+            required={"fhir_sof_infrastructure", "fhir_server_aktivitetsresultat_dfm"},
+        )

@@ -52,6 +52,7 @@ from utils.fhir.identifier_systems import (
     SYSTEM_IFDB_RIS_YDELSE_DIAGNOSE,
     SYSTEM_IFDB_SENGEENHED,
     SYSTEM_IFDB_SENGEENHED_KAPACITET,
+    SYSTEM_IFDB_STAFF,
     SYSTEM_SILKEBORGDATA_TJENESTENUMMER,
     SYSTEM_SOR,
 )
@@ -109,6 +110,9 @@ IDENTIFIER_UNIQUE_INDEX_SPECS: list[tuple[str, str]] = [
     # and a Practitioner. The index is per (resource_type, system), so the two
     # do not collide — test_practitioner_transforms pins that.
     ("Practitioner", SYSTEM_CPR),
+    # EPJI accounts. The index compares case-sensitively, so the two case
+    # variants of one staff code that EPJI holds as separate accounts stay apart.
+    ("Practitioner", SYSTEM_IFDB_STAFF),
     ("PractitionerRole", SYSTEM_SILKEBORGDATA_TJENESTENUMMER),
 ]
 

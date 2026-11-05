@@ -29,8 +29,10 @@ ikke længere har en (stale) række):
 De to sidste er historiseret med ``dw_valid_from``/``dw_valid_to`` og
 ``dw_run_id_from``/``dw_run_id_to``. En ændring lukker den åbne række og
 indsætter en ny; en nøgle, der ikke længere er i udtrækket, får sin åbne række
-lukket. Fejlede et medlemsopslag i udtrækket, lukkes ingen rækker; kun nye
-nøgler åbnes.
+lukket.
+
+Fejlede et medlemsopslag i udtrækket, afbrydes indlæsningen, før en tabel
+ændres (exit 5).
 
 ``bruger`` gemmes som bart sAMAccountName (fx ``vah5ep``, uden
 domænepræfiks); DPA-funktionerne stripper selv domænet fra ``SUSER_SNAME()``.
@@ -132,6 +134,7 @@ Exit codes
   tildelinger eller brugere forsvinder; den ramte tabel er ikke ændret (en
   tidligere tabel i kørslen kan dog allerede være genindlæst)
 - **4** — ``codesystem.SORHierarchy`` is empty; run ``cs_sor`` first
+- **5** — et medlemsopslag i AD fejlede; ingen tabel er ændret
 """
 
 from __future__ import annotations
@@ -202,6 +205,18 @@ class ExtractTooSmallError(RuntimeError):
 
 class EmptySorHierarchyError(RuntimeError):
     """codesystem.SORHierarchy is empty — expansion would silently under-grant."""
+
+
+class FailedMemberLookupsError(RuntimeError):
+    """Et medlemsopslag i AD fejlede, så udtrækket kan mangle brugere og roller."""
+
+
+def _validate_no_failed_lookups(failed_lookups: list) -> None:
+    """Afbryd indlæsningen, før en tabel ændres, når et medlemsopslag fejlede."""
+    if failed_lookups:
+        raise FailedMemberLookupsError(
+            f"{len(failed_lookups)} medlemsopslag i AD fejlede. Ingen sec-tabel er ændret."
+        )
 
 
 def _validate_extract_size(
@@ -792,13 +807,8 @@ def _load_historik(
     *,
     run_id: str,
     dry_run: bool,
-    close_rows: bool = True,
 ) -> dict:
-    """Historise ``rows`` in sec.<tabel>. Returns open_before/closed/inserted row counts.
-
-    With ``close_rows=False`` no row closes and only keys without an open row are inserted, because
-    a partial extract can show a changed value as well as a missing key.
-    """
+    """Historise ``rows`` in sec.<tabel>. Returns open_before/closed/inserted row counts."""
     metrics = {"open_before": 0, "closed": 0, "inserted": 0}
     label = f"sec.{tabel.name}"
     sql = _historik_sql(tabel)
@@ -838,11 +848,8 @@ def _load_historik(
     # without a gap.
     cur.execute("SELECT CAST(SYSDATETIME() AS DATETIME2(0));")
     params = {"nu": cur.fetchone()[0], "run_id": run_id}
-    if close_rows:
-        cur.execute(sql["close"], params)
-        metrics["closed"] = cur.rowcount
-    else:
-        print(f"  {label}: medlemsopslag fejlede — ingen rækker lukkes, kun nye nøgler åbnes")
+    cur.execute(sql["close"], params)
+    metrics["closed"] = cur.rowcount
     cur.execute(sql["insert"], params)
     metrics["inserted"] = cur.rowcount
 
@@ -932,6 +939,11 @@ def main() -> int:
     print(f"Læst {len(rolle_rows)} rolle-rækker fra {rolle_jsonl.name}")
     print(f"Læst {len(org_rows)} org-rækker fra {org_jsonl.name}")
     print(f"Læst {len(fejlede_opslag)} fejlede medlemsopslag fra {fejlede_jsonl.name}")
+    try:
+        _validate_no_failed_lookups(fejlede_opslag)
+    except FailedMemberLookupsError as e:
+        print(f"FEJL: {e}")
+        return 5
 
     if not rolle_rows and not org_rows:
         print("Ingen data at indlæse — afslutter.")
@@ -987,7 +999,6 @@ def main() -> int:
                 rows,
                 run_id=run_id,
                 dry_run=False,
-                close_rows=not fejlede_opslag,
             )
             for tabel, rows in historik
         }

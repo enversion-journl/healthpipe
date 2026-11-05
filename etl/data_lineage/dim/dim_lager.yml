@@ -60,10 +60,11 @@ dso_lineage:
       DataType: INT
       Source: [ils.dbo.lgr.deflevdage]
       Description: "Standardleveringstid for lageret i dage (ILS: deflevdage). Via codesystem.LagerProperties.standardLeveringsdage"
+    # aktiv is the exception: it is also set on sygehus rows, from dbo.sgh.aktiv.
     aktiv:
       DataType: BIT
-      Source: [ils.dbo.lgr.aktiv]
-      Description: "Kildens eget aktiv-flag paa lageret. Via codesystem.LagerProperties.aktiv"
+      Source: [ils.dbo.lgr.aktiv, ils.dbo.sgh.aktiv]
+      Description: "Kildens eget aktiv-flag paa lageret eller sygehuset (lgr.aktiv paa et lager, sgh.aktiv paa et sygehus). Tom for regionen og hvor kilden ikke angiver det. Via codesystem.LagerProperties.aktiv"
     code_sor:              { DataType: VARCHAR(50), Source: [sor.SOR_registry.CodeSOR] }
     dw_ek_Rekvirent_lagerejer:
       Type: FK

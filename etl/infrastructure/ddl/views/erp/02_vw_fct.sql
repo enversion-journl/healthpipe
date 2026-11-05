@@ -88,6 +88,18 @@ LEFT JOIN [conceptmap].[RekvirentToSOR] cm_rekvirent
     ON cm_rekvirent.[dw_ek_Rekvirent] = f.[dw_ek_Rekvirent];
 GO
 
+-- vw_fct.Ordre
+-- Organisation via ConceptMap ref table (SOR target of the ordering warehouse).
+CREATE OR ALTER VIEW [vw_fct].[Ordre]
+AS
+SELECT
+    f.*,
+    COALESCE(cm_lager.[dw_ek_Organisation_target], -1) AS [dw_ek_Organisation_lager]
+FROM [fct].[Ordre] f
+LEFT JOIN [conceptmap].[LagerToSOR] cm_lager
+    ON cm_lager.[dw_ek_Lager] = f.[dw_ek_Lager];
+GO
+
 -- vw_fct.Vareudlevering_ReeltForbrug
 -- Anti-join ref.RekvirentUndtagelse on raw clean_code_Rekvirent (via dim.sgh/rnr).
 -- Trim-only, mirroring DSA/SQL/common/ils_clean_code_shared.sql_norm_code: the

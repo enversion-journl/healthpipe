@@ -13,7 +13,7 @@
 -- Production SQL Server 2022+ uses GREATEST() directly and skips this file.
 --
 -- PERSISTED computed columns cannot reference user-defined functions — arc
--- tables use inline CASE in kmd_uddata/00_archive.sql instead.
+-- tables use inline CASE in sources/kmd_uddata/ instead.
 -- ============================================================================
 
 CREATE OR ALTER FUNCTION dbo.fn_GreatestInt3

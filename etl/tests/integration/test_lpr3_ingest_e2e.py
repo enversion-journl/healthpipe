@@ -13,6 +13,7 @@ Dagster asset graph. Freshness is tested separately from historical fixtures.
 import dagster as dg
 import pytest
 from core.dfm_manager import DfmManager
+from core.resources import FileShareResource
 from DSI.connectors.delivery_detection import DELIVERY_SCHEMA, DELIVERY_TARGET_TYPE
 from DSI.csv_files.lpr3 import DELIVERY_UNIT, lpr3_extract_assets
 from DSI.csv_files.lpr3_archive import lpr3_archive_assets, scalar
@@ -58,7 +59,10 @@ def test_registered_job_archives_every_source_before_advancing_checkpoint(reques
     definitions = dg.Definitions(
         assets=[*lpr3_extract_assets, *lpr3_archive_assets],
         jobs=[lpr3_ingest_job],
-        resources={"mssql_target_staging": database},
+        resources={
+            "mssql_target_staging": database,
+            "lpr3_share": FileShareResource(base_dir=str(tmp_path)),
+        },
     )
     job = definitions.resolve_job_def("lpr3_ingest_job")
     selection = [
@@ -66,11 +70,8 @@ def test_registered_job_archives_every_source_before_advancing_checkpoint(reques
         for asset in [*lpr3_extract_assets, *lpr3_archive_assets]
         if asset.key != dg.AssetKey("lpr3_leverance_alder")
     ]
-    config = {"ops": {"lpr3_leverance_plan": {"config": {"base_dir": str(tmp_path)}}}}
     with dg.DagsterInstance.ephemeral() as instance:
-        result = job.execute_in_process(
-            instance=instance, run_config=config, asset_selection=selection
-        )
+        result = job.execute_in_process(instance=instance, asset_selection=selection)
         assert result.success
         with database.get_connection() as conn:
             for dataset in ARCHIVE_DATASETS:
@@ -97,9 +98,7 @@ def test_registered_job_archives_every_source_before_advancing_checkpoint(reques
             cadence="U",
             rows=contacts((1, 3), changed=True),
         )
-        second = job.execute_in_process(
-            instance=instance, run_config=config, asset_selection=selection
-        )
+        second = job.execute_in_process(instance=instance, asset_selection=selection)
         assert second.success
         assert checkpoint() == "2026-09-21T19:00:00"
         with database.get_connection() as conn:
@@ -135,11 +134,7 @@ def test_registered_job_archives_every_source_before_advancing_checkpoint(reques
         # A deliberate replay exercises every merge and returns 0/0/0. A
         # subsequent automatic run skips extraction without touching archives.
         pinned = {
-            "ops": {
-                "lpr3_leverance_plan": {
-                    "config": {"base_dir": str(tmp_path), "delivery_on_or_before": "2026-09-21"}
-                }
-            }
+            "ops": {"lpr3_leverance_plan": {"config": {"delivery_on_or_before": "2026-09-21"}}}
         }
         replay = job.execute_in_process(
             instance=instance, run_config=pinned, asset_selection=selection
@@ -162,9 +157,7 @@ def test_registered_job_archives_every_source_before_advancing_checkpoint(reques
                 )
                 == 0
             )
-        noop = job.execute_in_process(
-            instance=instance, run_config=config, asset_selection=selection
-        )
+        noop = job.execute_in_process(instance=instance, asset_selection=selection)
         assert noop.success
         assert checkpoint() == "2026-09-21T19:00:00"
         with database.get_connection() as conn:
@@ -180,11 +173,7 @@ def test_registered_job_archives_every_source_before_advancing_checkpoint(reques
 
         # Older cutoff is refused before even replacing the current landing.
         older = {
-            "ops": {
-                "lpr3_leverance_plan": {
-                    "config": {"base_dir": str(tmp_path), "delivery_on_or_before": "2026-09-15"}
-                }
-            }
+            "ops": {"lpr3_leverance_plan": {"config": {"delivery_on_or_before": "2026-09-15"}}}
         }
         rejected = job.execute_in_process(
             instance=instance, run_config=older, asset_selection=selection, raise_on_error=False
@@ -204,7 +193,7 @@ def test_registered_job_archives_every_source_before_advancing_checkpoint(reques
             omit=("DimAdresse",),
         )
         missing = job.execute_in_process(
-            instance=instance, run_config=config, asset_selection=selection, raise_on_error=False
+            instance=instance, asset_selection=selection, raise_on_error=False
         )
         assert not missing.success
         assert checkpoint() == "2026-09-21T19:00:00"

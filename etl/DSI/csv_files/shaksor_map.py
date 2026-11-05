@@ -25,15 +25,14 @@ import csv
 import io
 import os
 import zipfile
-from urllib.request import Request, urlopen
 
 import dagster as dg
 from core.dfm_manager import DfmManager
 from core.dfm_source import http_source
-from core.resources import MSSQLResource
+from core.resources import HTTPDownloadResource, MSSQLResource
 from dagster import AssetExecutionContext
 from DSA.FHIR.utils.code_normalization import normalize_shak_code, normalize_sor_code
-from DSI.csv_files.sor_register import COMPLETE_ZIP_URL, PERSIST_DIR
+from DSI.csv_files.sor_register import COMPLETE_ZIP_PATH
 
 SHAKSOR_CSV_NAME = "SHAKSORMap.csv"
 
@@ -160,28 +159,19 @@ def transform_to_ext_format(rows: list[dict[str, str]]) -> list[dict[str, str]]:
     return ext_rows
 
 
-def _read_shaksor_rows(context: AssetExecutionContext) -> list[dict[str, str]]:
+def _read_shaksor_rows(
+    context: AssetExecutionContext, download: HTTPDownloadResource
+) -> list[dict[str, str]]:
     """Return parsed SHAKSORMap.csv rows, reusing the persisted ZIP when present."""
-    zip_path = os.path.join(PERSIST_DIR, "Sor_complete.zip")
+    zip_path = download.persisted_path(COMPLETE_ZIP_PATH)
     if os.path.exists(zip_path):
         context.log.info(f"Reusing persisted SOR complete ZIP at {zip_path}")
-        with open(zip_path, "rb") as f:
-            zip_content = f.read()
     else:
-        context.log.info(f"Downloading complete SOR dataset from {COMPLETE_ZIP_URL}")
-        headers = {
-            "User-Agent": "Mozilla/5.0 (compatible; Dagster-SOR-Loader/1.0)",
-            "Accept": "*/*",
-        }
-        req = Request(COMPLETE_ZIP_URL, headers=headers)
-        with urlopen(req, timeout=300) as response:
-            zip_content = response.read()
-        os.makedirs(PERSIST_DIR, exist_ok=True)
-        with open(zip_path, "wb") as f:
-            f.write(zip_content)
-        context.log.info(f"Saved complete ZIP to {zip_path} ({len(zip_content)} bytes)")
+        context.log.info(f"Downloading complete SOR dataset from {download.url(COMPLETE_ZIP_PATH)}")
+        download.download_to_file(COMPLETE_ZIP_PATH)
+        context.log.info(f"Saved complete ZIP to {zip_path} ({os.path.getsize(zip_path)} bytes)")
 
-    with zipfile.ZipFile(io.BytesIO(zip_content)) as zf:
+    with zipfile.ZipFile(zip_path) as zf:
         with zf.open(SHAKSOR_CSV_NAME) as csv_file:
             csv_content = csv_file.read().decode("utf-8-sig")
 
@@ -249,6 +239,7 @@ def _write_to_ext_table(
 def extract_shak_register(
     context: AssetExecutionContext,
     mssql_target_staging: MSSQLResource,
+    sor_download: HTTPDownloadResource,
 ) -> dg.MaterializeResult:
     dfm = DfmManager(mssql_target_staging, context)
     run_ctx = dfm.start_dfm_run(
@@ -256,10 +247,10 @@ def extract_shak_register(
         "shaksor_map",
         dagster_run_id=context.run_id,
         mode="full_load",
-        **http_source(COMPLETE_ZIP_URL),
+        **http_source(sor_download.url(COMPLETE_ZIP_PATH)),
     )
     try:
-        raw_rows = _read_shaksor_rows(context)
+        raw_rows = _read_shaksor_rows(context, sor_download)
         selected = select_latest_direct(raw_rows)
         ext_rows = transform_to_ext_format(selected)
         context.log.info(

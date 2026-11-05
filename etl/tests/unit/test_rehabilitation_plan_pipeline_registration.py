@@ -31,19 +31,22 @@ from DSA.FHIR.SqlOnFhir.ServiceRequest_Recipient_dfm import (
     sof_service_request_recipient_dfm,
 )
 from DSA.FHIR.utils.sql_on_fhir.sof_utils import SOF_RESOURCE_CONFIGS, VIEW_DEFINITIONS_DIR
-
-_EXPECTED_DEPS = {
-    AssetKey.from_user_string("arc_rehabilitation_plan_ifdb"),
-    AssetKey.from_user_string("arc_rehabilitation_plan_receiver_ifdb"),
-    AssetKey.from_user_string("fhir_server_patient_dfm"),
-}
+from tests.utils.asset_graph_helpers import DFM_PRODUCER_PREFIXES, assert_deps
 
 
 @pytest.mark.unit
 class TestRehabilitationPlanPipelineRegistration:
     def test_transform_depends_on_arc_tables_and_patient(self):
-        key = AssetKey.from_user_string("fhir_server_rehabilitation_plan_dfm")
-        assert fhir_server_rehabilitation_plan_dfm.asset_deps[key] == _EXPECTED_DEPS
+        assert_deps(
+            fhir_server_rehabilitation_plan_dfm,
+            "fhir_server_rehabilitation_plan_dfm",
+            allowed_prefixes=DFM_PRODUCER_PREFIXES,
+            required={
+                "arc_rehabilitation_plan_ifdb",
+                "arc_rehabilitation_plan_receiver_ifdb",
+                "fhir_server_patient_dfm",
+            },
+        )
 
     def test_transform_is_registered_and_materializable(self):
         graph = defs.resolve_asset_graph()

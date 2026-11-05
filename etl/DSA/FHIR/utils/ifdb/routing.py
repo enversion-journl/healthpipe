@@ -41,7 +41,6 @@ _TABLE_MISSING_HINTS = (
     "no such table",
     "does not exist",
 )
-from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -383,73 +382,9 @@ class RoutingResolver:
         # Only review/inactive routes (or none) match: never operational.
         raise NoActiveRouteError(kode, ref_date)
 
-    def get_all_active_routes(self, ref_date: date | None = None) -> list[RoutingRule]:
-        """Return all active routes valid at the given date."""
-        d = ref_date or date.today()
-        return [
-            r
-            for r in self.rules
-            if r.route_status == RouteStatus.ACTIVE
-            and r.active_from <= d
-            and (r.active_to is None or r.active_to >= d)
-        ]
-
-    def get_unrouted_codes(
-        self, all_codes: Sequence[str], ref_date: date | None = None
-    ) -> list[str]:
-        """Return aktivitetstype codes that have no active or review route."""
-        d = ref_date or date.today()
-        routed = set()
-        for r in self.rules:
-            if r.route_status in (RouteStatus.ACTIVE, RouteStatus.REVIEW):
-                if r.active_from <= d and (r.active_to is None or r.active_to >= d):
-                    routed.add(r.aktivitetstype_kode)
-        return sorted(set(all_codes) - routed)
-
 
 def _to_date(value: date | datetime) -> date:
     """Coerce datetime to date."""
     if isinstance(value, datetime):
         return value.date()
     return value
-
-
-def resolve_ifdb_target_resource(
-    aktivitetstype_kode: str,
-    modelleringsnavn: str | None = None,
-    modelleringsversion: str | None = None,
-    occurred_at: datetime | date | None = None,
-    *,
-    rules: list[RoutingRule] | None = None,
-) -> str:
-    """Resolve the target FHIR resource for one IFDB aktivitetstype.
-
-    This is the top-level resolver used by the Observation and
-    QuestionnaireResponse paths. It returns a plain string ("Observation" or
-    "QuestionnaireResponse").
-
-    The modelleringsnavn and modelleringsversion parameters are accepted
-    for forward compatibility but not used for routing in the first
-    implementation (routing key = aktivitetstype_kode alone).
-
-    Args:
-        aktivitetstype_kode: IFDB AKTIVITETTYPE_KODE.
-        modelleringsnavn: IFDB MODELLERINGSNAVN (reserved, not used yet).
-        modelleringsversion: IFDB MODELLERINGSVERSION (reserved, not used yet).
-        occurred_at: Clinical date for temporal routing.
-        rules: Pre-loaded rules. If None, loads from YAML seed.
-
-    Returns:
-        "Observation" or "QuestionnaireResponse".
-
-    Raises:
-        NoActiveRouteError: No matching active route (review routes never
-            resolve).
-        MultipleActiveRoutesError: Ambiguous routing.
-    """
-    if rules is None:
-        rules = load_routing_rules_from_yaml()
-
-    resolver = RoutingResolver(rules=rules)
-    result = resolver.resolve(aktivitetstype_kode, occurred_at=occurred_at)
-    return result.target_resource.value

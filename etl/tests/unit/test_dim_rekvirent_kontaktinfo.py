@@ -38,7 +38,7 @@ from DSA.SQL.common.rekvirent_kontaktinfo import (
 pytestmark = pytest.mark.unit
 
 _DDL_ROOT = Path(__file__).resolve().parents[2] / "infrastructure" / "ddl"
-_ARCHIVE_DDL = _DDL_ROOT / "tables" / "erp" / "00_archive.sql"
+_ARCHIVE_DDL = _DDL_ROOT / "sources" / "ils" / "ils_postdi.sql"
 _DIMS_DDL = _DDL_ROOT / "tables" / "erp" / "02_dims.sql"
 _MIGRATION_SQL = _DDL_ROOT / "migrations" / "20260917_01_dim_rekvirent_adresse_kontakt.sql"
 _LINEAGE_YML = Path(__file__).resolve().parents[2] / "data_lineage" / "dim" / "dim_rekvirent.yml"
@@ -378,7 +378,7 @@ class TestPostdiArchive:
         assert cfg.checkpoint_from is None
 
     def test_postdi_archive_upserts_on_prrowid(self):
-        from DSI.mssql.archive import ils_dfm_archive_configs
+        from DSI.mssql.archive.ils_archive_configs import ils_dfm_archive_configs
 
         cfg = next(c for c in ils_dfm_archive_configs if c.target_table == "ils_postdi")
         assert cfg.source_schema == "ext"
@@ -387,7 +387,7 @@ class TestPostdiArchive:
         assert cfg.upstream_is_full_load is True
 
     def test_postdi_archives_the_columns_the_city_lookup_needs(self):
-        from DSI.mssql.archive import ils_dfm_archive_configs
+        from DSI.mssql.archive.ils_archive_configs import ils_dfm_archive_configs
 
         cfg = next(c for c in ils_dfm_archive_configs if c.target_table == "ils_postdi")
         for col in ("land", "postdi", "navn"):

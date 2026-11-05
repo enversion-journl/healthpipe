@@ -13,19 +13,20 @@ starts stopped in all environments and is switched on manually.
 import os
 
 import dagster as dg
-from core.resources import MSSQLResource, mssql_python
-from DSI.csv_files.cpr import cpr_dir, naeste_leverance, sidst_indlaeste_leverance
+from core.resources import FileShareResource, MSSQLResource, mssql_python
+from DSI.csv_files.cpr import naeste_leverance, sidst_indlaeste_leverance
 from jobs.cpr_jobs import ingest_run_active
 
 SENSOR_NAME = "cpr_backlog_sensor"
 
-# A lost share (OSError, and ValueError from cpr_dir) or a lost database does not fail the tick.
+# A lost share (OSError, and ValueError from FileShareResource.root) or a lost database does not
+# fail the tick.
 TRANSIENT_ERRORS: tuple[type[BaseException], ...] = (OSError, ValueError) + (
     (mssql_python.Error,) if mssql_python is not None else ()
 )
 
 
-def evaluate(context, *, job_name: str, mssql: MSSQLResource):
+def evaluate(context, *, job_name: str, mssql: MSSQLResource, share: FileShareResource):
     """The core of the sensor, kept pure so it can be unit tested without the decorator."""
     if ingest_run_active(context.instance, job_name):
         return dg.SkipReason(
@@ -33,7 +34,7 @@ def evaluate(context, *, job_name: str, mssql: MSSQLResource):
         )
     try:
         sidst, _ = sidst_indlaeste_leverance(mssql)
-        naeste = naeste_leverance(cpr_dir(), sidst)
+        naeste = naeste_leverance(share.root(), sidst)
     except TRANSIENT_ERRORS as exc:
         return dg.SkipReason(
             f"{SENSOR_NAME}: the backlog could not be determined ({type(exc).__name__}); "
@@ -68,8 +69,14 @@ def build_cpr_backlog_sensor(ingest_job):
             "date order. Starts stopped; switched on manually when the environment is ready."
         ),
     )
-    def _sensor(context: dg.RunStatusSensorContext, mssql_target_staging: MSSQLResource):
-        return evaluate(context, job_name=ingest_job.name, mssql=mssql_target_staging)
+    def _sensor(
+        context: dg.RunStatusSensorContext,
+        mssql_target_staging: MSSQLResource,
+        cpr_share: FileShareResource,
+    ):
+        return evaluate(
+            context, job_name=ingest_job.name, mssql=mssql_target_staging, share=cpr_share
+        )
 
     return _sensor
 

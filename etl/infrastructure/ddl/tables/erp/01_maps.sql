@@ -306,6 +306,32 @@ BEGIN
 END
 GO
 
+-- map.Ordre
+-- CleanCode -> DW_EK for the ILS order headers (dbo.ordh). dw_ek_Ordre is the
+-- shared PK of dim.Ordre and fct.Ordre.
+IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[map].[Ordre]') AND type = 'U')
+BEGIN
+    CREATE TABLE [map].[Ordre](
+        [dw_ek_Ordre] INT IDENTITY(1,1) NOT NULL,
+        [clean_code_Ordre] NVARCHAR(100) NOT NULL,
+        [dw_timestamp_insert] DATETIME2 NOT NULL CONSTRAINT [DF_Ordre_dw_timestamp_insert] DEFAULT SYSDATETIME(),
+        [dw_timestamp_update] DATETIME2 NOT NULL CONSTRAINT [DF_Ordre_dw_timestamp_update] DEFAULT SYSDATETIME(),
+        CONSTRAINT [PK_Map_Ordre] PRIMARY KEY CLUSTERED ([clean_code_Ordre] ASC)
+    ) ON [PRIMARY];
+END
+GO
+
+-- Serves the dw_ek_Ordre -> clean_code_Ordre direction.
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'[map].[Ordre]') AND name = 'IX_Map_Ordre_DW_EK')
+   AND EXISTS (SELECT 1 FROM sys.objects WHERE object_id = OBJECT_ID(N'[map].[Ordre]') AND type = 'U')
+BEGIN
+    EXEC('
+        CREATE UNIQUE NONCLUSTERED INDEX [IX_Map_Ordre_DW_EK] ON [map].[Ordre]
+        ([dw_ek_Ordre] ASC) INCLUDE ([clean_code_Ordre]) ON [PRIMARY]
+    ');
+END
+GO
+
 -- map.Lager
 -- CleanCode -> DW_EK resolution for Lager dimension
 -- Supports the ILS Lager codesystem hierarchy (REGION_SYD -> sgh -> lgr)

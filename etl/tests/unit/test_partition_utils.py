@@ -6,7 +6,6 @@
 
 import pytest
 from DSA.FHIR.utils.partition_utils import (
-    build_date_filter_where_clause,
     get_month_date_range,
     parse_monthly_partition,
 )
@@ -36,18 +35,3 @@ def test_get_month_date_range_formats():
 
     with pytest.raises(ValueError):
         get_month_date_range("invalid")
-
-
-def test_build_where_clause():
-    oracle_clause = build_date_filter_where_clause("2025-01", "COL", is_oracle=True)
-    assert "TRUNC" in oracle_clause
-    assert "DATE '2025-01-31'" in oracle_clause
-
-    mssql_clause = build_date_filter_where_clause("2025-01-15", "COL", is_oracle=False)
-    assert "CAST(COL AS DATE) = '2025-01-15'" == mssql_clause
-
-    full_load_clause = build_date_filter_where_clause("full_load", "COL")
-    assert full_load_clause == ""
-
-    with pytest.raises(ValueError):
-        build_date_filter_where_clause("2025", "COL")

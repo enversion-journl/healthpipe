@@ -17,6 +17,7 @@ test_udredningsret_extract.py.
 """
 
 import contextlib
+import re
 from datetime import date
 from types import SimpleNamespace
 
@@ -484,15 +485,11 @@ def test_record_delivery_upserter_paa_kildetabel_og_tidsstempel():
     )
     sql = conn.executed[0]
     assert "MERGE [meta].[UdredningsretLeverance] AS tgt" in sql
-    assert (
-        "ON tgt.[kildetabel] = src.kildetabel AND tgt.[leverance_tidsstempel] = src.leverance_tidsstempel"
-        in sql
-    )
-    params = conn.cursors[0].params[0]
+    assert "CAST(? AS DATETIME2(0)) AS [leverance_tidsstempel]" in sql
+    on_clause = re.search(r" ON (.*?) WHEN ", sql).group(1)
+    assert re.findall(r"tgt\.\[(\w+)\]", on_clause) == ["kildetabel", "leverance_tidsstempel"]
+    (params,) = conn.cursors[0].params[0]
     assert params[:2] == ("udredningsret_mont", "2026-09-07 19:35:44")
-    # 10 values for UPDATE and the same 10 for INSERT, in the same order
-    assert len(params) == 22
-    assert params[2:12] == params[12:22]
     assert params[2:6] == ("U", "2026-09-07", "2026-09-06", "merge")
     assert params[6:12] == (10, 8, 5, 6, 7, 0.9995)
 

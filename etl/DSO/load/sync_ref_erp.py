@@ -10,7 +10,7 @@ import dagster as dg
 from core.resources import MSSQLResource
 from DSO.load.sync_configs import SHARED_DIMS_REF_CONFIGS
 from DSO.load.sync_utils import (
-    SYNC_ENGINE_PYTHON_FALLBACK,
+    SYNC_ENGINE_LINKED_SERVER,
     compare_row_counts,
     sync_table_via_linked_server,
 )
@@ -37,12 +37,7 @@ def _sync_ref_table(
         config.table,
         mssql_source_staging=mssql_source_staging,
     )
-    fallback_reason = result.get("fallback_reason")
-    sync_engine = (
-        SYNC_ENGINE_PYTHON_FALLBACK
-        if fallback_reason
-        else result.get("sync_engine", "linked_server")
-    )
+    sync_engine = result.get("sync_engine", SYNC_ENGINE_LINKED_SERVER)
     metadata = {
         "rows_affected": result["rows_affected"],
         "sync_mode": result["mode"],
@@ -53,8 +48,6 @@ def _sync_ref_table(
         "dso_count": counts["dso_count"],
         "counts_match": counts["match"],
     }
-    if fallback_reason:
-        metadata["fallback_reason"] = fallback_reason
     return dg.MaterializeResult(metadata=metadata)
 
 

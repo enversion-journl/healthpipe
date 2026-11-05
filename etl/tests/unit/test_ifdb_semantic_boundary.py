@@ -5,7 +5,7 @@
 # root for the full AGPL-3.0 license text.
 
 """
-Contract tests for semantic boundary decisions in [internal ticket].
+Contract tests for semantic boundary decisions.
 
 Review context:
 - 52404/52412: HEALTHISSUE should not drive FHIR Condition.

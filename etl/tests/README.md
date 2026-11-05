@@ -41,15 +41,10 @@ pytest tests/unit/ -v
 
 **Expected Output**: all unit tests pass (several thousand, mocked resources)
 
-#### 2. Run Integration Tests (Mocked Resources)
+This includes the wiring guards — registration, asset dependencies, job
+selections (see Method 2 below).
 
-```bash
-pytest tests/integration/ -m unit -v
-```
-
-**What this tests**: Pipeline structure, asset dependencies, job configurations
-
-#### 3. Test with Real Databases (Read-Only)
+#### 2. Test with Real Databases (Read-Only)
 
 ```bash
 # Enable real resources
@@ -57,12 +52,12 @@ export USE_REAL_DB_FOR_TESTS=true
 export TEST_ENV=dev
 
 # Run read-only tests
-pytest -m real_resources -m read_only -v
+pytest -m "real_resources and read_only" -v
 ```
 
 **Safety**: Tests will refuse to run if `TEST_ENV` contains "prod"
 
-#### 4. Test Specific Patient
+#### 3. Test Specific Patient
 
 ```bash
 export USE_REAL_DB_FOR_TESTS=true
@@ -91,10 +86,7 @@ pytest -m patient_test -v
 # 2. Run fast unit tests
 pytest tests/unit/ -v
 
-# 3. Test integration structure
-pytest tests/integration/ -m unit -v
-
-# 3b. Run datawarehouse domain suites (once created)
+# 3. Run datawarehouse domain suites (once created)
 pytest tests/integration/datawarehouse/ -m integration -v
 
 # 4. Test with real data (when ready)
@@ -252,26 +244,31 @@ pytest -m unit -v
 
 **Speed**: ⚡ Fast (milliseconds)
 
-### Method 2: Integration Tests with Mocked Resources
+### Method 2: Wiring Guards
 
-**Purpose**: Test pipeline structure and asset dependencies without real data
+**Purpose**: Test wiring that fails *silently* — a missing registration entry, a
+group no job selects, an unregistered schedule — without needing real data
 
 **Characteristics:**
 - Uses mocked resources
-- Tests asset dependencies and structure
-- Verifies pipeline orchestration
+- Exercises registration and asset-graph wiring
 - Still fast (no network calls)
 
 **When to Use:**
-- Testing asset dependency graphs
-- Verifying job configurations
-- Testing partition handling
-- Pipeline structure validation
 
-**Run with:**
-```bash
-pytest -m integration -m unit -v
-```
+Only for wiring whose failure mode is silence: the pipeline stays green and the
+data never arrives. See the registration/convention guards in
+`docs/testing-guidelines.md` (the carve-out section).
+
+**Write these as rules, not rosters.** `all(p.startswith('arc_') for p in parents)`
+covers every asset including ones added next month; `assert deps == {…literal set…}`
+only restates the `deps=` list and fails on every legitimate addition. A roster
+comparison is acceptable only when both sides are derived
+(`assert len(assets) == len(KMD_EXTRACT_CONFIGS)`). Partition handling is transform
+logic — unit-test it against executed code, not through a structure assertion.
+
+**Run with:** the unit suite (Method 1). The guards live in `tests/unit/`;
+there is no separate command.
 
 **Speed**: ⚡ Fast
 
@@ -305,7 +302,7 @@ export USE_REAL_DB_FOR_TESTS=true
 export TEST_ENV=dev
 
 # Run integration tests with real resources
-pytest -m real_resources -m read_only -v
+pytest -m "real_resources and read_only" -v
 
 # Test specific patient
 export TEST_PATIENT_ID=12345
@@ -408,21 +405,37 @@ def test_patient_pipeline_flexible(mssql_resource, fhir_server_resource):
     # Falls back to mock otherwise
 ```
 
-### Example 4: Integration Test with Mocked Resources
+### Example 4: Registration Guard (Mocked Resources)
+
+A guard covers wiring that fails silently. Write it as a **rule over the whole
+asset graph**, so it also covers assets added next month — not as a frozen list
+of today's inventory:
 
 ```python
+from definitions import defs
+
 @pytest.mark.integration
 @pytest.mark.unit
-def test_fhir_patient_pipeline_mock(
-    dagster_instance,
-    mock_mssql_resource,
-    mock_fhir_server_resource,
-    patient_id,
-    test_partition,
-):
-    """Test patient pipeline structure with mocked resources."""
-    # Test verifies pipeline structure, not actual data transformation
+def test_prestaging_assets_read_archives_only():
+    """Every pre-staging asset reads arc_*, never the retired ext_* extracts.
+
+    Fails silently otherwise: the pipeline stays green and the data is stale.
+    """
+    graph = defs.resolve_asset_graph()
+    parents = {
+        parent.path[-1]
+        for key in graph.get_all_asset_keys()
+        if key.path[-1].startswith("stg_")
+        for parent in graph.get(key).parent_keys
+    }
+    assert parents, "no stg_ assets resolved — selection or naming changed"
+    assert all(not name.startswith("ext_") for name in parents)
 ```
+
+Two things make this a guard rather than an anti-pattern: the assertion is a
+**rule** (not `assert parents == {…literal set…}`), and it **guards against the
+vacuous pass** — if the graph query returns nothing, the test fails instead of
+passing green forever.
 
 ---
 

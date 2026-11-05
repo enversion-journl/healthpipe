@@ -148,8 +148,8 @@ Uanset opgavetype:
 3. **Dokumentation er en del af opgaven, ikke en efterfølgende oprydning.** Se
    [05 — Udfyld dokumentation](05_udfyld_dokumentation.md).
 
-VS Code-serveren, feature-branch-flowet og hvordan du får din egen Dagster code
-location på Dev: [Kom i gang](../../../docs/onboarding.md).
+Opsætning af udviklingsmiljøet (devcontainer eller lokal venv):
+[Development Setup](../../../CONTRIBUTING.md#development-setup).
 
 ## Tjekliste før du går videre
 

@@ -70,10 +70,40 @@ from core.branch_postfix import (
 # Log branch deployment info at module load
 log_branch_info()
 
+# Engangs-cutover: DSO SyncWatermarks -> staging DFMState
+from adhoc.migrate_dso_sync_watermarks import migrate_dso_sync_watermarks_to_dfm
+
+# Operatørudløst nulstilling af SFI/procedure/diagnose-sporet før genkørsel
+from adhoc.sfi_genkoersel_nulstilling import (
+    sfi_genkoersel_nulstilling,
+    sfi_genkoersel_nulstilling_job,
+)
+
+# MIDLERTIDIG: verifikation af genkørslens indlæste data mod grenens kontrakter
+from adhoc.sfi_genkoersel_verifikation import (
+    sfi_genkoersel_verifikation,
+    sfi_genkoersel_verifikation_job,
+)
+
+# Målebænk og status for storens fysiske layout (partitionering, columnstore)
+from adhoc.sfi_store_layout_benchmark import (
+    dso_sfi_store_layout_benchmark,
+    dso_sfi_store_partition_status,
+    sfi_store_layout_benchmark_job,
+)
+
+# Målebænk for SOF-MERGE'n mod en kopi af måltabellen
+from adhoc.sof_merge_benchmark import (
+    sof_merge_benchmark,
+    sof_merge_benchmark_job,
+)
+
 # Core resources and utilities
 from core.io_managers import BatchAwareFilesystemIOManager
 from core.resources import (
+    ActiveDirectoryLDAPResource,
     EPJIOracleResource,
+    FileShareResource,
     IFDBOracleResource,
     ILSMSSQLResource,
     KmdUddataMSSQLResource,
@@ -84,6 +114,7 @@ from core.resources import (
     SimaMSSQLResource,
     SydaxMSSQLResource,
     fhir_defs,
+    file_delivery_defs,
     missing_resource_env_vars,
     mssql_defs,
     os2mo_defs,
@@ -93,28 +124,21 @@ from core.resources import (
 from data_quality import all_assets as data_quality_assets
 
 # DQA framework (config-driven anchor assets + asset_checks per subject)
-from dqa import (
-    DQA_AFTER_ETL_SENSOR_SPECS,
-    build_dqa_after_etl_sensor,
-    dqa_arc_ifdb_replay,
-    dqa_arc_ifdb_replay_job,
+from dqa import dqa_asset_checks, dqa_assets, dqa_schedules, dso_asset_checks, dso_assets, dso_jobs
+from dqa.jobs import dqa_jobs
+from dqa.remediation.arc_replay import dqa_arc_ifdb_replay, dqa_arc_ifdb_replay_job
+from dqa.remediation.arc_vanished_cleanup import (
     dqa_arc_ifdb_vanished_cleanup,
     dqa_arc_ifdb_vanished_cleanup_job,
-    dqa_asset_checks,
-    dqa_assets,
-    dqa_fhir_server_cleanup,
-    dqa_fhir_server_cleanup_job,
-    dqa_jobs,
+)
+from dqa.remediation.fhir_server_cleanup import dqa_fhir_server_cleanup, dqa_fhir_server_cleanup_job
+from dqa.remediation.patient_delete_propagation import (
     dqa_patient_delete_propagation,
     dqa_patient_delete_propagation_job,
-    dqa_remediation_replay,
-    dqa_remediation_replay_job,
-    dqa_schedules,
-    dqa_summary,
-    dso_asset_checks,
-    dso_assets,
-    dso_jobs,
 )
+from dqa.remediation.replay import dqa_remediation_replay, dqa_remediation_replay_job
+from dqa.reporting.summary import dqa_summary
+from dqa.sensors import DQA_AFTER_ETL_SENSOR_SPECS, build_dqa_after_etl_sensor
 
 # DSA CodeSystem and ConceptMap assets (persistent FHIR tables)
 from DSA.CodeSystem import all_assets as codesystem_dsa_assets
@@ -130,19 +154,23 @@ from DSA.FHIR.assets import all_assets as fhir_assets
 from DSA.SQL.bridge import all_assets as bridge_assets
 
 # DW Data Quality Checks
-from DSA.SQL.checks import (
-    dq_archive_completeness_vareudlevering,
+from DSA.SQL.checks.dw_quality_checks import (
     dq_dim_map_referential_check,
     dq_fact_dim_referential_check,
     dq_faktura_postering_match_check,
     dq_fakturalinje_postering_match_check,
     dq_null_check,
+    dw_quality,
+)
+from DSA.SQL.checks.partition_completeness_checks import (
+    dq_archive_completeness_vareudlevering,
     dq_partition_completeness_budget,
     dq_partition_completeness_faktura,
     dq_partition_completeness_fakturalinje,
     dq_partition_completeness_finanskladdelinje,
     dq_partition_completeness_postering,
-    dw_quality,
+)
+from DSA.SQL.checks.silkeborgdata_checks import (
     silkeborgdata_e26_pers_checkpoint_alignment,
     silkeborgdata_e26_pers_checkpoint_not_stalled,
     silkeborgdata_e26_pers_period_continuity,
@@ -152,6 +180,15 @@ from DSA.SQL.checks import (
 from DSA.SQL.cpr import all_assets as cpr_dsa_assets
 from DSA.SQL.dev import all_assets as dev_assets
 from DSA.SQL.dfm import dfm_assets
+from DSA.SQL.dfm.ifdb_backfill_window_reconciliation import (
+    ifdb_backfill_window_reconciliation,
+)
+
+# Meta-asset: fuldindlæsning af IFDB -> FHIR-kæden, ét vindue ad gangen
+from DSA.SQL.dfm.ifdb_fhir_fuldload import (
+    ifdb_fhir_fuldload,
+    ifdb_fhir_fuldload_job,
+)
 from DSA.SQL.dim import all_assets as dim_assets
 from DSA.SQL.dm import all_assets as dm_assets
 from DSA.SQL.fct import all_assets as fct_assets
@@ -166,10 +203,8 @@ from DSI.csv_files import all_extract_assets as csv_extract_assets
 from DSI.csv_files.cpr import cpr_extract_checks
 
 # DSI Extract - ERP (staging assets from source systems)
-from DSI.mssql import (
-    all_archive_assets,
-    all_factory_extract_assets,
-)
+from DSI.mssql.archive import all_archive_assets
+from DSI.mssql.extract import all_factory_extract_assets
 from DSI.mssql.extract.sydax_extract_configs import (
     sydax_archive_extract_assets,
     sydax_flow_start_assets,
@@ -178,79 +213,42 @@ from DSI.oracle import all_epji_archive_assets, all_ifdb_archive_assets
 
 # DSI Organisation extraction assets (API-based organisation inputs)
 from DSI.organisation import all_extract_assets as organisation_extract_assets
-from DSI.os2mo import os2mo_extract_assets
-from DSO.export import os2mo_export_assets
+from DSI.os2mo.org_unit import os2mo_extract_assets
+from DSO.export.os2mo.codesystem_assets import os2mo_export_assets
 
 # DSO Load - Sync assets (sync staging data to DSO database via linked server)
-from DSO.load import (
-    all_dso_sync_assets,
-    all_fhir_dso_sync_assets,
-    all_sfi_datapoint_refresh_assets,
-    dso_sync_fhir_organization,
-)
-from infrastructure.assets.db_space import all_db_space_checks
-from infrastructure.assets.ifdb_backfill_window_reconciliation import (
-    ifdb_backfill_window_reconciliation,
-)
-
-# Meta-asset: fuldindlæsning af IFDB -> FHIR-kæden, ét vindue ad gangen
-from infrastructure.assets.ifdb_fhir_fuldload import (
-    ifdb_fhir_fuldload,
-    ifdb_fhir_fuldload_job,
-)
-
-# DPA security AD pipeline (extract from AD -> populate staging; feeds dso_sync_security)
-from infrastructure.assets.security_ad_assets import all_security_ad_assets
+from DSO.load import all_dso_sync_assets
+from DSO.load.refresh_sfi_datapoint import all_sfi_datapoint_refresh_assets
 
 # Kontakten for SFI-kæden uden aftagere (fuldindlæsning, før nogen læser data)
-from infrastructure.assets.sfi_consumers_absent import (
+from DSO.load.sfi_consumers_absent import (
     sfi_consumers_absent_start,
     sfi_consumers_absent_start_job,
 )
+from DSO.load.sync_fhir import all_fhir_dso_sync_assets, dso_sync_fhir_organization
+from infrastructure.assets.db_space import all_db_space_checks
 
-# Operatørudløst nulstilling af SFI/procedure/diagnose-sporet før genkørsel
-from infrastructure.assets.sfi_genkoersel_nulstilling import (
-    sfi_genkoersel_nulstilling,
-    sfi_genkoersel_nulstilling_job,
-)
-
-# MIDLERTIDIG: verifikation af genkørslens indlæste data mod grenens kontrakter
-from infrastructure.assets.sfi_genkoersel_verifikation import (
-    sfi_genkoersel_verifikation,
-    sfi_genkoersel_verifikation_job,
-)
-
-# Målebænk og status for storens fysiske layout (partitionering, columnstore)
-from infrastructure.assets.sfi_store_layout_benchmark import (
-    dso_sfi_store_layout_benchmark,
-    dso_sfi_store_partition_status,
-    sfi_store_layout_benchmark_job,
-)
-
-# Målebænk for SOF-MERGE'n mod en kopi af måltabellen
-from infrastructure.assets.sof_merge_benchmark import (
-    sof_merge_benchmark,
-    sof_merge_benchmark_job,
-)
+# DPA security AD pipeline (extract from AD -> populate staging; feeds dso_sync_security)
+from infrastructure.assets.security_ad_assets import all_security_ad_assets
 
 # =============================================================================
 # CENTRALIZED JOBS AND SCHEDULES
 # =============================================================================
 from jobs import all_jobs
 from schedules import all_schedules
-from sensors import (
-    all_sensors,
-    build_cpr_backlog_sensor,
-    build_drg_publish_sensor,
-    build_drg_queue_failure_sensor,
-    build_drg_queue_sensor,
-    build_haiba_publish_sensor,
-    build_os2mo_delivery_sensor,
+from sensors import all_sensors
+from sensors.cpr_backlog_sensor import build_cpr_backlog_sensor
+from sensors.drg_publish_sensor import build_drg_publish_sensor
+from sensors.drg_queue_sensor import build_drg_queue_failure_sensor, build_drg_queue_sensor
+from sensors.haiba_publish_sensor import build_haiba_publish_sensor
+from sensors.ifdb_fhir_fuldload_sensor import build_ifdb_fhir_fuldload_sensor
+from sensors.os2mo_delivery_sensor import build_os2mo_delivery_sensor
+from sensors.release_infrastructure_sensor import (
     build_release_infrastructure_failure_sensor,
     build_release_infrastructure_sensor,
-    build_udredningsret_publish_sensor,
     gate_schedules_on_release_infrastructure,
 )
+from sensors.udredningsret_publish_sensor import build_udredningsret_publish_sensor
 
 # Source assets (unchanged - still in sources/)
 from sources.mssql.epj_assets import (
@@ -408,6 +406,8 @@ all_assets = [
     dso_sfi_store_partition_status,
     # Målebænk for SOF-MERGE'n
     sof_merge_benchmark,
+    # Engangs-cutover: DSO SyncWatermarks -> staging DFMState
+    migrate_dso_sync_watermarks_to_dfm,
 ]
 
 # Define resources
@@ -419,6 +419,8 @@ mssql_resources = cast(dict[str, Any], mssql_defs().resources)
 fhir_resources = cast(dict[str, Any], fhir_defs().resources)
 # Get the OS2mo (Magenta) GraphQL resource from os2mo_defs (os2mo)
 os2mo_resources = cast(dict[str, Any], os2mo_defs().resources)
+# Get the file delivery resources from file_delivery_defs (*_share, *_download)
+file_delivery_resources = cast(dict[str, Any], file_delivery_defs().resources)
 
 
 resources = {
@@ -433,8 +435,10 @@ resources = {
     "patologi_mssql": PatologiMSSQLResource(),
     "ifdb_oracle": IFDBOracleResource(),
     "epji_oracle": EPJIOracleResource(),
+    "ad_ldap": ActiveDirectoryLDAPResource(),
     **fhir_resources,
     **os2mo_resources,
+    **file_delivery_resources,
     "io_manager": dg.FilesystemIOManager(
         base_dir=os.path.join(os.environ.get("DAGSTER_HOME", "."), "storage")
     ),
@@ -447,9 +451,16 @@ resources = {
     ),
 }
 
-if missing_env_vars := missing_resource_env_vars(resources):
+file_shares = {key: r for key, r in resources.items() if isinstance(r, FileShareResource)}
+if missing_env_vars := missing_resource_env_vars(
+    {key: r for key, r in resources.items() if key not in file_shares}
+):
     dg.get_dagster_logger().warning(
         f"Environment variable(s) not set: {', '.join(missing_env_vars)}"
+    )
+if missing_share_vars := missing_resource_env_vars(file_shares):
+    dg.get_dagster_logger().info(
+        f"File shares not configured in this code location: {', '.join(missing_share_vars)}"
     )
 
 # Apply branch postfixes for multi-deployment support
@@ -552,6 +563,13 @@ haiba_publish_sensor = build_haiba_publish_sensor(
     publish_job=_haiba_publish_job,
 )
 
+# Full load sensor: start the IFDB → FHIR full load as soon as the morning chain has
+# succeeded, so it has the day as well as the night before its 05:30 stop.
+ifdb_fhir_fuldload_sensor = build_ifdb_fhir_fuldload_sensor(
+    daily_job=_ifdb_dfm_daily_job,
+    fuldload_job=_postfixed_job_by_name[_pfx("ifdb_fhir_fuldload_job")],
+)
+
 # OS2mo delivery sensor: deliver the codesystems once organisation_cs_job has
 # rebuilt them, rather than at a clock time that only usually comes after.
 os2mo_delivery_sensor = build_os2mo_delivery_sensor(
@@ -652,6 +670,7 @@ drg_queue_sensor = build_drg_queue_sensor(
 postfixed_sensors = [
     *all_sensors,
     haiba_publish_sensor,
+    ifdb_fhir_fuldload_sensor,
     os2mo_delivery_sensor,
     cpr_backlog_sensor,
     drg_publish_sensor,

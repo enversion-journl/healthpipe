@@ -5,50 +5,6 @@
 # root for the full AGPL-3.0 license text.
 
 import dagster as dg
-from core.resources import ILSMSSQLResource
-
-
-def _observe_table_metadata(
-    context: dg.AssetExecutionContext, ils_mssql: ILSMSSQLResource, table_name: str
-) -> dg.ObserveResult:
-    """Observe table metadata without partitioning - gets total row count and column schema."""
-    # Parse schema and table name
-    schema_table = table_name.split(".")
-    schema_name = schema_table[0] if len(schema_table) == 2 else "dbo"
-    table_name = schema_table[1] if len(schema_table) == 2 else schema_table[0]
-
-    with ils_mssql.get_connection() as conn:
-        with conn.cursor() as cursor:
-            # Get row count
-            count_query = f"SELECT COUNT(*) FROM {schema_name}.{table_name};"
-            cursor.execute(count_query)
-            (count,) = cursor.fetchone()
-
-            # Get column information using string formatting (to avoid parameter binding issues)
-            columns_query = f"""
-                SELECT
-                    COLUMN_NAME,
-                    DATA_TYPE
-                FROM INFORMATION_SCHEMA.COLUMNS
-                WHERE TABLE_SCHEMA = '{schema_name}' AND TABLE_NAME = '{table_name}'
-                ORDER BY ORDINAL_POSITION
-            """
-            cursor.execute(columns_query)
-            columns_info = []
-
-            for row in cursor.fetchall():
-                col_name, data_type = row
-                columns_info.append({"name": col_name, "type": data_type})
-
-    return dg.ObserveResult(
-        metadata={
-            "row_count": dg.MetadataValue.int(count),
-            "table": dg.MetadataValue.text(f"{schema_name}.{table_name}"),
-            "column_count": dg.MetadataValue.int(len(columns_info)),
-            "columns": dg.MetadataValue.json(columns_info),
-        }
-    )
-
 
 # Using AssetSpec to declare external assets, which is the modern approach
 # for sources not materialized by Dagster. This provides a clear signal to the planner.

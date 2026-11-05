@@ -13,7 +13,7 @@ import json
 import sys
 import webbrowser
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urljoin
 
 import requests
@@ -30,7 +30,7 @@ class FHIRHelper:
         """Load FHIR reference configuration"""
         try:
             with open(path, encoding="utf-8") as f:
-                return yaml.safe_load(f)
+                return cast(dict[str, Any], yaml.safe_load(f))
         except FileNotFoundError:
             print(f"Warning: Configuration file {path} not found. Using defaults.")
             return self._get_default_config()
@@ -47,14 +47,14 @@ class FHIRHelper:
             }
         }
 
-    def open_profile(self, profile_url: str, version: str = "latest"):
+    def open_profile(self, profile_url: str, version: str = "latest") -> str:
         """Open FHIR profile in browser"""
         if "hl7.dk" in profile_url:
             # Danish core profile
             profile_name = profile_url.split("/")[-1]
             if "|" in profile_name:
                 profile_name = profile_name.split("|")[0]
-            url = urljoin(
+            url: str = urljoin(
                 self.config["fhir_references"]["dk_core"]["base_url"],
                 f"StructureDefinition/{profile_name}",
             )
@@ -74,13 +74,13 @@ class FHIRHelper:
         webbrowser.open(url)
         return url
 
-    def open_resource_docs(self, resource_type: str):
+    def open_resource_docs(self, resource_type: str) -> str:
         """Open FHIR resource documentation"""
         resource_type = resource_type.lower()
         hl7_docs = self.config["fhir_references"]["hl7_fhir"].get("structure_definitions", {})
 
         if resource_type in hl7_docs:
-            url = hl7_docs[resource_type]
+            url: str = hl7_docs[resource_type]
         else:
             # Fallback to generic FHIR R4 resource page
             url = f"https://hl7.org/fhir/R4/{resource_type}.html"
@@ -105,14 +105,14 @@ class FHIRHelper:
         if cache_file.exists():
             try:
                 with open(cache_file, encoding="utf-8") as f:
-                    return json.load(f)
+                    return cast(dict[str, Any], json.load(f))
             except Exception as e:
                 print(f"Error reading cache file: {e}")
 
         try:
             response = requests.get(profile_url, timeout=10)
             if response.status_code == 200:
-                profile_data = response.json()
+                profile_data: dict[str, Any] = response.json()
                 try:
                     with open(cache_file, "w", encoding="utf-8") as f:
                         json.dump(profile_data, f, indent=2, ensure_ascii=False)
@@ -257,7 +257,7 @@ class FHIRHelper:
 
 
 # CLI interface
-def main():
+def main() -> None:
     helper = FHIRHelper()
 
     if len(sys.argv) < 2:

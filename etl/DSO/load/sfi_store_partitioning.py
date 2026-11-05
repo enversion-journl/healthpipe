@@ -52,7 +52,6 @@ FIRST_BOUNDARY = date(2021, 10, 1)
 LAST_BOUNDARY = date(2035, 12, 1)
 EMPTY_PARTITIONS_TEMP = "#empty_partitions"
 BATCH_ROWS_TEMP = "#batch_rows"
-COLUMNSTORE_INDEX = "CCI_FHIR_SFI_datapoint_store"
 SWITCH_LOCK_TIMEOUT_MS = 120_000
 SWITCH_RETRIES = 5
 # Andel af en stikprøve af vinduets ressourcer, der skal falde i tomme partitioner,
@@ -136,7 +135,6 @@ STORE_INDEXES: tuple[StoreIndex, ...] = (
 )
 
 ALIGNED_INDEXES: tuple[StoreIndex, ...] = tuple(i for i in STORE_INDEXES if i.aligned)
-NON_ALIGNED_INDEXES: tuple[StoreIndex, ...] = tuple(i for i in STORE_INDEXES if not i.aligned)
 
 
 def partition_function_sql() -> str:

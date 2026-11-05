@@ -28,7 +28,7 @@
 -- og meta.DFMState findes kun i staging — derfor OBJECT_ID-gaten.
 --
 -- ---------------------------------------------------------------------------
--- Forældreløse map/dim-medlemmer: håndteres af [internal ticket], ikke her
+-- Forældreløse map/dim-medlemmer: håndteres, ikke her
 --
 -- clean_code_Rekvirent er gået fra zero-padded til rå rnr, så de 542
 -- master-rækker med rnr kortere end 4 tegn får et nyt map-medlem. Det gamle
@@ -44,9 +44,9 @@
 -- ville derfor gøre snippet'et til en permanent no-op, og uden guard ville den
 -- fjerne medlemmer som fakta stadig peger på.
 --
--- [internal ticket] ("Reload ERP") tømmer hele DSA-laget og nulstiller checkpoints, og
+-- "Reload ERP" tømmer hele DSA-laget og nulstiller checkpoints, og
 -- fjerner dermed de ophobede forældreløse medlemmer og dim-dubletter fra alle
--- nøgleformsændringer på én gang — også dem fra [internal ticket] og [internal ticket].
+-- nøgleformsændringer på én gang — også dem.
 -- Bemærk at DSO-kopierne skal med: dim_Rekvirent synkroniseres med
 -- mode="watermark", som ikke propagerer deletes.
 --

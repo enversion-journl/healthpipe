@@ -137,10 +137,8 @@ acceptgate på de daglige kørsler.
 Historikken for brugernes roller og SOR-tilknytning, så man kan slå op, hvilke
 roller og hvilken SOR-enhed en bruger havde på et givet tidspunkt.
 `sec.RolleDomaene` og `sec.RBOrganisation` er stadig fulde genindlæsninger, og
-DPA-funktionerne læser kun dem. Historikken følger AD og ikke den givne
-adgang: efter et fejlet medlemsopslag kan brugeren miste sine rækker eller få
-en anden værdi i de aktive tabeller for den kørsel, mens historikken står
-uændret.
+DPA-funktionerne læser kun dem. Efter et fejlet medlemsopslag ændres ingen af
+tabellerne (se Load nedenfor).
 
 | Tabel | Nøgle | Historiserede værdier |
 |-------|-------|-----------------------|
@@ -168,10 +166,12 @@ sikrer højst én åben række pr. nøgle.
 
 **Load:** Hver kørsel lukker den åbne række for en nøgle, hvis en værdi er
 ændret (også ændringer i store/små bogstaver), eller hvis nøglen ikke længere
-er i udtrækket. Fejlede et medlemsopslag i AD under udtrækket, lukkes ingen
-rækker, og kun nye nøgler får en åben række. Et ufuldstændigt udtræk kan nemlig
-både skjule en bruger og ændre en værdi, fx en rolle fra K til U, når opslaget
-i K-gruppen fejlede. En reel ændring den dag kommer med i næste fejlfri kørsel.
+er i udtrækket. Fejlede et medlemsopslag i AD under udtrækket, fejler
+`populate_security` (CLI: exit 5), før en tabel ændres: alle fire sec-tabeller
+beholder deres nuværende indhold, og DSO-synken springes over. Et ufuldstændigt
+udtræk kan nemlig både skjule en bruger og ændre en værdi, fx en rolle fra K
+til U, når opslaget i K-gruppen fejlede. En reel ændring den dag kommer med i
+næste fejlfri kørsel.
 Et fejlet opslag er en LDAP-fejl; et slettet objekt (`noSuchObject`) og en
 henvisning til et andet domæne (`referral`) tæller ikke. Eksporten skriver de
 fejlede DN'er til `healthpipe_fejlede_opslag.jsonl`, så CLI-indlæsningen følger
@@ -266,7 +266,7 @@ SELECT * FROM sec.HentRBOrganisation('DPA_Medicin', SUSER_SNAME(), 4)
 
 ## Sikkerhed på datamarterne
 
-Sikkerheden på datamarterne bygges ud fra to skabeloner i `datamarter`-repoet.
+Sikkerheden på datamarterne bygges ud fra to skabeloner i datamart-repositoriet.
 Kopiér skabelonen, og udfyld pladsholderne. Skabelonerne indeholder også
 testvejledningen med testbrugere for rollerne `U`, `K` og `P`.
 
@@ -324,7 +324,7 @@ infrastructure/ddl/
 ├── tables/security/
 │   ├── 01_tables.sql          # sec.RBOrganisation
 │   ├── 02_functions.sql       # sec.BeskytDimLeverandoervare_v1 (fritekst-maskering, @Rolle)
-│   ├── 04_dpa_tables.sql      # sec.RolleDomaene (kanonisk, fra [internal ticket])
+│   ├── 04_dpa_tables.sql      # sec.RolleDomaene (kanonisk)
 │   └── 05_dpa_functions.sql   # sec.HentDPASikkerhed, HentBrugerRolleDomaene,
 │                              #   HentRBOrganisation
 ├── tables/security_historik/
@@ -343,7 +343,7 @@ For at tilføje sikkerhed på et nyt domæne (fx `DPA_HR`):
    (`LSSAPP_HP_Domaenerolle_DPA_HR_U` / `..._K` / `..._<sygehus>_P`) — rolle-tildelingerne
    indlæses derefter automatisk af det natlige AD-load
 2. Opret datamart-databasen med domænets navn (`DPA_HR`)
-3. Byg DimBorger-viewet og datamart-viewene i `datamarter`-repoet ud fra
+3. Byg DimBorger-viewet og datamart-viewene i datamart-repositoriet ud fra
    skabelonerne (se [Sikkerhed på datamarterne](#sikkerhed-på-datamarterne))
 
 ---
@@ -500,7 +500,7 @@ permanente.
 ## Åbne punkter
 
 - Fritekst-maskeringen på `vw_dim.Leverandoervare` og `vw_dim.Fakturalinje` er nu RolleDomaene-baseret
-  ([internal ticket], reconciled ind i denne branch): viewsene `CROSS JOIN`'er
+  (reconciled ind i denne branch): viewsene `CROSS JOIN`'er
   `sec.HentBrugerRolleDomaene(SUSER_SNAME(), 'DPA_ERP')` og viser fritekst-kolonner
   kun for `Rolle = 'U'` (ellers `[MASKERET]`). Den gamle `sec.BrugerRoller.Fritekst` /
   `sec.HentFritekstAdgang_v1`-vej er fjernet. En bruger uden en `DPA_ERP`-rolle i

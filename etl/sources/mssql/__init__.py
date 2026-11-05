@@ -7,23 +7,3 @@
 """
 MSSQL source assets for various source systems.
 """
-
-from .epj_assets import (
-    mssql_encounter_source,
-    mssql_episode_of_care_source,
-    mssql_eventmarker_source,
-    mssql_healthissue_source,
-    mssql_location_source,
-    mssql_patient_columna_source,
-    mssql_patient_officielle_source,
-)
-
-__all__ = [
-    "mssql_patient_columna_source",
-    "mssql_patient_officielle_source",
-    "mssql_episode_of_care_source",
-    "mssql_encounter_source",
-    "mssql_eventmarker_source",
-    "mssql_location_source",
-    "mssql_healthissue_source",
-]

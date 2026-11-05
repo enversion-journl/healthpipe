@@ -28,7 +28,8 @@ from pathlib import Path
 import dagster as dg
 from core.dfm_manager import DfmManager
 from core.dfm_source import share_connection
-from core.resources import MSSQLResource
+from core.file_delivery import iter_members, open_member_csv
+from core.resources import FileShareResource, MSSQLResource
 from DSI.connectors.delivery_detection import (
     DELIVERY_SCHEMA,
     DELIVERY_TARGET_TYPE,
@@ -44,12 +45,8 @@ from DSI.csv_files._sds_tar import (
     export_log_deviations,
     ext_create_sql,
     has_mojibake,
-    iter_members,
-    open_member_csv,
     parse_archive_timestamp,
     run_writers,
-    source_dir,
-    source_encoding,
 )
 from DSI.csv_files.lpr3_datasets import (
     DELIVERY_COLUMNS,
@@ -60,8 +57,6 @@ from DSI.csv_files.lpr3_datasets import (
     extract_groups,
 )
 
-BASE_DIR_ENV = "LPR3_BASE_DIR"
-ENCODING_ENV = "LPR3_FILE_ENCODING"
 DELIVERY_UNIT = delivery_unit("lpr3", "1083")
 MANIFEST_TABLE = "lpr3_leverance_manifest"
 # Well below the 15–20k native-driver wedge range documented in bulk_copy.py.
@@ -95,17 +90,7 @@ class LPR3ArchiveFile:
 
 
 class LPR3ExtractConfig(dg.Config):
-    base_dir: str | None = None
     delivery_on_or_before: str | None = None
-
-
-def lpr3_dir(override=None):
-    return source_dir(
-        BASE_DIR_ENV,
-        override=override,
-        hint_unset="Register LPR3_BASE_DIR and the read-only SDS mount before running.",
-        hint_not_dir="The SDS share is probably not mounted in this allocation.",
-    )
 
 
 def discover_archives(root: str) -> list[LPR3ArchiveFile]:
@@ -492,9 +477,10 @@ def write_manifest(conn, plan, groups):
 def lpr3_leverance_plan(
     context: dg.AssetExecutionContext,
     mssql_target_staging: MSSQLResource,
+    lpr3_share: FileShareResource,
     config: LPR3ExtractConfig,
 ) -> dict:
-    archives = discover_archives(lpr3_dir(config.base_dir))
+    archives = discover_archives(lpr3_share.root())
     checkpoint = DfmManager(mssql_target_staging, context).get_checkpoint(
         DELIVERY_SCHEMA, DELIVERY_UNIT, target_type=DELIVERY_TARGET_TYPE
     )
@@ -509,7 +495,7 @@ def lpr3_leverance_plan(
     with mssql_target_staging.get_connection() as conn:
         previous = read_last_cutoff(conn)
     started = time.monotonic()
-    plan = preflight(selected, previous, source_encoding(ENCODING_ENV))
+    plan = preflight(selected, previous, lpr3_share.encoding)
     context.add_output_metadata({"preflight_seconds": time.monotonic() - started})
     plan.update(run_id=context.run_id, advance_checkpoint=pin is None)
     with mssql_target_staging.get_connection() as conn:
@@ -641,8 +627,8 @@ def ext_lpr3(
         f"of the load."
     ),
 )
-def lpr3_leverance_alder(config: LPR3ExtractConfig):
-    archives = discover_archives(lpr3_dir(config.base_dir))
+def lpr3_leverance_alder(lpr3_share: FileShareResource):
+    archives = discover_archives(lpr3_share.root())
     if not archives:
         raise ValueError("No LPR3 deliveries found")
     age = (date.today() - archives[-1].timestamp.date()).days

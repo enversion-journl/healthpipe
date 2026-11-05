@@ -680,41 +680,42 @@ class TestResolveAndApplyAllReferences:
                 fhir_database=mock_fhir_database,
             )
 
-    def test_resolve_fn_callable_replaces_db_path(self, sample_encounters, patient_config):
-        """Partition resolver should replace direct DB identifier lookup."""
+    def test_identifier_lookup_resolves_top_level_references(
+        self, sample_encounters, patient_config
+    ):
+        """Top-level references resolve through the database identifier lookup."""
         mock_fhir_database = MagicMock()
         captured_calls: list[tuple[str, str, list[str]]] = []
 
-        def fake_resolve(*, resource_type, identifier_system, values):
+        def fake_resolve(*, resource_type, identifier_system, values, force_reload=False):
             captured_calls.append((resource_type, identifier_system, list(values)))
             return {
                 "pat-123": "fhir-uuid-123",
                 "pat-456": "fhir-uuid-456",
             }
 
+        mock_fhir_database.resolve_identifier_values.side_effect = fake_resolve
         result = resolve_and_apply_all_references(
             resources=sample_encounters,
             reference_configs=[patient_config],
             fhir_database=mock_fhir_database,
-            resolve_fn=fake_resolve,
         )
 
         assert result.total_resolved == 2
-        mock_fhir_database.resolve_identifier_values.assert_not_called()
         assert captured_calls[0][0] == "Patient"
         assert sorted(captured_calls[0][2]) == ["pat-123", "pat-456"]
 
-    def test_resolve_fn_threaded_to_nested_configs(
+    def test_identifier_lookup_resolves_nested_configs(
         self,
         sample_observations_with_extensions,
         patient_config,
         nested_eoc_config,
     ):
-        """Nested references must use the same resolver hook as top-level refs."""
+        """Nested references resolve through the same lookup as top-level refs."""
         mock_fhir_database = MagicMock()
         calls: list[tuple[str, list[str]]] = []
 
-        def fake_resolve(*, resource_type, identifier_system, values):
+        def fake_resolve(*, resource_type, identifier_system, values, force_reload=False):
             calls.append((resource_type, list(values)))
             if resource_type == "Patient":
                 return {"pat-123": "fhir-pat-123", "pat-456": "fhir-pat-456"}
@@ -722,16 +723,15 @@ class TestResolveAndApplyAllReferences:
                 return {"eoc-100": "fhir-eoc-100", "eoc-200": "fhir-eoc-200"}
             return {}
 
+        mock_fhir_database.resolve_identifier_values.side_effect = fake_resolve
         result = resolve_and_apply_all_references(
             resources=sample_observations_with_extensions,
             reference_configs=[patient_config],
             fhir_database=mock_fhir_database,
             nested_reference_configs=[nested_eoc_config],
-            resolve_fn=fake_resolve,
         )
 
         assert result.total_resolved == 4
-        mock_fhir_database.resolve_identifier_values.assert_not_called()
         assert {resource_type for resource_type, _ in calls} == {
             "Patient",
             "EpisodeOfCare",

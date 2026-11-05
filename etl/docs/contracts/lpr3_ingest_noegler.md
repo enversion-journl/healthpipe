@@ -8,7 +8,7 @@
 
 # LPR3 ingestion — målte nøgleafvigelser og beslutninger
 
-Gælder ingestion af SDS LPR3 Grunddata ([internal ticket] under [internal ticket]).
+Gælder ingestion af SDS LPR3 Grunddata.
 Begreber, kildebeskrivelse og målinger: [LPR3](../source_systems/lpr3/lpr3_kilde.md).
 
 Featurebeslutning B2 gør `LPR_Entity_ID` til merge-nøgle, og B3 nøgler de afledte

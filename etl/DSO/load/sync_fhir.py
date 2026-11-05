@@ -8,7 +8,7 @@
 FHIR DSO Sync Assets
 
 Syncs FHIR flat tables from staging (DSA) database to DSO (reporting) database
-using SQL Server Linked Server or Python fallback.
+using SQL Server Linked Server.
 
 Each FHIR table has a daily and monthly variant:
 - Daily variant depends on the corresponding sof_*_daily asset
@@ -224,19 +224,19 @@ _DFM_DSO_SYNC_SPECS: list[tuple[str, str, str]] = [
     # what emptied _DSO_SYNC_SPECS above.
     ("fhir_careplan", "careplan", "CarePlan"),
     ("fhir_careplan_activity", "careplan_activity", "CarePlan_Activity"),
-    # SilkeborgData is deliberately NOT here — see the list below.
+    # Practitioner is deliberately NOT here — see the list below.
 ]
 
-# SilkeborgData owns its chain end to end in silkeborgdata_daily_job, so its two
+# Practitioner owns its chain end to end in practitioner_daily_job, so its two
 # syncs get their own group rather than the shared one the IFDB jobs select. In
 # the shared group they would run on IFDB's schedule, where nothing guarantees
-# that the SD archive, resources and SOF extraction had all succeeded first —
+# that the archives, resources and SOF extraction had all succeeded first —
 # and a sync is the last link, so it is exactly where that matters.
-_DFM_DSO_SYNC_SPECS_SILKEBORGDATA: list[tuple[str, str, str]] = [
+_DFM_DSO_SYNC_SPECS_PRACTITIONER: list[tuple[str, str, str]] = [
     ("fhir_practitioner", "practitioner", "Practitioner"),
     ("fhir_practitioner_role", "practitioner_role", "PractitionerRole"),
 ]
-_SILKEBORGDATA_DSO_GROUP = "fhir_silkeborgdata_dso"
+_PRACTITIONER_DSO_GROUP = "fhir_practitioner_dso"
 
 
 def _create_dso_sync_dfm(
@@ -275,8 +275,8 @@ def _create_dso_sync_dfm(
 all_fhir_dso_sync_dfm_assets = [
     _create_dso_sync_dfm(cfg_key, sof, tbl) for cfg_key, sof, tbl in _DFM_DSO_SYNC_SPECS
 ] + [
-    _create_dso_sync_dfm(cfg_key, sof, tbl, group_name=_SILKEBORGDATA_DSO_GROUP)
-    for cfg_key, sof, tbl in _DFM_DSO_SYNC_SPECS_SILKEBORGDATA
+    _create_dso_sync_dfm(cfg_key, sof, tbl, group_name=_PRACTITIONER_DSO_GROUP)
+    for cfg_key, sof, tbl in _DFM_DSO_SYNC_SPECS_PRACTITIONER
 ]
 
 all_fhir_dso_sync_assets = (

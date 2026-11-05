@@ -17,6 +17,17 @@ _ILS_REKVUNDTAGNE_FQN = os.getenv(
     "[ils_pro2_log].[dbo].[rekvUndtagne]",
 )
 
+# sysdato is a pure date (sysklk is 0 everywhere), and the checkpoint is
+# MAX(sysdato) in arc. With a bare `sysdato > checkpoint`, a row changed after
+# the extract on the checkpoint day keeps that same sysdato and is never read
+# again until it changes once more - with the nightly run at 23:00, every
+# change made between the run and midnight is lost. One day of lookback
+# re-reads the checkpoint day; the second covers a change late on day D that
+# Pro2 replicates after midnight, when the run has already seen rows dated
+# D+1 and moved the checkpoint there. The arc upsert on prrowid with
+# change detection makes the overlap idempotent.
+_SYSDATO_LOOKBACK_DAYS = 2
+
 ILS_EXTRACT_CONFIGS = [
     DfmExtractConfig(
         source_schema="dbo",
@@ -24,6 +35,7 @@ ILS_EXTRACT_CONFIGS = [
         target_table="ils_unspsc",
         delta_column="sysdato",
         checkpoint_type="datetime",
+        lookback_days=_SYSDATO_LOOKBACK_DAYS,
         checkpoint_from=("arc", "ils_unspsc"),
         description="ILS UNSPSC reference (delta via sysdato).",
     ),
@@ -33,6 +45,7 @@ ILS_EXTRACT_CONFIGS = [
         target_table="ils_vare",
         delta_column="sysdato",
         checkpoint_type="datetime",
+        lookback_days=_SYSDATO_LOOKBACK_DAYS,
         checkpoint_from=("arc", "ils_vare"),
         description="ILS Vare delta extract for dim.UNSPSC.",
     ),
@@ -86,14 +99,15 @@ lagerbeholdning_extract_assets = create_dfm_extraction_assets(
 #   A) Full load (15): vareart, varegrp, varetype, varetype2, projekt, moms, lev,
 #      sgh, lgr, rekv, rekvgrp, postdi, lafth, lafthsgh, zz_oper — small reference
 #      tables, truncate-and-load each run.
-#   B) Delta on [sysdato] (7): laftdpris, laftdstam, laftd, udlev, lgrvare,
-#      pmdm, indkfak — sysdato is the canonical "row touched at" column for
-#      ILS (evidenced by the existing arc.ils_vare precedent using MAX([sysdato])).
+#   B) Delta on [sysdato] (8): laftdpris, laftdstam, laftd, udlev, lgrvare,
+#      pmdm, indkfak, ordh — sysdato is the canonical "row touched at" column for
+#      ILS (evidenced by the existing arc.ils_vare precedent using MAX([sysdato])),
+#      read with _SYSDATO_LOOKBACK_DAYS of lookback like unspsc and vare above.
 #   C) Manual full load (1): rekvUndtagne via select_from_expr from ils_pro2_log
 #      (override with ILS_REKVUNDTAGNE_FQN for local seed).
 #   D) Delta on [Dato] (1): changelog — append-only log without sysdato.
 #
-# All 24 archive into arc.ils_<t>. Already-archived ILS tables
+# All 25 archive into arc.ils_<t>. Already-archived ILS tables
 # (lgrbeh, afdlgrbeh, unspsc, vare) are NOT in this list — see
 # ils_unspsc_extract_assets and lagerbeholdning_extract_assets above.
 
@@ -125,6 +139,7 @@ _ILS_SYSDATO_TABLES = (
     "lgrvare",
     "pmdm",
     "indkfak",
+    "ordh",
 )
 
 
@@ -146,6 +161,7 @@ def _ils_sysdato_config(src_table: str) -> DfmExtractConfig:
         target_table=f"ils_{src_table}",
         delta_column="sysdato",
         checkpoint_type="datetime",
+        lookback_days=_SYSDATO_LOOKBACK_DAYS,
         checkpoint_from=("arc", f"ils_{src_table}"),
         description=f"ILS {src_table} delta (sysdato).",
     )

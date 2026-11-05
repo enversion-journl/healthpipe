@@ -30,7 +30,7 @@ from datetime import UTC, date, datetime, timedelta
 
 import dagster as dg
 import pytest
-from infrastructure.assets import ifdb_fhir_fuldload as m
+from DSA.SQL.dfm import ifdb_fhir_fuldload as m
 
 pytestmark = pytest.mark.unit
 

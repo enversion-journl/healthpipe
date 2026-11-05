@@ -12,6 +12,7 @@ validation is a separate read-only probe; these rows are entirely synthetic.
 
 import dagster as dg
 import pytest
+from core.resources import FileShareResource
 from DSI.csv_files import lpr3
 from DSI.csv_files._lpr3_run import claim_run, owned_landing
 from DSI.csv_files._sds_tar import execute_statements
@@ -127,13 +128,15 @@ def test_dagster_chain_and_checkpoint_noop_leave_ext_untouched(lpr3_db, tmp_path
         lpr3.DfmManager, "get_checkpoint", lambda *args, **kwargs: checkpoint["value"]
     )
     assets = [a for a in lpr3.lpr3_extract_assets if a.key != dg.AssetKey("lpr3_leverance_alder")]
-    config = {"ops": {"lpr3_leverance_plan": {"config": {"base_dir": str(tmp_path)}}}}
+    resources = {
+        "mssql_target_staging": lpr3_db,
+        "lpr3_share": FileShareResource(base_dir=str(tmp_path)),
+    }
     with dg.DagsterInstance.ephemeral() as instance:
         first = dg.materialize(
             assets,
             instance=instance,
-            resources={"mssql_target_staging": lpr3_db},
-            run_config=config,
+            resources=resources,
         )
         assert first.success
         assert scalar(lpr3_db, f"SELECT COUNT(*) FROM ext.{lpr3.MANIFEST_TABLE}") == 47
@@ -146,8 +149,7 @@ def test_dagster_chain_and_checkpoint_noop_leave_ext_untouched(lpr3_db, tmp_path
         second = dg.materialize(
             assets,
             instance=instance,
-            resources={"mssql_target_staging": lpr3_db},
-            run_config=config,
+            resources=resources,
         )
         assert second.success
         assert scalar(lpr3_db, f"SELECT COUNT(*) FROM ext.{lpr3.MANIFEST_TABLE}") == 0
@@ -165,8 +167,10 @@ def test_checkpoint_advancing_during_preflight_prevents_stale_load(lpr3_db, tmp_
         result = dg.materialize(
             assets,
             instance=instance,
-            resources={"mssql_target_staging": lpr3_db},
-            run_config={"ops": {"lpr3_leverance_plan": {"config": {"base_dir": str(tmp_path)}}}},
+            resources={
+                "mssql_target_staging": lpr3_db,
+                "lpr3_share": FileShareResource(base_dir=str(tmp_path)),
+            },
         )
     assert result.success
     assert scalar(lpr3_db, f"SELECT COUNT(*) FROM ext.{lpr3.MANIFEST_TABLE}") == 0
@@ -180,7 +184,7 @@ def test_meta_ddl_is_idempotent_and_only_archived_cutoff_is_used(lpr3_db):
         execute_statements(conn, "DROP TABLE IF EXISTS meta.LPR3Leverance")
     try:
         for _ in range(2):
-            execute_sql_file(lpr3_db, "tables/lpr3/01_meta.sql")
+            execute_sql_file(lpr3_db, "sources/lpr3/LPR3Leverance.sql")
         with lpr3_db.get_connection() as conn:
             assert lpr3.read_last_cutoff(conn) is None
             cursor = conn.cursor()

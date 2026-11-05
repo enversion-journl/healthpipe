@@ -1,34 +1,62 @@
-# Security
+# Security policy
 
-## Supported Versions
+## Supported versions
 
-Only the latest release receives security fixes.
+The latest release of healthpipe receives security fixes. Older releases do not.
 
 | Version | Supported |
 | ------- | --------- |
-| Latest release (1.0.75) | Yes |
+| Latest 1.x release | Yes |
 | Older releases | No |
 
-## Reporting Vulnerabilities
+See [CHANGELOG.md](CHANGELOG.md) for the latest release.
 
-If you discover a security vulnerability in this project, please **do not** open a public issue.
+## Report a vulnerability
 
-Report vulnerabilities securely by:
+Do not open a public issue for a vulnerability.
 
-1. **Email**: Send a description to support@journl.dk with details about the vulnerability
-2. **Private issue**: If the project has private reporting channels, use the designated channel
+Report the vulnerability privately with the GitHub form
+[Report a vulnerability](https://github.com/enversion-journl/healthpipe/security/advisories/new).
+If you cannot use GitHub, send an e-mail to support@journl.dk.
 
-Include in your report:
+Include:
 
-- Description of the vulnerability
-- Steps to reproduce
-- Potential impact (scope, data exposure, etc.)
-- Suggested fix (if you have one)
+- A description of the vulnerability.
+- The steps to reproduce it.
+- The impact: which data or which service an attacker can reach.
+- The healthpipe version, or the commit.
+- A suggested fix, if you have one.
 
-We aim to acknowledge your report within 5 working days and will keep you informed of the status. After confirmation and any fix, we will credit you in a security advisory (with your consent), unless you prefer to remain anonymous.
+Do not send real patient data, CPR numbers or credentials in the report.
+Use synthetic data to show the problem.
 
-## Security Practices
+## What happens next
 
-- Never commit credentials, API keys or secrets to the repository
-- Use `.env` for local environment variables (and ensure `.env` is in `.gitignore`)
-- Follow the principle of least privilege for database and API connections
+1. We acknowledge your report within 5 working days.
+2. We confirm the problem and agree a disclosure date with you.
+3. We release a fix and publish a GitHub security advisory.
+4. We credit you in the advisory, if you agree. You can stay anonymous.
+
+## Scope
+
+In scope:
+
+- The code in this repository (`etl/`, `infrastructure/`, `.devcontainer/`).
+- The GitHub Actions workflows in `.github/workflows/`.
+- The container images that `infrastructure/containers/dockerfiles/` defines.
+
+Out of scope:
+
+- The default credentials in `.env.template` and `.devcontainer/.env.template`.
+  They are for the local devcontainer only. Change them before you use healthpipe outside the devcontainer.
+- Vulnerabilities in Dagster, SQL Server, Oracle, PostgreSQL or Aidbox. Report them to the vendor.
+  Tell us if healthpipe uses an affected version.
+
+## Security practices for contributors
+
+- Do not commit credentials, API keys or other secrets.
+- Do not commit real patient data or CPR numbers. Use synthetic test data only.
+- Keep `.env` out of git. `.gitignore` already ignores it.
+- The pre-commit hook and the `secret-scan` workflow run gitleaks with `.gitleaks.toml`.
+  Do not bypass them with `--no-verify`.
+- Give database and API accounts the minimum permissions that the pipeline needs.

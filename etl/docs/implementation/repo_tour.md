@@ -14,7 +14,7 @@ the [Dagster Development Guide](dagster_development.md) then covers the day-to-d
 run loop.
 
 The data flow itself — DSI → DSA (FHIR and DWH tracks) → DSO → datamarts — is
-drawn in the [root README](../../../README.md#data-flow-at-a-glance). This document
+drawn in [00 — Overblik](../basismodel/00_overblik.md#de-tre-lag). This document
 maps that flow onto directories.
 
 ## Project structure
@@ -33,7 +33,6 @@ etl/
 ├── DSI/                        # Data Staging In (extract only)
 │   ├── connectors/            # Shared extraction abstractions + per-connector factories
 │   │   ├── protocol.py        # ExtractionConfig protocol (shared interface)
-│   │   ├── types.py           # PartitionType, TableType enums
 │   │   ├── extract_config.py  # DfmExtractConfig dataclass
 │   │   ├── factory.py         # create_dfm_extraction_assets()
 │   │   ├── base.py            # SqlExtractor base class, ExtractResult
@@ -69,14 +68,14 @@ etl/
 ├── DSO/                        # Data Staging Out
 │   └── load/                  # Target system sync
 │       ├── sync_configs.py    # Source of truth: which tables are synced
-│       ├── sync_utils.py      # Core sync logic (MERGE, linked server, fallback)
+│       ├── sync_utils.py      # Core sync logic (MERGE, linked server)
 │       ├── sync_state.py      # SyncStateManager for watermark tracking
 │       └── sync_dim.py / sync_fct.py / sync_fhir.py
 ├── dqa/                        # Data Quality Assurance framework
 ├── data_quality/               # Standalone FHIR grain + deleted-resource checks (separate from dqa/)
 ├── data_lineage/               # YAML lineage per table (bridge/, dim/, dm/, fct/, fhir/) + tools
-├── infrastructure/             # DDL setup assets (schemas, tables, views), security, seed data
-├── migrations/                 # Tracked SQL migrations + migration runner asset
+├── infrastructure/             # DDL setup assets and ddl/ (tables, views, migrations); see infrastructure_guide.md
+├── adhoc/                      # Ad hoc, temporary, benchmark and one-off assets
 ├── jobs/                       # Job definitions per domain
 ├── schedules/                  # Cron schedules per domain
 ├── sensors/                    # Run-status and failure sensors
@@ -110,7 +109,7 @@ Views are not in this tree: DSO presentation views are SQL DDL under
   (`DSI/connectors/`) from source-specific configuration (`DSI/mssql/`, `DSI/oracle/`).
   One parameterized factory per connector type.
 - **Centralized infrastructure.** All DDL setup assets live in `infrastructure/`,
-  never inside `DSA/`.
+  never inside `DSA/`. See the [infrastructure guide](infrastructure_guide.md).
 
 ## Where a change goes
 
@@ -124,7 +123,7 @@ Views are not in this tree: DSO presentation views are SQL DDL under
 | CodeSystem / ConceptMap | `DSA/CodeSystem/`, `DSA/ConceptMap/` | [CodeSystem & ConceptMap guide](codesystem_conceptmap_guide.md) |
 | DSO sync of a table | `DSO/load/sync_dim.py` / `sync_fct.py` / `sync_fhir.py` | [DSO sync guide](dso_sync_guide.md) |
 | DSO view | `infrastructure/ddl/views/{domain}/` | [SQL ETL guide](sql_etl_guide.md#view-layer-responsibilities) |
-| Table DDL | `infrastructure/ddl/tables/{domain}/` | [DSI ETL guide](dsi_etl_guide.md) |
+| Table DDL | `infrastructure/ddl/tables/{domain}/` | [Infrastructure guide](infrastructure_guide.md) |
 | Data quality check | `dqa/config/` | [DQA README](../architecture/dqa/README.md) |
 | Lineage documentation | `data_lineage/{bridge,dim,dm,fct,fhir}/` | [Data lineage guide](data_lineage_guide.md) |
 
@@ -256,8 +255,9 @@ from DSA.SQL.staging import all_assets as staging_assets
 from DSA.SQL.dim import all_assets as dim_assets
 from DSA.SQL.map import all_assets as map_assets
 from DSA.SQL.fct import all_assets as fct_assets
-from DSO.load import all_dso_sync_dim_assets, all_dso_sync_fct_assets
-from DSI.mssql import all_archive_assets, all_factory_extract_assets
+from DSO.load import all_dso_sync_assets
+from DSI.mssql.archive import all_archive_assets
+from DSI.mssql.extract import all_factory_extract_assets
 from DSI.oracle import all_epji_archive_assets, all_ifdb_archive_assets
 ```
 

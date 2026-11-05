@@ -18,7 +18,7 @@ from unittest.mock import MagicMock
 import dagster as dg
 import pytest
 from dqa.model import CheckOutcome
-from infrastructure.assets import ifdb_backfill_window_reconciliation as module
+from DSA.SQL.dfm import ifdb_backfill_window_reconciliation as module
 
 
 class _Config:
@@ -92,13 +92,13 @@ class TestWindowSourceQuery:
 class TestReconcileWindow:
     def test_skips_outside_a_window(self, monkeypatch: pytest.MonkeyPatch) -> None:
         calls = []
-        monkeypatch.setattr(module, "archive_reconciliation", lambda *a: calls.append(a))
+        monkeypatch.setattr(module, "source_archive_reconciliation", lambda *a: calls.append(a))
         result = module.reconcile_window(_context(), _Config(mode="delta"))
         assert calls == []
         assert "skipped" in result.metadata
 
     def test_missing_keys_fail_the_window(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(module, "archive_reconciliation", lambda *a: _outcome(4711))
+        monkeypatch.setattr(module, "source_archive_reconciliation", lambda *a: _outcome(4711))
         with pytest.raises(dg.Failure) as raised:
             module.reconcile_window(_context(), _Config())
         assert "did not reach the archive" in raised.value.description
@@ -107,7 +107,7 @@ class TestReconcileWindow:
     def test_a_clean_window_lists_the_archives_it_could_not_check(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(module, "archive_reconciliation", lambda *a: _outcome(0))
+        monkeypatch.setattr(module, "source_archive_reconciliation", lambda *a: _outcome(0))
         result = module.reconcile_window(_context(), _Config())
         assert result.metadata["archives_reconciled"].value > 0
         assert (
@@ -125,7 +125,7 @@ class TestReconcileWindow:
             seen.append(spec.params)
             return _outcome(0)
 
-        monkeypatch.setattr(module, "archive_reconciliation", _capture)
+        monkeypatch.setattr(module, "source_archive_reconciliation", _capture)
         module.reconcile_window(_context(), _Config())
         assert seen, "no archive was reconciled"
         for params in seen:
@@ -148,7 +148,7 @@ class TestReconcileWindow:
                 raise TimeoutError()
             return _outcome(0)
 
-        monkeypatch.setattr(module, "archive_reconciliation", _second_fails)
+        monkeypatch.setattr(module, "source_archive_reconciliation", _second_fails)
         with pytest.raises(dg.Failure) as raised:
             module.reconcile_window(_context(), _Config())
         assert "could not be reconciled" in raised.value.description

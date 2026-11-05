@@ -14,7 +14,6 @@ from unittest.mock import MagicMock
 
 import pytest
 from DSA.FHIR.Patient import patient_cpr_contribution as modul
-from DSA.FHIR.Patient.field_ownership import SOURCE_CPR, SOURCE_HAIBA, SOURCE_IFDB
 from DSA.FHIR.Patient.patient_builder import build, contributions_from_ifdb
 from DSA.FHIR.Patient.patient_contributions import USE_OLD, stub_contribution
 from DSA.FHIR.Patient.patient_cpr_contribution import (
@@ -26,6 +25,7 @@ from DSA.FHIR.Patient.patient_cpr_contribution import (
     register_person,
 )
 from DSA.FHIR.Patient.patient_identity import Person
+from DSA.FHIR.Patient.patient_ownership import SOURCE_CPR, SOURCE_HAIBA, SOURCE_IFDB
 from utils.fhir.fhir_extensions import (
     EXTENSION_ADDRESS_KVHX,
     EXTENSION_ADDRESS_OFFICIAL,
@@ -123,8 +123,8 @@ def _ext(patient, url):
 
 def test_contribution_is_the_registers_and_carries_only_the_registers_fields():
     c = contribution_from_register(_register(), current_cpr=PNR, historical_cprs=[PNR_OLD])
-    assert c.kilde == SOURCE_CPR
-    p = c.patient
+    assert c.source == SOURCE_CPR
+    p = c.resource
     assert p.id is None and p.meta is None
     assert _ids(p, SYSTEM_CPR) == [(PNR, None), (PNR_OLD, USE_OLD)]
     assert _ids(p, SYSTEM_CPR_PERSON_ID) == [("PID-1", None)]
@@ -133,19 +133,19 @@ def test_contribution_is_the_registers_and_carries_only_the_registers_fields():
 
 
 def test_status_is_answered_explicitly_also_when_the_answer_is_no():
-    levende = contribution_from_register(_register(), current_cpr=PNR).patient
+    levende = contribution_from_register(_register(), current_cpr=PNR).resource
     assert levende.active is True and levende.deceasedBoolean is False
     doed = contribution_from_register(
         _register(person={"pnr": PNR, "status": "90", "koen": "M", "foed_dt": "1950-05-05"}),
         current_cpr=PNR,
-    ).patient
+    ).resource
     assert doed.active is False and doed.deceasedBoolean is True and doed.gender == "male"
 
 
 def test_previous_numbers_come_from_the_identity_and_are_not_duplicated():
     p = contribution_from_register(
         _register(), current_cpr=PNR, historical_cprs=[PNR_OLD, PNR, PNR_OLD, " "]
-    ).patient
+    ).resource
     assert _ids(p, SYSTEM_CPR) == [(PNR, None), (PNR_OLD, USE_OLD)]
 
 
@@ -153,7 +153,7 @@ def test_previous_numbers_come_from_the_identity_and_are_not_duplicated():
 
 
 def test_name_gender_birth_date_marital_status_and_citizenship():
-    p = contribution_from_register(_register(), current_cpr=PNR).patient
+    p = contribution_from_register(_register(), current_cpr=PNR).resource
     (navn,) = p.name
     assert navn.use == "official"
     assert navn.given == ["Test", "Anna", "Mellem"] and navn.family == "Testesen"
@@ -191,7 +191,7 @@ DK_MARITAL = "http://hl7.dk/fhir/core/CodeSystem/dk-marital-status"
 def test_marital_status_is_mapped_as_dk_core(civst, system, kode, tekst):
     p = contribution_from_register(
         _register(marital={"pnr": PNR, "civst": civst}), current_cpr=PNR
-    ).patient
+    ).resource
     (kodning,) = p.maritalStatus.coding
     assert (kodning.system, kodning.code) == (system, kode)
     assert p.maritalStatus.text == tekst
@@ -201,7 +201,7 @@ def test_dead_is_not_a_marital_status():
     """dk-core: marital status D is recorded in Patient.deceased, not in maritalStatus."""
     p = contribution_from_register(
         _register(marital={"pnr": PNR, "civst": "D"}), current_cpr=PNR
-    ).patient
+    ).resource
     assert p.maritalStatus is None
 
 
@@ -211,12 +211,12 @@ def test_unknown_marital_status_and_zero_country_code_are_not_asserted():
             marital={"pnr": PNR, "civst": "?"}, citizenship={"pnr": PNR, "landekode": "0000"}
         ),
         current_cpr=PNR,
-    ).patient
+    ).resource
     assert p.maritalStatus is None and _ext(p, EXTENSION_PATIENT_CITIZENSHIP) is None
 
 
 def test_parents_only_when_the_number_is_filled_in():
-    p = contribution_from_register(_register(), current_cpr=PNR).patient
+    p = contribution_from_register(_register(), current_cpr=PNR).resource
     mor = _ext(p, EXTENSION_MOTHER_IDENTIFIER)
     assert mor.valueIdentifier.system == SYSTEM_CPR and mor.valueIdentifier.value == PNR_MOR
     assert _ext(p, EXTENSION_FATHER_IDENTIFIER) is None
@@ -229,7 +229,7 @@ def test_zero_date_unknown_gender_and_missing_name_become_nothing():
             name={"pnr": PNR, "fornvn": "", "melnvn": "", "efternvn": ""},
         ),
         current_cpr=PNR,
-    ).patient
+    ).resource
     assert p.birthDate is None and p.name is None and p.gender is None
 
 
@@ -237,7 +237,7 @@ def test_zero_date_unknown_gender_and_missing_name_become_nothing():
 
 
 def test_all_address_periods_become_versions_with_the_current_one_last():
-    p = contribution_from_register(_register(), current_cpr=PNR).patient
+    p = contribution_from_register(_register(), current_cpr=PNR).resource
     perioder = [
         (str(a.period.start), str(a.period.end) if a.period.end else None) for a in p.address
     ]
@@ -304,14 +304,14 @@ def test_same_period_start_gives_one_version_and_the_current_one_wins():
             },
         )
     )
-    p = contribution_from_register(reg, current_cpr=PNR).patient
+    p = contribution_from_register(reg, current_cpr=PNR).resource
     assert [str(a.period.start) for a in p.address] == ["2000-01-01", "2015-03-01"]
     assert p.address[0].extension[-1].valueString == "lang"
     assert p.address[1].use == "home"
 
 
 def test_current_address_without_plain_text_is_composed_from_002():
-    p = contribution_from_register(_register(plain_address=None), current_cpr=PNR).patient
+    p = contribution_from_register(_register(plain_address=None), current_cpr=PNR).resource
     aktuel = p.address[-1]
     assert aktuel.line == ["Testvej 12 st th"] and aktuel.postalCode is None
 
@@ -319,7 +319,7 @@ def test_current_address_without_plain_text_is_composed_from_002():
 def test_without_addresses_no_address_is_asserted():
     p = contribution_from_register(
         _register(address=None, plain_address=None, history_addresses=()), current_cpr=PNR
-    ).patient
+    ).resource
     assert p.address is None
 
 
@@ -328,7 +328,7 @@ def test_without_addresses_no_address_is_asserted():
 
 def _beskyttelse(*rows):
     return _ext(
-        contribution_from_register(_register(protections=rows), current_cpr=PNR).patient,
+        contribution_from_register(_register(protections=rows), current_cpr=PNR).resource,
         EXTENSION_ADDRESS_PROTECTION,
     ).valueBoolean
 
@@ -563,18 +563,11 @@ def test_without_register_there_are_neither_members_nor_contributions(monkeypatc
 
 # ------------------------------------------------------------------ the contract with the DDL
 
-DDL = (
-    Path(__file__).resolve().parents[2]
-    / "infrastructure"
-    / "ddl"
-    / "tables"
-    / "cpr"
-    / "00_archive.sql"
-)
+DDL_DIR = Path(__file__).resolve().parents[2] / "infrastructure" / "ddl" / "sources" / "cpr"
 
 
 def test_every_column_the_contribution_reads_exists_in_the_archive_ddl():
-    ddl = DDL.read_text(encoding="utf-8")
+    ddl = "\n".join(p.read_text(encoding="utf-8") for p in sorted(DDL_DIR.glob("*.sql")))
     for table, columns in REGISTER_TABLES.values():
         navn = table.split(".", 1)[1]
         blok = re.search(rf"CREATE TABLE \[arc\]\.\[{navn}\] \((.*?)\n    \);", ddl, re.S)
@@ -606,7 +599,7 @@ def test_technical_change_is_a_valid_period_corrected_and_withdrawn_are_not():
             )
         ),
         current_cpr=PNR,
-    ).patient
+    ).resource
     starter = sorted(str(a.period.start) for a in p.address if a.use == "old")
     assert starter == ["2005-02-01", "2008-02-01"]
 
@@ -647,10 +640,10 @@ def test_update_date_is_the_latest_delivery_across_the_rows():
             },
         ),
     )
-    p = contribution_from_register(reg, current_cpr=PNR, historical_cprs=[]).patient
+    p = contribution_from_register(reg, current_cpr=PNR, historical_cprs=[]).resource
     assert _ext(p, EXTENSION_CPR_UPDATED).valueDate.isoformat() == "2026-09-29"
 
 
 def test_without_delivery_date_no_update_date_is_asserted():
-    p = contribution_from_register(_register(), current_cpr=PNR, historical_cprs=[]).patient
+    p = contribution_from_register(_register(), current_cpr=PNR, historical_cprs=[]).resource
     assert _ext(p, EXTENSION_CPR_UPDATED) is None

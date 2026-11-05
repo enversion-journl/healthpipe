@@ -487,8 +487,8 @@ class _FakeHistorikConn(_FakeLoadConn):
         self.closed = True
 
 
-def test_populate_security_historises_two_tables_without_closes_on_failed_lookup(
-    monkeypatch,
+def test_populate_security_keeps_k_and_closes_history_on_clean_run(
+    monkeypatch, _non_prod_environment
 ):
     import dagster as dg
     import infrastructure.assets.security_ad_assets as assets
@@ -517,9 +517,12 @@ def test_populate_security_historises_two_tables_without_closes_on_failed_lookup
     result = assets.populate_security(
         context=context,
         extract_security={
-            "roller": [{"bruger": "u0", "domain": "DPA_ERP", "rolle": "U"}],
+            "roller": [
+                {"bruger": "u0", "domain": "DPA_ERP", "rolle": "K"},
+                {"bruger": "u0", "domain": "DPA_ERP", "rolle": "U"},
+            ],
             "org": [{"bruger": "u0", "code_sor": "100"}],
-            "fejlede_opslag": ["CN=u9,OU=Users"],
+            "fejlede_opslag": [],
             "source": {"user": "svc", "host": "ldap", "table": "OU=HealthPipe"},
         },
         mssql_target_staging=None,
@@ -535,10 +538,35 @@ def test_populate_security_historises_two_tables_without_closes_on_failed_lookup
     }
     assert set(inserts) == historik
     assert {p["run_id"] for p in inserts.values()} == {context.run_id}
-    assert not any(sql.lstrip().startswith("UPDATE t") for sql, _ in executed)
+    assert _staged_rolle_rows(conn) == [("u0", "DPA_ERP", "K", "")]
+    assert any(sql.startswith("TRUNCATE TABLE [sec].[RolleDomaene]") for sql, _ in executed)
+    assert sum(sql.lstrip().startswith("UPDATE t") for sql, _ in executed) == 2
     assert historik <= set(_FakeDfm.rows)
     assert result.metadata["sortildelinghistorik_open_before"] == 1
     assert conn.closed
+
+
+def test_populate_security_changes_no_table_when_a_member_lookup_failed(monkeypatch):
+    import dagster as dg
+    import infrastructure.assets.security_ad_assets as assets
+
+    conn = _FakeHistorikConn(open_count=1)
+    monkeypatch.setenv("MSSQL_TARGET_STAGING_USER", "u")
+    monkeypatch.setenv("MSSQL_TARGET_STAGING_PASSWORD", "p")
+    monkeypatch.setattr(loader, "_connect", lambda *_: conn)
+
+    with pytest.raises(loader.FailedMemberLookupsError, match="^1 medlemsopslag"):
+        assets.populate_security(
+            context=dg.build_asset_context(),
+            extract_security={
+                "roller": [{"bruger": "u0", "domain": "DPA_ERP", "rolle": "U"}],
+                "org": [{"bruger": "u0", "code_sor": "100"}],
+                "fejlede_opslag": ["CN=DPA_ERP_K,OU=HealthPipe"],
+                "source": {"user": "svc", "host": "ldap", "table": "OU=HealthPipe"},
+            },
+            mssql_target_staging=None,
+        )
+    assert _all_executed(conn) == []
 
 
 @pytest.fixture

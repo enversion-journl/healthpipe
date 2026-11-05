@@ -15,7 +15,7 @@ others join on — and the CVR normalisation follows utils.sql.tax_id_sql,
 keeping Vare keys aligned with map.Kreditor semantics.
 """
 
-from utils.sql.tax_id_sql import sql_cvr_cleancode_from_se_nr
+from utils.sql.tax_id_sql import sql_ils_kreditor_cleancode
 
 # CleanCode templates ({col} = source column expression)
 LVNR_CC = "CAST('LEVVARE_' + UPPER(LTRIM(RTRIM(REPLACE({col}, ' ', '')))) AS NVARCHAR(500))"
@@ -35,8 +35,9 @@ LAFTDSTAM_ALT_LVNR_SLOTS = ["lvnr##2", "lvnr##3", "lvnr##4"]
 def sql_lev_current_cte() -> str:
     """Named CTE ``lev_current``: one current row per supplier (lnr) with its
     CVR CleanCode and lev-timestamp; suppliers without a resolvable CVR are
-    excluded. Use as ``;WITH{sql_lev_current_cte()}, ...``."""
-    cvr_cc = sql_cvr_cleancode_from_se_nr("lev.se_nr")
+    excluded, as are giro = 'Person' suppliers (their se_nr is a birth date or
+    CPR). Use as ``;WITH{sql_lev_current_cte()}, ...``."""
+    cvr_cc = sql_ils_kreditor_cleancode("lev.se_nr")
     return f"""
     lev_current AS (
         SELECT lnr, clean_code_Kreditor, lev_dw_timestamp_update

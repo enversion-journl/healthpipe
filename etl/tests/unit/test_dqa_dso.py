@@ -13,7 +13,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
-from dqa.dso import _dso_subjects, build_dso_all
+from dqa.dso import _NOT_SYNCED_TO_DSO, _dso_subjects, build_dso_all
 from dqa.model import Track
 from dqa.registry import CHECK_TYPES
 
@@ -45,7 +45,10 @@ def test_dso_subjects_derived_from_all_sync_configs():
     from DSO.load.sync_configs import ALL_SYNC_CONFIGS
 
     subs = _dso_subjects()
-    assert len(subs) == len(ALL_SYNC_CONFIGS)
+    assert _NOT_SYNCED_TO_DSO <= ALL_SYNC_CONFIGS.keys()
+    assert {s.name for s, _ in subs} == {
+        f"dso_{key}" for key in ALL_SYNC_CONFIGS.keys() - _NOT_SYNCED_TO_DSO
+    }
 
     for subject, domain in subs:
         assert domain in _EXPECTED_DOMAINS

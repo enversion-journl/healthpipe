@@ -187,9 +187,9 @@ Tilføj som minimum:
 
 | Lag | Tjek |
 |---|---|
-| `arc.*` | `archive_reconciliation` — alle aktuelle kildenøgler findes i arkivet, og sletninger er propageret |
+| `arc.*` | `source_archive_reconciliation` — alle aktuelle kildenøgler findes i arkivet, og sletninger er propageret |
 | `dim.*` / `fct.*` | `uniqueness` på grain, `referential_integrity` (udledes af lineage-YAML'en), `sentinel_rate` på `-1`-fremmednøgler |
-| `fhir.*` | `source_reconciliation` mod arkivet, `fhir_server_reconciliation` |
+| `fhir.*` | `archive_fhir_reconciliation` mod arkivet, `fhir_server_reconciliation` |
 | `dm.*` | rækkeparitet fakta↔arc og fakta↔Egenskaber, kontroltotaler, freshness på leverancer |
 | DSO | `dso_reconciliation` — DSA og DSO stemmer række for række |
 

@@ -7,22 +7,10 @@
 """DSI Connectors — shared abstractions and connector-specific implementations.
 
 Provides:
-- ExtractionConfig protocol
-- SqlExtractor base class + ExtractResult
+- ExtractionConfig protocol (``DSI.connectors.protocol``)
+- SqlExtractor base class + ExtractResult (``DSI.connectors.base``)
 - Connector packages: mssql/, oracle/, csv_files/
 
 The DFM extraction factory lives in ``DSI.connectors.factory``; import
 ``create_dfm_extraction_assets`` from there directly.
 """
-
-from DSI.connectors.base import ExtractResult, SqlExtractor
-from DSI.connectors.protocol import ExtractionConfig
-from DSI.connectors.types import PartitionType, TableType
-
-__all__ = [
-    "ExtractionConfig",
-    "ExtractResult",
-    "PartitionType",
-    "SqlExtractor",
-    "TableType",
-]

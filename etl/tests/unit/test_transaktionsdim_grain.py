@@ -6,7 +6,7 @@
 
 """Contract tests for the ERP transaction-dimension shared-PK grain.
 
-Transaction dims (Fakturalinje, Vareudlevering) share their dw_ek_* PK with
+Transaction dims (Fakturalinje, Vareudlevering, Ordre) share their dw_ek_* PK with
 the sibling fact via map.* — the fct and dim sides must agree on the map
 coordinate, and the DSO syncs must ship the shared key without
 IDENTITY_INSERT (the key is resolved, not generated, on the DSO side).
@@ -34,7 +34,7 @@ def test_every_transaction_dim_fct_spec_has_matching_dim_spec():
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("entity", ["Fakturalinje", "Vareudlevering"])
+@pytest.mark.parametrize("entity", ["Fakturalinje", "Vareudlevering", "Ordre"])
 def test_dso_sync_ships_shared_pk_without_identity_insert(entity):
     dim_cfg = ERP_SYNC_CONFIGS[f"dim_{entity}"]
     fct_cfg = ERP_SYNC_CONFIGS[f"fct_{entity}"]

@@ -15,7 +15,7 @@ if "mssql_python" not in sys.modules:
     sys.modules["mssql_python"] = MagicMock()
 
 import pytest
-from DSI.mssql.archive import sydax_archive_assets
+from DSI.mssql.archive.sydax_archive_configs import sydax_archive_assets
 from jobs.sydax_archive_job import sydax_archive_job
 
 pytestmark = pytest.mark.unit

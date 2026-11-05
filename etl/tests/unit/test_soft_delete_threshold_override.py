@@ -22,15 +22,21 @@ from core.etl_thresholds import (
 pytestmark = pytest.mark.unit
 
 
+def _one_over_the_bar(asset_name: str) -> int:
+    return get_soft_delete_threshold(asset_name) + 1
+
+
 def test_override_raises_the_bar_for_this_run_only():
     """The standing threshold must be unchanged by a run that overrode it."""
-    assert get_soft_delete_threshold("dim.Borger") == 10000
-    assert get_soft_delete_threshold("dim.Borger", 50_000) == 50_000
-    assert get_soft_delete_threshold("dim.Borger") == 10000
+    standing = get_soft_delete_threshold("dim.Borger")
+    raised = standing * 5
+    assert get_soft_delete_threshold("dim.Borger", raised) == raised
+    assert get_soft_delete_threshold("dim.Borger") == standing
 
 
 def test_count_above_the_standing_threshold_passes_with_an_override():
-    check_soft_delete_threshold("dim.Borger", 5469, override=10_000)
+    count = _one_over_the_bar("dim.Borger")
+    check_soft_delete_threshold("dim.Borger", count, override=count)
 
 
 def test_count_above_the_override_still_fails():
@@ -41,7 +47,7 @@ def test_count_above_the_override_still_fails():
 
 def test_guard_still_fires_without_an_override():
     with pytest.raises(dg.Failure) as excinfo:
-        check_soft_delete_threshold("dim.Borger", 54690)
+        check_soft_delete_threshold("dim.Borger", _one_over_the_bar("dim.Borger"))
     assert excinfo.value.metadata["threshold_overridden"].value is False
     assert "ops.dim_Borger.config.soft_delete_threshold" in excinfo.value.description
     assert "ops.Borger." not in excinfo.value.description
@@ -49,7 +55,9 @@ def test_guard_still_fires_without_an_override():
 
 def test_remediation_names_the_ref_address_op():
     with pytest.raises(dg.Failure) as excinfo:
-        check_soft_delete_threshold("ref.Patient_Address_To_Borger", 54690)
+        check_soft_delete_threshold(
+            "ref.Patient_Address_To_Borger", _one_over_the_bar("ref.Patient_Address_To_Borger")
+        )
     assert (
         "ops.ref_patient_address_borger.config.soft_delete_threshold" in excinfo.value.description
     )

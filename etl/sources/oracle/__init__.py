@@ -7,24 +7,3 @@
 """
 Oracle source assets.
 """
-
-from .ifdb_assets import (
-    ifdb_encounter_source,
-    ifdb_episode_of_care_source,
-    ifdb_eventmarker_source,
-    ifdb_healthissue_source,
-    ifdb_location_source,
-    ifdb_observable_assets,
-    ifdb_patient_oplysninger_columna_source,
-    ifdb_patient_oplysninger_officielle_source,
-)
-
-__all__ = [
-    "ifdb_encounter_source_spec",
-    "ifdb_episode_of_care_source_spec",
-    "ifdb_eventmarker_source_spec",
-    "ifdb_healthissue_source_spec",
-    "ifdb_patient_oplysninger_columna_source_spec",
-    "ifdb_patient_oplysninger_officielle_source_spec",
-    "ifdb_location_source_spec",
-]

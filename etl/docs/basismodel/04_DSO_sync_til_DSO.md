@@ -31,7 +31,7 @@ Adskillelsen er derfor både en performancegrænse og en sikkerhedsgrænse.
 
 ```
 Staging-database (DSA)                    DSO-database (datamartserveren)
-  map.*                                     map.*
+  map.*
   dim.*      ──── STAGING_LINK (MERGE) ───▶  dim.*
   fct.*                                     fct.*
   dm.*                                      dm.*
@@ -41,26 +41,24 @@ Staging-database (DSA)                    DSO-database (datamartserveren)
                                           vw_*  (kun når der er en grund)
 ```
 
-**Den foretrukne vej er linked server** — en forbindelse fra DSO-serveren direkte
+**Synken går altid via linked server** — en forbindelse fra DSO-serveren direkte
 til staging-databasen. MERGE'en eksekveres helt på DSO-serveren via 4-delt
 navngivning (`[STAGING_LINK].[DW].[skema].[tabel]`), så ingen data
 passerer gennem Python.
 
-**Python-fallback** findes som nødløsning: hvis linked serveren ikke er
-tilgængelig, streames rækkerne gennem Python i chunks. Den bruger altid TRUNCATE +
-INSERT uanset konfigureret mode. Fallback logges på **ERROR**-niveau med præfikset
-`DSO_SYNC_FALLBACK_ACTIVE`, og asset-metadata sætter `sync_engine=python_fallback`
-plus `fallback_reason`.
+Findes linked serveren ikke, eller svarer den ikke, fejler synken med en fejl, der
+nævner linked serveren og tabellen. Checkpointet flytter sig ikke, så den næste
+kørsel efter reparationen indhenter rækkerne.
 
 ## Tre sync-modes
 
 | Mode | SQL | Brug til |
 |---|---|---|
-| `merge` | Fuld MERGE af alle rækker | Map-tabeller og små lookup-tabeller, hvor en fuld scanning er billig |
+| `merge` | Fuld MERGE af alle rækker | Små lookup-tabeller, hvor en fuld scanning er billig |
 | `watermark` | Delta-MERGE filtreret på et timestamp | Dimensioner og facts, der vokser over tid |
 | `truncate_insert` | TRUNCATE + INSERT | Type 2-dimensioner med IDENTITY-nøgle, og sikkerhedstabeller der altid fuldopdateres |
 
-Rækkefølgen er bundet i Dagster: **map → dim → fct**, hvor map findes. Hvert
+Rækkefølgen er bundet i Dagster: **dim → fct**. Hvert
 sync-asset afhænger af sit upstream staging-asset.
 
 **DSO stempler selv.** Alle tre modes sætter `dw_timestamp_insert` og
@@ -146,10 +144,9 @@ Udvalgte felter — den fulde reference står i `DSO/load/sync_utils.py`:
 | `primary_key` | Kolonne(r) i MERGE'ens ON-udtryk |
 | `mode` | `merge`, `watermark` eller `truncate_insert` |
 | `watermark_column` | Krævet ved `mode="watermark"`. Typisk `dw_timestamp_update`; `dw_timestamp_insert` for append-only tabeller |
-| `exclude_columns` | Kolonner der ikke synkroniseres, fx IDENTITY-kolonner på map-tabeller |
+| `exclude_columns` | Kolonner der ikke synkroniseres, fx IDENTITY-kolonner |
 | `insert_only_columns` | Kolonner der kun sættes ved INSERT (standard: `dw_timestamp_insert`) |
 | `identity_insert` | Slå `SET IDENTITY_INSERT ON` til, når primærnøglen er IDENTITY |
-| `chunk_size` | Rækker per chunk i Python-fallback (standard 5000) |
 
 ### 2. Assettet
 
@@ -160,20 +157,22 @@ begge dele som metadata.
 
 Navngivningen står i
 [navngivningsstandard_basismodel.md](../implementation/navngivningsstandard_basismodel.md#assets).
-Afhængigheder: det upstream staging-asset, plus map-sync'en hvis domænet
-synkroniserer map.
+Afhængigheder: det upstream staging-asset. Map-tabellerne bliver på staging.
 
 ### 3. Registrér
 
-Læg assettet i den relevante `all_*_dso_sync_assets`-liste i samme fil, og
-registrér det i `DSO/load/__init__.py`.
+Læg assettet i den relevante liste i samme fil. For en ny fil: importér dens liste i
+`DSO/load/__init__.py`, og læg den i `all_dso_sync_assets`. Listerne i `sync_fhir.py`
+importeres direkte i `definitions.py`.
 
 ### 4. DDL på DSO
 
 Måltabellen skal findes på DSO med **samme kolonner** som på staging.
 Schema validation kører automatisk (`validate_schemas=True`) og fejler ved forskelle.
 Tilføj DDL'en under `infrastructure/ddl/tables/{domæne}/` og materialisér det
-tilhørende `dso_infra_*`-asset.
+tilhørende `dso_infra_*`-asset. Har assettet en eksplicit filliste (fx DRG, HAIBA og
+udredningsret), så tilføj din fil til listen. Et nyt domæne får altid en filliste — se
+[infrastrukturguiden](../implementation/infrastructure_guide.md#4-staging-and-dso).
 
 ### 5. Viewet — kun når der er en grund
 
@@ -215,7 +214,7 @@ Hvert sync-asset returnerer metadata, du kan læse direkte i Dagster:
 
 | Nøgle | Hvad du bruger den til |
 |---|---|
-| `sync_engine` | Skal være `linked_server` i normal drift. `python_fallback` er en alarm. |
+| `sync_engine` | Skal være `linked_server` i normal drift. |
 | `sync_mode` | Skelner mellem første kørsel (`watermark_full`) og delta (`watermark_delta`) |
 | `rows_affected` | Antal rækker indsat eller opdateret |
 | `staging_count` / `dso_count` / `counts_match` | Rækkeparitet efter synkroniseringen |
@@ -238,8 +237,8 @@ Konkret at tjekke ved en ny tabel:
 |---|---|
 | `Linked server 'STAGING_LINK' does not exist` | Kør infrastruktur-assettet `dso_infra_linked_server`. Tjek med `SELECT * FROM sys.servers WHERE name = 'STAGING_LINK'`. |
 | `SchemaValidationError: Column mismatch` | Staging-skemaet er ændret. Opdatér DSO-tabellens DDL, kør `dso_infra_*`, kør synkroniseringen igen. DSO må aldrig ændre DSA's skema. |
-| `sync_engine=python_fallback` | Linked serveren var utilgængelig. Undersøg netværk og credentials — behandl det som en hændelse, ikke som normal drift. |
-| Synken fejler med `ROW_COUNT_MISMATCH` | DSO har færre rækker end staging: rækker indsat mellem MERGE og optælling, eller en fejlet fallback-overførsel. Kør synken igen. Fejler den igen, så reset checkpointet og kør en fuld re-sync. |
+| `Cannot sync ...: linked server 'STAGING_LINK' is unavailable` | Linked serveren findes ikke eller svarer ikke. Undersøg netværk og credentials, og kør synken igen. |
+| Synken fejler med `ROW_COUNT_MISMATCH` | DSO har færre rækker end staging: rækker indsat mellem MERGE og optælling. Kør synken igen. Fejler den igen, så reset checkpointet og kør en fuld re-sync. |
 | `counts_match: false` med flere rækker på DSO | Rester på DSO (MERGE sletter dem ikke). Kørslen forbliver grøn. |
 | Første kørsel med `mode="watermark"` MERGE'er alt | Forventet: `scope='dso'`-checkpointet var tomt. |
 
