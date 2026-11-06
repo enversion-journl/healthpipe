@@ -39,14 +39,14 @@ class TestSorPropertyDefinitions:
             assert prop["type"] == "dateTime"
 
     def test_boolean_properties_use_boolean_type(self):
-        bool_codes = ("rsdOrganization", "activeOwnOrganization")
+        bool_codes = ("regionOrganization", "activeOwnOrganization")
         bool_props = [p for p in SOR_PROPERTY_DEFINITIONS if p["code"] in bool_codes]
         assert len(bool_props) == 2
         for prop in bool_props:
             assert prop["type"] == "boolean"
 
     def test_remaining_properties_use_string_type(self):
-        non_string = ("openingDate", "closingDate", "rsdOrganization", "activeOwnOrganization")
+        non_string = ("openingDate", "closingDate", "regionOrganization", "activeOwnOrganization")
         string_props = [p for p in SOR_PROPERTY_DEFINITIONS if p["code"] not in non_string]
         assert len(string_props) == 13
         for prop in string_props:

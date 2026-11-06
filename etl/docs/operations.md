@@ -77,6 +77,8 @@ The masking has limits:
 - It does not cover `print` and other raw writes to stdout. The compute log manager
   stores these writes without the filter.
 
+[Data protection](data_protection.md#4-cpr-masking-in-the-logs) lists all known limits.
+
 Do not write personal data to the logs. The masking is a safety net, not a control.
 
 ## 2. Health checks

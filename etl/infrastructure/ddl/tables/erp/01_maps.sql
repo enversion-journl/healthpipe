@@ -334,7 +334,7 @@ GO
 
 -- map.Lager
 -- CleanCode -> DW_EK resolution for Lager dimension
--- Supports the ILS Lager codesystem hierarchy (REGION_SYD -> sgh -> lgr)
+-- Supports the ILS Lager codesystem hierarchy (REGION_ROOT -> sgh -> lgr)
 IF NOT EXISTS (
     SELECT * FROM sys.objects
     WHERE object_id = OBJECT_ID(N'[map].[Lager]') AND type = 'U'
@@ -361,7 +361,7 @@ GO
 
 -- map.Rekvirent
 -- CleanCode -> DW_EK resolution for Rekvirent dimension
--- Supports the ILS Rekvirent codesystem hierarchy (REGION_SYD -> sgh -> rgrp -> rtyp -> rnr)
+-- Supports the ILS Rekvirent codesystem hierarchy (REGION_ROOT -> sgh -> rgrp -> rtyp -> rnr)
 IF NOT EXISTS (
     SELECT * FROM sys.objects
     WHERE object_id = OBJECT_ID(N'[map].[Rekvirent]') AND type = 'U'

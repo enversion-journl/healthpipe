@@ -214,7 +214,7 @@ concepts, properties, hierarchy = build_rekvirent_hierarchy(
 The output format is always:
 - `concepts`: `[{"CODE": "SGH_55", "DISPLAY": "Sygehus Sønderjylland"}, ...]`
 - `properties`: `[{"CODE": "SGH_55", "KEY": "entityType", "VALUE": "sygehus", "TYPE": "String"}, ...]`
-- `hierarchy`: `[{"CODE": "SGH_55", "PARENT_CODE": "REGION_SYD"}, ...]`
+- `hierarchy`: `[{"CODE": "SGH_55", "PARENT_CODE": "REGION_ROOT"}, ...]`
 
 ### Step 3: MERGE into database
 

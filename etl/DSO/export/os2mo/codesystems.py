@@ -11,12 +11,12 @@ delivery sensor's run config and the export table all follow from this tuple.
 """
 
 from DSA.CodeSystem.lager.lager import LAGER_ROOT
-from DSA.CodeSystem.sor.sor import ACTIVE_OWN_PROPERTY_KEY, RSD_PROPERTY_KEY, SOR_ROOT
+from DSA.CodeSystem.sor.sor import ACTIVE_OWN_PROPERTY_KEY, REGION_PROPERTY_KEY, SOR_ROOT
 from utils.os2mo.codesystem_export import CodeSource, CodesystemExportSpec
 
 __all__ = ["CODESYSTEM_EXPORTS", "EAN_EXPORT", "LAGER_EXPORT", "OKOSTED_EXPORT", "SOR_EXPORT"]
 
-# Example Region's SOR tree: every code cs_sor flags as rsdOrganization,
+# Example Region's SOR tree: every code cs_sor flags as regionOrganization,
 # walked from SOR_ROOT — closed and not-yet-opened units included.
 SOR_EXPORT = CodesystemExportSpec(
     name="SOR",
@@ -25,7 +25,7 @@ SOR_EXPORT = CodesystemExportSpec(
     from_property="openingDate",
     to_property="closingDate",
     type_property="entityType",
-    scope_property=RSD_PROPERTY_KEY,
+    scope_property=REGION_PROPERTY_KEY,
     scope_value="true",
     status_active_property=ACTIVE_OWN_PROPERTY_KEY,
     root_code=SOR_ROOT,

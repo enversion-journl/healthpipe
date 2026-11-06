@@ -231,8 +231,8 @@ tabellen har desuden `codesystem`. Den bærer ingen mapninger længere.
 | | SOR | Okosted | EAN | Lager |
 | :--- | :--- | :--- | :--- | :--- |
 | Kilde | `codesystem.SOR*` (`cs_sor`) | `codesystem.Okosted*` (`cs_okosted`) | Fakturamodtagerne (`RegningsModtagerID`) i `arc.mysupply_statistic_invoice_header`, navngivet fra `codesystem.EAN*` (`cs_ean`, NemHandelsregisteret) | `codesystem.Lager*` (`cs_lager`, ILS' `dbo.sgh` og `dbo.lgr`) |
-| Afgrænsning | `rsdOrganization = true` (filtreret i SQL) — se nedenfor | **Hele kodesystemet** | **Alle fakturamodtagere** i MySupply-arkivet | **Hele kodesystemet** |
-| Rod | `6101000016001` (Example Region) | Alle koder uden forælder (niveau-1-knuderne, de 9 toppe) | Alle koder — fladt, alle på `niveau = 1` | `REGION_SYD` — sygehus på niveau 2, lager på niveau 3 |
+| Afgrænsning | `regionOrganization = true` (filtreret i SQL) — se nedenfor | **Hele kodesystemet** | **Alle fakturamodtagere** i MySupply-arkivet | **Hele kodesystemet** |
+| Rod | `6101000016001` (Example Region) | Alle koder uden forælder (niveau-1-knuderne, de 9 toppe) | Alle koder — fladt, alle på `niveau = 1` | `REGION_ROOT` — sygehus på niveau 2, lager på niveau 3 |
 | `gyldig_fra` / `gyldig_til` | `openingDate` / `closingDate` | `startsdate` / `enddate` | `1900-01-01` / `9999-12-31` — kilden har ingen datoer | `1900-01-01` / `9999-12-31` — kilden har ingen datoer |
 | `type` | `entityType` | `enhedstype` (udfyldt) | tom | `entityType` (`region` / `sygehus` / `lager`) |
 | `aktiv` / `dw_is_deleted` | `activeOwnOrganization` / tom | SydAX' `Aktiv` / `Slettet` | tomme | ILS' `aktiv` på sygehuset eller lageret / tom |
@@ -245,7 +245,7 @@ Alle fire kodesystemer og `cm_okosted_to_sor` bygges af `organisation_cs_job`.
 kodemængde, `arc.mysupply_statistic_invoice_header`, bygges af MySupply-kæden
 og læses, som den står ved leverancen.
 
-SOR-filen indeholder alle enheder, `cs_sor` markerer som `rsdOrganization`:
+SOR-filen indeholder alle enheder, `cs_sor` markerer som `regionOrganization`:
 enheder, der kan nås fra roden `6101000016001`, uanset om de er åbne, lukkede
 eller endnu ikke åbnet. `aktiv` er `activeOwnOrganization`: `true`, når enheden
 er i kraft — `openingDate` er nået, og der er ingen `closingDate` på eller før
@@ -323,7 +323,7 @@ værdien mangler), så et navn, NemHandel selv tømmer, slår igennem, og
 `update_only_on_change` holder `dw_timestamp_update` til reelle ændringer.
 
 Lager-filen er ILS' lagerorganisation i kodesystemets egne tre niveauer:
-`REGION_SYD` (niveau 1), et sygehus fra `dbo.sgh` (niveau 2, kode
+`REGION_ROOT` (niveau 1), et sygehus fra `dbo.sgh` (niveau 2, kode
 `SGH_<sgh>`) og et lager fra `dbo.lgr` (niveau 3, kode `SGH_<sgh>_LGR_<lgr>`)
 under sit sygehus. Koden er den samme som i `codesystem.Lager*` og `dim.Lager`.
 Hele kodesystemet leveres, aktive og inaktive enheder, og Magentas integration
@@ -331,7 +331,7 @@ afgør, hvad den importerer. `aktiv` er enhedens eget flag i ILS:
 `dbo.lgr.aktiv` for et lager og `dbo.sgh.aktiv` for et sygehus. Det er tomt for
 regionen og for enhver enhed, hvor ILS ikke angiver flaget. Tomt betyder "ingen
 status", ikke "inaktiv". ILS har ingen gyldighedsdatoer, så `gyldig_fra` og
-`gyldig_til` er `1900-01-01` og `9999-12-31`. Uden `REGION_SYD` i kodesystemet
+`gyldig_til` er `1900-01-01` og `9999-12-31`. Uden `REGION_ROOT` i kodesystemet
 bygges ingen fil.
 
 `cs_lager` læser hele `arc.ils_sgh` og `arc.ils_lgr` hver gang, så bygningen er

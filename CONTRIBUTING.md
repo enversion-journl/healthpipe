@@ -10,12 +10,13 @@ This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.
 
 ## How a Release Replaces the Tree
 
-The maintainers develop Healthpipe in an internal source and publish it to this repository. Each release replaces the full tree on `main` with one signed-off commit, `release: <version>`. A change that only this repository contains does not stay after the next release.
+The maintainers develop Healthpipe in an internal source and publish it to this repository. Each release replaces the full tree on `main` with one signed-off commit, `release: <version>`. A change that only this repository contains does not stay in the tree after the next release.
 
 When a maintainer merges your pull request into `main`:
 
-1. The maintainers carry the change into the internal source or into the publish configuration.
-2. The next release contains the change and its `CHANGELOG.md` entry.
+1. Your commit stays in the history of `main`, with you as the author. The release commit comes after it.
+2. The maintainers carry the change into the internal source or into the publish configuration, so that the next release keeps it.
+3. The next release contains the change and its `CHANGELOG.md` entry. The entry gives the number of your pull request, for example `(#42)`.
 
 Dependabot opens monthly update pull requests for four ecosystems. The maintainers do not merge them. They apply each update upstream, and the pull request closes when a release contains the update:
 
@@ -76,7 +77,7 @@ Run `just` to list the targets. `just test` and `just validate` need the `.env` 
 - `just validate`: load the Dagster definitions
 - `just dev`: start the Dagster web UI on http://localhost:3000
 
-The [Dagster Development Guide](etl/docs/implementation/dagster_development.md) gives the workflow. The [operations guide](etl/docs/operations.md) describes logs, health checks and backup.
+Use these `just` targets for your local workflow. The [repo tour](etl/docs/implementation/repo_tour.md) explains the layout of the code. The [Dagster Development Guide](etl/docs/implementation/dagster_development.md) describes the hosted development environment of the maintainers, not your local setup. The [operations guide](etl/docs/operations.md) describes logs, health checks and backup.
 
 ### Test time budget
 
