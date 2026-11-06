@@ -34,9 +34,10 @@ test *args:
 test-integration *args:
     cd etl && USE_REAL_DB_FOR_TESTS=true {{ uv_run }} python -m pytest tests/integration/ {{ args }}
 
-# Run mypy on the etl tree.
+# Run mypy --strict on etl/utils and mypy on the etl tree.
 typecheck:
-    {{ uv_run }} mypy etl
+    {{ uv_run }} mypy --strict etl/utils
+    -{{ uv_run }} mypy etl
 
 # Load the Dagster code location.
 validate:

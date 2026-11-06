@@ -40,6 +40,7 @@
 - [ ] **Scope**: this PR contains one logical change
 - [ ] **Tests**: new functionality has tests, and `just test` passes
 - [ ] **Lint**: `just lint` passes (Black and Ruff)
+- [ ] **Types**: `just typecheck` passes
 - [ ] **Docs**: the guides in `etl/docs/` agree with the changed architecture or flows
 - [ ] **CHANGELOG**: `CHANGELOG.md` has an entry under `[Unreleased]`, with `**Breaking:**` for a breaking change
 - [ ] **DCO sign-off**: each commit has a sign-off (`git commit -s`)

@@ -9,6 +9,25 @@ example from 1.0.8 to 1.0.9.
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-11-06
+
+### Changed
+
+- The operations guide no longer describes the Python fallback of the DSO sync, which
+  1.1.0 removed. A linked server that is not available fails the asset.
+- `just typecheck` also runs `mypy --strict etl/utils`, the step that CI requires. The
+  definition of done in CONTRIBUTING and in the PR template includes `just typecheck`.
+- Dependabot does not update the Dagster packages and the major version of `pandas`,
+  because the source pins them together.
+- The devcontainer guide names only VS Code.
+- The workflows use new versions of the GitHub Actions, for example `actions/upload-artifact`
+  7 and `actions/setup-python` 7.
+
+### Removed
+
+- Configuration entries for files and tools that the repository does not have: the
+  `[tool.ruff.format]` section, a mypy exclude and a large-file exclude.
+
 ## [1.1.0] - 2026-11-05
 
 ### Added
@@ -436,7 +455,8 @@ example from 1.0.8 to 1.0.9.
 
 - First public release.
 
-[Unreleased]: https://github.com/enversion-journl/healthpipe/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/enversion-journl/healthpipe/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/enversion-journl/healthpipe/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/enversion-journl/healthpipe/compare/v1.0.8...v1.1.0
 [1.0.8]: https://github.com/enversion-journl/healthpipe/compare/v1.0.7...v1.0.8
 [1.0.7]: https://github.com/enversion-journl/healthpipe/compare/v1.0.6...v1.0.7

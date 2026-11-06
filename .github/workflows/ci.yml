@@ -9,19 +9,15 @@
 # Jobs:
 #   - lint  (REQUIRED): runs the pre-commit config (Black, Ruff, Bandit, file hooks)
 #           on the files CHANGED in the PR / push — not the whole tree. Single
-#           source of truth = .pre-commit-config.yaml. Changed-files scoping keeps the
-#           gate green while still holding all new/modified code to the standard; the
-#           repo-wide pre-existing formatting debt is intentionally NOT gated here.
+#           source of truth = .pre-commit-config.yaml.
 #   - test  (REQUIRED): runs the FULL unit suite (etl/tests/unit/) on a native
 #           runner, now with coverage (term-missing + coverage.xml + junit). Integration
 #           / real_resources tests need a real database and are intentionally NOT run.
 #   - defs-validate (REQUIRED): loads the full Dagster code location.
-#   - typecheck (mypy) full-tree step / audit (pip-audit)  (REPORT-ONLY for now): each runs with
-#           `continue-on-error: true`, so it surfaces its findings (type errors,
-#           dependency CVEs) as annotations WITHOUT blocking merges while the tree/deps
-#           are brought up to standard. Promote each to a REQUIRED status check once it
-#           is green (branch protection). pip-audit findings are triaged with
-#           `--ignore-vuln <id>` (rationale inline) or by bumping the pin.
+#   - typecheck (mypy) (REQUIRED): `mypy --strict etl/utils`. The full-tree mypy step is
+#           REPORT-ONLY (`continue-on-error: true`).
+#   - audit (pip-audit) (REPORT-ONLY): runs with `continue-on-error: true`. Findings are
+#           triaged with `--ignore-vuln <id>` (rationale inline) or by bumping the pin.
 #
 # All `uses:` are pinned to full-length commit SHAs — the org enforces "Require actions
 # to be pinned to a full-length commit SHA"; tag refs (`@v4`) cause a startup failure.
@@ -84,7 +80,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
         with:
           # Full history so we can diff the PR/push against its base.
           fetch-depth: 0
@@ -93,7 +89,7 @@ jobs:
         uses: ./.github/actions/setup
 
       - name: Cache pre-commit hook environments
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/pre-commit
           key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
@@ -143,7 +139,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
 
       - name: Set up Python, uv and the dev extra
         uses: ./.github/actions/setup
@@ -160,7 +156,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: unit-test-results
           path: test-results/
@@ -176,7 +172,7 @@ jobs:
       PYTHONPATH: ${{ github.workspace }}/etl
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
 
       - name: Set up Python, uv and the dev extra
         uses: ./.github/actions/setup
@@ -193,7 +189,7 @@ jobs:
     # (pyproject).
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
 
       - name: Set up Python, uv and the dev extra
         uses: ./.github/actions/setup
@@ -208,14 +204,17 @@ jobs:
   audit:
     name: dependency audit (pip-audit)
     runs-on: ubuntu-latest
-    # REPORT-ONLY: pip-audit gates the full installed dependency tree
-    # against the PyPI advisory DB. The real tree will surface CVEs that need triage —
-    # accept each with `--ignore-vuln <id>` + rationale, or bump the pin — then promote
-    # this to a required check.
+    # REPORT-ONLY: pip-audit checks the full installed dependency tree against the PyPI
+    # advisory DB. Accept a finding with `--ignore-vuln <id>` + rationale, or bump the pin.
+    # The ignored advisories affect black, which the source pins at 25.9.0:
+    #   - PYSEC-2026-2120, CVE-2026-114134: the black GitHub Action with `use_pyproject`,
+    #     which this repo does not use.
+    #   - PYSEC-2026-2121: needs an untrusted `--python-cell-magics` value, which CI never
+    #     passes.
     continue-on-error: true
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
 
       - name: Set up Python, uv and the dev extra
         uses: ./.github/actions/setup
@@ -228,7 +227,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
 
       - name: Set up Python, uv and the dev extra
         uses: ./.github/actions/setup

@@ -10,7 +10,7 @@
 
 This folder defines Healthpipe's self-contained development environment: a Docker
 Compose stack (Dagster + Microsoft SQL Server + Oracle + PostgreSQL + Aidbox/FHIR)
-wired up as a VS Code / Cursor **Dev Container**. The root [README](../README.md)
+wired up as a VS Code **Dev Container**. The root [README](../README.md)
 has the short quick-start; this guide goes deeper for day-to-day development.
 
 ## Prerequisites
@@ -21,14 +21,13 @@ has the short quick-start; this guide goes deeper for day-to-day development.
     under emulation — install Rosetta (`softwareupdate --install-rosetta`). This
     works but is slower; for a native alternative override `MSSQL_IMAGE` +
     `MSSQL_PLATFORM` (see [.env.template](.env.template)).
-- **[VS Code](https://code.visualstudio.com/)** or **[Cursor](https://cursor.com/)**
-  with the [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers).
+- **[VS Code](https://code.visualstudio.com/)** with the [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers).
 - **SSH keys** (optional) — if you push over SSH, your `~/.ssh` is mounted into the
   container (see `mounts` in [devcontainer.json](devcontainer.json)).
 
 ## Getting started
 
-1. **Clone and open** the repository in VS Code / Cursor, opening the repo folder
+1. **Clone and open** the repository in VS Code, opening the repo folder
    directly so the workspace path resolves correctly.
 2. **Create your env file** (required):
    ```bash
@@ -50,8 +49,7 @@ has the short quick-start; this guide goes deeper for day-to-day development.
 4. **Start Dagster** *(local devcontainer only)*: open **Run and Debug**
    (`Ctrl+Shift+D`) → run the **Dagster** configuration
    ([../.vscode/launch.json](../.vscode/launch.json)). The web UI opens at
-   http://localhost:3000. *(On a remote VS Code server, Dagster is
-   started by the deployment — skip this step.)*
+   http://localhost:3000.
 5. **Build the warehouse schema**: in the Dagster UI, materialize the
    `full_infrastructure_setup` job, then materialize assets / launch jobs.
 

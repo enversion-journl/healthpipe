@@ -72,7 +72,7 @@ Run `just` to list the targets. `just test` and `just validate` need the `.env` 
 - `just format`: run Black and the Ruff fixes
 - `just test`: run the unit tests with coverage (add pytest arguments, for example `just test -k fhir`)
 - `just test-integration`: run the integration tests against the devcontainer databases
-- `just typecheck`: run mypy on `etl`
+- `just typecheck`: run `mypy --strict` on `etl/utils` and mypy on `etl`
 - `just validate`: load the Dagster definitions
 - `just dev`: start the Dagster web UI on http://localhost:3000
 
@@ -80,7 +80,7 @@ The [Dagster Development Guide](etl/docs/implementation/dagster_development.md) 
 
 ### Test time budget
 
-The CI job `test (pytest unit)` takes about 305 seconds. Of this time, pytest takes about 250 seconds and the install takes about 45 seconds. On an Apple M4 Pro, `just test` takes about 80 seconds. CI does not run the integration tests. Keep the CI job near 305 seconds:
+The CI job `test (pytest unit)` takes about 230 seconds. Of this time, pytest takes about 205 seconds and the install takes less than 10 seconds. On an Apple M4 Pro, `just test` takes about 80 seconds. CI does not run the integration tests. Keep the CI job below 305 seconds:
 
 - Mock the databases and the network in a unit test.
 - Put a test that needs a real database in `etl/tests/integration/`.
@@ -101,7 +101,7 @@ The [PR template](.github/PULL_REQUEST_TEMPLATE.md) contains the definition of d
 
 - It contains one logical change, and its description gives the change and the reason.
 - New functionality has tests, and `just test` passes.
-- `just lint` passes.
+- `just lint` and `just typecheck` pass.
 - The guides in `etl/docs/` agree with the changed architecture or flows.
 - `CHANGELOG.md` has an entry under `[Unreleased]` for a change that users can see. Start the entry with `**Breaking:**` when the change breaks the existing behaviour or output.
 - Each commit has a DCO sign-off.
