@@ -10,7 +10,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "healthpipe"
-version = "1.1.0"
+version = "1.1.1"
 description = "Healthpipe — an open-source healthcare data pipeline platform"
 readme = "README.md"
 requires-python = "==3.12.*"
@@ -136,14 +136,6 @@ exclude = [
     "dist",
 ]
 
-[tool.ruff.format]
-quote-style = "double"
-indent-style = "space"
-skip-magic-trailing-comma = false
-line-ending = "auto"
-# Enable preview mode for more aggressive formatting including string line breaking
-preview = true
-
 [tool.ruff.lint]
 # Keep this focused; expand later as desired
 select = ["E", "W", "F", "UP", "B", "TID", "I"]
@@ -178,9 +170,9 @@ ban-relative-imports = "all"
 # Frozen-config immutability test (asserts mutation is rejected; exact exc type is an impl detail)
 "etl/tests/unit/test_dfm_extract_factory.py" = ["B017"]
 
-# Mypy configuration — REPORT-ONLY in CI (continue-on-error). The tree is
+# Mypy configuration — CI requires `mypy --strict etl/utils`; the full tree is REPORT-ONLY. The tree is
 # largely untyped, so keep this lenient: resolve what we can, ignore missing third-party
-# stubs, and skip the test / mock-data trees. Tighten incrementally as modules gain types.
+# stubs, and skip the test tree. Tighten incrementally as modules gain types.
 [tool.mypy]
 python_version = "3.12"
 mypy_path = "etl"
@@ -191,7 +183,6 @@ warn_unused_ignores = false
 no_implicit_optional = true
 exclude = [
     '^etl/tests/',
-    '^etl/mock_data/',
 ]
 
 # fhir.resources models are pydantic models whose optional fields mypy reads as

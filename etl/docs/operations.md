@@ -50,7 +50,6 @@ The DSO sync writes fixed markers in its messages. Use them for alerts:
 
 | Marker | Level | Meaning |
 |---|---|---|
-| `DSO_SYNC_FALLBACK_ACTIVE` | ERROR | The sync uses the Python fallback, not the linked server. |
 | `INTEGRITY_CONFLICT_RECOVERY` | WARNING | A MERGE hit a unique constraint. The sync does a TRUNCATE+INSERT. |
 | `ROW_COUNT_MISMATCH_RECOVERY` | WARNING | DSO has fewer rows than staging. The sync does a full MERGE. |
 | `RECOVERY FAILED` | ERROR | The row counts do not match after the full MERGE. |
@@ -153,7 +152,6 @@ The backoff is 5, 15 and 45 seconds (four attempts) at these points:
 - `can_connect_to_staging`: the `SELECT 1` probe of the staging database.
 - `_stage_batches_via_openquery`: a batch of the batched linked-server sync. A retry
   opens a new connection and stages the table again from the start.
-- `_sync_via_python`: the Python fallback. A retry starts the transfer again.
 
 ### 3.3 DSO sync failure rules
 
@@ -165,10 +163,7 @@ The backoff is 5, 15 and 45 seconds (four attempts) at these points:
    - If not, and the DSO table is empty, the asset fails.
 2. The staging schema and the DSO schema are different: the asset fails with
    `SchemaValidationError`. The sync never changes a DSA schema.
-3. The linked server fails:
-   - If `DSO_SYNC_ALLOW_PYTHON_FALLBACK` is `false` or `0`, the asset fails.
-   - If not, and staging is reachable, the sync uses the Python fallback. It writes `DSO_SYNC_FALLBACK_ACTIVE`
-     at ERROR level and sets `fallback_reason` in the metadata.
+3. The linked server is not available: the asset fails.
 4. A MERGE hits a unique constraint: the sync does a TRUNCATE+INSERT of the table.
 5. A watermark delta leaves DSO with fewer rows than staging: the sync does one full
    MERGE. It does not retry after that.
