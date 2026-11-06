@@ -154,6 +154,17 @@ NOTE: this file does NOT feed `${VAR:-default}` interpolation in docker-compose.
 | `DAGSTER_POSTGRES_HOST` | `postgres` | Dagster configuration |
 | `DAGSTER_POSTGRES_PORT` | `5432` | Dagster configuration |
 | `DAGSTER_BETA_WARNINGS` | `0` | Dagster configuration |
+
+## Deployment mode. Leave these unset on a developer machine.
+
+Set them per code location in the deployment, not in a shared .env. A line in .env, also an empty one (VAR=), replaces the deployment value.
+
+| Variable | Default | Description |
+|---|---|---|
+| `DAGSTER_CODE_LOCATION_NAME` | not set (example: `production`) | Name of a long-lived code location. Default: unset. development, production or prod: most schedules and sensors start as RUNNING. Other value or unset: they start as STOPPED. When the staging database is not reachable, the DSO sync of a table: - fails, if this variable has a value. - returns local_dev_skip, if this variable is unset and the DSO table has rows. |
+| `DAGSTER_BRANCH_POSTFIX` | not set (example: `main-<image-tag>`) | Deployment identity of the code location. Default: unset. feature-<name>: each asset, job, schedule and check key gets the suffix _feature_<name> (lower case, other characters become _). Use it for a branch deployment. release-<image-tag> (QA) or main-<image-tag> (production): most schedules and sensors start as RUNNING. Each schedule waits until full_infrastructure_setup succeeds once for the release (release_infrastructure_sensor starts that run). Other value or unset: no suffix and no release gate. |
+| `DAGSTER_ENVIRONMENT` | not set (example: `production`) | Environment name. Default: unset (not production). A value that contains "prod" marks a production environment: the dev-only reset assets are not registered, SECURITY_SEED_ENABLED=true fails, and the tests with real resources refuse to run. MSSQL_TARGET_STAGING_HOST or MSSQL_TARGET_DSO_HOST with "prod" in the value has the same effect on the reset assets and the seed, but not on the tests. |
+| `DQA_ENVIRONMENT` | not set (example: `production`) | Label in the environment column of dqa.Results (maximum 128 characters). Default: the value of DAGSTER_BRANCH_POSTFIX, or local if that variable is unset. |
 | `MSSQL_LINKED_SERVER_HOST` | `mssql` | Linked Server configuration |
 | `MSSQL_LINKED_SERVER_PORT` | `1433` | Linked Server configuration |
 | `MSSQL_LINKED_SERVER_DB` | `DW` | Linked Server configuration |

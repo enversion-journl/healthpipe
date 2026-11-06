@@ -63,7 +63,7 @@ KOLONNER: tuple[str, ...] = tuple(
 
 _UKENDT_SQL = f"N'{UKENDT_TEKST}'"
 
-# C_BOREGION_F: Statistics Denmark's five region codes, blank -> 'Ukendt'.
+# C_BOREGION_F: Statistics Denmark's region codes, blank -> 'Ukendt'.
 # Any other non-blank code falls through to the ELSE branch below, which
 # repeats the code itself rather than hiding an unexpected region.
 BOPAELSREGION_TEKSTER: dict[str, str] = {**REGION_TEKSTER, "": REGION_UKENDT_TEKST}

@@ -5,6 +5,7 @@
 # root for the full AGPL-3.0 license text.
 
 # Build (not push) the code-server images so a broken Dockerfile fails the PR.
+# On a published release (or a manual run), build and push both images to GHCR.
 name: docker
 
 on:
@@ -16,22 +17,29 @@ on:
       - ".github/workflows/docker.yml"
   push:
     branches: [main]
+  release:
+    types: [published]
   workflow_dispatch:
 
 concurrency:
   group: docker-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
+env:
+  BASE_IMAGE_NAME: ghcr.io/enversion-journl/healthpipe-code-server-base
+  IMAGE_NAME: ghcr.io/enversion-journl/healthpipe-code-server
+
 jobs:
   build:
     name: docker build (code-server)
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -48,3 +56,159 @@ jobs:
           --build-arg BASE_IMAGE=healthpipe-code-server-base:ci
           --build-arg BUILD_TIMESTAMP=${{ github.sha }}
           -t healthpipe-code-server:ci .
+
+  publish:
+    name: docker publish (code-server)
+    if: >-
+      (github.event_name == 'release' || github.event_name == 'workflow_dispatch')
+      && github.repository == 'enversion-journl/healthpipe'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      version: ${{ steps.tags.outputs.version }}
+      base-digest: ${{ steps.base.outputs.digest }}
+      digest: ${{ steps.app.outputs.digest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Compute tags
+        id: tags
+        env:
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          version=""
+          case "$REF" in
+            refs/tags/v*) version="${REF#refs/tags/v}" ;;
+          esac
+          if [ -n "$version" ] && ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Tag ${REF#refs/tags/} is not vX.Y.Z"
+            exit 1
+          fi
+          base_tags="${BASE_IMAGE_NAME}:sha-${SHA}"
+          app_tags="${IMAGE_NAME}:sha-${SHA}"
+          if [ -n "$version" ]; then
+            base_tags="${base_tags},${BASE_IMAGE_NAME}:${version}"
+            app_tags="${app_tags},${IMAGE_NAME}:${version}"
+          fi
+          {
+            echo "version=${version}"
+            echo "base-tags=${base_tags}"
+            echo "app-tags=${app_tags}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push base image
+        id: base
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: infrastructure/containers/dockerfiles/code-server-base.Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.tags.outputs.base-tags }}
+          labels: |
+            org.opencontainers.image.title=healthpipe-code-server-base
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.tags.outputs.version }}
+            org.opencontainers.image.licenses=AGPL-3.0-or-later
+          sbom: true
+          provenance: mode=max
+
+      - name: Build and push code-server image
+        id: app
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: infrastructure/containers/dockerfiles/code-server.Dockerfile
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            BASE_IMAGE=${{ env.BASE_IMAGE_NAME }}@${{ steps.base.outputs.digest }}
+            BUILD_TIMESTAMP=${{ github.sha }}
+          tags: ${{ steps.tags.outputs.app-tags }}
+          labels: |
+            org.opencontainers.image.title=healthpipe-code-server
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.tags.outputs.version }}
+            org.opencontainers.image.licenses=AGPL-3.0-or-later
+            org.opencontainers.image.base.name=${{ env.BASE_IMAGE_NAME }}@${{ steps.base.outputs.digest }}
+          sbom: true
+          provenance: mode=max
+
+      - name: Summary
+        env:
+          BASE_DIGEST: ${{ steps.base.outputs.digest }}
+          APP_DIGEST: ${{ steps.app.outputs.digest }}
+          BASE_TAGS: ${{ steps.tags.outputs.base-tags }}
+          APP_TAGS: ${{ steps.tags.outputs.app-tags }}
+        run: |
+          {
+            echo "### Published images"
+            echo ""
+            echo "| Image | Digest | Tags |"
+            echo "|---|---|---|"
+            echo "| \`${BASE_IMAGE_NAME}\` | \`${BASE_DIGEST}\` | \`${BASE_TAGS}\` |"
+            echo "| \`${IMAGE_NAME}\` | \`${APP_DIGEST}\` | \`${APP_TAGS}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  release-sbom:
+    name: attach SBOMs to the release
+    needs: publish
+    if: github.event_name == 'release' && needs.publish.outputs.version != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: read
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Export SPDX SBOMs
+        env:
+          VERSION: ${{ needs.publish.outputs.version }}
+          BASE_DIGEST: ${{ needs.publish.outputs.base-digest }}
+          APP_DIGEST: ${{ needs.publish.outputs.digest }}
+        run: |
+          set -euo pipefail
+          export_sbom() {
+            docker buildx imagetools inspect "$1" --format '{{ json .SBOM.SPDX }}' > "$2"
+            if [ ! -s "$2" ] || [ "$(cat "$2")" = "null" ]; then
+              echo "::error::No SPDX SBOM in $1"
+              exit 1
+            fi
+          }
+          export_sbom "${BASE_IMAGE_NAME}@${BASE_DIGEST}" "healthpipe-code-server-base-${VERSION}.spdx.json"
+          export_sbom "${IMAGE_NAME}@${APP_DIGEST}" "healthpipe-code-server-${VERSION}.spdx.json"
+
+      - name: Upload SBOMs to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+          VERSION: ${{ needs.publish.outputs.version }}
+        run: >
+          gh release upload "$TAG"
+          "healthpipe-code-server-base-${VERSION}.spdx.json"
+          "healthpipe-code-server-${VERSION}.spdx.json"
+          --repo "$GITHUB_REPOSITORY" --clobber

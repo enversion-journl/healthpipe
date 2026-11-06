@@ -10,7 +10,7 @@ Both Lager and Rekvirent are hierarchies of the same shape, and the maps hold
 members at two levels:
 
 * ``SGH_{sgh}`` — the hospital. ``map.Rekvirent`` holds eight of these, and
-  ``map.Lager`` holds the matching sygehus concepts under ``REGION_SYD``.
+  ``map.Lager`` holds the matching sygehus concepts under ``REGION_ROOT``.
 * ``SGH_{sgh}_LGR_{lgr}`` / ``SGH_{sgh}_RNR_{rnr}`` — the warehouse or the
   requisitioner below it.
 

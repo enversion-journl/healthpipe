@@ -9,6 +9,41 @@ example from 1.0.8 to 1.0.9.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-06
+
+### Added
+
+- `.env.template` and the configuration reference describe the deployment-mode variables
+  `DAGSTER_CODE_LOCATION_NAME`, `DAGSTER_BRANCH_POSTFIX`, `DAGSTER_ENVIRONMENT` and
+  `DQA_ENVIRONMENT`. They control the schedules, the sensors and the release gate.
+- An upgrade guide, `etl/docs/upgrading.md`, with the backup set, the upgrade steps, the
+  checks, the rollback policy and the restore order.
+- A data protection page, `etl/docs/data_protection.md`, with the stores of personal
+  data, the limits of the CPR masking, retention, erasure and encryption.
+- A deployment guide, `etl/docs/deployment.md`, with the production components, the
+  configuration, the first start and the parts that are specific to one region.
+- Each release publishes the code-server images to
+  `ghcr.io/enversion-journl/healthpipe-code-server` and
+  `ghcr.io/enversion-journl/healthpipe-code-server-base`, with an SBOM and a provenance
+  attestation. The release also has the SPDX SBOMs as assets.
+- `GOVERNANCE.md` describes the maintainers, the decisions, the community support and
+  the license. `ADOPTERS.md` lists the organizations that use Healthpipe.
+
+### Changed
+
+- **Breaking:** The SOR code system property that marks the own organization tree is now
+  `regionOrganization`, and the root code of the requester and warehouse code systems is
+  now `REGION_ROOT`. Change each query and export filter that uses the old names, and
+  load the code systems again.
+- The requester code system puts each hospital under the region root, except the rows
+  whose name contains `Region `. Before, a placeholder name made this check useless.
+- The Udredningsret classification shows the code `1083` itself as the residence region
+  text, because the public code has no name for that region.
+- The bug report form tells the reporter to replace CPR numbers and patient data with
+  made-up values.
+- CONTRIBUTING describes how a merged pull request stays after a release, and points to
+  the local workflow and the repo tour.
+
 ## [1.1.1] - 2026-11-06
 
 ### Changed
@@ -455,7 +490,8 @@ example from 1.0.8 to 1.0.9.
 
 - First public release.
 
-[Unreleased]: https://github.com/enversion-journl/healthpipe/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/enversion-journl/healthpipe/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/enversion-journl/healthpipe/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/enversion-journl/healthpipe/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/enversion-journl/healthpipe/compare/v1.0.8...v1.1.0
 [1.0.8]: https://github.com/enversion-journl/healthpipe/compare/v1.0.7...v1.0.8

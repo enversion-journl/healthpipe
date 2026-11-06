@@ -63,7 +63,7 @@ SOR_SPEC = _spec(
     from_property="openingDate",
     to_property="closingDate",
     type_property="entityType",
-    scope_property="rsdOrganization",
+    scope_property="regionOrganization",
     scope_value="true",
     status_active_property="activeOwnOrganization",
     status_deleted_property=None,
@@ -121,7 +121,7 @@ class TestSourceQuery:
     def test_sor_reads_only_the_scoped_set(self):
         sql = build_source_query(SOR_SPEC)
         assert "INNER JOIN [codesystem].[SORProperties] p_scope" in sql
-        assert "p_scope.[property_code] = 'rsdOrganization'" in sql
+        assert "p_scope.[property_code] = 'regionOrganization'" in sql
         assert "p_scope.[value] = 'true'" in sql
         assert "[codesystem].[SORConcept] c" in sql
 

@@ -71,10 +71,10 @@ def test_the_file_keeps_three_levels_region_sygehus_lager():
     assert {
         kode: (row["kode_parent"], row["niveau"], row["type"]) for kode, row in rows.items()
     } == {
-        "REGION_SYD": ("", "1", "region"),
-        "SGH_6000": ("REGION_SYD", "2", "sygehus"),
-        "SGH_7000": ("REGION_SYD", "2", "sygehus"),
-        "SGH_8000": ("REGION_SYD", "2", "sygehus"),
+        "REGION_ROOT": ("", "1", "region"),
+        "SGH_6000": ("REGION_ROOT", "2", "sygehus"),
+        "SGH_7000": ("REGION_ROOT", "2", "sygehus"),
+        "SGH_8000": ("REGION_ROOT", "2", "sygehus"),
         "SGH_6000_LGR_0100": ("SGH_6000", "3", "lager"),
         "SGH_6000_LGR_0200": ("SGH_6000", "3", "lager"),
         "SGH_7000_LGR_0300": ("SGH_7000", "3", "lager"),
@@ -84,7 +84,7 @@ def test_the_file_keeps_three_levels_region_sygehus_lager():
 def test_each_unit_carries_its_own_aktiv_flag_from_ils():
     rows = _rows_by_code(_source_rows())
     assert {kode: row["aktiv"] for kode, row in rows.items()} == {
-        "REGION_SYD": "",
+        "REGION_ROOT": "",
         "SGH_6000": "true",
         "SGH_7000": "false",
         "SGH_8000": "",
@@ -102,6 +102,6 @@ def test_navn_is_the_units_ils_name():
 
 def test_without_the_region_root_no_delivery_is_built():
     """Otherwise the sygehuse would silently become roots at niveau 1."""
-    without_root = [row for row in _source_rows() if row["code"] != "REGION_SYD"]
-    with pytest.raises(ValueError, match="REGION_SYD"):
+    without_root = [row for row in _source_rows() if row["code"] != "REGION_ROOT"]
+    with pytest.raises(ValueError, match="REGION_ROOT"):
         build_export_rows(LAGER_EXPORT, without_root)

@@ -15,6 +15,8 @@ body:
         Thanks for taking the time to file a bug report. Please make sure you have read the **Reporting Bugs** section of `CONTRIBUTING.md` first — this form mirrors the information requested there.
 
         ⚠️ **Do not report security vulnerabilities here.** See the security policy and report privately instead (the link is on the previous "New issue" screen).
+
+        ⚠️ **Do not paste CPR numbers, patient data or other personal data.** This issue is public. Replace each such value with a made-up value.
   - type: textarea
     id: summary
     attributes:
@@ -63,7 +65,7 @@ body:
     attributes:
       label: Logs / tracebacks
       description: Relevant error output, if any.
-      placeholder: Paste relevant output — redact any credentials, connection strings, or secrets.
+      placeholder: Paste relevant output — redact any credentials, connection strings, or secrets. Replace CPR numbers and patient data with made-up values.
       render: shell
     validations:
       required: false

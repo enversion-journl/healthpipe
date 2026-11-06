@@ -10,7 +10,7 @@ The pipeline has three layers. DSI (Data Staging In) extracts each source and ar
 
 The repository contains a devcontainer that runs the full stack on Docker: Dagster, SQL Server, Oracle, PostgreSQL and the Aidbox FHIR server.
 
-**Contents:** [Requirements](#requirements) · [Quick start](#quick-start) · [Install without the devcontainer](#install-without-the-devcontainer) · [Run your first pipeline](#run-your-first-pipeline) · [Services](#services) · [Architecture](#architecture) · [Project structure](#project-structure) · [Documentation](#documentation) · [Troubleshooting](#troubleshooting) · [Versioning](#versioning) · [Contributing and security](#contributing-and-security) · [License](#license)
+**Contents:** [Requirements](#requirements) · [Quick start](#quick-start) · [Install without the devcontainer](#install-without-the-devcontainer) · [Run your first pipeline](#run-your-first-pipeline) · [Services](#services) · [Architecture](#architecture) · [Project structure](#project-structure) · [Documentation](#documentation) · [Troubleshooting](#troubleshooting) · [Versioning](#versioning) · [Contributing and security](#contributing-and-security) · [Governance and support](#governance-and-support) · [License](#license)
 
 ## Requirements
 
@@ -133,6 +133,9 @@ The FHIR server runs in the docker-compose stack. The Dagster code reads:
 - [Glossary](etl/docs/README.md#glossary): DSI, DSA, DSO, DFM, DQA and the other terms.
 - Guides for each layer: [DSI](etl/docs/implementation/dsi_etl_guide.md), [FHIR](etl/docs/implementation/fhir_etl_guide.md) and [SQL/DWH](etl/docs/implementation/sql_etl_guide.md).
 - [Operations guide](etl/docs/operations.md): logs, health checks, errors and backup.
+- [Deployment guide](etl/docs/deployment.md): run Healthpipe in production, outside the devcontainer.
+- [Upgrade guide](etl/docs/upgrading.md): upgrade to a new release, back up, verify and roll back.
+- [Data protection](etl/docs/data_protection.md): the stores of personal data, the CPR masking and its limits, retention, erasure and encryption.
 - [Configuration reference](etl/docs/configuration.md): each variable of `.env`.
 
 The primary documentation in [`etl/docs/basismodel/`](etl/docs/basismodel/) is in Danish, because the platform serves Danish healthcare. The reference documentation is mostly in English. Some code comments are in Danish.
@@ -169,6 +172,10 @@ The `justfile` has the targets `install`, `lint`, `format`, `test`, `test-integr
 
 Do not report a vulnerability in a public issue. Report it privately, as [SECURITY.md](SECURITY.md) describes.
 
+## Governance and support
+
+Enversion Journl ApS maintains Healthpipe. [GOVERNANCE.md](GOVERNANCE.md) tells how the maintainers make decisions, how to become a maintainer and where to get support. [ADOPTERS.md](ADOPTERS.md) lists the organizations that use Healthpipe. To add your organization, open a pull request.
+
 ## License
 
-Healthpipe uses the GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later). See [LICENSE](LICENSE).
+Healthpipe uses the GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later). See [LICENSE](LICENSE). [License and use](GOVERNANCE.md#license-and-use) gives general notes about the license.

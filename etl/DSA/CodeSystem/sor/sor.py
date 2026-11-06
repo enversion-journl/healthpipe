@@ -37,7 +37,7 @@ __all__ = [
     "cs_sor",
     "KNOWN_PROPERTY_KEYS",
     "SOR_ROOT",
-    "RSD_PROPERTY_KEY",
+    "REGION_PROPERTY_KEY",
     "ACTIVE_OWN_PROPERTY_KEY",
 ]
 
@@ -57,7 +57,7 @@ KNOWN_PROPERTY_KEYS = [
     "city",
     "openingDate",
     "closingDate",
-    "rsdOrganization",
+    "regionOrganization",
     "activeOwnOrganization",
 ]
 
@@ -67,7 +67,7 @@ SKIP_COLUMNS = {"code", "display", "parent_code", "dw_timestamp_insert", "dw_tim
 # (ean_to_sor._SOR_ROOT, rekvirent_to_sor/lager_to_sor/okosted_to_sor sor_root).
 SOR_ROOT = "6101000016001"
 
-RSD_PROPERTY_KEY = "rsdOrganization"
+REGION_PROPERTY_KEY = "regionOrganization"
 ACTIVE_OWN_PROPERTY_KEY = "activeOwnOrganization"
 
 
@@ -107,9 +107,9 @@ def _append_rsd_properties(
     hierarchy: list[dict],
     now: datetime | None = None,
 ) -> None:
-    """Append the ``rsdOrganization`` and ``activeOwnOrganization`` Boolean properties.
+    """Append the ``regionOrganization`` and ``activeOwnOrganization`` Boolean properties.
 
-    ``rsdOrganization`` er true for enheder, der kan nås fra ``SOR_ROOT`` — åbne,
+    ``regionOrganization`` er true for enheder, der kan nås fra ``SOR_ROOT`` — åbne,
     lukkede og endnu ikke åbnede. ``activeOwnOrganization`` er true for de af dem,
     der er i kraft i dag og kan nås fra ``SOR_ROOT`` gennem enheder, der også er i
     kraft. Begge emittes som true/false for alle koder.
@@ -154,7 +154,7 @@ def _rsd_properties(code: str, members: set[str], reachable: set[str]) -> list[d
     return [
         {
             "CODE": code,
-            "KEY": RSD_PROPERTY_KEY,
+            "KEY": REGION_PROPERTY_KEY,
             "VALUE": "true" if code in members else "false",
             "TYPE": "Boolean",
         },

@@ -1121,7 +1121,6 @@ def test_klassifikationstekster_daekker_raa_vaerdier_og_blank():
     assert REGION_TEKSTER == {
         "1081": "Region Nordjylland",
         "1082": "Region Midtjylland",
-        "1083": "Example Region",
         "1084": "Region Hovedstaden",
         "1085": "Region Sjælland",
     }

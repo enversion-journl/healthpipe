@@ -24,7 +24,7 @@ from core.resources import MSSQLResource
 from DSA.CodeSystem.utils import merge_codesystem_tables, touch_concepts
 
 # The codesystem's single root; every sygehus hangs directly under it.
-LAGER_ROOT = "REGION_SYD"
+LAGER_ROOT = "REGION_ROOT"
 
 
 def _safe_strip(value) -> str:
@@ -95,7 +95,7 @@ def build_lager_hierarchy(
     """
     Build hierarchy structure for lager codesystem from arc.ils_* table rows.
 
-    Hierarchy: REGION_SYD -> SGH_{sgh} -> SGH_{sgh}_LGR_{lgr}
+    Hierarchy: REGION_ROOT -> SGH_{sgh} -> SGH_{sgh}_LGR_{lgr}
 
     Returns:
         (concepts, properties, hierarchy) triple

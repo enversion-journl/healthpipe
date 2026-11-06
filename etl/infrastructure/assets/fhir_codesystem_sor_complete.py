@@ -48,7 +48,7 @@ SOR_PROPERTY_DEFINITIONS = [
     {"code": "openingDate", "description": "Opening date", "type": "dateTime"},
     {"code": "closingDate", "description": "Closing date", "type": "dateTime"},
     {
-        "code": "rsdOrganization",
+        "code": "regionOrganization",
         "description": (
             "True when the entity belongs to Example Region's organisation tree "
             "(reachable from SOR unit 6101000016001), whether open, closed or not yet "

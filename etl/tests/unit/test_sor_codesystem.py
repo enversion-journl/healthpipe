@@ -6,7 +6,7 @@
 
 """Unit tests for the SOR CodeSystem builder — the RSD organisation properties.
 
-rsdOrganization marks every entity reachable from SOR_ROOT, whether open,
+regionOrganization marks every entity reachable from SOR_ROOT, whether open,
 closed or not yet opened. activeOwnOrganization marks the entities that belong
 to Example Region's own current organisation: in effect (openingDate <= now,
 and no closingDate on or before now) and reachable from SOR_ROOT through a
@@ -19,7 +19,7 @@ import pytest
 from DSA.CodeSystem.sor.sor import (
     ACTIVE_OWN_PROPERTY_KEY,
     KNOWN_PROPERTY_KEYS,
-    RSD_PROPERTY_KEY,
+    REGION_PROPERTY_KEY,
     SOR_ROOT,
     build_sor_codesystem,
     build_sor_codesystem_streaming,
@@ -139,7 +139,7 @@ class TestActiveOwnProperty:
         assert ACTIVE_OWN_PROPERTY_KEY in KNOWN_PROPERTY_KEYS
 
 
-class TestRsdProperty:
+class TestRegionProperty:
     def test_closed_and_future_entities_under_root_are_true(self):
         rows = [
             _wide_row(SOR_ROOT),
@@ -148,7 +148,7 @@ class TestRsdProperty:
             _wide_row("FUT1", parent=SOR_ROOT, opening="2999-01-01 00:00:00"),
         ]
         _, properties, _ = build_sor_codesystem(rows)
-        assert _flags(properties, RSD_PROPERTY_KEY) == {
+        assert _flags(properties, REGION_PROPERTY_KEY) == {
             SOR_ROOT: "true",
             "H1": "true",
             "a1": "true",
@@ -168,7 +168,7 @@ class TestRsdProperty:
             _wide_row("PRAKSIS2", parent="PRAKSIS1"),
         ]
         _, properties, _ = build_sor_codesystem(rows)
-        flags = _flags(properties, RSD_PROPERTY_KEY)
+        flags = _flags(properties, REGION_PROPERTY_KEY)
         assert flags["PRAKSIS1"] == "false"
         assert flags["PRAKSIS2"] == "false"
 

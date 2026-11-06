@@ -619,7 +619,7 @@ END
 GO
 
 -- dim.Lager
--- Hierarchy and SOR mapping columns for ILS Lager codesystem (REGION_SYD -> sgh -> lgr)
+-- Hierarchy and SOR mapping columns for ILS Lager codesystem (REGION_ROOT -> sgh -> lgr)
 IF NOT EXISTS (
     SELECT * FROM sys.objects
     WHERE object_id = OBJECT_ID(N'[dim].[Lager]') AND type = 'U'
@@ -697,7 +697,7 @@ END
 GO
 
 -- dim.Rekvirent
--- Hierarchy and SOR mapping columns for ILS Rekvirent codesystem (REGION_SYD -> sgh -> rgrp -> rtyp -> rnr)
+-- Hierarchy and SOR mapping columns for ILS Rekvirent codesystem (REGION_ROOT -> sgh -> rgrp -> rtyp -> rnr)
 IF NOT EXISTS (
     SELECT * FROM sys.objects
     WHERE object_id = OBJECT_ID(N'[dim].[Rekvirent]') AND type = 'U'

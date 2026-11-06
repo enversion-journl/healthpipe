@@ -32,9 +32,9 @@ Use synthetic data to show the problem.
 
 ## What happens next
 
-1. We acknowledge your report within 5 working days.
-2. We confirm the problem and agree a disclosure date with you.
-3. We release a fix and publish a GitHub security advisory.
+1. We acknowledge your report.
+2. We examine the problem and agree a disclosure date with you.
+3. When we confirm the problem, we release a fix and publish a GitHub security advisory.
 4. We credit you in the advisory, if you agree. You can stay anonymous.
 
 ## Scope
@@ -51,6 +51,11 @@ Out of scope:
   They are for the local devcontainer only. Change them before you use healthpipe outside the devcontainer.
 - Vulnerabilities in Dagster, SQL Server, Oracle, PostgreSQL or Aidbox. Report them to the vendor.
   Tell us if healthpipe uses an affected version.
+
+## Personal data
+
+[Data protection](etl/docs/data_protection.md) lists the stores of personal data, the limits of the CPR masking and the current TLS behavior.
+Read it before you run healthpipe with real personal data.
 
 ## Security practices for contributors
 
